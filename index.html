@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="bn">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>ইব্রাহিম জেনারেল স্টোর — কাস্টমার খাতা</title>
+    <meta name="description" content="ইব্রাহিম জেনারেল স্টোর-এর জন্য ক্লিন ইউটিলিটি কাস্টমার বাকি ও দেনা-পাওনা হিসাব খাতা অ্যাপ" />
+    <meta name="theme-color" content="#00695C" />
+
+    <!-- Google Fonts: Hind Siliguri for Bengali -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700;800&display=swap" rel="stylesheet" crossorigin="anonymous" />
+
+    <style>
+      body {
+        font-family: 'Hind Siliguri', system-ui, -apple-system, sans-serif;
+        background-color: #F1F5F9;
+        -webkit-tap-highlight-color: transparent;
+      }
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #F1F5F9;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #CBD5E1;
+        border-radius: 6px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94A3B8;
+      }
+
+      /* Clean Native Print Media Rules */
+      @media print {
+        body {
+          background: white !important;
+          color: black !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        .no-print {
+          display: none !important;
+        }
+        #modal-report {
+          display: block !important;
+          position: static !important;
+          background: white !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          border: none !important;
+          box-shadow: none !important;
+        }
+        #modal-report > div {
+          max-height: none !important;
+          box-shadow: none !important;
+          border: none !important;
+          border-radius: 0 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+        }
+        #print-report-container {
+          padding: 10px !important;
+          overflow: visible !important;
+        }
+      }
+    </style>
+  </head>
+  <body class="bg-slate-100 min-h-screen text-slate-800 antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,914 @@
+import React, { useState, useEffect } from 'react';
+import { StoreProfile, Customer, Transaction, DailyExpense, PrintPaperSize, ThemeColor } from '../types';
+import { auth } from '../firebase';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import {
+  X,
+  Store,
+  MessageSquare,
+  AlertTriangle,
+  Database,
+  ShieldCheck,
+  Save,
+  Download,
+  Upload,
+  RefreshCw,
+  Phone,
+  MapPin,
+  User,
+  Key,
+  CheckCircle,
+  HelpCircle,
+  Lock,
+  Smartphone,
+  Printer,
+  Volume2,
+  Sliders,
+  Palette,
+  Headphones,
+  Mail,
+} from 'lucide-react';
+import { playPaymentChime } from '../utils/audio';
+import { SUPPORT_CONTACT } from '../types/adminTypes';
+
+interface SettingsModalProps {
+  isOpen: boolean;
+  store: StoreProfile;
+  customers: Customer[];
+  transactions: Record<string, Transaction[]>;
+  expenses?: DailyExpense[];
+  onClose: () => void;
+  onSaveStore: (updatedStore: StoreProfile) => Promise<void> | void;
+  onRestoreData: (customers: Customer[], txs: Record<string, Transaction[]>, expenses?: DailyExpense[]) => Promise<void>;
+  onResetData: () => void;
+  onShowToast: (msg: string) => void;
+  onOpenAdmin?: () => void;
+  onOpenSupport?: () => void;
+}
+
+type TabType = 'store' | 'mfs' | 'tagada' | 'print' | 'limits_sound' | 'backup' | 'security';
+
+export const SettingsModal: React.FC<SettingsModalProps> = ({
+  isOpen,
+  store,
+  customers,
+  transactions,
+  expenses = [],
+  onClose,
+  onSaveStore,
+  onRestoreData,
+  onResetData,
+  onShowToast,
+  onOpenAdmin,
+  onOpenSupport,
+}) => {
+  const [activeTab, setActiveTab] = useState<TabType>('store');
+
+  // Form states
+  const [name, setName] = useState(store.name || '');
+  const [owner, setOwner] = useState(store.owner || '');
+  const [phone, setPhone] = useState(store.phone || '');
+  const [address, setAddress] = useState(store.address || '');
+  const [footerNote, setFooterNote] = useState(
+    store.footerNote || 'আমাদের সাথে থাকার জন্য ধন্যবাদ! আবার আসবেন।'
+  );
+  const [currencySymbol, setCurrencySymbol] = useState(store.currencySymbol || '৳');
+  const [highDueLimit, setHighDueLimit] = useState(store.highDueLimit || 5000);
+  const [defaultCreditLimit, setDefaultCreditLimit] = useState(store.defaultCreditLimit || 10000);
+  const [tagadaTemplate, setTagadaTemplate] = useState(
+    store.tagadaTemplate ||
+      'আসসালামু আলাইকুম {customer} ভাই, {store}-এ আপনার বর্তমান বকেয়া বাকি {currency} {amount}। সুবিধাজনক সময়ে পরিশোধ করার জন্য অনুরোধ রইল।\n\nধন্যবাদ,\n{store}\nযোগাযোগ: {phone}'
+  );
+  const [bkashNumber, setBkashNumber] = useState(store.bkashNumber || '');
+  const [nagadNumber, setNagadNumber] = useState(store.nagadNumber || '');
+  const [rocketNumber, setRocketNumber] = useState(store.rocketNumber || '');
+  const [themeColor, setThemeColor] = useState<ThemeColor>(store.themeColor || 'teal');
+  const [enableSoundEffects, setEnableSoundEffects] = useState<boolean>(
+    store.enableSoundEffects !== false
+  );
+  const [printPaperSize, setPrintPaperSize] = useState<PrintPaperSize>(
+    store.printPaperSize || 'thermal_80'
+  );
+  const [showQrOnInvoice, setShowQrOnInvoice] = useState<boolean>(
+    store.showQrOnInvoice !== false
+  );
+
+  const [saving, setSaving] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setName(store.name || '');
+      setOwner(store.owner || '');
+      setPhone(store.phone || '');
+      setAddress(store.address || '');
+      setFooterNote(store.footerNote || 'আমাদের সাথে থাকার জন্য ধন্যবাদ! আবার আসবেন।');
+      setCurrencySymbol(store.currencySymbol || '৳');
+      setHighDueLimit(store.highDueLimit || 5000);
+      setDefaultCreditLimit(store.defaultCreditLimit || 10000);
+      setTagadaTemplate(
+        store.tagadaTemplate ||
+          'আসসালামু আলাইকুম {customer} ভাই, {store}-এ আপনার বর্তমান বকেয়া বাকি {currency} {amount}। সুবিধাজনক সময়ে পরিশোধ করার জন্য অনুরোধ রইল।\n\nধন্যবাদ,\n{store}\nযোগাযোগ: {phone}'
+      );
+      setBkashNumber(store.bkashNumber || '');
+      setNagadNumber(store.nagadNumber || '');
+      setRocketNumber(store.rocketNumber || '');
+      setThemeColor(store.themeColor || 'teal');
+      setEnableSoundEffects(store.enableSoundEffects !== false);
+      setPrintPaperSize(store.printPaperSize || 'thermal_80');
+      setShowQrOnInvoice(store.showQrOnInvoice !== false);
+    }
+  }, [isOpen, store]);
+
+  if (!isOpen) return null;
+
+  const handleSaveAll = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      onShowToast('দোকানের নাম খালি রাখা যাবে না!');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const updated: StoreProfile = {
+        name: name.trim(),
+        owner: owner.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        footerNote: footerNote.trim(),
+        currencySymbol: currencySymbol.trim() || '৳',
+        highDueLimit: Number(highDueLimit) || 5000,
+        defaultCreditLimit: Number(defaultCreditLimit) || 10000,
+        tagadaTemplate: tagadaTemplate.trim(),
+        bkashNumber: bkashNumber.trim(),
+        nagadNumber: nagadNumber.trim(),
+        rocketNumber: rocketNumber.trim(),
+        themeColor,
+        enableSoundEffects,
+        printPaperSize,
+        showQrOnInvoice,
+      };
+
+      await onSaveStore(updated);
+      onClose();
+    } catch (err) {
+      console.error(err);
+      onShowToast('সংরক্ষণে সমস্যা হয়েছে!');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Download complete JSON backup
+  const handleDownloadBackup = () => {
+    const backupData = {
+      version: '2.0',
+      exportedAt: new Date().toISOString(),
+      store: {
+        name,
+        owner,
+        phone,
+        address,
+        footerNote,
+        currencySymbol,
+        highDueLimit,
+        defaultCreditLimit,
+        tagadaTemplate,
+        bkashNumber,
+        nagadNumber,
+        rocketNumber,
+        themeColor,
+        enableSoundEffects,
+        printPaperSize,
+        showQrOnInvoice,
+      },
+      customers,
+      transactions,
+      expenses,
+    };
+
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `digital_khata_backup_v2_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    onShowToast('সম্পূর্ণ ব্যাকআপ ফাইল ডাউনলোড সম্পন্ন হয়েছে!');
+  };
+
+  // Restore backup from JSON
+  const handleFileRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+
+        if (!parsed.customers || !Array.isArray(parsed.customers)) {
+          onShowToast('ভুল ফাইল! কাস্টমার ডাটা পাওয়া যায়নি।');
+          return;
+        }
+
+        if (parsed.store) {
+          await onSaveStore({ ...store, ...parsed.store });
+        }
+
+        await onRestoreData(
+          parsed.customers,
+          parsed.transactions || {},
+          parsed.expenses || []
+        );
+        onClose();
+      } catch (err) {
+        console.error(err);
+        onShowToast('ফাইলটি পড়া সম্ভব হয়নি। সঠিক JSON ফাইল নির্বাচন করুন।');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Password reset email
+  const handlePasswordReset = async () => {
+    const userEmail = auth.currentUser?.email || 'siftibrahim@gmail.com';
+    setResettingPassword(true);
+    try {
+      await sendPasswordResetEmail(auth, userEmail);
+      onShowToast(`পাসওয়ার্ড রিসেট লিংক ${userEmail} ইমেইলে পাঠানো হয়েছে!`);
+    } catch (err: any) {
+      console.error(err);
+      onShowToast(`পাসওয়ার্ড রিসেট পাঠানো যায়নি: ${err.message || 'Error'}`);
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
+  const insertTag = (tag: string) => {
+    setTagadaTemplate((prev) => prev + tag);
+  };
+
+  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    setTimeout(() => {
+      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex flex-col items-center justify-start sm:justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain animate-in fade-in">
+      <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col my-1 sm:my-auto max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] overflow-hidden animate-in zoom-in-95">
+        {/* Modal Top Banner */}
+        <div className="bg-[#004D40] text-white px-4 sm:px-6 py-4 flex items-center justify-between shadow-md shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-teal-300 shadow-inner">
+              <Sliders className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <span>অ্যাপ সেটিংস ও কনফিগারেশন</span>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-teal-800/80 border border-teal-600 text-teal-200">
+                  Version 2.0
+                </span>
+              </h2>
+              <p className="text-xs text-teal-100 font-medium">
+                দোকান প্রোফাইল, MFS পেমেন্ট, তাগাদা টেমপ্লেট ও প্রিন্ট লেআউট
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-teal-100 transition cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Tab Navigation Header */}
+        <div className="flex border-b border-slate-200 bg-slate-50 px-3 sm:px-6 overflow-x-auto gap-1 py-1.5 shrink-0 scrollbar-none">
+          <button
+            type="button"
+            onClick={() => setActiveTab('store')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'store'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Store className="w-4 h-4" />
+            <span>দোকান প্রোফাইল</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('mfs')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'mfs'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Smartphone className="w-4 h-4" />
+            <span>MFS ও কিউআর</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('tagada')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'tagada'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>তাগাদা মেসেজ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('print')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'print'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Printer className="w-4 h-4" />
+            <span>রসিদ ও প্রিন্ট</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('limits_sound')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'limits_sound'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Volume2 className="w-4 h-4" />
+            <span>লিমিট ও সাউন্ড</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('backup')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'backup'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Database className="w-4 h-4" />
+            <span>ব্যাকআপ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('security')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'security'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>নিরাপত্তা</span>
+          </button>
+        </div>
+
+        {/* Tab Body Form */}
+        <form onSubmit={handleSaveAll} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+          {/* TAB 1: STORE PROFILE */}
+          {activeTab === 'store' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-3 bg-teal-50/70 rounded-2xl border border-teal-100 text-xs text-teal-800 flex items-center gap-2">
+                <Store className="w-4 h-4 text-teal-700 shrink-0" />
+                <span>এখানে প্রদত্ত তথ্য সকল রসিদ, হেডার ও তাগাদা মেসেজে প্রদর্শিত হবে।</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  দোকানের নাম <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="যেমন: ইব্রাহিম জেনারেল স্টোর"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-bold text-slate-800"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    প্রোপাইটর / মালিকের নাম
+                  </label>
+                  <input
+                    type="text"
+                    value={owner}
+                    onChange={(e) => setOwner(e.target.value)}
+                    placeholder="যেমন: ইব্রাহিম"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-medium text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    দোকানের মোবাইল নম্বর
+                  </label>
+                  <input
+                    type="text"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="যেমন: ০১৩০৬৯০৮১১৫"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-medium text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  দোকানের ঠিকানা / লোকেশন
+                </label>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="যেমন: বাজার রোড, দোকান নং ১২"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-medium text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  রসিদ ও মেমোর নিচের শুভেচ্ছা বার্তা (Footer Note)
+                </label>
+                <input
+                  type="text"
+                  value={footerNote}
+                  onChange={(e) => setFooterNote(e.target.value)}
+                  placeholder="যেমন: আমাদের সাথে কেনাকাটা করার জন্য ধন্যবাদ! আবার আসবেন।"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-medium text-slate-800"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: MFS & QR */}
+          {activeTab === 'mfs' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-3 bg-indigo-50/70 rounded-2xl border border-indigo-100 text-xs text-indigo-800 flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-indigo-700 shrink-0" />
+                <span>
+                  এখানে আপনার বিকাশ ও নগদ নম্বর সেট করলে কাস্টমার মেমো ও রসিদে স্বয়ংক্রিয় কিউআর (QR Code) যুক্ত হবে।
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-pink-700 mb-1">বিকাশ (bKash) নম্বর</label>
+                  <input
+                    type="tel"
+                    value={bkashNumber}
+                    onChange={(e) => setBkashNumber(e.target.value)}
+                    placeholder="যেমন: 017XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-pink-200 focus:ring-2 focus:ring-pink-500 text-xs sm:text-sm font-bold text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-orange-700 mb-1">নগদ (Nagad) নম্বর</label>
+                  <input
+                    type="tel"
+                    value={nagadNumber}
+                    onChange={(e) => setNagadNumber(e.target.value)}
+                    placeholder="যেমন: 018XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 focus:ring-2 focus:ring-orange-500 text-xs sm:text-sm font-bold text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-purple-700 mb-1">রকেট (Rocket) নম্বর</label>
+                  <input
+                    type="tel"
+                    value={rocketNumber}
+                    onChange={(e) => setRocketNumber(e.target.value)}
+                    placeholder="যেমন: 019XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-purple-200 focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <input
+                  type="checkbox"
+                  id="showQr"
+                  checked={showQrOnInvoice}
+                  onChange={(e) => setShowQrOnInvoice(e.target.checked)}
+                  className="w-4 h-4 text-teal-600 rounded-md focus:ring-teal-500"
+                />
+                <label htmlFor="showQr" className="text-xs font-bold text-slate-700 cursor-pointer">
+                  প্রিন্ট রসিদে অনলাইন পেমেন্ট কিউআর কোড (Payment QR) প্রদর্শন করুন
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: TAGADA TEMPLATE */}
+          {activeTab === 'tagada' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-xs text-emerald-800 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span>
+                  WhatsApp বা SMS তাগাদার জন্য নিজের মনমতো মেসেজ ফরম্যাট সাজিয়ে নিন।
+                </span>
+              </div>
+
+              {/* Tags Quick Insert */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  ডায়নামিক ট্যাগ বোতাম (ক্লিক করলেই মেসেজে যুক্ত হবে):
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: '+ কাস্টমার নাম', tag: '{customer}' },
+                    { label: '+ বাকি টাকা', tag: '{amount}' },
+                    { label: '+ কারেন্সি চিহ্ন', tag: '{currency}' },
+                    { label: '+ দোকানের নাম', tag: '{store}' },
+                    { label: '+ দোকানের মোবাইল', tag: '{phone}' },
+                  ].map((btn) => (
+                    <button
+                      key={btn.tag}
+                      type="button"
+                      onClick={() => insertTag(btn.tag)}
+                      className="px-2.5 py-1 bg-white hover:bg-teal-50 text-teal-800 border border-teal-200 rounded-lg text-xs font-bold shadow-2xs transition cursor-pointer"
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  তাগাদা বার্তা টেমপ্লেট
+                </label>
+                <textarea
+                  rows={4}
+                  value={tagadaTemplate}
+                  onChange={(e) => setTagadaTemplate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-mono text-slate-800"
+                />
+              </div>
+
+              {/* Preview */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                  লাইভ প্রিভিউ (উদাহরণ কাস্টমার: রহিম)
+                </span>
+                <p className="text-xs text-slate-700 whitespace-pre-line leading-relaxed">
+                  {tagadaTemplate
+                    .replace(/{customer}/g, 'রহিম')
+                    .replace(/{amount}/g, '১,৪৫০')
+                    .replace(/{currency}/g, currencySymbol)
+                    .replace(/{store}/g, name || 'ইব্রাহিম জেনারেল স্টোর')
+                    .replace(/{phone}/g, phone || '০১৩০৬৯০৮১১৫')}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: PRINT & RECEIPT LAYOUT */}
+          {activeTab === 'print' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-3 bg-teal-50 rounded-2xl border border-teal-100 text-xs text-teal-800 flex items-center gap-2">
+                <Printer className="w-4 h-4 text-teal-700 shrink-0" />
+                <span>আপনার দোকানের প্রিন্টার অনুযায়ী ডিফল্ট পেপার সাইজ ও লেআউট নির্ধারণ করুন।</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  ডিফল্ট প্রিন্টার ফরম্যাট
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div
+                    onClick={() => setPrintPaperSize('thermal_80')}
+                    className={`p-3 rounded-2xl border-2 cursor-pointer transition flex flex-col items-center text-center ${
+                      printPaperSize === 'thermal_80'
+                        ? 'border-[#00695C] bg-teal-50/50 text-[#00695C]'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Printer className="w-6 h-6 mb-1" />
+                    <span className="text-xs font-bold">80mm POS থার্মাল স্লিপ</span>
+                    <span className="text-[10px] text-slate-500">মিনি স্লিপ প্রিন্টার</span>
+                  </div>
+
+                  <div
+                    onClick={() => setPrintPaperSize('thermal_58')}
+                    className={`p-3 rounded-2xl border-2 cursor-pointer transition flex flex-col items-center text-center ${
+                      printPaperSize === 'thermal_58'
+                        ? 'border-[#00695C] bg-teal-50/50 text-[#00695C]'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Printer className="w-6 h-6 mb-1" />
+                    <span className="text-xs font-bold">58mm POS ছোট স্লিপ</span>
+                    <span className="text-[10px] text-slate-500">পোর্টেবল ব্লুটুথ প্রিন্টার</span>
+                  </div>
+
+                  <div
+                    onClick={() => setPrintPaperSize('a4')}
+                    className={`p-3 rounded-2xl border-2 cursor-pointer transition flex flex-col items-center text-center ${
+                      printPaperSize === 'a4'
+                        ? 'border-[#00695C] bg-teal-50/50 text-[#00695C]'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Printer className="w-6 h-6 mb-1" />
+                    <span className="text-xs font-bold">A4 অফিশিয়াল মেমো</span>
+                    <span className="text-[10px] text-slate-500">স্ট্যান্ডার্ড ডেস্কটপ প্রিন্টার</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: LIMITS & SOUND */}
+          {activeTab === 'limits_sound' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    মুদ্রা প্রতীক (Currency Symbol)
+                  </label>
+                  <select
+                    value={currencySymbol}
+                    onChange={(e) => setCurrencySymbol(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-bold text-slate-800"
+                  >
+                    <option value="৳">৳ (টাকা)</option>
+                    <option value="TK">TK</option>
+                    <option value="BDT">BDT</option>
+                    <option value="$">$ (USD)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    উচ্চ বকেয়া সতর্কতা সীমা (High Due Limit)
+                  </label>
+                  <input
+                    type="number"
+                    min="1000"
+                    step="500"
+                    value={highDueLimit}
+                    onChange={(e) => setHighDueLimit(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  কাস্টমারদের ডিফল্ট বাকি লিমিট (Credit Limit ৳)
+                </label>
+                <input
+                  type="number"
+                  min="1000"
+                  step="1000"
+                  value={defaultCreditLimit}
+                  onChange={(e) => setDefaultCreditLimit(Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-bold text-slate-800"
+                />
+              </div>
+
+              {/* Sound Effect Switch */}
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                    <Volume2 className="w-4 h-4 text-teal-700" />
+                    <span>ক্যাশিয়ার সাউন্ড এফেক্ট (Sound Chimes)</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    টাকা জমা ও বিক্রির সময় বাস্তবসম্মত ক্যাশ রেজিস্টার ঘণ্টা বাজবে।
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => playPaymentChime()}
+                    className="px-2 py-1 text-[11px] font-bold bg-teal-100 text-teal-800 rounded-lg hover:bg-teal-200 transition cursor-pointer"
+                  >
+                    টেস্ট সাউন্ড
+                  </button>
+                  <input
+                    type="checkbox"
+                    checked={enableSoundEffects}
+                    onChange={(e) => setEnableSoundEffects(e.target.checked)}
+                    className="w-5 h-5 text-teal-600 rounded-md focus:ring-teal-500 cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: BACKUP & RESTORE */}
+          {activeTab === 'backup' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-4 bg-teal-50/80 rounded-2xl border border-teal-200 flex items-start gap-3">
+                <Database className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-teal-900">
+                    অফলাইন ও ক্লাউড ব্যাকআপ ব্যবস্থাপনা
+                  </h4>
+                  <p className="text-xs text-teal-700 mt-0.5">
+                    আপনার দোকানের সমস্ত কাস্টমার ({customers.length} জন) এবং সকল লেনদেন ও ক্যাশ খাতা অফলাইনে সংরক্ষণ করুন।
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <button
+                  type="button"
+                  onClick={handleDownloadBackup}
+                  className="p-4 bg-slate-50 hover:bg-teal-50/50 border border-slate-200 rounded-2xl flex flex-col items-center text-center transition group cursor-pointer shadow-xs"
+                >
+                  <Download className="w-6 h-6 text-teal-700 mb-2 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-bold text-slate-800">সম্পূর্ণ ব্যাকআপ ডাউনলোড</span>
+                  <span className="text-[11px] text-slate-500 mt-0.5">JSON ফাইল আকারে সেভ হবে</span>
+                </button>
+
+                <label className="p-4 bg-slate-50 hover:bg-teal-50/50 border border-slate-200 rounded-2xl flex flex-col items-center text-center transition group cursor-pointer shadow-xs">
+                  <Upload className="w-6 h-6 text-indigo-600 mb-2 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-bold text-slate-800">ব্যাকআপ ফাইল রিস্টোর</span>
+                  <span className="text-[11px] text-slate-500 mt-0.5">পূর্বের সেভ করা ফাইল আপলোড</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleFileRestore}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
+                <div>
+                  <h5 className="text-xs font-bold text-slate-700">ডেমো ডাটা রিসেট</h5>
+                  <p className="text-[11px] text-slate-500">প্রয়োজনে পরীক্ষামূলক ডাটাতে ফিরে যান</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onResetData}
+                  className="px-3.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 inline mr-1" />
+                  রিসেট করুন
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: SECURITY & ADMIN */}
+          {activeTab === 'security' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                  <h4 className="text-sm font-bold text-slate-800">অ্যাডমিন প্রোফাইল ও সিকিউরিটি</h4>
+                </div>
+                <p className="text-xs text-slate-600">
+                  লগইনকৃত ইমেইল: <span className="font-bold text-slate-900">{auth.currentUser?.email || 'siftibrahim@gmail.com'}</span>
+                </p>
+                <p className="text-xs text-slate-600 mt-1">
+                  রোল: <span className="font-bold text-[#00695C]">প্রধান অ্যাডমিন ও ম্যানেজার</span>
+                </p>
+              </div>
+
+              {/* Master Admin Management System Entry */}
+              {onOpenAdmin && (
+                <div className="p-4 bg-gradient-to-r from-[#004D40]/10 via-[#00695C]/5 to-transparent rounded-2xl border-2 border-teal-600 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-teal-800" />
+                      <h5 className="text-xs sm:text-sm font-black text-slate-900">
+                        সম্পূর্ণ অ্যাডমিন ম্যানেজমেন্ট কনসোল
+                      </h5>
+                      <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-amber-400 text-teal-950">
+                        SUPER ADMIN
+                      </span>
+                    </div>
+                    <p className="text-[11.5px] text-slate-600 mt-0.5">
+                      ইউজার তালিকা, সাবস্ক্রিপশন প্ল্যান, পেমেন্ট অনুমোদন, ইন-অ্যাপ নোটিফিকেশন, অ্যাপ আপডেট ও অডিট লগ পরিচালনা করুন।
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenAdmin();
+                    }}
+                    className="px-4 py-2 bg-[#004D40] hover:bg-[#00332c] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer shrink-0"
+                  >
+                    <span>অ্যাডমিন প্যানেল খুলুন</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Support & Help Desk */}
+              <div className="p-4 bg-teal-50/70 rounded-2xl border border-teal-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h5 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
+                      <Headphones className="w-4 h-4 text-teal-800" />
+                      <span>সরাসরি সাপোর্ট ও চ্যাট ডেস্ক</span>
+                    </h5>
+                    <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-teal-200 text-teal-900">
+                      LIVE
+                    </span>
+                  </div>
+                  <p className="text-[11.5px] text-slate-600 mt-1">
+                    যেকোনো জিজ্ঞাসা বা সহায়তার জন্য অ্যাডমিনের সাথে সরাসরি টেক্সট চ্যাট করুন। ছবি বা স্ক্রিনশটের জন্য{' '}
+                    <span className="font-bold text-teal-900">{SUPPORT_CONTACT.email}</span> অথবা{' '}
+                    <span className="font-bold text-teal-900">{SUPPORT_CONTACT.phone}</span>।
+                  </p>
+                </div>
+                {onOpenSupport && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenSupport();
+                    }}
+                    id="settings-open-support-btn"
+                    className="px-4 py-2 bg-[#004D40] hover:bg-[#00382f] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                  >
+                    <Headphones className="w-3.5 h-3.5" />
+                    <span>সাপোর্ট চ্যাট খুলুন</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Lock className="w-4 h-4 text-teal-700" />
+                    <span>অ্যাকাউন্টের পাসওয়ার্ড পরিবর্তন</span>
+                  </h5>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    আপনার রেজিস্টার্ড ইমেইলে সুরক্ষিত পাসওয়ার্ড রিসেট লিংক পাঠানো হবে।
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={resettingPassword}
+                  onClick={handlePasswordReset}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  <span>{resettingPassword ? 'পাঠানো হচ্ছে...' : 'রিসেট লিংক পাঠান'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Bottom Save Action Bar */}
+          <div className="pt-4 border-t border-slate-200 flex justify-between items-center sticky bottom-0 bg-white">
+            <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
+              পরিবর্তনগুলো সাথে সাথে ক্লাউডে আপডেট হবে।
+            </span>
+
+            <div className="flex gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                বাতিল
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex-1 sm:flex-none px-6 py-2.5 bg-[#00695C] hover:bg-[#004D40] text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md active:scale-95 cursor-pointer disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                <span>{saving ? 'সংরক্ষণ হচ্ছে...' : 'সেটিংস সংরক্ষণ করুন'}</span>
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};

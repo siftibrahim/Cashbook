@@ -1,0 +1,7 @@
+{
+  "name": "Ibrahim General Store Khata",
+  "description": "ইব্রাহিম জেনারেল স্টোর-এর জন্য টালি খাতা স্টাইল কাস্টমার বাকি ও দেনা-পাওনা হিসাব খাতা অ্যাপ।",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
