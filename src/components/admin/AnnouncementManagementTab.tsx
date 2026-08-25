@@ -178,11 +178,8 @@ export const AnnouncementManagementTab: React.FC<AnnouncementManagementTabProps>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    if (window.confirm('আপনি কি এই নোটিশটি ডিলিট করতে চান?')) {
-                      onDeleteAnnouncement(ann.id);
-                    }
-                  }}
+                  onClick={() => onDeleteAnnouncement(ann.id)}
+                  title="নোটিশ মুছুন"
                   className="p-2 bg-slate-100 hover:bg-rose-100 text-rose-700 rounded-xl transition cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4" />

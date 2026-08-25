@@ -106,7 +106,7 @@ export interface AppSettings {
 export type CustomerFilter = 'all' | 'due' | 'paid' | 'vip' | 'wholesale';
 export type CustomerSortOption = 'recent_activity' | 'due_desc' | 'due_asc' | 'name_asc';
 
-export type NavTab = 'dashboard' | 'customers' | 'pos' | 'inventory' | 'cashbook';
+export type NavTab = 'dashboard' | 'customers' | 'pos' | 'inventory' | 'cashbook' | 'support';
 
 export interface Product {
   id: string;

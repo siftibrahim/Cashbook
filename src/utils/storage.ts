@@ -261,81 +261,132 @@ const INITIAL_EXPENSES: DailyExpense[] = [
   },
 ];
 
-export function loadCustomers(): Customer[] {
+export function getActiveUserId(): string {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.CUSTOMERS);
-    if (!raw) return INITIAL_CUSTOMERS;
+    const raw = localStorage.getItem('twing_user_data');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.id) return parsed.id;
+    }
+  } catch {
+    // ignore
+  }
+  return 'guest';
+}
+
+export function getUserStorageKey(baseKey: string, userId?: string): string {
+  const uid = userId || getActiveUserId();
+  return `khata_user_${uid}_${baseKey}`;
+}
+
+export function loadCustomers(userId?: string): Customer[] {
+  try {
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('customers', uid);
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      // If guest or no user, provide empty list (or only default if explicitly needed)
+      return [];
+    }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_CUSTOMERS;
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
     console.error('Error loading customers:', e);
-    return INITIAL_CUSTOMERS;
+    return [];
   }
 }
 
-export function saveCustomers(customers: Customer[]): void {
+export function saveCustomers(customers: Customer[], userId?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers));
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('customers', uid);
+    localStorage.setItem(key, JSON.stringify(customers));
   } catch (e) {
     console.error('Error saving customers:', e);
   }
 }
 
-export function loadTransactions(): Record<string, Transaction[]> {
+export function loadTransactions(userId?: string): Record<string, Transaction[]> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-    if (!raw) return INITIAL_TRANSACTIONS;
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('transactions', uid);
+    const raw = localStorage.getItem(key);
+    if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return typeof parsed === 'object' && parsed !== null ? parsed : INITIAL_TRANSACTIONS;
+    return typeof parsed === 'object' && parsed !== null ? parsed : {};
   } catch (e) {
     console.error('Error loading transactions:', e);
-    return INITIAL_TRANSACTIONS;
+    return {};
   }
 }
 
-export function saveTransactions(txs: Record<string, Transaction[]>): void {
+export function saveTransactions(txs: Record<string, Transaction[]>, userId?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(txs));
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('transactions', uid);
+    localStorage.setItem(key, JSON.stringify(txs));
   } catch (e) {
     console.error('Error saving transactions:', e);
   }
 }
 
-export function loadStoreProfile(): StoreProfile {
+export function loadStoreProfile(userId?: string): StoreProfile {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.STORE);
-    if (!raw) return DEFAULT_STORE;
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('store', uid);
+    const raw = localStorage.getItem(key);
+    let fallbackStore = { ...DEFAULT_STORE };
+    try {
+      const uRaw = localStorage.getItem('twing_user_data');
+      if (uRaw) {
+        const u = JSON.parse(uRaw);
+        if (u && u.shopName) {
+          fallbackStore.name = u.shopName;
+          fallbackStore.owner = u.name || 'মালিক';
+          fallbackStore.phone = u.phone || '০১৭০০০০০০০০';
+        }
+      }
+    } catch {
+      // ignore
+    }
+    if (!raw) return fallbackStore;
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_STORE, ...parsed };
+    return { ...fallbackStore, ...parsed };
   } catch (e) {
     console.error('Error loading store profile:', e);
     return DEFAULT_STORE;
   }
 }
 
-export function saveStoreProfile(profile: StoreProfile): void {
+export function saveStoreProfile(profile: StoreProfile, userId?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.STORE, JSON.stringify(profile));
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('store', uid);
+    localStorage.setItem(key, JSON.stringify(profile));
   } catch (e) {
     console.error('Error saving store profile:', e);
   }
 }
 
-export function loadDailyExpenses(): DailyExpense[] {
+export function loadDailyExpenses(userId?: string): DailyExpense[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.EXPENSES);
-    if (!raw) return INITIAL_EXPENSES;
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('expenses', uid);
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : INITIAL_EXPENSES;
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
     console.error('Error loading expenses:', e);
-    return INITIAL_EXPENSES;
+    return [];
   }
 }
 
-export function saveDailyExpenses(expenses: DailyExpense[]): void {
+export function saveDailyExpenses(expenses: DailyExpense[], userId?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(expenses));
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('expenses', uid);
+    localStorage.setItem(key, JSON.stringify(expenses));
   } catch (e) {
     console.error('Error saving expenses:', e);
   }
@@ -410,33 +461,38 @@ export const INITIAL_PRODUCTS: Product[] = [
   },
 ];
 
-export function loadProducts(): Product[] {
+export function loadProducts(userId?: string): Product[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-    if (!raw) return INITIAL_PRODUCTS;
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('products', uid);
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : INITIAL_PRODUCTS;
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
     console.error('Error loading products:', e);
-    return INITIAL_PRODUCTS;
+    return [];
   }
 }
 
-export function saveProducts(products: Product[]): void {
+export function saveProducts(products: Product[], userId?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('products', uid);
+    localStorage.setItem(key, JSON.stringify(products));
   } catch (e) {
     console.error('Error saving products:', e);
   }
 }
 
-export function resetAllData(): void {
+export function resetAllData(userId?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(INITIAL_CUSTOMERS));
-    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));
-    localStorage.setItem(STORAGE_KEYS.STORE, JSON.stringify(DEFAULT_STORE));
-    localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(INITIAL_EXPENSES));
-    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(INITIAL_PRODUCTS));
+    const uid = userId || getActiveUserId();
+    saveCustomers([], uid);
+    saveTransactions({}, uid);
+    saveStoreProfile(DEFAULT_STORE, uid);
+    saveDailyExpenses([], uid);
+    saveProducts([], uid);
   } catch (e) {
     console.error('Error resetting data:', e);
   }

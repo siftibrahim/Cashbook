@@ -19,7 +19,7 @@ import {
   sendUserSupportMessage,
   markSupportMessagesAsReadByUser,
 } from '../../services/adminService';
-import { auth } from '../../firebase';
+import { getStoredUser } from '../../services/apiService';
 
 interface UserSupportModalProps {
   isOpen: boolean;
@@ -40,10 +40,11 @@ export const UserSupportModal: React.FC<UserSupportModalProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Derive User ID
-  const userId = store.id || auth.currentUser?.uid || 'usr_1';
+  const currentUser = getStoredUser();
+  const userId = store.id || currentUser?.id || 'usr_1';
   const userName = store.name || 'দোকান মালিক';
   const userPhone = store.phone || '01306908115';
-  const userEmail = auth.currentUser?.email || undefined;
+  const userEmail = currentUser?.email || undefined;
   const shopName = store.name || 'ইব্রাহিম জেনারেল স্টোর';
 
   // Real-time message subscription

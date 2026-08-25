@@ -15,7 +15,7 @@
         "role": { "type": "string", "enum": ["super_admin", "admin", "manager", "user"], "description": "User role" },
         "status": { "type": "string", "enum": ["active", "expired", "suspended", "pending"], "description": "Account status" },
         "subscriptionPlan": { "type": "string", "description": "Current plan name" },
-        "subscriptionStatus": { "type": "string", "enum": ["trial", "active", "expiring_soon", "expired", "cancelled"], "description": "Subscription status" },
+        "subscriptionStatus": { "type": "string", "enum": ["trial", "active", "expiring_soon", "expired", "suspended"], "description": "Subscription status" },
         "subscriptionExpiresAt": { "type": "number", "description": "Timestamp of expiration" },
         "registeredAt": { "type": "number", "description": "Timestamp of account registration" },
         "lastActiveAt": { "type": "number", "description": "Timestamp of last app usage" },
@@ -48,6 +48,25 @@
         "adminNotes": { "type": "string", "description": "Admin comments or reason" }
       },
       "required": ["id", "userId", "amount", "paymentMethod", "status", "createdAt"]
+    },
+    "StaffMember": {
+      "title": "StaffMember",
+      "description": "Admin staff member record with RBAC permissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Staff ID" },
+        "name": { "type": "string", "description": "Staff Name" },
+        "phone": { "type": "string", "description": "Staff phone number" },
+        "email": { "type": "string", "description": "Staff email" },
+        "role": { "type": "string", "enum": ["staff", "manager"], "description": "Staff role" },
+        "status": { "type": "string", "enum": ["active", "disabled"], "description": "Staff status" },
+        "permissions": { "type": "array", "items": { "type": "string" }, "description": "Assigned granular permissions" },
+        "createdAt": { "type": "number", "description": "Created timestamp" },
+        "lastActiveAt": { "type": "number", "description": "Last active timestamp" },
+        "notes": { "type": "string", "description": "Notes" },
+        "createdBy": { "type": "string", "description": "Super admin who created staff" }
+      },
+      "required": ["id", "name", "phone", "email", "role", "status", "permissions", "createdAt"]
     },
     "Notification": {
       "title": "Notification",
@@ -113,6 +132,41 @@
         "timestamp": { "type": "number", "description": "Log timestamp" }
       },
       "required": ["id", "adminEmail", "action", "details", "timestamp"]
+    },
+    "SupportThread": {
+      "title": "SupportThread",
+      "description": "Customer support ticket and conversation thread",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Thread ID" },
+        "userId": { "type": "string", "description": "User ID" },
+        "userName": { "type": "string", "description": "User Name" },
+        "userPhone": { "type": "string", "description": "User Phone" },
+        "shopName": { "type": "string", "description": "Shop Name" },
+        "lastMessage": { "type": "string", "description": "Last message snippet" },
+        "lastSender": { "type": "string", "enum": ["user", "admin"], "description": "Last sender" },
+        "updatedAt": { "type": "number", "description": "Timestamp" },
+        "status": { "type": "string", "enum": ["open", "closed"], "description": "Thread status" },
+        "unreadAdminCount": { "type": "number", "description": "Unread messages for admin" },
+        "unreadUserCount": { "type": "number", "description": "Unread messages for user" }
+      },
+      "required": ["id", "userId", "shopName", "status", "updatedAt"]
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "Message within a support ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Message ID" },
+        "userId": { "type": "string", "description": "User ID" },
+        "sender": { "type": "string", "enum": ["user", "admin"], "description": "Sender role" },
+        "senderName": { "type": "string", "description": "Sender Name" },
+        "text": { "type": "string", "description": "Message body" },
+        "createdAt": { "type": "number", "description": "Creation timestamp" },
+        "isReadByAdmin": { "type": "boolean", "description": "Read by admin" },
+        "isReadByUser": { "type": "boolean", "description": "Read by user" }
+      },
+      "required": ["id", "userId", "sender", "text", "createdAt"]
     }
   },
   "firestore": {
@@ -123,6 +177,10 @@
     "/admin_payments/{paymentId}": {
       "schema": { "$ref": "#/entities/Payment" },
       "description": "Subscription payment requests"
+    },
+    "/staff_members/{staffId}": {
+      "schema": { "$ref": "#/entities/StaffMember" },
+      "description": "Admin staff accounts and RBAC access permissions"
     },
     "/admin_notifications/{notificationId}": {
       "schema": { "$ref": "#/entities/Notification" },
@@ -139,6 +197,26 @@
     "/admin_activity_logs/{logId}": {
       "schema": { "$ref": "#/entities/ActivityLog" },
       "description": "Admin audit activity trail"
+    },
+    "/support_threads/{threadId}": {
+      "schema": { "$ref": "#/entities/SupportThread" },
+      "description": "User support helpdesk threads"
+    },
+    "/support_messages/{messageId}": {
+      "schema": { "$ref": "#/entities/SupportMessage" },
+      "description": "Support helpdesk chat messages"
+    },
+    "/stores/{storeId}": {
+      "description": "Shop owner profile"
+    },
+    "/customers/{customerId}": {
+      "description": "Shop customers database"
+    },
+    "/transactions/{transactionId}": {
+      "description": "Shop customer transaction records"
+    },
+    "/expenses/{expenseId}": {
+      "description": "Shop daily expenses"
     }
   }
 }

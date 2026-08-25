@@ -22,6 +22,7 @@ export const ActivityLogTab: React.FC<ActivityLogTabProps> = ({
   onShowToast,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const filteredLogs = logs.filter((log) => {
     const q = searchQuery.toLowerCase().trim();
@@ -50,12 +51,7 @@ export const ActivityLogTab: React.FC<ActivityLogTabProps> = ({
         {logs.length > 0 && (
           <button
             type="button"
-            onClick={async () => {
-              if (window.confirm('আপনি কি সমস্ত অ্যাডমিন অ্যাক্টিভিটি লগ মুছে ফেলতে চান?')) {
-                await onClearLogs();
-                onShowToast('লগ হিস্ট্রি সফলভাবে ক্লিয়ার করা হয়েছে');
-              }
-            }}
+            onClick={() => setShowClearConfirm(true)}
             className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <Trash2 className="w-4 h-4" />
@@ -63,6 +59,34 @@ export const ActivityLogTab: React.FC<ActivityLogTabProps> = ({
           </button>
         )}
       </div>
+
+      {showClearConfirm && (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+          <p className="text-xs font-bold text-rose-900">
+            ⚠️ আপনি কি নিশ্চিত যে সমস্ত অ্যাডমিন অ্যাক্টিভিটি লগ স্থায়ীভাবে মুছে ফেলতে চান?
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowClearConfirm(false)}
+              className="px-3 py-1.5 bg-white text-slate-700 rounded-xl text-xs font-bold border border-slate-200 hover:bg-slate-50 transition cursor-pointer"
+            >
+              বাতিল
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                setShowClearConfirm(false);
+                await onClearLogs();
+                onShowToast('লগ হিস্ট্রি সফলভাবে ক্লিয়ার করা হয়েছে');
+              }}
+              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer"
+            >
+              হ্যাঁ, মুছে ফেলুন
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
         {filteredLogs.length === 0 ? (

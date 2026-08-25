@@ -26,8 +26,18 @@ import {
   getCurrentTimeString,
   DEFAULT_STORE,
 } from './utils/storage';
-import { auth } from './firebase';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import {
+  authApi,
+  getAuthToken,
+  getStoredUser,
+  customerApi,
+  transactionApi,
+  expenseApi,
+  storeApi,
+  productApi,
+  notificationApi,
+  subscriptionApi,
+} from './services/apiService';
 import {
   subscribeToStoreProfile,
   subscribeToCustomers,
@@ -65,9 +75,22 @@ import { InvoicePrintModal } from './components/InvoicePrintModal';
 import { SalesHistoryModal } from './components/SalesHistoryModal';
 import { EditTransactionModal } from './components/EditTransactionModal';
 import { AdminPanel } from './components/admin/AdminPanel';
+import { AdminLoginModal } from './components/admin/AdminLoginModal';
+import { AnnouncementDisplay } from './components/AnnouncementDisplay';
+import { AppUpdateModal } from './components/AppUpdateModal';
 import { UserSupportModal } from './components/support/UserSupportModal';
-import { subscribeToUserSupportMessages } from './services/adminService';
-import { SupportMessage } from './types/adminTypes';
+import { UserSubscriptionModal } from './components/UserSubscriptionModal';
+import { SubscriptionLockScreen } from './components/SubscriptionLockScreen';
+import { UserNotificationModal } from './components/UserNotificationModal';
+import {
+  subscribeToUserSupportMessages,
+  subscribeToAnnouncements,
+  subscribeToAppUpdateConfig,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  ADMIN_EMAIL,
+} from './services/adminService';
+import { SupportMessage, Announcement, AppUpdateConfig, AdminSession, AdminNotification } from './types/adminTypes';
 import { Store, Loader2 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -86,6 +109,7 @@ export const App: React.FC = () => {
   const [userRole, setUserRole] = useState<string>(() => {
     return localStorage.getItem('ibrahim_user_role') || 'প্রধান অ্যাডমিন: ইব্রাহিম';
   });
+  const [adminSession, setAdminSession] = useState<AdminSession | null>(null);
 
   const [activeCustomerId, setActiveCustomerId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -108,8 +132,14 @@ export const App: React.FC = () => {
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
   const [isCashbookModalOpen, setIsCashbookModalOpen] = useState(false);
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
+  const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [userNotifications, setUserNotifications] = useState<AdminNotification[]>([]);
   const [userSupportMessages, setUserSupportMessages] = useState<SupportMessage[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [appConfig, setAppConfig] = useState<AppUpdateConfig | null>(null);
 
   // POS Invoice Modal state
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
@@ -150,19 +180,116 @@ export const App: React.FC = () => {
     }, 3200);
   };
 
-  // Listen to Firebase Auth state
+  // Load current user's specific data from PostgreSQL backend
+  const loadUserAccountData = async (uid?: string) => {
+    const user = getStoredUser();
+    const userId = uid || user?.id || 'guest';
+    try {
+      const [storeData, custList, txMap, expList, prodList] = await Promise.all([
+        storeApi.getProfile().catch(() => null),
+        customerApi.getAll().catch(() => []),
+        transactionApi.getAll().catch(() => ({ map: {} })),
+        expenseApi.getAll().catch(() => []),
+        productApi.getAll().catch(() => []),
+      ]);
+
+      if (storeData && storeData.name) {
+        setStore(storeData);
+        saveStoreProfile(storeData, userId);
+      } else if (user?.shopName) {
+        const customStore = {
+          ...DEFAULT_STORE,
+          name: user.shopName,
+          owner: user.name || 'দোকানদার',
+          phone: user.phone || '০১৭০০০০০০০০',
+        };
+        setStore(customStore);
+        saveStoreProfile(customStore, userId);
+      }
+
+      const loadedCusts = Array.isArray(custList) ? custList : [];
+      setCustomers(loadedCusts);
+      saveCustomers(loadedCusts, userId);
+
+      const loadedTxs = txMap && txMap.map ? txMap.map : {};
+      setTransactions(loadedTxs);
+      saveTransactions(loadedTxs, userId);
+
+      const loadedExp = Array.isArray(expList) ? expList : [];
+      setExpenses(loadedExp);
+      saveDailyExpenses(loadedExp, userId);
+
+      const loadedProds = Array.isArray(prodList) ? prodList : [];
+      setProducts(loadedProds);
+      saveProducts(loadedProds, userId);
+
+      setIsCloudSynced(true);
+    } catch (err) {
+      console.warn('Failed to load user account data:', err);
+    }
+  };
+
+  // Listen to Auth state via JWT session check
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setIsLoggedIn(true);
-        localStorage.setItem('ibrahim_is_logged_in', 'true');
+    const checkAuth = async () => {
+      const token = getAuthToken();
+      if (token) {
+        try {
+          const res = await authApi.getCurrentUser();
+          if (res && res.user) {
+            setIsLoggedIn(true);
+            localStorage.setItem('ibrahim_is_logged_in', 'true');
+
+            // 👑 Distinguish Staff vs Super Admin vs Regular Store Owner
+            if (
+              res.user.role === 'staff' ||
+              res.user.role === 'manager' ||
+              (Array.isArray(res.user.permissions) && res.user.permissions.length > 0)
+            ) {
+              setAdminSession({
+                role: 'staff',
+                email: res.user.email,
+                staffData: res.user,
+              });
+              setUserRole('স্টাফ অ্যাকাউন্ট');
+              setIsAdminPanelOpen(true);
+            } else if (res.user.role === 'super_admin' || res.user.email === ADMIN_EMAIL) {
+              setAdminSession({
+                role: 'super_admin',
+                email: res.user.email,
+              });
+              setUserRole('প্রধান সুপার অ্যাডমিন');
+              await loadUserAccountData(res.user.id);
+            } else {
+              setUserRole('দোকান মালিক');
+              await loadUserAccountData(res.user.id);
+            }
+          } else {
+            authApi.logout();
+            setIsLoggedIn(false);
+            localStorage.removeItem('ibrahim_is_logged_in');
+            localStorage.removeItem('ibrahim_user_role');
+            setAdminSession(null);
+            setIsAdminPanelOpen(false);
+          }
+        } catch {
+          authApi.logout();
+          setIsLoggedIn(false);
+          localStorage.removeItem('ibrahim_is_logged_in');
+          localStorage.removeItem('ibrahim_user_role');
+          setAdminSession(null);
+          setIsAdminPanelOpen(false);
+        }
       } else {
         setIsLoggedIn(false);
         localStorage.removeItem('ibrahim_is_logged_in');
+        localStorage.removeItem('ibrahim_user_role');
+        setAdminSession(null);
+        setIsAdminPanelOpen(false);
       }
       setIsAuthChecking(false);
-    });
-    return () => unsubscribeAuth();
+    };
+    checkAuth();
   }, []);
 
   // Save to LocalStorage as instant local cache
@@ -182,7 +309,7 @@ export const App: React.FC = () => {
     saveDailyExpenses(expenses);
   }, [expenses]);
 
-  // Real-time Firestore Cloud Subscriptions
+  // Real-time PostgreSQL Backend Subscriptions (Scoped to Authenticated User)
   useEffect(() => {
     if (!isLoggedIn) return;
 
@@ -197,27 +324,20 @@ export const App: React.FC = () => {
       () => setIsCloudSynced(false)
     );
 
-    // 2. Subscribe to Customers
+    // 2. Subscribe to Customers (Strict per-user data)
     const unsubCustomers = subscribeToCustomers(
       (cloudCustomers) => {
-        if (cloudCustomers.length > 0) {
-          setCustomers(cloudCustomers);
-          setIsCloudSynced(true);
-        } else if (!isInitialSyncDone.current) {
-          syncAllToCloud(store, customers, transactions, expenses);
-          isInitialSyncDone.current = true;
-        }
+        setCustomers(cloudCustomers || []);
+        setIsCloudSynced(true);
       },
       () => setIsCloudSynced(false)
     );
 
-    // 3. Subscribe to Transactions
+    // 3. Subscribe to Transactions (Strict per-user data)
     const unsubTransactions = subscribeToTransactions(
       (cloudTxs) => {
-        if (Object.keys(cloudTxs).length > 0) {
-          setTransactions(cloudTxs);
-          setIsCloudSynced(true);
-        }
+        setTransactions(cloudTxs || {});
+        setIsCloudSynced(true);
       },
       () => setIsCloudSynced(false)
     );
@@ -225,10 +345,8 @@ export const App: React.FC = () => {
     // 4. Subscribe to Daily Expenses
     const unsubExpenses = subscribeToExpenses(
       (cloudExpenses) => {
-        if (cloudExpenses.length > 0) {
-          setExpenses(cloudExpenses);
-          setIsCloudSynced(true);
-        }
+        setExpenses(cloudExpenses || []);
+        setIsCloudSynced(true);
       },
       () => setIsCloudSynced(false)
     );
@@ -241,54 +359,141 @@ export const App: React.FC = () => {
     };
   }, [isLoggedIn]);
 
-  const currentUserId = store.id || auth.currentUser?.uid || 'usr_1';
+  const currentUserId = store.id || getStoredUser()?.id || 'usr_1';
 
-  // Support messages subscription for user-side badge notifications
+  // Support messages, announcements, app update and notification polling
   useEffect(() => {
     if (!isLoggedIn) return;
     const unsubSupport = subscribeToUserSupportMessages(currentUserId, (msgs) => {
       setUserSupportMessages(msgs);
     });
+    const unsubAnnouncements = subscribeToAnnouncements((anns) => {
+      setAnnouncements(anns);
+    });
+    const unsubAppConfig = subscribeToAppUpdateConfig((cfg) => {
+      if (cfg) setAppConfig(cfg);
+    });
+
+    const fetchNotifs = async () => {
+      try {
+        const notifs = await notificationApi.getNotifications();
+        if (Array.isArray(notifs)) {
+          setUserNotifications(notifs);
+        }
+      } catch (err) {
+        console.warn('Notification fetch error:', err);
+      }
+    };
+    fetchNotifs();
+    const notifInterval = setInterval(fetchNotifs, 8000);
+
     return () => {
       unsubSupport();
+      unsubAnnouncements();
+      unsubAppConfig();
+      clearInterval(notifInterval);
     };
   }, [isLoggedIn, currentUserId]);
+
+  const unreadNotificationsCount = userNotifications.filter((n) => !n.isRead).length;
 
   const unreadSupportRepliesCount = userSupportMessages.filter(
     (m) => m.sender === 'admin' && !m.isReadByUser
   ).length;
 
-  const handleLoginSuccess = (email: string, roleName: string) => {
+  const handleLoginSuccess = async (email: string, roleName: string) => {
     setIsLoggedIn(true);
-    const resolvedRole = roleName === 'admin' ? 'প্রধান অ্যাডমিন' : 'ম্যানেজার';
+    const user = getStoredUser();
+    if (roleName === 'staff' || user?.role === 'staff' || user?.role === 'manager' || (Array.isArray(user?.permissions) && user.permissions.length > 0)) {
+      setUserRole('স্টাফ অ্যাকাউন্ট');
+      setAdminSession({
+        role: 'staff',
+        email,
+        staffData: user,
+      });
+      setIsAdminPanelOpen(true);
+      showToast(`👋 স্বাগতম ${user?.name || 'স্টাফ মেম্বার'}!`);
+      return;
+    }
+
+    if (user?.id) {
+      await loadUserAccountData(user.id);
+    }
+    const isSuper = roleName === 'super_admin' || email === ADMIN_EMAIL || user?.role === 'super_admin';
+    const resolvedRole = isSuper ? 'প্রধান সুপার অ্যাডমিন' : 'দোকান মালিক';
     setUserRole(resolvedRole);
     localStorage.setItem('ibrahim_is_logged_in', 'true');
     localStorage.setItem('ibrahim_user_role', resolvedRole);
-    showToast('☁️ ক্লাউড ডাটাবেজে সফলভাবে লগইন হয়েছে!');
+    showToast('☁️ আপনার দোকানে সফলভাবে লগইন হয়েছে!');
   };
 
-  // Perform Log Out with confirmation
+  // Perform Log Out with confirmation and clear state
+  const handleLogout = async () => {
+    try {
+      authApi.logout();
+    } catch (err) {
+      console.warn('SignOut error:', err);
+    }
+    setIsLoggedIn(false);
+    localStorage.removeItem('ibrahim_is_logged_in');
+    localStorage.removeItem('ibrahim_user_role');
+    setCustomers([]);
+    setTransactions({});
+    setExpenses([]);
+    setProducts([]);
+    setStore(DEFAULT_STORE);
+    setActiveCustomerId(null);
+    setIsAdminPanelOpen(false);
+    setAdminSession(null);
+    setIsSettingsModalOpen(false);
+    setIsAdminLoginModalOpen(false);
+    setIsSupportModalOpen(false);
+    setIsSubscriptionModalOpen(false);
+    setIsNotificationModalOpen(false);
+    setIsAnalyticsModalOpen(false);
+    setIsCashbookModalOpen(false);
+    setIsInvoiceModalOpen(false);
+    setIsSalesHistoryModalOpen(false);
+    setIsEditTxModalOpen(false);
+    setIsCustomerModalOpen(false);
+    setIsTxModalOpen(false);
+    setIsTagadaModalOpen(false);
+    setIsReportModalOpen(false);
+    setIsBackupModalOpen(false);
+    setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
+    showToast('✅ সফলভাবে লগআউট করা হয়েছে!');
+  };
+
   const triggerLogoutConfirm = () => {
     setConfirmConfig({
       isOpen: true,
       title: 'লগআউট নিশ্চিতকরণ',
-      message: 'আপনি কি নিশ্চিত যে খাতা অ্যাপ থেকে লগআউট করতে চান?',
+      message: 'আপনি কি নিশ্চিত যে খাতা অ্যাপ থেকে সম্পূর্ণ লগআউট করতে চান?',
       confirmText: 'হ্যাঁ, লগআউট করুন',
       type: 'danger',
-      action: async () => {
-        try {
-          await signOut(auth);
-        } catch (err) {
-          console.warn('SignOut error:', err);
-        }
-        setIsLoggedIn(false);
-        localStorage.removeItem('ibrahim_is_logged_in');
-        localStorage.removeItem('ibrahim_user_role');
-        setActiveCustomerId(null);
-        setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
-        showToast('সফলভাবে লগআউট করা হয়েছে!');
-      },
+      action: handleLogout,
     });
+  };
+
+  const currentUser = getStoredUser();
+  const isSuperAdmin = userRole === 'প্রধান সুপার অ্যাডমিন' || currentUser?.role === 'super_admin' || currentUser?.email === ADMIN_EMAIL;
+  const isStaffMember = userRole === 'স্টাফ অ্যাকাউন্ট' || currentUser?.role === 'staff' || currentUser?.role === 'manager';
+  const userSubExpiry = (store as any)?.subscriptionExpiresAt || (currentUser as any)?.subscriptionExpiresAt;
+  const isSubscriptionExpired = !isSuperAdmin && !isStaffMember && userSubExpiry && Number(userSubExpiry) < Date.now();
+
+  const handleRefreshSubscriptionStatus = async () => {
+    try {
+      const statusData = await subscriptionApi.getMyStatus();
+      if (statusData && statusData.subscriptionExpiresAt) {
+        setStore((prev) => ({
+          ...prev,
+          subscriptionExpiresAt: statusData.subscriptionExpiresAt,
+        }));
+        showToast('✅ সাবস্ক্রিপশন স্ট্যাটাস হালনাগাদ করা হয়েছে!');
+      }
+    } catch (err) {
+      console.warn('Status refresh error:', err);
+    }
   };
 
   const activeCustomer = customers.find((c) => c.id === activeCustomerId) || null;
@@ -883,7 +1088,15 @@ export const App: React.FC = () => {
       {/* Main Container Card */}
       <div className="w-full max-w-4xl h-full flex flex-col bg-white sm:rounded-3xl shadow-xl sm:border sm:border-slate-200/80 overflow-hidden relative">
         {!isLoggedIn ? (
-          <AuthScreen store={store} onLoginSuccess={handleLoginSuccess} />
+          <AuthScreen
+            store={store}
+            onLoginSuccess={handleLoginSuccess}
+            onAdminLoginSuccess={(adminEmail, session) => {
+              handleLoginSuccess(adminEmail, session?.role === 'staff' ? 'staff' : 'admin');
+              setAdminSession(session || { role: 'super_admin', email: adminEmail });
+              setIsAdminPanelOpen(true);
+            }}
+          />
         ) : (
           <>
             {/* Header Navbar: Store Name, Phone, Settings and Logout */}
@@ -891,10 +1104,26 @@ export const App: React.FC = () => {
               store={store}
               onLogout={triggerLogoutConfirm}
               onOpenSettings={() => setIsSettingsModalOpen(true)}
+              onOpenNotifications={() => setIsNotificationModalOpen(true)}
+              unreadNotificationsCount={unreadNotificationsCount}
             />
 
-            {/* View Switching */}
-            {activeCustomerId && activeCustomer ? (
+            {/* In-app Announcement Ticker & Popups */}
+            <AnnouncementDisplay announcements={announcements} />
+
+            {/* In-app Force/Optional Update Dialog */}
+            {appConfig && <AppUpdateModal config={appConfig} currentAppVersion="2.4.0" />}
+
+            {/* View Switching or Subscription Lock Screen */}
+            {isSubscriptionExpired ? (
+              <SubscriptionLockScreen
+                store={store}
+                onOpenRenewModal={() => setIsSubscriptionModalOpen(true)}
+                onRefreshStatus={handleRefreshSubscriptionStatus}
+                onLogout={triggerLogoutConfirm}
+                onOpenSupport={() => setIsSupportModalOpen(true)}
+              />
+            ) : activeCustomerId && activeCustomer ? (
               <CustomerDetail
                 customer={activeCustomer}
                 transactions={activeTxList}
@@ -1042,7 +1271,9 @@ export const App: React.FC = () => {
               activeTab={activeTab}
               onTabChange={(tab) => {
                 setActiveCustomerId(null);
-                if (tab === 'cashbook') {
+                if (tab === 'support') {
+                  setIsSupportModalOpen(true);
+                } else if (tab === 'cashbook') {
                   setIsCashbookModalOpen(true);
                 } else {
                   setActiveTab(tab);
@@ -1050,21 +1281,12 @@ export const App: React.FC = () => {
               }}
               customerDueCount={customers.filter((c) => Number(c.balance || 0) > 0).length}
               lowStockCount={products.filter((p) => Number(p.stock || 0) <= Number(p.minStock || 5)).length}
+              unreadSupportCount={unreadSupportRepliesCount}
+              onOpenSupport={() => setIsSupportModalOpen(true)}
             />
           </>
         )}
       </div>
-
-      {/* Confirmation Modal */}
-      <ConfirmModal
-        isOpen={confirmConfig.isOpen}
-        title={confirmConfig.title}
-        message={confirmConfig.message}
-        confirmText={confirmConfig.confirmText}
-        type={confirmConfig.type}
-        onConfirm={confirmConfig.action}
-        onCancel={() => setConfirmConfig((prev) => ({ ...prev, isOpen: false }))}
-      />
 
       {/* Customer Add/Edit Modal */}
       <CustomerModal
@@ -1132,8 +1354,26 @@ export const App: React.FC = () => {
         onRestoreData={handleRestoreData}
         onResetData={triggerResetConfirm}
         onShowToast={showToast}
-        onOpenAdmin={() => setIsAdminPanelOpen(true)}
+        onOpenAdmin={() => {
+          const u = getStoredUser();
+          if (u?.role === 'super_admin' || u?.email === ADMIN_EMAIL) {
+            setIsAdminLoginModalOpen(true);
+          } else {
+            showToast('⚠️ শুধুমাত্র সুপার অ্যাডমিনের এই প্যানেলে প্রবেশের অনুমতি রয়েছে।');
+          }
+        }}
         onOpenSupport={() => setIsSupportModalOpen(true)}
+      />
+
+      {/* Admin Login & PIN Verification Modal */}
+      <AdminLoginModal
+        isOpen={isAdminLoginModalOpen}
+        onClose={() => setIsAdminLoginModalOpen(false)}
+        onAdminAuthenticated={(session) => {
+          setAdminSession(session || { role: 'super_admin', email: ADMIN_EMAIL });
+          setIsAdminPanelOpen(true);
+        }}
+        onShowToast={showToast}
       />
 
       {/* User Support & Direct Help Desk Modal */}
@@ -1213,13 +1453,80 @@ export const App: React.FC = () => {
         onShowToast={showToast}
       />
 
-      {/* Complete Admin Management Console */}
-      {isAdminPanelOpen && (
-        <AdminPanel
-          onClose={() => setIsAdminPanelOpen(false)}
-          currentUserEmail={auth.currentUser?.email || undefined}
-        />
-      )}
+      {/* User Notifications Modal */}
+      <UserNotificationModal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        notifications={userNotifications}
+        onMarkAsRead={async (id) => {
+          await markNotificationAsRead(id);
+          setUserNotifications((prev) =>
+            prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+          );
+        }}
+        onMarkAllAsRead={async () => {
+          await markAllNotificationsAsRead();
+          setUserNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+        }}
+        onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+        onOpenSupport={() => setIsSupportModalOpen(true)}
+      />
+
+      {/* User Subscription & Plan Renewal Modal */}
+      <UserSubscriptionModal
+        isOpen={isSubscriptionModalOpen}
+        store={store}
+        onClose={() => setIsSubscriptionModalOpen(false)}
+        onShowToast={showToast}
+      />
+
+      {/* Complete Admin / Staff Management Console */}
+      {isAdminPanelOpen &&
+        (adminSession !== null ||
+          getStoredUser()?.role === 'staff' ||
+          getStoredUser()?.role === 'manager' ||
+          getStoredUser()?.email === ADMIN_EMAIL ||
+          getStoredUser()?.role === 'super_admin') && (
+          <AdminPanel
+            onClose={() => {
+              const currentUser = getStoredUser();
+              if (
+                adminSession?.role === 'staff' ||
+                currentUser?.role === 'staff' ||
+                currentUser?.role === 'manager'
+              ) {
+                // If staff exits the panel, trigger clean logout
+                triggerLogoutConfirm();
+              } else {
+                setIsAdminPanelOpen(false);
+                setAdminSession(null);
+              }
+            }}
+            onLogout={triggerLogoutConfirm}
+            currentUserEmail={adminSession?.email || getStoredUser()?.email || undefined}
+            adminSession={
+              adminSession ||
+              (getStoredUser()?.role === 'staff' || getStoredUser()?.role === 'manager'
+                ? {
+                    role: 'staff',
+                    email: getStoredUser()?.email || '',
+                    staffData: getStoredUser(),
+                  }
+                : undefined)
+            }
+          />
+        )}
+
+      {/* Confirmation Modal (Highest Level Overlay) */}
+      <ConfirmModal
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmText={confirmConfig.confirmText}
+        type={confirmConfig.type}
+        onConfirm={confirmConfig.action}
+        onCancel={() => setConfirmConfig((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 };

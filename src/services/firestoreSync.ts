@@ -1,134 +1,136 @@
-import {
-  collection,
-  doc,
-  setDoc,
-  getDocs,
-  deleteDoc,
-  onSnapshot,
-  writeBatch,
-} from 'firebase/firestore';
-import { db } from '../firebase';
-import { Customer, Transaction, StoreProfile, DailyExpense } from '../types';
+/**
+ * Backend Sync Service
+ * Replaces direct Firebase Firestore listener/sync with PostgreSQL Backend APIs
+ */
 
-const STORE_DOC_ID = 'ibrahim_general_store';
+import { Customer, Transaction, StoreProfile, DailyExpense } from '../types';
+import { customerApi, transactionApi, expenseApi, storeApi } from './apiService';
 
 /**
- * Real-time listener for store profile
+ * Real-time / Polling listener for store profile
  */
 export function subscribeToStoreProfile(
   onUpdate: (profile: StoreProfile) => void,
   onError?: (err: Error) => void
 ) {
-  const docRef = doc(db, 'stores', STORE_DOC_ID);
-  return onSnapshot(
-    docRef,
-    (snapshot) => {
-      if (snapshot.exists()) {
-        onUpdate(snapshot.data() as StoreProfile);
+  let isSubscribed = true;
+
+  const fetchProfile = async () => {
+    try {
+      const profile = await storeApi.getProfile();
+      if (isSubscribed && profile) {
+        onUpdate(profile);
       }
-    },
-    (err) => {
-      console.warn('Firestore store profile listener:', err);
+    } catch (err: any) {
       if (onError) onError(err);
     }
-  );
+  };
+
+  fetchProfile();
+  const interval = setInterval(fetchProfile, 15000); // 15s refresh interval
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
 }
 
 /**
- * Save Store Profile to Firestore
+ * Save Store Profile to Cloud
  */
 export async function saveStoreProfileToCloud(profile: StoreProfile): Promise<void> {
   try {
-    const docRef = doc(db, 'stores', STORE_DOC_ID);
-    await setDoc(docRef, profile, { merge: true });
+    await storeApi.saveProfile(profile);
   } catch (err) {
-    console.error('Failed to save store profile to Firestore:', err);
+    console.error('Failed to save store profile to Backend:', err);
   }
 }
 
 /**
- * Real-time listener for customers
+ * Real-time / Polling listener for customers
  */
 export function subscribeToCustomers(
   onUpdate: (customers: Customer[]) => void,
   onError?: (err: Error) => void
 ) {
-  const colRef = collection(db, 'customers');
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      const list: Customer[] = [];
-      snapshot.forEach((docSnap) => {
-        list.push({ id: docSnap.id, ...(docSnap.data() as Omit<Customer, 'id'>) });
-      });
-      // Sort newest first
-      list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-      onUpdate(list);
-    },
-    (err) => {
-      console.warn('Firestore customers listener error:', err);
+  let isSubscribed = true;
+
+  const fetchCust = async () => {
+    try {
+      const list = await customerApi.getAll();
+      if (isSubscribed) {
+        onUpdate(list);
+      }
+    } catch (err: any) {
       if (onError) onError(err);
     }
-  );
+  };
+
+  fetchCust();
+  const interval = setInterval(fetchCust, 10000); // 10s refresh
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
 }
 
 /**
- * Real-time listener for transactions
+ * Real-time / Polling listener for transactions
  */
 export function subscribeToTransactions(
   onUpdate: (transactions: Record<string, Transaction[]>) => void,
   onError?: (err: Error) => void
 ) {
-  const colRef = collection(db, 'transactions');
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      const map: Record<string, Transaction[]> = {};
-      snapshot.forEach((docSnap) => {
-        const tx = { id: docSnap.id, ...(docSnap.data() as Omit<Transaction, 'id'>) };
-        if (!map[tx.customerId]) {
-          map[tx.customerId] = [];
-        }
-        map[tx.customerId].push(tx);
-      });
+  let isSubscribed = true;
 
-      // Sort transactions by createdAt descending for each customer
-      Object.keys(map).forEach((cid) => {
-        map[cid].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      });
-
-      onUpdate(map);
-    },
-    (err) => {
-      console.warn('Firestore transactions listener error:', err);
+  const fetchTx = async () => {
+    try {
+      const { map } = await transactionApi.getAll();
+      if (isSubscribed) {
+        onUpdate(map);
+      }
+    } catch (err: any) {
       if (onError) onError(err);
     }
-  );
+  };
+
+  fetchTx();
+  const interval = setInterval(fetchTx, 10000); // 10s refresh
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
 }
 
 /**
- * Real-time listener for daily expenses
+ * Real-time / Polling listener for daily expenses
  */
 export function subscribeToExpenses(
   onUpdate: (expenses: DailyExpense[]) => void,
   onError?: (err: Error) => void
 ) {
-  const colRef = collection(db, 'expenses');
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      const list: DailyExpense[] = [];
-      snapshot.forEach((docSnap) => {
-        list.push({ id: docSnap.id, ...(docSnap.data() as Omit<DailyExpense, 'id'>) });
-      });
-      list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      onUpdate(list);
-    },
-    (err) => {
-      console.warn('Firestore expenses listener error:', err);
+  let isSubscribed = true;
+
+  const fetchExp = async () => {
+    try {
+      const list = await expenseApi.getAll();
+      if (isSubscribed) {
+        onUpdate(list);
+      }
+    } catch (err: any) {
       if (onError) onError(err);
     }
-  );
+  };
+
+  fetchExp();
+  const interval = setInterval(fetchExp, 12000);
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
 }
 
 /**
@@ -136,34 +138,20 @@ export function subscribeToExpenses(
  */
 export async function saveCustomerToCloud(customer: Customer): Promise<void> {
   try {
-    const docRef = doc(db, 'customers', customer.id);
-    await setDoc(docRef, customer, { merge: true });
+    await customerApi.save(customer);
   } catch (err) {
-    console.error('Failed to save customer to Firestore:', err);
+    console.error('Failed to save customer to Backend:', err);
   }
 }
 
 /**
- * Delete customer and their associated transactions from cloud
+ * Delete customer and their associated transactions
  */
 export async function deleteCustomerFromCloud(customerId: string): Promise<void> {
   try {
-    const docRef = doc(db, 'customers', customerId);
-    await deleteDoc(docRef);
-
-    // Delete associated transactions
-    const colRef = collection(db, 'transactions');
-    const snapshot = await getDocs(colRef);
-    const batch = writeBatch(db);
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data.customerId === customerId) {
-        batch.delete(docSnap.ref);
-      }
-    });
-    await batch.commit();
+    await customerApi.delete(customerId);
   } catch (err) {
-    console.error('Failed to delete customer from Firestore:', err);
+    console.error('Failed to delete customer from Backend:', err);
   }
 }
 
@@ -172,10 +160,9 @@ export async function deleteCustomerFromCloud(customerId: string): Promise<void>
  */
 export async function saveTransactionToCloud(tx: Transaction): Promise<void> {
   try {
-    const docRef = doc(db, 'transactions', tx.id);
-    await setDoc(docRef, tx, { merge: true });
+    await transactionApi.save(tx);
   } catch (err) {
-    console.error('Failed to save transaction to Firestore:', err);
+    console.error('Failed to save transaction to Backend:', err);
   }
 }
 
@@ -184,10 +171,9 @@ export async function saveTransactionToCloud(tx: Transaction): Promise<void> {
  */
 export async function deleteTransactionFromCloud(txId: string): Promise<void> {
   try {
-    const docRef = doc(db, 'transactions', txId);
-    await deleteDoc(docRef);
+    await transactionApi.delete(txId);
   } catch (err) {
-    console.error('Failed to delete transaction from Firestore:', err);
+    console.error('Failed to delete transaction from Backend:', err);
   }
 }
 
@@ -196,10 +182,9 @@ export async function deleteTransactionFromCloud(txId: string): Promise<void> {
  */
 export async function saveExpenseToCloud(expense: DailyExpense): Promise<void> {
   try {
-    const docRef = doc(db, 'expenses', expense.id);
-    await setDoc(docRef, expense, { merge: true });
+    await expenseApi.save(expense);
   } catch (err) {
-    console.error('Failed to save expense to Firestore:', err);
+    console.error('Failed to save expense to Backend:', err);
   }
 }
 
@@ -208,15 +193,14 @@ export async function saveExpenseToCloud(expense: DailyExpense): Promise<void> {
  */
 export async function deleteExpenseFromCloud(expenseId: string): Promise<void> {
   try {
-    const docRef = doc(db, 'expenses', expenseId);
-    await deleteDoc(docRef);
+    await expenseApi.delete(expenseId);
   } catch (err) {
-    console.error('Failed to delete expense from Firestore:', err);
+    console.error('Failed to delete expense from Backend:', err);
   }
 }
 
 /**
- * Bulk upload / restore / seed entire ledger to Firestore
+ * Bulk upload / restore / seed entire ledger to backend
  */
 export async function syncAllToCloud(
   store: StoreProfile,
@@ -225,32 +209,8 @@ export async function syncAllToCloud(
   expenses: DailyExpense[] = []
 ): Promise<void> {
   try {
-    // 1. Save store
-    await saveStoreProfileToCloud(store);
-
-    // 2. Batch save customers
-    const batch = writeBatch(db);
-    customers.forEach((c) => {
-      const docRef = doc(db, 'customers', c.id);
-      batch.set(docRef, c, { merge: true });
-    });
-
-    // 3. Batch save transactions
-    Object.values(transactions).forEach((txList) => {
-      txList.forEach((tx) => {
-        const docRef = doc(db, 'transactions', tx.id);
-        batch.set(docRef, tx, { merge: true });
-      });
-    });
-
-    // 4. Batch save expenses
-    expenses.forEach((exp) => {
-      const docRef = doc(db, 'expenses', exp.id);
-      batch.set(docRef, exp, { merge: true });
-    });
-
-    await batch.commit();
+    await storeApi.syncAll(store, customers, transactions, expenses);
   } catch (err) {
-    console.error('Failed to sync all to Firestore:', err);
+    console.error('Failed to sync all to Backend:', err);
   }
 }

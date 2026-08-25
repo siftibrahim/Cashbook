@@ -3,21 +3,28 @@ import {
   AdminTab,
   AppUser,
   PaymentRecord,
+  SystemPaymentSettings,
   AdminNotification,
   Announcement,
   AppUpdateConfig,
   AdminActivityLog,
   SupportThread,
   UserStatus,
+  StaffMember,
+  AdminSession,
 } from '../../types/adminTypes';
 import {
   subscribeToAdminUsers,
   subscribeToAdminPayments,
+  subscribeToPaymentSettings,
+  savePaymentSettingsToCloud,
+  processPaymentRefund,
   subscribeToAdminNotifications,
   subscribeToAnnouncements,
   subscribeToAppUpdateConfig,
   subscribeToActivityLogs,
   subscribeToAllSupportThreads,
+  subscribeToStaffMembers,
   saveAppUser,
   updateUserStatus,
   extendUserSubscription,
@@ -33,7 +40,13 @@ import {
   saveAppUpdateConfigToCloud,
   clearAllActivityLogs,
   triggerUserPasswordReset,
+  saveStaffMember,
+  updateStaffStatus,
+  updateStaffPermissions,
+  deleteStaffMember,
+  hasStaffPermission,
   ADMIN_EMAIL,
+  INITIAL_PAYMENT_SETTINGS,
 } from '../../services/adminService';
 import { AdminDashboardOverview } from './AdminDashboardOverview';
 import { UserManagementTab } from './UserManagementTab';
@@ -45,6 +58,7 @@ import { NotificationManagementTab } from './NotificationManagementTab';
 import { AnnouncementManagementTab } from './AnnouncementManagementTab';
 import { AppUpdateManagementTab } from './AppUpdateManagementTab';
 import { ActivityLogTab } from './ActivityLogTab';
+import { StaffManagementTab } from './StaffManagementTab';
 import {
   LayoutDashboard,
   Users,
@@ -56,26 +70,58 @@ import {
   DownloadCloud,
   History,
   Headphones,
-  ArrowLeft,
+  Shield,
   ShieldCheck,
   CheckCircle2,
   RefreshCw,
   LogOut,
   ChevronRight,
+  UserCog,
+  ShieldAlert,
+  Menu,
+  X,
+  Sparkles,
+  Zap,
+  Store,
 } from 'lucide-react';
 
 interface AdminPanelProps {
   onClose: () => void;
+  onLogout?: () => void;
   currentUserEmail?: string;
+  adminSession?: AdminSession;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, currentUserEmail }) => {
+interface TabNavItem {
+  id: AdminTab;
+  label: string;
+  icon: any;
+  badge?: number;
+  badgeColor?: string;
+  isAllowed: boolean;
+  isSuperOnly?: boolean;
+}
+
+export const AdminPanel: React.FC<AdminPanelProps> = ({
+  onClose,
+  onLogout,
+  currentUserEmail,
+  adminSession,
+}) => {
+  const effectiveSession: AdminSession = adminSession || {
+    role: 'super_admin',
+    email: currentUserEmail || ADMIN_EMAIL,
+  };
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const isSuperAdmin = effectiveSession.role === 'super_admin';
+  const staffData = effectiveSession.staffData;
 
   // Real-time State
   const [users, setUsers] = useState<AppUser[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [paymentSettings, setPaymentSettings] = useState<SystemPaymentSettings>(INITIAL_PAYMENT_SETTINGS);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [appConfig, setAppConfig] = useState<AppUpdateConfig>({
@@ -91,11 +137,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, currentUserEmai
   });
   const [logs, setLogs] = useState<AdminActivityLog[]>([]);
   const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
 
   // Subscriptions
   useEffect(() => {
     const unsubUsers = subscribeToAdminUsers(setUsers);
     const unsubPayments = subscribeToAdminPayments(setPayments);
+    const unsubPaymentSettings = subscribeToPaymentSettings(setPaymentSettings);
     const unsubNotifs = subscribeToAdminNotifications(setNotifications);
     const unsubAnn = subscribeToAnnouncements(setAnnouncements);
     const unsubConfig = subscribeToAppUpdateConfig((cfg) => {
@@ -103,17 +151,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, currentUserEmai
     });
     const unsubLogs = subscribeToActivityLogs(setLogs);
     const unsubSupport = subscribeToAllSupportThreads(setSupportThreads);
+    const unsubStaff = isSuperAdmin ? subscribeToStaffMembers(setStaffList) : () => {};
 
     return () => {
       unsubUsers();
       unsubPayments();
+      unsubPaymentSettings();
       unsubNotifs();
       unsubAnn();
       unsubConfig();
       unsubLogs();
       unsubSupport();
+      unsubStaff();
     };
-  }, []);
+  }, [isSuperAdmin]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -126,16 +177,38 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, currentUserEmai
   const expiredCount = users.filter((u) => u.subscriptionExpiresAt <= Date.now() || u.status === 'expired').length;
   const unreadSupportCount = supportThreads.reduce((acc, t) => acc + (t.unreadAdminCount || 0), 0);
 
-  const navItems: { id: AdminTab; label: string; icon: any; badge?: number; badgeColor?: string }[] = [
-    { id: 'dashboard', label: 'ড্যাশবোর্ড', icon: LayoutDashboard },
-    { id: 'users', label: 'ইউজার ম্যানেজমেন্ট', icon: Users, badge: users.length },
-    { id: 'subscriptions', label: 'সাবস্ক্রিপশন প্ল্যান', icon: CreditCard },
+  // Horizontal Tab Bar Items
+  const navTabs: TabNavItem[] = [
+    {
+      id: 'dashboard',
+      label: 'সার্বিক ড্যাশবোর্ড',
+      icon: LayoutDashboard,
+      isAllowed: true,
+    },
+    {
+      id: 'staff_management',
+      label: `স্টাফ ম্যানেজমেন্ট (${staffList.length})`,
+      icon: Shield,
+      badge: staffList.length > 0 ? staffList.length : undefined,
+      badgeColor: 'bg-rose-600 text-white',
+      isAllowed: isSuperAdmin,
+      isSuperOnly: true,
+    },
+    {
+      id: 'users',
+      label: 'ইউজার তালিকা',
+      icon: Users,
+      badge: users.length > 0 ? users.length : undefined,
+      badgeColor: 'bg-indigo-600 text-white',
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'users_view'),
+    },
     {
       id: 'payments',
-      label: 'পেমেন্ট ভেরিফিকেশন',
+      label: 'পেমেন্ট রিকোয়েস্ট',
       icon: Receipt,
       badge: pendingPaymentsCount > 0 ? pendingPaymentsCount : undefined,
-      badgeColor: 'bg-amber-500 text-white',
+      badgeColor: 'bg-amber-500 text-slate-950 font-black animate-pulse',
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'payments_view'),
     },
     {
       id: 'expired',
@@ -143,122 +216,166 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, currentUserEmai
       icon: Clock,
       badge: expiredCount > 0 ? expiredCount : undefined,
       badgeColor: 'bg-rose-500 text-white',
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'subscriptions_view'),
+    },
+    {
+      id: 'subscriptions',
+      label: 'সাবস্ক্রিপশন প্যাকেজ',
+      icon: CreditCard,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'subscriptions_view'),
     },
     {
       id: 'support',
-      label: 'সাপোর্ট ও মেসেজ',
+      label: 'সাপোর্ট হেল্পডেস্ক',
       icon: Headphones,
       badge: unreadSupportCount > 0 ? unreadSupportCount : undefined,
-      badgeColor: 'bg-teal-600 text-white',
+      badgeColor: 'bg-teal-500 text-slate-950 font-black',
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'support_view'),
     },
-    { id: 'notifications', label: 'নোটিফিকেশন', icon: Bell },
-    { id: 'announcements', label: 'ঘোষণা ও ব্যানার', icon: Megaphone },
-    { id: 'app_update', label: 'ভার্সন ও আপডেট', icon: DownloadCloud },
-    { id: 'activity_logs', label: 'অডিট লগ', icon: History },
+    {
+      id: 'notifications',
+      label: 'পুশ নোটিফিকেশন',
+      icon: Bell,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'notifications_manage'),
+    },
+    {
+      id: 'announcements',
+      label: 'নোটিশ ও ব্যানার',
+      icon: Megaphone,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'announcements_manage'),
+    },
+    {
+      id: 'app_update',
+      label: 'ভার্সন ও আপডেট',
+      icon: DownloadCloud,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'app_update_manage'),
+    },
+    {
+      id: 'activity_logs',
+      label: 'অডিট লগ',
+      icon: History,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'activity_logs_view'),
+    },
   ];
 
+  // If activeTab is forbidden for current staff, auto switch to dashboard
+  useEffect(() => {
+    const isCurrentTabAllowed = navTabs.find((item) => item.id === activeTab)?.isAllowed;
+    if (!isCurrentTabAllowed) {
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, effectiveSession]);
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-100 flex flex-col font-sans overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-[#0B1120] text-slate-100 flex flex-col font-sans overflow-hidden">
       {/* Toast popup */}
       {toastMessage && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-slate-900 text-white text-xs font-bold rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2 animate-in fade-in slide-in-from-top-4">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-slate-900 text-white text-xs font-bold rounded-2xl shadow-2xl border border-indigo-500/40 flex items-center gap-2 animate-in fade-in slide-in-from-top-4">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Top Header Bar */}
-      <header className="bg-[#004D40] text-white px-4 sm:px-6 py-3 shrink-0 flex items-center justify-between shadow-md border-b border-teal-800">
+      {/* 👑 Top Header Bar (Matching screenshot precisely) */}
+      <header className="px-4 sm:px-6 py-3 shrink-0 flex items-center justify-between bg-[#080D1A] border-b border-slate-800/90 shadow-md">
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-xl transition flex items-center gap-1.5 text-xs font-bold cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">মূল অ্যাপে ফিরুন</span>
-          </button>
+          {/* Gradient Shield Icon */}
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-600 to-blue-600 p-0.5 shadow-lg shadow-indigo-500/20 flex items-center justify-center text-white shrink-0">
+            <Shield className="w-6 h-6" />
+          </div>
 
-          <div className="h-5 w-[1px] bg-teal-700 hidden sm:block" />
-
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-teal-500/20 border border-teal-400/30 flex items-center justify-center font-black text-amber-400">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-sm sm:text-base font-black leading-tight flex items-center gap-1.5">
-                <span>অ্যাডমিন ম্যানেজমেন্ট কনসোল</span>
-                <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-amber-400 text-teal-950">
-                  SUPER ADMIN
-                </span>
-              </h1>
-              <p className="text-[11px] text-teal-200 hidden sm:block">
-                অ্যাডমিন: {currentUserEmail || ADMIN_EMAIL}
-              </p>
-            </div>
+          <div>
+            <h1 className="text-sm sm:text-base font-black text-white leading-tight">
+              Twing Admin Master
+            </h1>
+            <p className="text-[11px] text-slate-400 leading-tight mt-0.5">
+              সকল দোকান, ইউজার, স্টাফ, পেমেন্ট ও ব্যাকএন্ড প্রশাসন কেন্দ্র
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => showToast('ডাটা রিলোড ও সিঙ্ক সম্পন্ন')}
-            className="p-2 hover:bg-white/10 rounded-xl transition text-xs font-bold flex items-center gap-1 cursor-pointer"
-            title="রিফ্রেশ করুন"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
+        {/* Right Section: Super Admin Gold Pill, Store Switch & Logout */}
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          {isSuperAdmin ? (
+            <>
+              <div className="px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/15 via-yellow-500/20 to-amber-600/15 border border-amber-500/40 text-amber-300 text-xs font-black flex items-center gap-1.5 shadow-xs">
+                <span className="text-sm">👑</span>
+                <div className="flex flex-col text-left">
+                  <span className="text-[9px] leading-none uppercase tracking-wider text-amber-300/80">Super</span>
+                  <span className="text-[11px] leading-tight font-black text-amber-300">Admin</span>
+                </div>
+              </div>
 
+              {/* Switch to Shop button for Super Admin */}
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 flex items-center gap-1.5 text-xs font-bold transition cursor-pointer active:scale-95 shrink-0"
+                title="দোকান খাতা ড্যাশবোর্ডে যান"
+              >
+                <Store className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                <span className="hidden xs:inline">দোকানে যান</span>
+              </button>
+            </>
+          ) : (
+            <div className="px-3 py-1.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-bold flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-indigo-400" />
+              <span>{staffData?.name || 'Staff'}</span>
+            </div>
+          )}
+
+          {/* Red-accented Logout button */}
           <button
             type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 bg-rose-600/90 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+            onClick={onLogout || onClose}
+            className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-rose-500/20 hover:bg-rose-600 active:scale-95 text-rose-300 hover:text-white border border-rose-500/40 flex items-center gap-1.5 transition cursor-pointer text-xs font-bold shadow-xs shrink-0"
+            title="খাতা অ্যাপ থেকে সম্পূর্ণ লগআউট করুন"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">প্রস্থান</span>
+            <LogOut className="w-4 h-4 shrink-0" />
+            <span className="inline">লগআউট</span>
           </button>
         </div>
       </header>
 
-      {/* Main Admin Body: Sidebar Nav + Content */}
-      <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
-        {/* Sidebar Nav */}
-        <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-slate-200 shrink-0 overflow-x-auto md:overflow-y-auto p-2 sm:p-3 flex md:flex-col gap-1 shadow-xs">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 md:shrink ${
-                  isActive
-                    ? 'bg-[#004D40] text-white shadow-xs'
-                    : 'text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-teal-200' : 'text-slate-500'}`} />
-                  <span className="whitespace-nowrap">{item.label}</span>
-                </div>
+      {/* 🧭 Horizontal Smooth Scrollable Tabs (Matching screenshot layout) */}
+      <div className="bg-[#080D1A] border-b border-slate-800/80 shrink-0">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2.5 px-4">
+          {navTabs
+            .filter((tab) => tab.isAllowed)
+            .map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all shrink-0 cursor-pointer active:scale-95 ${
+                    isActive
+                      ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-blue-600 text-white shadow-lg shadow-indigo-600/30'
+                      : 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-800/80 hover:border-slate-700'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <span>{tab.label}</span>
+                  {tab.badge !== undefined && (
+                    <span
+                      className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                        tab.badgeColor || (isActive ? 'bg-white/25 text-white' : 'bg-slate-700 text-slate-200')
+                      }`}
+                    >
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+        </div>
+      </div>
 
-                {item.badge !== undefined && (
-                  <span
-                    className={`ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                      item.badgeColor || (isActive ? 'bg-teal-700 text-white' : 'bg-slate-200 text-slate-700')
-                    }`}
-                  >
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </aside>
-
-        {/* Dynamic Tab Workspace */}
-        <main className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-slate-50">
+      {/* Dynamic Tab Content Workspace */}
+      <main className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 lg:p-6 bg-[#0B1120]">
+        <div className="max-w-7xl mx-auto">
           {activeTab === 'dashboard' && (
             <AdminDashboardOverview
               users={users}
@@ -266,9 +383,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, currentUserEmai
               notifications={notifications}
               announcements={announcements}
               logs={logs}
-              onNavigateTab={(tab) => setActiveTab(tab)}
-              onApprovePayment={(id) => approvePayment(id)}
-              onRejectPayment={(id) => rejectPayment(id, 'টাকা জমা হয়নি')}
+              staffList={staffList}
+              supportThreads={supportThreads}
+              isSuperAdmin={isSuperAdmin}
+              onNavigateTab={(tab) => {
+                const targetAllowed = navTabs.find((n) => n.id === tab)?.isAllowed;
+                if (targetAllowed) {
+                  setActiveTab(tab);
+                } else {
+                  showToast('⚠️ এই ফিচারটিতে আপনার স্টাফ অ্যাকাউন্ট থেকে অনুমতি নেই');
+                }
+              }}
+              onApprovePayment={(id) => {
+                if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
+                  showToast('⚠️ পেমেন্ট অনুমোদনের পারমিশন আপনার অ্যাকাউন্টে নেই');
+                  return;
+                }
+                approvePayment(id);
+              }}
+              onRejectPayment={(id) => {
+                if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
+                  showToast('⚠️ পেমেন্ট বাতিলের পারমিশন আপনার অ্যাকাউন্টে নেই');
+                  return;
+                }
+                rejectPayment(id, 'টাকা জমা হয়নি');
+              }}
             />
           )}
 
@@ -296,10 +435,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, currentUserEmai
             <PaymentManagementTab
               payments={payments}
               users={users}
-              onApprovePayment={approvePayment}
-              onRejectPayment={rejectPayment}
-              onAddManualPayment={savePaymentRecord}
-              onDeletePayment={deletePaymentRecord}
+              paymentSettings={paymentSettings}
+              onApprovePayment={async (id, note) => {
+                if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
+                  showToast('⚠️ পেমেন্ট অনুমোদনের পারমিশন আপনার অ্যাকাউন্টে নেই');
+                  return;
+                }
+                await approvePayment(id, note);
+              }}
+              onRejectPayment={async (id, reason) => {
+                if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
+                  showToast('⚠️ পেমেন্ট বাতিলের পারমিশন আপনার অ্যাকাউন্টে নেই');
+                  return;
+                }
+                await rejectPayment(id, reason);
+              }}
+              onProcessRefund={async (id, status, reason, amount) => {
+                if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
+                  showToast('⚠️ রিফান্ড প্রসেস করার পারমিশন আপনার অ্যাকাউন্টে নেই');
+                  return;
+                }
+                await processPaymentRefund(id, status, reason, amount);
+              }}
+              onAddManualPayment={async (payment) => {
+                if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
+                  showToast('⚠️ অফলাইন পেমেন্ট এন্ট্রি করার পারমিশন নেই');
+                  return;
+                }
+                await savePaymentRecord(payment);
+              }}
+              onDeletePayment={async (id) => {
+                if (!isSuperAdmin) {
+                  showToast('⚠️ শুধুমাত্র সুপার অ্যাডমিন পেমেন্ট রেকর্ড মুছতে পারবেন');
+                  return;
+                }
+                await deletePaymentRecord(id);
+              }}
+              onSavePaymentSettings={async (newSettings) => {
+                if (!isSuperAdmin) {
+                  showToast('⚠️ শুধুমাত্র সুপার অ্যাডমিন পেমেন্ট মেথড কনফিগার করতে পারবেন');
+                  return;
+                }
+                await savePaymentSettingsToCloud(newSettings, effectiveSession.email || currentUserEmail);
+              }}
               onShowToast={showToast}
             />
           )}
@@ -327,7 +505,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, currentUserEmai
 
           {activeTab === 'support' && (
             <SupportManagementTab
-              currentUserEmail={currentUserEmail}
+              currentUserEmail={effectiveSession.email || currentUserEmail}
               onShowToast={showToast}
             />
           )}
@@ -359,6 +537,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, currentUserEmai
             />
           )}
 
+          {activeTab === 'staff_management' && isSuperAdmin && (
+            <StaffManagementTab
+              staffList={staffList}
+              onSaveStaff={(staffData) => saveStaffMember(staffData, effectiveSession.email)}
+              onUpdateStatus={(staffId, status) => updateStaffStatus(staffId, status, effectiveSession.email)}
+              onUpdatePermissions={(staffId, perms) => updateStaffPermissions(staffId, perms, effectiveSession.email)}
+              onDeleteStaff={(staffId) => deleteStaffMember(staffId, effectiveSession.email)}
+              onShowToast={showToast}
+            />
+          )}
+
           {activeTab === 'activity_logs' && (
             <ActivityLogTab
               logs={logs}
@@ -366,8 +555,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onClose, currentUserEmai
               onShowToast={showToast}
             />
           )}
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   );
 };

@@ -273,11 +273,8 @@ export const NotificationManagementTab: React.FC<NotificationManagementTabProps>
 
                   <button
                     type="button"
-                    onClick={() => {
-                      if (window.confirm('আপনি কি এই নোটিফিকেশনটি মুছে ফেলতে চান?')) {
-                        onDeleteNotification(notif.id);
-                      }
-                    }}
+                    onClick={() => onDeleteNotification(notif.id)}
+                    title="নোটিফিকেশন মুছুন"
                     className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />

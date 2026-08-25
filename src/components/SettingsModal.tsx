@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StoreProfile, Customer, Transaction, DailyExpense, PrintPaperSize, ThemeColor } from '../types';
-import { auth } from '../firebase';
-import { sendPasswordResetEmail } from 'firebase/auth';
+import { authApi, getStoredUser } from '../services/apiService';
 import {
   X,
   Store,
@@ -95,6 +94,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [saving, setSaving] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -236,13 +239,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     reader.readAsText(file);
   };
 
+  // Direct password change
+  const handleChangePasswordDirect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword.trim()) {
+      onShowToast('নতুন পাসওয়ার্ড লিখুন!');
+      return;
+    }
+    if (newPassword.length < 6) {
+      onShowToast('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      onShowToast('উভয় পাসওয়ার্ড হুবহু এক নয়!');
+      return;
+    }
+
+    const userEmail = getStoredUser()?.email || '';
+    if (!userEmail) {
+      onShowToast('লগইনকৃত ইমেইল পাওয়া যায়নি!');
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      const res = await authApi.changePassword(userEmail, newPassword.trim());
+      onShowToast(res.message || '✅ পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে!');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      console.error(err);
+      onShowToast(`পাসওয়ার্ড পরিবর্তন করা যায়নি: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
   // Password reset email
   const handlePasswordReset = async () => {
-    const userEmail = auth.currentUser?.email || 'siftibrahim@gmail.com';
+    const userEmail = getStoredUser()?.email || '';
+    if (!userEmail) {
+      onShowToast('লগইনকৃত ইমেইল পাওয়া যায়নি!');
+      return;
+    }
     setResettingPassword(true);
     try {
-      await sendPasswordResetEmail(auth, userEmail);
-      onShowToast(`পাসওয়ার্ড রিসেট লিংক ${userEmail} ইমেইলে পাঠানো হয়েছে!`);
+      const res = await authApi.forgotPassword(userEmail);
+      onShowToast(res.message || `পাসওয়ার্ড রিসেট লিংক ${userEmail} ইমেইলে পাঠানো হয়েছে!`);
     } catch (err: any) {
       console.error(err);
       onShowToast(`পাসওয়ার্ড রিসেট পাঠানো যায়নি: ${err.message || 'Error'}`);
@@ -781,93 +823,170 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {/* TAB 7: SECURITY & ADMIN */}
-          {activeTab === 'security' && (
-            <div className="space-y-4 animate-in fade-in">
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                <div className="flex items-center gap-2 mb-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                  <h4 className="text-sm font-bold text-slate-800">অ্যাডমিন প্রোফাইল ও সিকিউরিটি</h4>
+          {activeTab === 'security' && (() => {
+            const currentUser = getStoredUser();
+            const isSuperAdmin = currentUser?.role === 'super_admin';
+            
+            return (
+              <div className="space-y-4 animate-in fade-in">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                    <h4 className="text-sm font-bold text-slate-800">
+                      {isSuperAdmin ? 'সুপার অ্যাডমিন প্রোফাইল ও সিকিউরিটি' : 'দোকানদার প্রোফাইল ও সিকিউরিটি'}
+                    </h4>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    লগইনকৃত ইমেইল: <span className="font-bold text-slate-900">{currentUser?.email || store.phone || 'দোকান একাউন্ট'}</span>
+                  </p>
+                  <p className="text-xs text-slate-600 mt-1">
+                    রোল:{' '}
+                    <span className="font-bold text-[#00695C]">
+                      {isSuperAdmin ? 'প্রধান সুপার অ্যাডমিন' : 'দোকান মালিক (দোকানদার)'}
+                    </span>
+                  </p>
+                  {currentUser?.shopName && (
+                    <p className="text-xs text-slate-600 mt-1">
+                      দোকান: <span className="font-bold text-slate-800">{currentUser.shopName}</span>
+                    </p>
+                  )}
                 </div>
-                <p className="text-xs text-slate-600">
-                  লগইনকৃত ইমেইল: <span className="font-bold text-slate-900">{auth.currentUser?.email || 'siftibrahim@gmail.com'}</span>
-                </p>
-                <p className="text-xs text-slate-600 mt-1">
-                  রোল: <span className="font-bold text-[#00695C]">প্রধান অ্যাডমিন ও ম্যানেজার</span>
-                </p>
-              </div>
 
-              {/* Master Admin Management System Entry */}
-              {onOpenAdmin && (
-                <div className="p-4 bg-gradient-to-r from-[#004D40]/10 via-[#00695C]/5 to-transparent rounded-2xl border-2 border-teal-600 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                {/* Master Admin Management System Entry - ONLY FOR SUPER ADMIN */}
+                {isSuperAdmin && onOpenAdmin && (
+                  <div className="p-4 bg-gradient-to-r from-[#004D40]/10 via-[#00695C]/5 to-transparent rounded-2xl border-2 border-teal-600 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-teal-800" />
+                        <h5 className="text-xs sm:text-sm font-black text-slate-900">
+                          সম্পূর্ণ অ্যাডমিন ম্যানেজমেন্ট কনসোল
+                        </h5>
+                        <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-amber-400 text-teal-950">
+                          SUPER ADMIN
+                        </span>
+                      </div>
+                      <p className="text-[11.5px] text-slate-600 mt-0.5">
+                        ইউজার তালিকা, সাবস্ক্রিপশন প্ল্যান, পেমেন্ট অনুমোদন, ইন-অ্যাপ নোটিফিকেশন, অ্যাপ আপডেট ও অডিট লগ পরিচালনা করুন।
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenAdmin();
+                      }}
+                      className="px-4 py-2 bg-[#004D40] hover:bg-[#00332c] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer shrink-0"
+                    >
+                      <span>অ্যাডমিন প্যানেল খুলুন</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Support & Help Desk */}
+                <div className="p-4 bg-teal-50/70 rounded-2xl border border-teal-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-1.5">
-                      <ShieldCheck className="w-4 h-4 text-teal-800" />
-                      <h5 className="text-xs sm:text-sm font-black text-slate-900">
-                        সম্পূর্ণ অ্যাডমিন ম্যানেজমেন্ট কনসোল
+                    <div className="flex items-center gap-2">
+                      <h5 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
+                        <Headphones className="w-4 h-4 text-teal-800" />
+                        <span>সরাসরি সাপোর্ট ও চ্যাট ডেস্ক</span>
                       </h5>
-                      <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-amber-400 text-teal-950">
-                        SUPER ADMIN
+                      <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-teal-200 text-teal-900">
+                        LIVE
                       </span>
                     </div>
-                    <p className="text-[11.5px] text-slate-600 mt-0.5">
-                      ইউজার তালিকা, সাবস্ক্রিপশন প্ল্যান, পেমেন্ট অনুমোদন, ইন-অ্যাপ নোটিফিকেশন, অ্যাপ আপডেট ও অডিট লগ পরিচালনা করুন।
+                    <p className="text-[11.5px] text-slate-600 mt-1">
+                      যেকোনো জিজ্ঞাসা বা সহায়তার জন্য অ্যাডমিনের সাথে সরাসরি টেক্সট চ্যাট করুন। ছবি বা স্ক্রিনশটের জন্য{' '}
+                      <span className="font-bold text-teal-900">{SUPPORT_CONTACT.email}</span> অথবা{' '}
+                      <span className="font-bold text-teal-900">{SUPPORT_CONTACT.phone}</span>।
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onOpenAdmin();
-                    }}
-                    className="px-4 py-2 bg-[#004D40] hover:bg-[#00332c] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer shrink-0"
-                  >
-                    <span>অ্যাডমিন প্যানেল খুলুন</span>
-                  </button>
+                  {onOpenSupport && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSupport();
+                      }}
+                      id="settings-open-support-btn"
+                      className="px-4 py-2 bg-[#004D40] hover:bg-[#00382f] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                    >
+                      <Headphones className="w-3.5 h-3.5" />
+                      <span>সাপোর্ট চ্যাট খুলুন</span>
+                    </button>
+                  )}
                 </div>
-              )}
 
-              {/* Support & Help Desk */}
-              <div className="p-4 bg-teal-50/70 rounded-2xl border border-teal-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h5 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
-                      <Headphones className="w-4 h-4 text-teal-800" />
-                      <span>সরাসরি সাপোর্ট ও চ্যাট ডেস্ক</span>
-                    </h5>
-                    <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-teal-200 text-teal-900">
-                      LIVE
-                    </span>
-                  </div>
-                  <p className="text-[11.5px] text-slate-600 mt-1">
-                    যেকোনো জিজ্ঞাসা বা সহায়তার জন্য অ্যাডমিনের সাথে সরাসরি টেক্সট চ্যাট করুন। ছবি বা স্ক্রিনশটের জন্য{' '}
-                    <span className="font-bold text-teal-900">{SUPPORT_CONTACT.email}</span> অথবা{' '}
-                    <span className="font-bold text-teal-900">{SUPPORT_CONTACT.phone}</span>।
-                  </p>
+              {/* Direct Password Change Box */}
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Lock className="w-4 h-4 text-[#00695C]" />
+                  <h5 className="text-xs sm:text-sm font-bold text-slate-800">
+                    পাসওয়ার্ড পরিবর্তন করুন (সরাসরি)
+                  </h5>
                 </div>
-                {onOpenSupport && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onOpenSupport();
-                    }}
-                    id="settings-open-support-btn"
-                    className="px-4 py-2 bg-[#004D40] hover:bg-[#00382f] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
-                  >
-                    <Headphones className="w-3.5 h-3.5" />
-                    <span>সাপোর্ট চ্যাট খুলুন</span>
-                  </button>
-                )}
+                <p className="text-[11.5px] text-slate-500 mb-3">
+                  আপনার নতুন পাসওয়ার্ড টাইপ করে সরাসরি PostgreSQL ক্লাউড ডেটাবেজে সংরক্ষণ করুন।
+                </p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      নতুন পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="যেমন: Ib01306908115# বা নতুন পাসওয়ার্ড"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-[#00695C] focus:border-transparent outline-none pr-10 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showPassword ? <Lock className="w-3.5 h-3.5 text-teal-700" /> : <Key className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      পাসওয়ার্ড নিশ্চিত করুন
+                    </label>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="নতুন পাসওয়ার্ডটি পুনরায় লিখুন"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-[#00695C] focus:border-transparent outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      disabled={isChangingPassword || !newPassword}
+                      onClick={handleChangePasswordDirect}
+                      className="px-4 py-2 bg-[#00695C] hover:bg-[#004D40] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      <span>{isChangingPassword ? 'সংরক্ষণ হচ্ছে...' : 'পাসওয়ার্ড আপডেট করুন'}</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
+              {/* Email Password Reset Link */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
                   <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <Lock className="w-4 h-4 text-teal-700" />
-                    <span>অ্যাকাউন্টের পাসওয়ার্ড পরিবর্তন</span>
+                    <Mail className="w-4 h-4 text-teal-700" />
+                    <span>ইমেইলে পাসওয়ার্ড রিসেট লিংক</span>
                   </h5>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    আপনার রেজিস্টার্ড ইমেইলে সুরক্ষিত পাসওয়ার্ড রিসেট লিংক পাঠানো হবে।
+                    আপনার রেজিস্টার্ড ইমেইল <span className="font-bold text-slate-700">{getStoredUser()?.email || 'অ্যাকাউন্ট ইমেইল'}</span>-এ পাসওয়ার্ড রিসেট তথ্য পাঠানো হবে।
                   </p>
                 </div>
                 <button
@@ -881,7 +1000,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Bottom Save Action Bar */}
           <div className="pt-4 border-t border-slate-200 flex justify-between items-center sticky bottom-0 bg-white">

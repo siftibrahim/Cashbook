@@ -53,43 +53,39 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [extendModalUser, setExtendModalUser] = useState<AppUser | null>(null);
   const [extendDays, setExtendDays] = useState(30);
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<AppUser | null>(null);
 
   // New / Edit User Form State
   const [formData, setFormData] = useState<Partial<AppUser>>({});
 
   // Filtered Users
   const filteredUsers = users.filter((u) => {
-    const q = searchQuery.toLowerCase().trim();
-    const matchQuery =
-      !q ||
+    const q = searchQuery.toLowerCase();
+    const matchesSearch =
       u.name.toLowerCase().includes(q) ||
-      u.phone.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
-      u.shopName.toLowerCase().includes(q) ||
-      (u.address && u.address.toLowerCase().includes(q));
+      u.phone.includes(q) ||
+      (u.email && u.email.toLowerCase().includes(q)) ||
+      u.shopName.toLowerCase().includes(q);
 
-    const matchStatus = statusFilter === 'all' || u.status === statusFilter;
-    const matchRole = roleFilter === 'all' || u.role === roleFilter;
+    const matchesStatus = statusFilter === 'all' || u.status === statusFilter;
+    const matchesRole = roleFilter === 'all' || u.role === roleFilter;
 
-    return matchQuery && matchStatus && matchRole;
+    return matchesSearch && matchesStatus && matchesRole;
   });
 
   const openAddUser = () => {
     setFormData({
-      id: 'usr_' + Date.now(),
       name: '',
       phone: '',
       email: '',
       shopName: '',
-      businessType: 'জেনারেল স্টোর ও মুদি',
+      businessType: 'মুদি দোকান',
       address: '',
       role: 'user',
       status: 'active',
       subscriptionPlan: 'ফ্রি ট্রায়াল (১৪ দিন)',
       subscriptionStatus: 'active',
       subscriptionExpiresAt: Date.now() + 14 * 86400000,
-      registeredAt: Date.now(),
-      lastActiveAt: Date.now(),
       totalCustomers: 0,
       totalTransactions: 0,
       notes: '',
@@ -105,17 +101,17 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.phone || !formData.shopName) {
-      onShowToast('অনুগ্রহ করে নাম, ফোন নম্বর এবং দোকানের নাম পূরণ করুন');
+      onShowToast('অনুগ্রহ করে নাম, ফোন এবং দোকানের নাম প্রদান করুন');
       return;
     }
 
     const finalUser: AppUser = {
-      id: formData.id || 'usr_' + Date.now(),
+      id: editingUser ? editingUser.id : 'user_' + Date.now(),
       name: formData.name || '',
       phone: formData.phone || '',
-      email: formData.email || `${formData.phone.replace(/[^0-9]/g, '')}@khata.app`,
+      email: formData.email || '',
       shopName: formData.shopName || '',
-      businessType: formData.businessType || 'সাধারণ ব্যবসা',
+      businessType: formData.businessType || 'সাধারণ দোকান',
       address: formData.address || '',
       role: formData.role || 'user',
       status: formData.status || 'active',
@@ -147,9 +143,9 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 text-slate-100 font-sans pb-12">
       {/* Top Header & Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#101A2D] p-4 rounded-3xl border border-slate-800/90 shadow-lg">
         {/* Search */}
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -158,7 +154,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="নাম, ফোন, ইমেইল বা দোকানের নাম দিয়ে খুঁজুন..."
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white"
+            className="w-full pl-10 pr-4 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-2xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
           />
         </div>
 
@@ -167,7 +163,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as any)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer"
+            className="px-3 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-xs font-bold text-slate-300 focus:outline-none focus:border-indigo-500 cursor-pointer"
           >
             <option value="all">সব স্ট্যাটাস ({users.length})</option>
             <option value="active">সক্রিয় (Active)</option>
@@ -179,7 +175,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
           <button
             type="button"
             onClick={openAddUser}
-            className="px-3.5 py-2 bg-[#00695C] hover:bg-[#004D40] text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer shrink-0"
+            className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-black rounded-2xl transition flex items-center gap-1.5 shadow-lg shadow-indigo-500/25 active:scale-95 cursor-pointer shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>নতুন ইউজার যোগ</span>
@@ -188,27 +184,27 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
       </div>
 
       {/* Users Count Summary */}
-      <div className="flex items-center justify-between text-xs text-slate-500 px-1 font-semibold">
+      <div className="flex items-center justify-between text-xs text-slate-400 px-2 font-semibold">
         <span>মোট {filteredUsers.length} জন ইউজার পাওয়া গেছে</span>
         <div className="flex gap-2 text-[11px]">
-          <span className="text-emerald-700 font-bold">
+          <span className="text-emerald-400 font-bold">
             অ্যাক্টিভ: {users.filter((u) => u.status === 'active').length}
           </span>
           <span>•</span>
-          <span className="text-rose-700 font-bold">
+          <span className="text-amber-400 font-bold">
             মেয়াদ শেষ: {users.filter((u) => u.status === 'expired').length}
           </span>
           <span>•</span>
-          <span className="text-purple-700 font-bold">
+          <span className="text-rose-400 font-bold">
             স্থগিত: {users.filter((u) => u.status === 'suspended').length}
           </span>
         </div>
       </div>
 
       {/* Users Cards / Table List */}
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         {filteredUsers.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 text-slate-400 text-xs">
+          <div className="text-center py-12 bg-[#101A2D] rounded-3xl border border-dashed border-slate-800 text-slate-500 text-xs">
             কোনো ইউজার পাওয়া যায়নি। ফিল্টার পরিবর্তন করে পুনরায় চেষ্টা করুন।
           </div>
         ) : (
@@ -219,19 +215,19 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
             return (
               <div
                 key={user.id}
-                className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs hover:border-teal-300 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                className="bg-[#101A2D] p-5 rounded-3xl border border-slate-800/90 shadow-lg hover:border-indigo-500/40 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
               >
                 {/* Left: User & Shop Identity */}
                 <div className="flex items-start gap-3 min-w-0 flex-1">
                   <div
-                    className={`w-11 h-11 rounded-2xl flex items-center justify-center text-white font-black text-sm shrink-0 ${
+                    className={`w-11 h-11 rounded-2xl flex items-center justify-center text-white font-black text-sm shrink-0 shadow-md ${
                       user.role === 'super_admin'
-                        ? 'bg-gradient-to-tr from-amber-600 to-amber-500'
+                        ? 'bg-gradient-to-tr from-amber-600 to-amber-500 text-slate-950'
                         : user.status === 'active'
-                        ? 'bg-gradient-to-tr from-[#00695C] to-[#00897B]'
+                        ? 'bg-gradient-to-tr from-indigo-600 to-blue-600'
                         : user.status === 'suspended'
                         ? 'bg-purple-600'
-                        : 'bg-rose-500'
+                        : 'bg-rose-600'
                     }`}
                   >
                     {user.name.charAt(0)}
@@ -239,21 +235,21 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <h4 className="text-sm font-black text-slate-900 truncate">{user.name}</h4>
+                      <h4 className="text-sm font-black text-white truncate">{user.name}</h4>
                       {user.role === 'super_admin' && (
-                        <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                        <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                           মালিক / সুপার অ্যাডমিন
                         </span>
                       )}
                       <span
                         className={`px-2 py-0.2 rounded-full text-[10px] font-bold ${
                           user.status === 'active'
-                            ? 'bg-emerald-100 text-emerald-800'
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                             : user.status === 'expired'
-                            ? 'bg-rose-100 text-rose-800'
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                             : user.status === 'suspended'
-                            ? 'bg-purple-100 text-purple-800'
-                            : 'bg-amber-100 text-amber-800'
+                            ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                            : 'bg-slate-700 text-slate-300'
                         }`}
                       >
                         {user.status === 'active'
@@ -267,37 +263,37 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                     </div>
 
                     {/* Shop and Contact */}
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 mt-1">
-                      <span className="flex items-center gap-1 font-semibold text-slate-800">
-                        <Store className="w-3.5 h-3.5 text-teal-700" />
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 mt-1">
+                      <span className="flex items-center gap-1 font-semibold text-slate-200">
+                        <Store className="w-3.5 h-3.5 text-indigo-400" />
                         <span>{user.shopName}</span>
                       </span>
 
-                      <span className="flex items-center gap-1 text-slate-600 font-mono">
-                        <Phone className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="flex items-center gap-1 text-slate-400 font-mono">
+                        <Phone className="w-3.5 h-3.5 text-slate-500" />
                         <span>{user.phone}</span>
                       </span>
 
                       {user.email && (
-                        <span className="flex items-center gap-1 text-slate-500 hidden sm:inline-flex">
-                          <Mail className="w-3 h-3 text-slate-400" />
+                        <span className="flex items-center gap-1 text-slate-400 hidden sm:inline-flex">
+                          <Mail className="w-3 h-3 text-slate-500" />
                           <span>{user.email}</span>
                         </span>
                       )}
                     </div>
 
                     {/* Subscriptions & Expiry details */}
-                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 mt-1.5">
-                      <span className="font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400 mt-2">
+                      <span className="font-bold text-indigo-300 bg-indigo-950/60 px-2.5 py-0.5 rounded-lg border border-indigo-500/30">
                         প্যাকেজ: {user.subscriptionPlan}
                       </span>
                       <span
                         className={`font-semibold ${
                           isExp
-                            ? 'text-rose-600'
+                            ? 'text-rose-400'
                             : daysLeft <= 3
-                            ? 'text-amber-600 font-bold'
-                            : 'text-slate-600'
+                            ? 'text-amber-400 font-bold'
+                            : 'text-slate-400'
                         }`}
                       >
                         মেয়াদ:{' '}
@@ -309,7 +305,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                           : `${daysLeft} দিন বাকি`}
                         )
                       </span>
-                      <span className="text-slate-400">
+                      <span className="text-slate-500">
                         • কাস্টমার: {user.totalCustomers} জন | হিসাব: {user.totalTransactions} টি
                       </span>
                     </div>
@@ -322,7 +318,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                     type="button"
                     onClick={() => setViewUser(user)}
                     title="বিস্তারিত দেখুন"
-                    className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                    className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer border border-slate-800"
                   >
                     <Eye className="w-4 h-4" />
                   </button>
@@ -331,7 +327,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                     type="button"
                     onClick={() => openEditUser(user)}
                     title="ইউজার তথ্য এডিট"
-                    className="p-2 bg-slate-100 hover:bg-teal-100 text-teal-800 rounded-xl text-xs font-bold transition cursor-pointer"
+                    className="p-2 bg-slate-900 hover:bg-indigo-950/60 text-indigo-400 border border-slate-800 hover:border-indigo-500/40 rounded-xl text-xs font-bold transition cursor-pointer"
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
@@ -340,7 +336,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                     type="button"
                     onClick={() => setExtendModalUser(user)}
                     title="সাবস্ক্রিপশন মেয়াদ বৃদ্ধি"
-                    className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                    className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
                   >
                     <Calendar className="w-3.5 h-3.5" />
                     <span>মেয়াদ বাড়ান</span>
@@ -351,7 +347,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                       type="button"
                       onClick={() => onUpdateStatus(user.id, 'active', 'অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে')}
                       title="ইউজার সচল করুন"
-                      className="px-2.5 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded-xl text-xs font-bold transition cursor-pointer"
+                      className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-bold transition cursor-pointer"
                     >
                       আনব্লক
                     </button>
@@ -360,7 +356,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                       type="button"
                       onClick={() => onUpdateStatus(user.id, 'suspended', 'অ্যাডমিন কর্তৃক সাময়িক স্থগিত')}
                       title="ইউজার স্থগিত করুন"
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-purple-50 text-slate-600 hover:text-purple-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-purple-950/50 text-slate-400 hover:text-purple-300 border border-slate-800 rounded-xl text-xs font-bold transition cursor-pointer"
                     >
                       স্থগিত
                     </button>
@@ -371,7 +367,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                       type="button"
                       onClick={() => handlePasswordResetClick(user)}
                       title="পাসওয়ার্ড রিসেট লিংক পাঠান"
-                      className="p-2 bg-slate-100 hover:bg-amber-100 text-amber-800 rounded-xl text-xs font-bold transition cursor-pointer"
+                      className="p-2 bg-slate-900 hover:bg-amber-950/50 text-amber-400 border border-slate-800 rounded-xl text-xs font-bold transition cursor-pointer"
                     >
                       <Key className="w-4 h-4" />
                     </button>
@@ -380,13 +376,9 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                   {user.role !== 'super_admin' && (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (window.confirm(`আপনি কি নিশ্চিত যে ইউজার "${user.name}" স্থায়ীভাবে মুছে ফেলতে চান?`)) {
-                          onDeleteUser(user.id);
-                        }
-                      }}
+                      onClick={() => setDeleteConfirmUser(user)}
                       title="ইউজার মুছুন"
-                      className="p-2 bg-slate-100 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                      className="p-2 bg-slate-900 hover:bg-rose-950/50 text-rose-400 border border-slate-800 rounded-xl text-xs font-bold transition cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -400,30 +392,30 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
 
       {/* 1. EXTEND SUBSCRIPTION MODAL */}
       {extendModalUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-[#0F172A] w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-base font-bold text-slate-800">সাবস্ক্রিপশন মেয়াদ বৃদ্ধি</h3>
+                <Calendar className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base font-bold text-white">সাবস্ক্রিপশন মেয়াদ বৃদ্ধি</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setExtendModalUser(null)}
-                className="p-1 rounded-full text-slate-400 hover:bg-slate-100 cursor-pointer"
+                className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer"
               >
-                <XCircle className="w-5 h-5" />
+                ✕
               </button>
             </div>
 
-            <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs text-emerald-900">
-              ইউজার: <span className="font-bold">{extendModalUser.name}</span> ({extendModalUser.shopName})
+            <div className="p-3.5 bg-emerald-950/40 rounded-2xl border border-emerald-500/30 text-xs text-emerald-200">
+              ইউজার: <span className="font-bold text-white">{extendModalUser.name}</span> ({extendModalUser.shopName})
               <br />
-              বর্তমান মেয়াদ: <span className="font-bold">{new Date(extendModalUser.subscriptionExpiresAt).toLocaleDateString('bn-BD')}</span>
+              বর্তমান মেয়াদ: <span className="font-bold text-emerald-400">{new Date(extendModalUser.subscriptionExpiresAt).toLocaleDateString('bn-BD')}</span>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold text-slate-300 mb-2">
                 কত দিন মেয়াদ বাড়াতে চান?
               </label>
               <div className="grid grid-cols-4 gap-2 mb-3">
@@ -434,8 +426,8 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                     onClick={() => setExtendDays(d)}
                     className={`py-2 text-xs font-bold rounded-xl border transition cursor-pointer ${
                       extendDays === d
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-md'
+                        : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
                     }`}
                   >
                     +{d} দিন
@@ -447,15 +439,15 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                 value={extendDays}
                 onChange={(e) => setExtendDays(Number(e.target.value))}
                 placeholder="কাস্টম দিন সংখ্যা লিখুন"
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-xs text-white focus:outline-none focus:border-emerald-500"
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => setExtendModalUser(null)}
-                className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold cursor-pointer"
+                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
               >
                 বাতিল
               </button>
@@ -466,7 +458,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                   onShowToast(`✅ ${extendModalUser.name}-এর মেয়াদ +${extendDays} দিন বাড়ানো হয়েছে!`);
                   setExtendModalUser(null);
                 }}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-md cursor-pointer"
               >
                 মেয়াদ নিশ্চিত করুন
               </button>
@@ -477,84 +469,84 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
 
       {/* 2. VIEW USER DETAILS MODAL */}
       {viewUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white w-full max-w-lg rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-[#0F172A] w-full max-w-lg rounded-3xl p-6 shadow-2xl border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
-                <Store className="w-5 h-5 text-teal-700" />
-                <h3 className="text-base font-bold text-slate-800">ইউজার প্রোফাইল ও বিবরণ</h3>
+                <Store className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-base font-bold text-white">ইউজার প্রোফাইল ও বিবরণ</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setViewUser(null)}
-                className="p-1 rounded-full text-slate-400 hover:bg-slate-100 cursor-pointer"
+                className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer"
               >
-                <XCircle className="w-5 h-5" />
+                ✕
               </button>
             </div>
 
-            <div className="space-y-3 text-xs text-slate-700">
-              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+            <div className="space-y-3 text-xs text-slate-300">
+              <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-900 rounded-2xl border border-slate-800">
                 <div>
-                  <span className="text-slate-400 block text-[11px]">ইউজার নাম</span>
-                  <span className="font-bold text-slate-900 text-sm">{viewUser.name}</span>
+                  <span className="text-slate-500 block text-[11px]">ইউজার নাম</span>
+                  <span className="font-bold text-white text-sm">{viewUser.name}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[11px]">মোবাইল নম্বর</span>
-                  <span className="font-bold text-slate-900 font-mono">{viewUser.phone}</span>
+                  <span className="text-slate-500 block text-[11px]">মোবাইল নম্বর</span>
+                  <span className="font-bold text-white font-mono">{viewUser.phone}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[11px]">ইমেইল</span>
-                  <span className="font-semibold text-slate-800">{viewUser.email || 'নাই'}</span>
+                  <span className="text-slate-500 block text-[11px]">ইমেইল</span>
+                  <span className="font-semibold text-slate-300">{viewUser.email || 'নাই'}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[11px]">দোকানের নাম</span>
-                  <span className="font-bold text-slate-900">{viewUser.shopName}</span>
+                  <span className="text-slate-500 block text-[11px]">দোকানের নাম</span>
+                  <span className="font-bold text-white">{viewUser.shopName}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[11px]">ব্যবসার ধরন</span>
-                  <span className="font-semibold text-slate-800">{viewUser.businessType}</span>
+                  <span className="text-slate-500 block text-[11px]">ব্যবসার ধরন</span>
+                  <span className="font-semibold text-slate-300">{viewUser.businessType}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block text-[11px]">ঠিকানা</span>
-                  <span className="font-semibold text-slate-800">{viewUser.address || 'নাই'}</span>
+                  <span className="text-slate-500 block text-[11px]">ঠিকানা</span>
+                  <span className="font-semibold text-slate-300">{viewUser.address || 'নাই'}</span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 p-3 bg-teal-50/70 rounded-2xl border border-teal-200">
+              <div className="grid grid-cols-2 gap-3 p-3.5 bg-indigo-950/40 rounded-2xl border border-indigo-500/30">
                 <div>
-                  <span className="text-teal-700 block text-[11px] font-bold">বর্তমান প্যাকেজ</span>
-                  <span className="font-black text-teal-900 text-sm">{viewUser.subscriptionPlan}</span>
+                  <span className="text-indigo-400 block text-[11px] font-bold">বর্তমান প্যাকেজ</span>
+                  <span className="font-black text-white text-sm">{viewUser.subscriptionPlan}</span>
                 </div>
                 <div>
-                  <span className="text-teal-700 block text-[11px] font-bold">মেয়াদ সমাপ্তি</span>
-                  <span className="font-black text-teal-900">
+                  <span className="text-indigo-400 block text-[11px] font-bold">মেয়াদ সমাপ্তি</span>
+                  <span className="font-black text-indigo-300">
                     {new Date(viewUser.subscriptionExpiresAt).toLocaleDateString('bn-BD')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-teal-700 block text-[11px] font-bold">রেজিস্ট্রেশন তারিখ</span>
-                  <span className="font-semibold text-teal-800">
+                  <span className="text-indigo-400 block text-[11px] font-bold">রেজিস্ট্রেশন তারিখ</span>
+                  <span className="font-semibold text-slate-300">
                     {new Date(viewUser.registeredAt).toLocaleDateString('bn-BD')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-teal-700 block text-[11px] font-bold">সর্বশেষ সক্রিয়</span>
-                  <span className="font-semibold text-teal-800">
+                  <span className="text-indigo-400 block text-[11px] font-bold">সর্বশেষ সক্রিয়</span>
+                  <span className="font-semibold text-slate-300">
                     {new Date(viewUser.lastActiveAt).toLocaleDateString('bn-BD')}
                   </span>
                 </div>
               </div>
 
               {viewUser.notes && (
-                <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900">
+                <div className="p-3.5 bg-amber-950/40 rounded-2xl border border-amber-500/30 text-amber-200">
                   <span className="font-bold block text-[11px]">অ্যাডমিন নোট:</span>
                   <p className="mt-0.5">{viewUser.notes}</p>
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-100">
+            <div className="flex justify-end pt-3 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => setViewUser(null)}
@@ -569,10 +561,10 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
 
       {/* 3. ADD / EDIT USER MODAL */}
       {(isAddUserOpen || editingUser) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white w-full max-w-lg rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-[#0F172A] w-full max-w-lg rounded-3xl p-6 shadow-2xl border border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="text-base font-bold text-white">
                 {editingUser ? 'ইউজার তথ্য সম্পাদনা' : 'নতুন ইউজার যোগ করুন'}
               </h3>
               <button
@@ -581,17 +573,17 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                   setIsAddUserOpen(false);
                   setEditingUser(null);
                 }}
-                className="p-1 rounded-full text-slate-400 hover:bg-slate-100 cursor-pointer"
+                className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer"
               >
-                <XCircle className="w-5 h-5" />
+                ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveForm} className="space-y-3 text-xs">
+            <form onSubmit={handleSaveForm} className="space-y-3.5 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    ইউজারের পূর্ণ নাম <span className="text-red-500">*</span>
+                  <label className="block font-bold text-slate-300 mb-1">
+                    ইউজারের পূর্ণ নাম <span className="text-rose-400">*</span>
                   </label>
                   <input
                     type="text"
@@ -599,13 +591,13 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                     value={formData.name || ''}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="যেমন: আব্দুর রহমান"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    মোবাইল নম্বর <span className="text-red-500">*</span>
+                  <label className="block font-bold text-slate-300 mb-1">
+                    মোবাইল নম্বর <span className="text-rose-400">*</span>
                   </label>
                   <input
                     type="text"
@@ -613,24 +605,24 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                     value={formData.phone || ''}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     placeholder="০১XXXXXXXXX"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">ইমেইল ঠিকানা</label>
+                  <label className="block font-bold text-slate-300 mb-1">ইমেইল ঠিকানা</label>
                   <input
                     type="email"
                     value={formData.email || ''}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     placeholder="user@example.com"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    দোকান / ব্যবসার নাম <span className="text-red-500">*</span>
+                  <label className="block font-bold text-slate-300 mb-1">
+                    দোকান / ব্যবসার নাম <span className="text-rose-400">*</span>
                   </label>
                   <input
                     type="text"
@@ -638,38 +630,38 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                     value={formData.shopName || ''}
                     onChange={(e) => setFormData({ ...formData, shopName: e.target.value })}
                     placeholder="যেমন: রহমান জেনারেল স্টোর"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">ব্যবসার ধরন</label>
+                  <label className="block font-bold text-slate-300 mb-1">ব্যবসার ধরন</label>
                   <input
                     type="text"
                     value={formData.businessType || ''}
                     onChange={(e) => setFormData({ ...formData, businessType: e.target.value })}
-                    placeholder="মুদি, ফার্মেসি, গার্মেন্টস, ইত্যাদি"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    placeholder="মুদি, ফার্মেসি, ইত্যাদি"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">ঠিকানা</label>
+                  <label className="block font-bold text-slate-300 mb-1">ঠিকানা</label>
                   <input
                     type="text"
                     value={formData.address || ''}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     placeholder="বাজার রোড, দোকান নং ০২"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-white focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">স্ট্যাটাস</label>
+                  <label className="block font-bold text-slate-300 mb-1">স্ট্যাটাস</label>
                   <select
                     value={formData.status || 'active'}
                     onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none cursor-pointer"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
                   >
                     <option value="active">সক্রিয় (Active)</option>
                     <option value="expired">মেয়াদ শেষ (Expired)</option>
@@ -679,11 +671,11 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">সাবস্ক্রিপশন প্ল্যান</label>
+                  <label className="block font-bold text-slate-300 mb-1">সাবস্ক্রিপশন প্ল্যান</label>
                   <select
                     value={formData.subscriptionPlan || 'ফ্রি ট্রায়াল (১৪ দিন)'}
                     onChange={(e) => setFormData({ ...formData, subscriptionPlan: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none cursor-pointer"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
                   >
                     <option value="ফ্রি ট্রায়াল (১৪ দিন)">ফ্রি ট্রায়াল (১৪ দিন)</option>
                     <option value="মাসিক স্ট্যান্ডার্ড প্যাক">মাসিক স্ট্যান্ডার্ড প্যাক</option>
@@ -695,35 +687,75 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">অ্যাডমিন স্পেশাল নোটস</label>
+                <label className="block font-bold text-slate-300 mb-1">অ্যাডমিন স্পেশাল নোটস</label>
                 <textarea
                   rows={2}
                   value={formData.notes || ''}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   placeholder="ইউজার সম্পর্কিত কোনো অভ্যন্তরীণ মন্তব্য..."
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                  className="w-full px-3.5 py-2 bg-slate-900 border border-slate-700/80 rounded-2xl text-white focus:border-indigo-500 focus:outline-none"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => {
                     setIsAddUserOpen(false);
                     setEditingUser(null);
                   }}
-                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold cursor-pointer"
+                  className="px-4 py-2.5 bg-slate-800 text-slate-300 rounded-xl font-bold cursor-pointer"
                 >
                   বাতিল
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-[#00695C] hover:bg-[#004D40] text-white rounded-xl font-bold shadow-md cursor-pointer"
+                  className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl font-black shadow-lg shadow-indigo-500/25 cursor-pointer"
                 >
                   সংরক্ষণ করুন
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 4. DELETE USER IN-APP CONFIRMATION MODAL */}
+      {deleteConfirmUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-[#0F172A] w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-rose-500/40 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-black">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">ইউজার মুছে ফেলার নিশ্চিতকরণ</h4>
+                <p className="text-xs text-slate-400">{deleteConfirmUser.name}</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              আপনি কি নিশ্চিত যে <span className="font-bold text-rose-400">{deleteConfirmUser.name}</span> ({deleteConfirmUser.shopName}) এর সমস্ত খাতা ডেটাসহ অ্যাকাউন্টটি স্থায়ীভাবে মুছে ফেলতে চান?
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmUser(null)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold hover:bg-slate-700 transition cursor-pointer"
+              >
+                বাতিল
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const id = deleteConfirmUser.id;
+                  setDeleteConfirmUser(null);
+                  await onDeleteUser(id);
+                }}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-600/30 transition cursor-pointer"
+              >
+                হ্যাঁ, মুছে ফেলুন
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -55,6 +55,7 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
   const [typeFilter, setTypeFilter] = useState<'all' | 'cash_sales' | 'due_sales' | 'payments'>('all');
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week' | 'month' | 'all' | 'custom'>('all');
   const [customDate, setCustomDate] = useState(getTodayDateString());
+  const [deleteConfirmTx, setDeleteConfirmTx] = useState<{ txId: string; customerId: string; amount: number; desc?: string } | null>(null);
 
   // Customer map for fast lookup
   const customerMap = useMemo(() => {
@@ -553,11 +554,7 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
                       {/* Delete button */}
                       <button
                         type="button"
-                        onClick={() => {
-                          if (window.confirm(`আপনি কি নিশ্চিত যে এই লেনদেনটি (${currency}${formatMoney(tx.amount)}) বাতিল / মুছে ফেলতে চান?`)) {
-                            onDeleteTransaction(tx.id, customer.id);
-                          }
-                        }}
+                        onClick={() => setDeleteConfirmTx({ txId: tx.id, customerId: customer.id, amount: tx.amount, desc: tx.description })}
                         title="লেনদেন বাতিল / মুছুন"
                         className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 transition cursor-pointer active:scale-95"
                       >
@@ -585,6 +582,47 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* In-app Delete Transaction Confirmation Modal */}
+      {deleteConfirmTx && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl border border-red-200 space-y-3.5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center font-black">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-800">লেনদেন মুছে ফেলা</h4>
+                <p className="text-xs text-red-600 font-bold">{currency}{formatMoney(deleteConfirmTx.amount)}</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              আপনি কি নিশ্চিত যে {deleteConfirmTx.desc ? `"${deleteConfirmTx.desc}"-এর` : ''} এই লেনদেনটি বাতিল বা মুছে ফেলতে চান? এটি গ্রাহকের মোট বাকি ও ক্যাশ হিস্ট্রি থেকে স্বয়ংক্রিয়ভাবে সমন্বয় করা হবে।
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmTx(null)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition cursor-pointer"
+              >
+                বাতিল
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const { txId, customerId } = deleteConfirmTx;
+                  setDeleteConfirmTx(null);
+                  onDeleteTransaction(txId, customerId);
+                  onShowToast('লেনদেনটি মুছে ফেলা হয়েছে');
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer"
+              >
+                হ্যাঁ, মুছে ফেলুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

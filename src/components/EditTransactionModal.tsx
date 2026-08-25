@@ -52,6 +52,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [items, setItems] = useState<InvoiceItem[]>([]);
   const [paidAmount, setPaidAmount] = useState<string>('');
   const [discount, setDiscount] = useState<string>('0');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (transaction) {
@@ -462,12 +463,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <button
             type="button"
-            onClick={() => {
-              if (window.confirm('আপনি কি নিশ্চিত যে এই লেনদেনটি বাতিল বা মুছে ফেলতে চান?')) {
-                onDelete(transaction.id);
-                onClose();
-              }
-            }}
+            onClick={() => setShowDeleteConfirm(true)}
             className="px-3.5 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -493,6 +489,46 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl border border-red-200 space-y-3.5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center font-black">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-800">লেনদেন মুছে ফেলার নিশ্চিতকরণ</h4>
+                <p className="text-xs text-red-600 font-bold">{currencySymbol}{formatMoney(transaction.amount)}</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              আপনি কি নিশ্চিত যে এই লেনদেনটি বাতিল বা মুছে ফেলতে চান? এটি কাস্টমারের মোট বাকি হিসাব থেকে স্বয়ংক্রিয়ভাবে সমন্বয় করা হবে।
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition cursor-pointer"
+              >
+                বাতিল
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  onDelete(transaction.id);
+                  onClose();
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold shadow-xs transition cursor-pointer"
+              >
+                হ্যাঁ, মুছে ফেলুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

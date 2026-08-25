@@ -53,6 +53,7 @@ export const SupportManagementTab: React.FC<SupportManagementTabProps> = ({
   const [isSending, setIsSending] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   // Subscribe to all support threads in real time
@@ -151,22 +152,22 @@ export const SupportManagementTab: React.FC<SupportManagementTabProps> = ({
     );
   };
 
-  const handleDeleteConversation = async () => {
+  const handleDeleteConversation = () => {
     if (!activeThread) return;
-    if (
-      window.confirm(
-        `আপনি কি নিশ্চিত যে "${activeThread.userName}" (${activeThread.shopName})-এর সম্পূর্ণ চ্যাট হিস্টোরি মুছে ফেলতে চান?`
-      )
-    ) {
-      const deletedId = activeThread.userId;
-      await deleteSupportThread(deletedId);
-      onShowToast('চ্যাট হিস্টোরি মুছে ফেলা হয়েছে');
-      const remaining = threads.filter((t) => t.userId !== deletedId);
-      if (remaining.length > 0) {
-        setSelectedUserId(remaining[0].userId);
-      } else {
-        setSelectedUserId(null);
-      }
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteConversation = async () => {
+    if (!activeThread) return;
+    const deletedId = activeThread.userId;
+    setShowDeleteModal(false);
+    await deleteSupportThread(deletedId);
+    onShowToast('চ্যাট হিস্টোরি মুছে ফেলা হয়েছে');
+    const remaining = threads.filter((t) => t.userId !== deletedId);
+    if (remaining.length > 0) {
+      setSelectedUserId(remaining[0].userId);
+    } else {
+      setSelectedUserId(null);
     }
   };
 
@@ -526,6 +527,42 @@ export const SupportManagementTab: React.FC<SupportManagementTabProps> = ({
           )}
         </div>
       </div>
+
+      {/* Delete Chat Confirmation Modal */}
+      {showDeleteModal && activeThread && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-rose-200 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center font-black">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-800">চ্যাট ডিলিট নিশ্চিতকরণ</h4>
+                <p className="text-xs text-slate-500">{activeThread.userName}</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              আপনি কি নিশ্চিত যে <span className="font-bold text-rose-600">{activeThread.userName}</span> ({activeThread.shopName})-এর সম্পূর্ণ চ্যাট হিস্টোরি মুছে ফেলতে চান?
+            </p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition cursor-pointer"
+              >
+                বাতিল
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteConversation}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-600/30 transition cursor-pointer"
+              >
+                হ্যাঁ, মুছে ফেলুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
