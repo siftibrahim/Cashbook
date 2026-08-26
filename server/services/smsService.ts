@@ -67,9 +67,9 @@ export async function getSmsGatewaySettings(): Promise<SmsGatewaySettings> {
 
   if (pool) {
     try {
-      const res = await pool.query("SELECT value FROM system_config WHERE key = 'sms_gateway_config' LIMIT 1");
-      if (res.rows.length > 0 && res.rows[0].value) {
-        dbConfig = typeof res.rows[0].value === 'string' ? JSON.parse(res.rows[0].value) : res.rows[0].value;
+      const res = await pool.query("SELECT data FROM system_config WHERE id = 'sms_gateway_config' LIMIT 1");
+      if (res.rows.length > 0 && res.rows[0].data) {
+        dbConfig = typeof res.rows[0].data === 'string' ? JSON.parse(res.rows[0].data) : res.rows[0].data;
       }
     } catch (err) {
       // Table might not exist or error
@@ -78,6 +78,11 @@ export async function getSmsGatewaySettings(): Promise<SmsGatewaySettings> {
 
   if (dbConfig && dbConfig.apiKey) {
     return dbConfig;
+  }
+
+  // Fallback to In-Memory
+  if (inMemoryStore.system_config['sms_gateway_config']) {
+    return inMemoryStore.system_config['sms_gateway_config'];
   }
 
   // Fallback to Environment Variables
@@ -101,14 +106,15 @@ export async function getSmsGatewaySettings(): Promise<SmsGatewaySettings> {
  * Save SMS Gateway Settings to PostgreSQL or In-Memory
  */
 export async function saveSmsGatewaySettings(settings: SmsGatewaySettings): Promise<void> {
+  inMemoryStore.system_config['sms_gateway_config'] = settings;
   const pool = getDbPool();
   if (pool) {
     try {
       await pool.query(
-        `INSERT INTO system_config (key, value, updated_at)
-         VALUES ('sms_gateway_config', $1, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-        [JSON.stringify(settings)]
+        `INSERT INTO system_config (id, data, updated_at, updated_by)
+         VALUES ('sms_gateway_config', $1, $2, 'admin')
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
+        [JSON.stringify(settings), Date.now()]
       );
     } catch (err) {
       console.warn('Could not save SMS config to DB:', err);

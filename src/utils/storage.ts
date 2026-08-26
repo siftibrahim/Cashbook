@@ -1,8 +1,8 @@
 import { Customer, Transaction, StoreProfile, DailyExpense, Product } from '../types';
 
 export const DEFAULT_STORE: StoreProfile = {
-  name: 'ইব্রাহিম জেনারেল স্টোর',
-  owner: 'ইব্রাহিম',
+  name: 'TWING হিসাবি',
+  owner: 'প্রোপ্রাইটর',
   phone: '০১৩০৬৯০৮১১৫',
   address: 'বাজার রোড, দোকান নং ১২',
   footerNote: 'আমাদের সাথে থাকার জন্য ধন্যবাদ! আবার আসবেন।',
@@ -351,6 +351,11 @@ export function loadStoreProfile(userId?: string): StoreProfile {
     }
     if (!raw) return fallbackStore;
     const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.name === 'ইব্রাহিম জেনারেল স্টোর' || parsed.name === 'Twing হিসাব খাতা') {
+        parsed.name = 'TWING হিসাবি';
+      }
+    }
     return { ...fallbackStore, ...parsed };
   } catch (e) {
     console.error('Error loading store profile:', e);

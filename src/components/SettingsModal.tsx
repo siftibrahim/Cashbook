@@ -26,6 +26,8 @@ import {
   Palette,
   Headphones,
   Mail,
+  Sparkles,
+  CreditCard,
 } from 'lucide-react';
 import { playPaymentChime } from '../utils/audio';
 import { SUPPORT_CONTACT } from '../types/adminTypes';
@@ -43,9 +45,10 @@ interface SettingsModalProps {
   onShowToast: (msg: string) => void;
   onOpenAdmin?: () => void;
   onOpenSupport?: () => void;
+  onOpenSubscription?: () => void;
 }
 
-type TabType = 'store' | 'mfs' | 'tagada' | 'print' | 'limits_sound' | 'backup' | 'security';
+type TabType = 'store' | 'subscription' | 'mfs' | 'tagada' | 'print' | 'limits_sound' | 'backup' | 'security';
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -60,6 +63,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onShowToast,
   onOpenAdmin,
   onOpenSupport,
+  onOpenSubscription,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('store');
 
@@ -350,6 +354,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             type="button"
+            onClick={() => setActiveTab('subscription')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'subscription'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'text-amber-700 bg-amber-50 hover:bg-amber-100/80 border border-amber-200/60'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>প্যাকেজ ও সাবস্ক্রিপশন</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('mfs')}
             className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
               activeTab === 'mfs'
@@ -446,7 +463,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="যেমন: ইব্রাহিম জেনারেল স্টোর"
+                  placeholder="যেমন: TWING হিসাবি"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-bold text-slate-800"
                 />
               </div>
@@ -503,6 +520,149 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   placeholder="যেমন: আমাদের সাথে কেনাকাটা করার জন্য ধন্যবাদ! আবার আসবেন।"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-medium text-slate-800"
                 />
+              </div>
+            </div>
+          )}
+
+          {/* TAB: SUBSCRIPTION & PACKAGES */}
+          {activeTab === 'subscription' && (
+            <div className="space-y-5 animate-in fade-in">
+              <div className="p-4 bg-gradient-to-r from-amber-500/15 via-teal-500/10 to-emerald-500/15 rounded-2xl border border-amber-300/60 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-700 flex items-center justify-center font-bold border border-amber-400/40 shrink-0">
+                    <Sparkles className="w-6 h-6 text-amber-600 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-black text-slate-900">
+                        বর্তমান প্ল্যান: <span className="text-teal-800">{(store as any)?.subscriptionPlan || '১৪ দিনের ফ্রি ট্রায়াল'}</span>
+                      </h4>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        সক্রিয়
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1">
+                      মেয়াদ শেষ হবে: <span className="font-bold text-slate-800">
+                        {new Date((store as any)?.subscriptionExpiresAt || (Date.now() + 14 * 86400000)).toLocaleDateString('bn-BD', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                {onOpenSubscription && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenSubscription();
+                    }}
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-95 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md transition cursor-pointer shrink-0"
+                  >
+                    <CreditCard className="w-4 h-4 text-amber-200" />
+                    <span>প্যাকেজ রিনিউ ও পেমেন্ট পেজ খুলুন</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">প্যাক ১</span>
+                    <h5 className="text-sm font-black text-slate-800 mt-0.5">২ মাসের স্টার্টার প্যাক</h5>
+                    <p className="text-lg font-black text-teal-800 my-1.5">৳ ১০০ <span className="text-[10px] font-normal text-slate-500">/ ৬০ দিন</span></p>
+                    <ul className="text-[11px] text-slate-600 space-y-1">
+                      <li>• আনলিমিটেড কাস্টমার ও বাকি খাতা</li>
+                      <li>• পিওএস ক্যাশ ও সেলস ইনভয়েস</li>
+                      <li>• ফ্রি এসএমএস ও তাগাদা মেমো</li>
+                    </ul>
+                  </div>
+                  {onOpenSubscription && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSubscription();
+                      }}
+                      className="mt-3 w-full py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-xs font-bold text-slate-700 transition"
+                    >
+                      পেমেন্ট করুন
+                    </button>
+                  )}
+                </div>
+
+                <div className="bg-teal-50/50 p-4 rounded-2xl border-2 border-teal-500/40 relative flex flex-col justify-between shadow-xs">
+                  <span className="absolute -top-2.5 right-3 text-[9px] font-black px-2 py-0.5 bg-[#004D40] text-white rounded-full">জনপ্রিয় অফার</span>
+                  <div>
+                    <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">প্যাক ২</span>
+                    <h5 className="text-sm font-black text-slate-900 mt-0.5">৬ মাসের বিজনেস প্রিমিয়াম</h5>
+                    <p className="text-lg font-black text-teal-800 my-1.5">৳ ২৬০ <span className="text-[10px] font-normal text-slate-500">/ ১৮০ দিন</span></p>
+                    <ul className="text-[11px] text-slate-600 space-y-1">
+                      <li>• সকল স্টার্টার ফিচারসহ দ্রুত ক্লাউড ব্যাকআপ</li>
+                      <li>• মাল্টি-ডিভাইস ও ফুল অ্যানালিটিক্স</li>
+                      <li>• ডেডিকেটেড ভিআইপি সাপোর্ট</li>
+                    </ul>
+                  </div>
+                  {onOpenSubscription && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSubscription();
+                      }}
+                      className="mt-3 w-full py-1.5 rounded-lg bg-[#004D40] hover:bg-[#00382E] text-white text-xs font-bold transition shadow-xs"
+                    >
+                      পেমেন্ট করুন
+                    </button>
+                  )}
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">প্যাক ৩</span>
+                    <h5 className="text-sm font-black text-slate-800 mt-0.5">১ বছরের আনলিমিটেড এন্টারপ্রাইজ</h5>
+                    <p className="text-lg font-black text-teal-800 my-1.5">৳ ৫০০ <span className="text-[10px] font-normal text-slate-500">/ ৩৬৫ দিন</span></p>
+                    <ul className="text-[11px] text-slate-600 space-y-1">
+                      <li>• সম্পূর্ণ আনলিমিটেড ১ বছর নিশ্চিন্ত ব্যবহার</li>
+                      <li>• কাস্টম ব্রান্ডিং ও অটো হোয়াটসঅ্যাপ অ্যালার্ট</li>
+                      <li>• প্রায় ৫৮% সাশ্রয়ী বার্ষিক প্যাক</li>
+                    </ul>
+                  </div>
+                  {onOpenSubscription && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSubscription();
+                      }}
+                      className="mt-3 w-full py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-xs font-bold text-slate-700 transition"
+                    >
+                      পেমেন্ট করুন
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-pink-600 shrink-0" />
+                  <span>পেমেন্ট মেথড: bKash (বিকাশ), Nagad (নগদ), Rocket (রকেট) ও ব্যাংক ট্রান্সফার সাপোর্টেড।</span>
+                </div>
+                {onOpenSubscription && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenSubscription();
+                    }}
+                    className="text-teal-700 font-bold hover:underline shrink-0 text-xs"
+                  >
+                    বিস্তারিত দেখুন →
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -624,7 +784,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     .replace(/{customer}/g, 'রহিম')
                     .replace(/{amount}/g, '১,৪৫০')
                     .replace(/{currency}/g, currencySymbol)
-                    .replace(/{store}/g, name || 'ইব্রাহিম জেনারেল স্টোর')
+                    .replace(/{store}/g, name || 'TWING হিসাবি')
                     .replace(/{phone}/g, phone || '০১৩০৬৯০৮১১৫')}
                 </p>
               </div>

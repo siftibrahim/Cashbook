@@ -59,6 +59,9 @@ import { AnnouncementManagementTab } from './AnnouncementManagementTab';
 import { AppUpdateManagementTab } from './AppUpdateManagementTab';
 import { ActivityLogTab } from './ActivityLogTab';
 import { StaffManagementTab } from './StaffManagementTab';
+import { PaymentSettingsTab } from './PaymentSettingsTab';
+import { SmsGatewayTab } from './SmsGatewayTab';
+import { SuperAdminSecurityTab } from './SuperAdminSecurityTab';
 import {
   LayoutDashboard,
   Users,
@@ -83,6 +86,10 @@ import {
   Sparkles,
   Zap,
   Store,
+  Smartphone,
+  KeyRound,
+  Sliders,
+  Wallet,
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -184,6 +191,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       label: 'সার্বিক ড্যাশবোর্ড',
       icon: LayoutDashboard,
       isAllowed: true,
+    },
+    {
+      id: 'payment_settings',
+      label: 'পেমেন্ট গেটওয়ে সেটিংস',
+      icon: Wallet,
+      isAllowed: isSuperAdmin,
+      isSuperOnly: true,
+    },
+    {
+      id: 'sms_gateway',
+      label: 'এসএমএস ও ওটিপি গেটওয়ে',
+      icon: Smartphone,
+      isAllowed: isSuperAdmin,
+      isSuperOnly: true,
+    },
+    {
+      id: 'super_admin_security',
+      label: 'অ্যাডমিন সিকিউরিটি ও জিমেইল',
+      icon: KeyRound,
+      isAllowed: isSuperAdmin,
+      isSuperOnly: true,
     },
     {
       id: 'staff_management',
@@ -534,6 +562,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               config={appConfig}
               onSaveConfig={saveAppUpdateConfigToCloud}
               onShowToast={showToast}
+            />
+          )}
+
+          {activeTab === 'payment_settings' && isSuperAdmin && (
+            <PaymentSettingsTab
+              settings={paymentSettings}
+              onSaveSettings={async (newSettings) => {
+                await savePaymentSettingsToCloud(newSettings, effectiveSession.email || currentUserEmail);
+              }}
+              onShowToast={showToast}
+            />
+          )}
+
+          {activeTab === 'sms_gateway' && isSuperAdmin && (
+            <SmsGatewayTab onShowToast={showToast} />
+          )}
+
+          {activeTab === 'super_admin_security' && isSuperAdmin && (
+            <SuperAdminSecurityTab
+              currentUserEmail={effectiveSession.email || currentUserEmail}
+              onShowToast={showToast}
+              onUpdateEmailSuccess={(newEmail) => {
+                showToast(`✅ সুপার অ্যাডমিন জিমেইল আপডেট হয়েছে: ${newEmail}`);
+              }}
             />
           )}
 

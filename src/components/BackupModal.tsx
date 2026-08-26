@@ -109,7 +109,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
             <div>
               <h3 className="text-base font-bold text-slate-800">ডাটা ব্যাকআপ ও রিস্টোর</h3>
               <p className="text-[11px] text-slate-500 font-medium">
-                ইব্রাহিম জেনারেল স্টোর — কাস্টমার বাকি ও লেনদেন ব্যাকআপ
+                {store.name || 'TWING হিসাবি'} — কাস্টমার বাকি ও লেনদেন ব্যাকআপ
               </p>
             </div>
           </div>

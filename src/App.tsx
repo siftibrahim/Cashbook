@@ -229,40 +229,49 @@ export const App: React.FC = () => {
     }
   };
 
-  // Listen to Auth state via JWT session check
+  // Listen to Auth state via JWT session check & local session recovery
   useEffect(() => {
     const checkAuth = async () => {
       const token = getAuthToken();
-      if (token) {
+      const storedUser = getStoredUser();
+      const wasLoggedIn = localStorage.getItem('ibrahim_is_logged_in') === 'true';
+
+      if (token || storedUser || wasLoggedIn) {
         try {
-          const res = await authApi.getCurrentUser();
-          if (res && res.user) {
+          const res = await authApi.getCurrentUser().catch(() => null);
+          const currentUser = res?.user || storedUser;
+
+          if (currentUser) {
             setIsLoggedIn(true);
             localStorage.setItem('ibrahim_is_logged_in', 'true');
 
             // 👑 Distinguish Staff vs Super Admin vs Regular Store Owner
             if (
-              res.user.role === 'staff' ||
-              res.user.role === 'manager' ||
-              (Array.isArray(res.user.permissions) && res.user.permissions.length > 0)
+              currentUser.role === 'staff' ||
+              currentUser.role === 'manager' ||
+              (Array.isArray(currentUser.permissions) && currentUser.permissions.length > 0)
             ) {
               setAdminSession({
                 role: 'staff',
-                email: res.user.email,
-                staffData: res.user,
+                email: currentUser.email,
+                staffData: currentUser,
               });
               setUserRole('স্টাফ অ্যাকাউন্ট');
               setIsAdminPanelOpen(true);
-            } else if (res.user.role === 'super_admin' || res.user.email === ADMIN_EMAIL) {
+            } else if (
+              currentUser.role === 'super_admin' ||
+              currentUser.email === ADMIN_EMAIL ||
+              currentUser.email === 'siftibrahim@gmail.com'
+            ) {
               setAdminSession({
                 role: 'super_admin',
-                email: res.user.email,
+                email: currentUser.email,
               });
               setUserRole('প্রধান সুপার অ্যাডমিন');
-              await loadUserAccountData(res.user.id);
+              await loadUserAccountData(currentUser.id);
             } else {
               setUserRole('দোকান মালিক');
-              await loadUserAccountData(res.user.id);
+              await loadUserAccountData(currentUser.id);
             }
           } else {
             authApi.logout();
@@ -272,13 +281,14 @@ export const App: React.FC = () => {
             setAdminSession(null);
             setIsAdminPanelOpen(false);
           }
-        } catch {
-          authApi.logout();
-          setIsLoggedIn(false);
-          localStorage.removeItem('ibrahim_is_logged_in');
-          localStorage.removeItem('ibrahim_user_role');
-          setAdminSession(null);
-          setIsAdminPanelOpen(false);
+        } catch (err) {
+          console.warn('Auth check catch:', err);
+          if (storedUser) {
+            setIsLoggedIn(true);
+            await loadUserAccountData(storedUser.id);
+          } else {
+            setIsLoggedIn(false);
+          }
         }
       } else {
         setIsLoggedIn(false);
@@ -1105,14 +1115,12 @@ export const App: React.FC = () => {
               onLogout={triggerLogoutConfirm}
               onOpenSettings={() => setIsSettingsModalOpen(true)}
               onOpenNotifications={() => setIsNotificationModalOpen(true)}
+              onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
               unreadNotificationsCount={unreadNotificationsCount}
             />
 
             {/* In-app Announcement Ticker & Popups */}
             <AnnouncementDisplay announcements={announcements} />
-
-            {/* In-app Force/Optional Update Dialog */}
-            {appConfig && <AppUpdateModal config={appConfig} currentAppVersion="2.4.0" />}
 
             {/* View Switching or Subscription Lock Screen */}
             {isSubscriptionExpired ? (
@@ -1176,6 +1184,7 @@ export const App: React.FC = () => {
                     onOpenCashbook={() => setIsCashbookModalOpen(true)}
                     onOpenReport={() => setIsReportModalOpen(true)}
                     onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
+                    onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
                     onSelectCustomer={(id) => setActiveCustomerId(id)}
                   />
                 )}
@@ -1363,6 +1372,7 @@ export const App: React.FC = () => {
           }
         }}
         onOpenSupport={() => setIsSupportModalOpen(true)}
+        onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
       />
 
       {/* Admin Login & PIN Verification Modal */}

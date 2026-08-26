@@ -45,7 +45,7 @@ export const UserSupportModal: React.FC<UserSupportModalProps> = ({
   const userName = store.name || 'দোকান মালিক';
   const userPhone = store.phone || '01306908115';
   const userEmail = currentUser?.email || undefined;
-  const shopName = store.name || 'ইব্রাহিম জেনারেল স্টোর';
+  const shopName = store.name || 'TWING হিসাবি';
 
   // Real-time message subscription
   useEffect(() => {

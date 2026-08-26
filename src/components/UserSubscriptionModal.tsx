@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   SubscriptionPlan,
   AdminPaymentMethod,
@@ -90,7 +90,11 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
   const effectiveShopName = propShopName || store?.shopName || 'আমার দোকান';
   const effectiveUserName = propUserName || store?.ownerName || 'গ্রাহক';
   const effectiveUserPhone = propUserPhone || store?.phone || '';
-  const effectiveExpiresAt = propExpiresAt || (store as any)?.subscriptionExpiresAt || (Date.now() + 14 * 86400000);
+  
+  const rawExpiresAt = propExpiresAt || (store as any)?.subscriptionExpiresAt;
+  const effectiveExpiresAt = useMemo(() => {
+    return rawExpiresAt || (Date.now() + 14 * 86400000);
+  }, [rawExpiresAt]);
 
   const [timeLeft, setTimeLeft] = useState<{
     days: number;
@@ -102,6 +106,8 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
 
   // Update countdown timer every second
   useEffect(() => {
+    if (!isOpen) return;
+
     const calculateTimeLeft = () => {
       const difference = effectiveExpiresAt - Date.now();
       if (difference <= 0) {
@@ -118,7 +124,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
     calculateTimeLeft();
     const timer = setInterval(calculateTimeLeft, 1000);
     return () => clearInterval(timer);
-  }, [effectiveExpiresAt]);
+  }, [isOpen, effectiveExpiresAt]);
 
   // Sync settings and plans
   useEffect(() => {

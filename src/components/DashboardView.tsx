@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Customer, Transaction, StoreProfile } from '../types';
 import { DashboardSummary } from './DashboardSummary';
 import { formatMoney, formatBanglaDate } from '../utils/storage';
@@ -13,6 +13,9 @@ import {
   ChevronRight,
   TrendingUp,
   ShieldCheck,
+  Sparkles,
+  Zap,
+  CreditCard,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -25,6 +28,7 @@ interface DashboardViewProps {
   onOpenCashbook: () => void;
   onOpenReport: () => void;
   onOpenSalesHistory?: () => void;
+  onOpenSubscription?: () => void;
   onSelectCustomer: (customerId: string) => void;
 }
 
@@ -38,6 +42,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenCashbook,
   onOpenReport,
   onOpenSalesHistory,
+  onOpenSubscription,
   onSelectCustomer,
 }) => {
   // Collect all recent transactions
@@ -59,6 +64,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const currency = store.currencySymbol || '৳';
 
+  // Subscription calculation
+  const rawSubExpiry = (store as any)?.subscriptionExpiresAt;
+  const expiresAt = useMemo(() => {
+    return rawSubExpiry || (Date.now() + 14 * 86400000);
+  }, [rawSubExpiry]);
+  const daysLeft = Math.max(0, Math.ceil((expiresAt - Date.now()) / (1000 * 60 * 60 * 24)));
+  const isExpired = Date.now() > expiresAt;
+  const currentPlan = (store as any)?.subscriptionPlan || '১৪ দিনের ফ্রি ট্রায়াল';
+
   return (
     <div className="flex-1 flex flex-col gap-4 sm:gap-5 pb-6">
       {/* Top Due Metric Card */}
@@ -67,6 +81,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         transactions={transactions}
       />
 
+      {/* Subscription Plan & Status Banner */}
+      {onOpenSubscription && (
+        <section className="bg-gradient-to-r from-amber-500/10 via-teal-500/10 to-emerald-500/10 border border-amber-300/40 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-700 flex items-center justify-center font-bold shrink-0 border border-amber-400/30">
+              <Sparkles className="w-5 h-5 animate-pulse text-amber-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-800">প্যাকেজ: <span className="font-extrabold text-teal-800">{currentPlan}</span></span>
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                  isExpired 
+                    ? 'bg-rose-100 text-rose-700 border border-rose-200' 
+                    : daysLeft <= 3 
+                    ? 'bg-amber-100 text-amber-800 border border-amber-200' 
+                    : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                }`}>
+                  {isExpired ? '⚠️ মেয়াদ উত্তীর্ণ' : `⏳ ${daysLeft} দিন বাকি`}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                bKash, Nagad, Rocket বা ব্যাংকের মাধ্যমে সহজেই সাবস্ক্রিপশন রিনিউ বা প্যাকেজ আপগ্রেড করুন।
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenSubscription}
+            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-[#004D40] to-teal-700 hover:from-[#00382E] hover:to-teal-800 active:scale-95 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition cursor-pointer shrink-0"
+          >
+            <CreditCard className="w-4 h-4 text-amber-300" />
+            <span>প্যাকেজ রিনিউ / আপগ্রেড</span>
+          </button>
+        </section>
+      )}
+
       {/* Quick Action Hub */}
       <section className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200/90 shadow-xs">
         <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
@@ -74,7 +125,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <span>কুইক অ্যাকশন মেনু</span>
         </h3>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-2.5">
           <button
             type="button"
             onClick={onOpenNewCustomer}
@@ -118,6 +169,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
             <span className="text-xs font-bold text-indigo-900">বাকি খাতা রিপোর্ট</span>
           </button>
+
+          {onOpenSubscription && (
+            <button
+              type="button"
+              onClick={onOpenSubscription}
+              className="p-3 rounded-xl bg-purple-50/80 hover:bg-purple-100/80 border border-purple-200/90 flex flex-col items-center justify-center gap-1.5 text-center transition active:scale-95 cursor-pointer shadow-2xs group col-span-2 sm:col-span-1"
+            >
+              <div className="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition">
+                <Sparkles className="w-4 h-4 text-amber-200" />
+              </div>
+              <span className="text-xs font-bold text-purple-900">প্যাকেজ ও সাবস্ক্রিপশন</span>
+            </button>
+          )}
         </div>
       </section>
 

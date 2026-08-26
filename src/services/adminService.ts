@@ -317,7 +317,7 @@ export const INITIAL_USERS: AppUser[] = [
     name: 'ইব্রাহিম খলিল',
     phone: '01306908115',
     email: 'admin@twing.com',
-    shopName: 'ইব্রাহিম জেনারেল স্টোর',
+    shopName: 'TWING হিসাবি',
     businessType: 'মুদি ও কনফেকশনারি',
     address: 'বাজার রোড, দোকান নং ১২, ঢাকা',
     role: 'super_admin',
@@ -414,7 +414,7 @@ export const INITIAL_NOTIFICATIONS: AdminNotification[] = [
   {
     id: 'notif_1',
     title: 'স্বাগত বার্তা ও সিস্টেম আপডেট',
-    message: 'ইব্রাহিম জেনারেল স্টোর খাতা অ্যাপ্লিকেশনে আপনাকে স্বাগতম। আপনার সকল হিসাব এখন সুরক্ষিত PostgreSQL ক্লাউডে সিঙ্ক হচ্ছে।',
+    message: 'TWING হিসাবি অ্যাপ্লিকেশনে আপনাকে স্বাগতম। আপনার সকল হিসাব এখন সুরক্ষিত Neon PostgreSQL ক্লাউডে সিঙ্ক হচ্ছে।',
     type: 'general',
     target: 'all',
     priority: 'normal',

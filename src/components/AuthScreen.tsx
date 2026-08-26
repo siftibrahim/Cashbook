@@ -390,10 +390,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-lg shadow-emerald-900/30 mb-3 border-2 border-emerald-300/30">
               <Store className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-black text-white tracking-tight">
-              {store.name || 'Twing হিসাব খাতা'}
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+              TWING হিসাবি
             </h1>
-            <p className="text-xs text-slate-400 mt-1 font-medium">
+            <p className="text-xs sm:text-sm text-emerald-300/90 mt-1 font-semibold">
               সহজ, নিরাপদ ও ক্লাউড ব্যাকআপযুক্ত ডিজিটাল বাকির খাতা
             </p>
           </div>

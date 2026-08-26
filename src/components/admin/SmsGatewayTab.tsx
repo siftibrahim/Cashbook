@@ -1,0 +1,445 @@
+import React, { useState, useEffect } from 'react';
+import {
+  MessageSquare,
+  Key,
+  Smartphone,
+  Save,
+  Send,
+  CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
+  Info,
+  Lock,
+  Globe,
+  Sliders,
+  Sparkles,
+  Zap,
+} from 'lucide-react';
+import { adminApi } from '../../services/apiService';
+
+interface SmsGatewayTabProps {
+  onShowToast: (msg: string) => void;
+}
+
+export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => {
+  const [provider, setProvider] = useState<'greenweb' | 'bulksmsbd' | 'alphasms' | 'mimsms' | 'custom'>('greenweb');
+  const [apiKey, setApiKey] = useState('');
+  const [senderId, setSenderId] = useState('');
+  const [username, setUsername] = useState('');
+  const [customUrl, setCustomUrl] = useState('');
+  const [isEnabled, setIsEnabled] = useState(true);
+  const [maskedApiKey, setMaskedApiKey] = useState('');
+  const [hasApiKey, setHasApiKey] = useState(false);
+
+  // OTP Template Message
+  const [otpTemplate, setOtpTemplate] = useState('আপনার টুইং খাতা পাসওয়ার্ড রিসেট ওটিপি হলো {OTP}। মেয়াদ ৫ মিনিট।');
+  const [otpExpiryMinutes, setOtpExpiryMinutes] = useState(5);
+
+  // Testing State
+  const [testPhone, setTestPhone] = useState('01306908115');
+  const [testMessage, setTestMessage] = useState('টুইং খাতা: টেস্ট এসএমএস সফল হয়েছে!');
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+
+  // Loading & Saving State
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    loadConfig();
+  }, []);
+
+  const loadConfig = async () => {
+    setIsLoading(true);
+    try {
+      const cfg = await adminApi.getSmsConfig();
+      if (cfg) {
+        setProvider(cfg.provider || 'greenweb');
+        setSenderId(cfg.senderId || '');
+        setUsername(cfg.username || '');
+        setCustomUrl(cfg.customUrl || '');
+        setIsEnabled(cfg.isEnabled !== undefined ? cfg.isEnabled : true);
+        setHasApiKey(cfg.hasApiKey || false);
+        setMaskedApiKey(cfg.maskedApiKey || '');
+      }
+    } catch (err: any) {
+      console.warn('Failed to fetch SMS config:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSaveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      const payload: any = {
+        provider,
+        senderId: senderId.trim(),
+        username: username.trim(),
+        customUrl: customUrl.trim(),
+        isEnabled,
+      };
+      if (apiKey.trim()) {
+        payload.apiKey = apiKey.trim();
+      }
+
+      await adminApi.saveSmsConfig(payload);
+      onShowToast('✅ SMS ও ওটিপি গেটওয়ে সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
+      await loadConfig();
+      setApiKey(''); // clear plain input after save
+    } catch (err: any) {
+      onShowToast(`❌ সেভ ব্যর্থ হয়েছে: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSendTestSms = async () => {
+    if (!testPhone.trim()) {
+      onShowToast('অনুগ্রহ করে টেস্ট ফোন নম্বর প্রদান করুন');
+      return;
+    }
+
+    setIsSendingTest(true);
+    setTestResult(null);
+    try {
+      const res = await adminApi.testSms(testPhone.trim(), testMessage.trim());
+      setTestResult(res);
+      if (res.success) {
+        onShowToast('✅ টেস্ট এসএমএস সফলভাবে পাঠানো হয়েছে!');
+      } else {
+        onShowToast(`⚠️ এসএমএস সেন্ড রেসপন্স: ${res.message || 'Error'}`);
+      }
+    } catch (err: any) {
+      setTestResult({ success: false, message: err.message });
+      onShowToast(`❌ টেস্ট এসএমএস পাঠাতে ব্যর্থ: ${err.message}`);
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-12 text-slate-400">
+        <RefreshCw className="w-6 h-6 animate-spin mr-2 text-indigo-400" />
+        <span>এসএমএস গেটওয়ে সেটিংস লোড হচ্ছে...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 max-w-5xl mx-auto">
+      {/* Header Banner */}
+      <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-[#0F172A] via-[#141C33] to-[#0F172A] border border-slate-800 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 via-indigo-600 to-teal-500 p-0.5 shadow-lg flex items-center justify-center text-white shrink-0">
+            <div className="w-full h-full bg-slate-950/80 rounded-[14px] flex items-center justify-center">
+              <Smartphone className="w-6 h-6 text-teal-400" />
+            </div>
+          </div>
+          <div>
+            <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+              <span>এসএমএস ও ফরগেট পাসওয়ার্ড ওটিপি গেটওয়ে</span>
+              <span className="px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 text-[11px] font-bold border border-teal-500/30">
+                SMS API Control
+              </span>
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              GreenWeb, BulkSMSBD, AlphaSMS বা যেকোনো কাস্টম গেটওয়ে যুক্ত করে রিয়েল ওটিপি ও মেসেজ পাঠান
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-slate-900 border border-slate-700 cursor-pointer">
+            <span className="text-xs font-bold text-slate-300">
+              {isEnabled ? 'গেটওয়ে সক্রিয়' : 'নিষ্ক্রিয়'}
+            </span>
+            <input
+              type="checkbox"
+              checked={isEnabled}
+              onChange={(e) => setIsEnabled(e.target.checked)}
+              className="w-4 h-4 accent-teal-500 rounded cursor-pointer"
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Form: Provider & Credentials Settings (7 cols) */}
+        <div className="lg:col-span-7 space-y-6">
+          <form onSubmit={handleSaveConfig} className="p-5 sm:p-6 rounded-3xl bg-[#0D1424] border border-slate-800 shadow-xl space-y-5">
+            <h3 className="text-sm font-black text-white flex items-center gap-2 pb-3 border-b border-slate-800">
+              <Sliders className="w-4 h-4 text-indigo-400" />
+              <span>এসএমএস প্রোভাইডার কনফিগারেশন</span>
+            </h3>
+
+            {/* Provider Selector Cards */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 block">
+                এসএমএস প্রোভাইডার নির্বাচন করুন
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                {[
+                  { id: 'greenweb', name: 'GreenWeb SMS', desc: 'api.greenweb.com.bd' },
+                  { id: 'bulksmsbd', name: 'BulkSMSBD', desc: 'bulksmsbd.net' },
+                  { id: 'alphasms', name: 'Alpha SMS', desc: 'sms.net.bd' },
+                  { id: 'mimsms', name: 'MimSMS', desc: 'mimsms.com' },
+                  { id: 'custom', name: 'Custom Webhook', desc: 'অন্যান্য এপিআই' },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setProvider(p.id as any)}
+                    className={`p-3 rounded-2xl text-left border transition cursor-pointer ${
+                      provider === p.id
+                        ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-md'
+                        : 'bg-slate-900/90 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="text-xs font-bold text-white leading-tight">{p.name}</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5 truncate">{p.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* API Key / Token */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-300">
+                  API Key / Token *
+                </label>
+                {hasApiKey && (
+                  <span className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span>সংরক্ষিত: {maskedApiKey}</span>
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={hasApiKey ? 'নতুন API Key দিয়ে পরিবর্তন করতে এখানে লিখুন' : 'যেমন: 1042318712398...'}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+              <p className="text-[10px] text-slate-500">
+                GreenWeb হলে আপনার একাউন্টের Token, BulkSMSBD বা AlphaSMS হলে API Key দিন।
+              </p>
+            </div>
+
+            {/* Sender ID (Masking / Non-Masking) */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-300 block">
+                Sender ID / Masking (ঐচ্ছিক)
+              </label>
+              <input
+                type="text"
+                value={senderId}
+                onChange={(e) => setSenderId(e.target.value)}
+                placeholder="যেমন: TWING, 8809612345678"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+              />
+              <p className="text-[10px] text-slate-500">
+                নন-মাস্কিং হলে খালি রাখুন অথবা বিটিআরসি অনুমোদিত প্রেরক আইডি দিন।
+              </p>
+            </div>
+
+            {/* Custom URL (Only when provider === 'custom') */}
+            {provider === 'custom' && (
+              <div className="space-y-1.5 p-3.5 rounded-2xl bg-indigo-950/30 border border-indigo-500/30">
+                <label className="text-xs font-bold text-indigo-300 block">
+                  কাস্টম গেটওয়ে রিকোয়েস্ট URL
+                </label>
+                <input
+                  type="text"
+                  value={customUrl}
+                  onChange={(e) => setCustomUrl(e.target.value)}
+                  placeholder="https://mysms.com/api?to={phone}&msg={message}&key={apiKey}"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+                <p className="text-[10px] text-indigo-300/80">
+                  প্লেসহোল্ডার: <code className="text-white font-mono">{'{phone}'}</code>, <code className="text-white font-mono">{'{message}'}</code>, <code className="text-white font-mono">{'{apiKey}'}</code>
+                </p>
+              </div>
+            )}
+
+            {/* OTP Message Template */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-300 block">
+                পাসওয়ার্ড রিসেট OTP মেসেজ টেমপ্লেট
+              </label>
+              <textarea
+                value={otpTemplate}
+                onChange={(e) => setOtpTemplate(e.target.value)}
+                rows={2}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-indigo-500"
+              />
+              <p className="text-[10px] text-slate-500">
+                মেসেজে <code className="text-indigo-400 font-mono">{'{OTP}'}</code> ট্যাগ দিন। এটি ইউজারের ওটিপি দিয়ে প্রতিস্থাপিত হবে।
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-black text-xs shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 cursor-pointer transition active:scale-95 disabled:opacity-50"
+            >
+              {isSaving ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>সংরক্ষণ হচ্ছে...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>SMS সেটিংস সংরক্ষণ করুন</span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Right Panel: Live Test SMS Tool & Provider Info (5 cols) */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Live SMS Tester */}
+          <div className="p-5 sm:p-6 rounded-3xl bg-[#0D1424] border border-teal-500/20 shadow-xl space-y-4">
+            <div className="flex items-center gap-2.5 pb-3 border-b border-slate-800">
+              <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center">
+                <Send className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-white">লাইভ টেস্ট এসএমএস পাঠান</h3>
+                <p className="text-[11px] text-slate-400">এপিআই ঠিক আছে কিনা সরাসরি মোবাইলে চেক করুন</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  প্রাপকের মোবাইল নম্বর
+                </label>
+                <input
+                  type="text"
+                  value={testPhone}
+                  onChange={(e) => setTestPhone(e.target.value)}
+                  placeholder="01306908115"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-teal-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  টেস্ট মেসেজ টেক্সট
+                </label>
+                <input
+                  type="text"
+                  value={testMessage}
+                  onChange={(e) => setTestMessage(e.target.value)}
+                  placeholder="টুইং খাতা: টেস্ট এসএমএস সফল হয়েছে!"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSendTestSms}
+                disabled={isSendingTest}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-xs shadow-md shadow-teal-600/20 flex items-center justify-center gap-2 cursor-pointer transition active:scale-95 disabled:opacity-50"
+              >
+                {isSendingTest ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>পাঠানো হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    <span>টেস্ট এসএমএস পাঠান</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Test Result Display */}
+            {testResult && (
+              <div
+                className={`p-3.5 rounded-2xl border text-xs space-y-1.5 animate-in fade-in ${
+                  testResult.success
+                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 font-bold">
+                  {testResult.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                  )}
+                  <span>{testResult.message || (testResult.success ? 'সফল হয়েছে' : 'ব্যর্থ')}</span>
+                </div>
+                {testResult.gatewayResponse && (
+                  <pre className="text-[10px] bg-slate-950/80 p-2 rounded-xl text-slate-300 overflow-x-auto font-mono">
+                    {typeof testResult.gatewayResponse === 'object'
+                      ? JSON.stringify(testResult.gatewayResponse, null, 2)
+                      : String(testResult.gatewayResponse)}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Quick Help Card */}
+          <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 text-xs space-y-3">
+            <h4 className="font-bold text-white flex items-center gap-2">
+              <Info className="w-4 h-4 text-indigo-400" />
+              <span>এসএমএস এপিআই পাওয়ার নির্দেশিকা</span>
+            </h4>
+            <ul className="text-slate-400 space-y-2 text-[11px] list-disc list-inside">
+              <li>
+                <strong className="text-slate-200">GreenWeb:</strong>{' '}
+                <a
+                  href="https://greenweb.com.bd"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-indigo-400 hover:underline"
+                >
+                  greenweb.com.bd
+                </a>{' '}
+                এ একাউন্ট খুলে টোকেন কপি করুন।
+              </li>
+              <li>
+                <strong className="text-slate-200">BulkSMSBD:</strong>{' '}
+                <a
+                  href="https://bulksmsbd.net"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-indigo-400 hover:underline"
+                >
+                  bulksmsbd.net
+                </a>{' '}
+                এ একাউন্ট তৈরি করে API Key সংগ্রহ করুন।
+              </li>
+              <li>
+                <strong className="text-slate-200">AlphaSMS:</strong>{' '}
+                <a
+                  href="https://sms.net.bd"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-indigo-400 hover:underline"
+                >
+                  sms.net.bd
+                </a>{' '}
+                থেকে API Key সংগ্রহ করুন।
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

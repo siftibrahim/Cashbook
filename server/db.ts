@@ -383,6 +383,37 @@ export async function initializeDatabaseSchema() {
       CREATE INDEX IF NOT EXISTS idx_pw_reset_expires ON password_reset_otps(expires_at);
     `);
 
+    // Schema Evolution Safety: Ensure columns exist on already created tables
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS total_customers INT DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS total_transactions INT DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS notes TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS device_info TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS app_version TEXT;
+      
+      ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS print_paper_size VARCHAR(50) DEFAULT 'thermal_80';
+      ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS show_qr_on_invoice BOOLEAN DEFAULT TRUE;
+      ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS default_credit_limit NUMERIC(12, 2) DEFAULT 10000;
+      ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS enable_sound_effects BOOLEAN DEFAULT TRUE;
+      
+      ALTER TABLE transactions ADD COLUMN IF NOT EXISTS receipt_no VARCHAR(100);
+      ALTER TABLE transactions ADD COLUMN IF NOT EXISTS subtotal NUMERIC(12, 2);
+      ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount NUMERIC(12, 2);
+      ALTER TABLE transactions ADD COLUMN IF NOT EXISTS net_amount NUMERIC(12, 2);
+      ALTER TABLE transactions ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12, 2);
+      ALTER TABLE transactions ADD COLUMN IF NOT EXISTS due_amount NUMERIC(12, 2);
+      ALTER TABLE transactions ADD COLUMN IF NOT EXISTS prev_balance NUMERIC(12, 2);
+      
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS sender_phone VARCHAR(50);
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS sender_number VARCHAR(50);
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS user_phone VARCHAR(50);
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS shop_name VARCHAR(255);
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS refund_status VARCHAR(50) DEFAULT 'none';
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS refund_reason TEXT;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(12, 2);
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS refund_processed_at BIGINT;
+    `);
+
     // Seed default admin and system configs if not present
     await seedDefaultDataInPostgres(client);
 
@@ -397,30 +428,41 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@twing.com';
   const defaultPassHash = await bcrypt.hash('admin123', 10);
   
-  // Seed Super Admin in users table
-  await client.query(`
-    INSERT INTO users (
-      id, name, phone, email, password_hash, shop_name, business_type, address, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at, last_active_at
-    ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
-    ) ON CONFLICT (email) DO NOTHING;
-  `, [
-    'usr_super_admin',
-    'ইব্রাহিম (সুপার অ্যাডমিন)',
-    '01619665875',
-    adminEmail,
-    defaultPassHash,
-    'ইব্রাহিম জেনারেল স্টোর',
-    'জেনারেল স্টোর',
-    'ঢাকা, বাংলাদেশ',
-    'super_admin',
-    'active',
-    'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
-    'active',
-    Date.now() + 3650 * 86400000,
-    Date.now(),
-    Date.now(),
-  ]);
+  // Seed Super Admin in users table safely if not already present
+  try {
+    const existingAdmin = await client.query(
+      'SELECT id FROM users WHERE id = $1 OR LOWER(email) = $2 OR role = $3 LIMIT 1',
+      ['usr_super_admin', adminEmail.toLowerCase(), 'super_admin']
+    );
+
+    if (existingAdmin.rows.length === 0) {
+      await client.query(`
+        INSERT INTO users (
+          id, name, phone, email, password_hash, shop_name, business_type, address, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at, last_active_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+        ) ON CONFLICT (id) DO NOTHING;
+      `, [
+        'usr_super_admin',
+        'ইব্রাহিম (সুপার অ্যাডমিন)',
+        '01619665875',
+        adminEmail,
+        defaultPassHash,
+        'TWING হিসাবি',
+        'জেনারেল স্টোর',
+        'ঢাকা, বাংলাদেশ',
+        'super_admin',
+        'active',
+        'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
+        'active',
+        Date.now() + 3650 * 86400000,
+        Date.now(),
+        Date.now(),
+      ]);
+    }
+  } catch (seedUserErr) {
+    console.warn('⚠️ Super admin seed check bypassed/already exists:', seedUserErr);
+  }
 
   // Seed default payment config
   const initialPaymentSettings = {
@@ -446,7 +488,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
       accounts: [
         {
           bankName: 'Islami Bank Bangladesh Ltd',
-          accountName: 'Ibrahim General Store',
+          accountName: 'TWING হিসাবি',
           accountNumber: '2050388020123456',
           branchName: 'Dhanmondi Branch',
           routingNumber: '125271458',
@@ -494,7 +536,7 @@ function seedDefaultDataInMemory() {
       phone: '01619665875',
       email: adminEmail,
       password_hash: '$2a$10$wN35i7t77b8H5hJ9uW7CGeL7O0Zl9KqXgN0vL3Z3zP8M9.5/cKzG', // admin123
-      shopName: 'ইব্রাহিম জেনারেল স্টোর',
+      shopName: 'TWING হিসাবি',
       businessType: 'জেনারেল স্টোর',
       address: 'ঢাকা, বাংলাদেশ',
       role: 'super_admin',

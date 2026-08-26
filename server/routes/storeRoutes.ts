@@ -45,7 +45,7 @@ router.get('/profile', async (req: AuthenticatedRequest, res: Response) => {
 
     return res.json({
       profile: {
-        name: req.user?.shopName || 'ইব্রাহিম জেনারেল স্টোর',
+        name: req.user?.shopName || 'TWING হিসাবি',
         owner: 'মালিক',
         phone: '০১৭০০০০০০০০',
         address: 'বাংলাদেশ',
@@ -206,7 +206,7 @@ router.post('/sync-all', async (req: AuthenticatedRequest, res: Response) => {
           `, [
             'store_' + userId,
             userId,
-            store.name || 'ইব্রাহিম জেনারেল স্টোর',
+            store.name || 'TWING হিসাবি',
             store.owner || store.name || 'মালিক',
             store.phone || '০১৭০০০০০০০০',
             store.address || '',

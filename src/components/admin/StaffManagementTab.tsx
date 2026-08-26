@@ -153,7 +153,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !phone.trim() || !email.trim() || !password.trim()) {
+    if (!name.trim() || !phone.trim() || !email.trim() || (!editingStaff && !password.trim())) {
       onShowToast('অনুগ্রহ করে নাম, ফোন, ইমেইল ও পাসওয়ার্ড প্রদান করুন');
       return;
     }
@@ -165,7 +165,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
         name: name.trim(),
         phone: phone.trim(),
         email: email.trim().toLowerCase(),
-        password: password.trim(),
+        password: password.trim() || undefined,
         role,
         status,
         permissions: selectedPermissions,
@@ -173,7 +173,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
       });
 
       onShowToast(
-        editingStaff ? '✅ স্টাফ তথ্য সফলভাবে আপডেট হয়েছে' : '🎉 নতুন স্টাফ সফলভাবে যুক্ত করা হয়েছে'
+        editingStaff ? '✅ স্টাফের ইমেইল, পাসওয়ার্ড ও তথ্য সফলভাবে আপডেট হয়েছে' : '🎉 নতুন স্টাফ সফলভাবে যুক্ত করা হয়েছে'
       );
       setIsModalOpen(false);
     } catch (err: any) {
@@ -528,13 +528,13 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-300 mb-1">
-                    স্টাফ পাসওয়ার্ড *
+                    {editingStaff ? 'নতুন পাসওয়ার্ড (পরিবর্তন করতে চাইলে লিখুন)' : 'স্টাফ পাসওয়ার্ড *'}
                   </label>
                   <div className="relative">
                     <input
                       type={showPassword ? 'text' : 'password'}
-                      required
-                      placeholder="পাসওয়ার্ড লিখুন"
+                      required={!editingStaff}
+                      placeholder={editingStaff ? 'নতুন পাসওয়ার্ড দিন (না বদলাতে চাইলে খালি রাখুন)' : 'পাসওয়ার্ড লিখুন'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full px-3.5 py-2.5 pr-10 text-xs bg-slate-900 text-white border border-slate-700/80 rounded-2xl focus:outline-hidden focus:border-indigo-500 transition"

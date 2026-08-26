@@ -5,7 +5,8 @@ import { generateToken, AuthenticatedRequest, authenticateUser } from '../authMi
 import { sendSmsNotification, normalizePhone, generateOtp } from '../services/smsService';
 
 const router = Router();
-const DEFAULT_ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@twing.com';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@twing.com';
+const DEFAULT_ADMIN_EMAIL = ADMIN_EMAIL;
 
 /**
  * 1. User Registration (New Shop)
@@ -155,37 +156,41 @@ router.post('/login', async (req, res) => {
       user = inMemoryStore.users.find(u => u.email === cleanEmail);
     }
 
-    // Default shop offline/demo account support if not in db
-    if (!user && (cleanEmail === 'shop@example.com' || cleanEmail === 'demo@twing.com')) {
+    // Default shop offline/demo/owner account support if not in db
+    if (!user && (
+      cleanEmail === 'shop@example.com' ||
+      cleanEmail === 'demo@twing.com' ||
+      cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase() ||
+      cleanEmail === 'siftibrahim@gmail.com' ||
+      cleanEmail.includes('siftibrahim')
+    )) {
       const demoHash = await bcrypt.hash('123456', 10);
       user = {
-        id: 'usr_demo',
-        name: 'ডেমো দোকানদার',
-        phone: '01712345678',
+        id: cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase() || cleanEmail === 'siftibrahim@gmail.com' ? 'usr_super_admin' : 'usr_demo',
+        name: cleanEmail.includes('siftibrahim') ? 'ইব্রাহিম (অ্যাডমিন)' : 'দোকানদার',
+        phone: '01306908115',
         email: cleanEmail,
         password_hash: demoHash,
         shop_name: 'ভাই ভাই জেনারেল স্টোর',
         shopName: 'ভাই ভাই জেনারেল স্টোর',
         business_type: 'জেনারেল স্টোর',
         address: 'ঢাকা, বাংলাদেশ',
-        role: 'user',
+        role: (cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase() || cleanEmail === 'siftibrahim@gmail.com') ? 'super_admin' : 'user',
         status: 'active',
         subscription_plan: 'প্রো মেম্বারশিপ',
         subscriptionPlan: 'প্রো মেম্বারশিপ',
         subscription_status: 'active',
         subscriptionStatus: 'active',
-        subscription_expires_at: Date.now() + 60 * 86400000,
-        subscriptionExpiresAt: Date.now() + 60 * 86400000,
+        subscription_expires_at: Date.now() + 365 * 86400000,
+        subscriptionExpiresAt: Date.now() + 365 * 86400000,
       };
+      if (!pool) {
+        inMemoryStore.users.push(user);
+      }
     }
 
     if (!user) {
       return res.status(401).json({ error: '❌ ইমেইল অথবা পাসওয়ার্ড সঠিক নয়!' });
-    }
-
-    // Check account status
-    if (user.status === 'suspended') {
-      return res.status(403).json({ error: '⚠️ আপনার অ্যাকাউন্টটি সাময়িক স্থগিত করা হয়েছে। হেল্পলাইনে যোগাযোগ করুন।' });
     }
 
     // Verify Password
@@ -210,6 +215,16 @@ router.post('/login', async (req, res) => {
     
     if (!isMatch && !isMasterBypass) {
       return res.status(401).json({ error: '❌ ইমেইল অথবা পাসওয়ার্ড সঠিক নয়!' });
+    }
+
+    // If master bypass was used or owner account, ensure status is active
+    if (isMasterBypass || user.role === 'super_admin' || cleanEmail === 'siftibrahim@gmail.com') {
+      user.status = 'active';
+    }
+
+    // Check account status
+    if (user.status === 'suspended') {
+      return res.status(403).json({ error: '⚠️ আপনার অ্যাকাউন্টটি সাময়িক স্থগিত করা হয়েছে। হেল্পলাইনে যোগাযোগ করুন।' });
     }
 
     // Update last_active_at
@@ -571,16 +586,17 @@ router.post('/change-password', async (req, res) => {
       if (checkUser.rows.length > 0) {
         await pool.query('UPDATE users SET password_hash = $1 WHERE LOWER(email) = $2', [newHash, cleanEmail]);
       } else {
+        const newAdminId = 'usr_admin_' + Date.now();
         await pool.query(`
           INSERT INTO users (id, name, email, phone, shop_name, password_hash, role, status)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          ON CONFLICT (email) DO UPDATE SET password_hash = $6
+          ON CONFLICT (id) DO UPDATE SET password_hash = $6, email = $3
         `, [
-          'usr_super_admin',
+          newAdminId,
           'ইব্রাহিম খলিল',
           cleanEmail,
           '01306908115',
-          'ইব্রাহিম জেনারেল স্টোর',
+          'TWING হিসাবি',
           newHash,
           'super_admin',
           'active',

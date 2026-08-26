@@ -334,8 +334,23 @@ export const SUPPORT_CONTACT = {
   photoHelpNote: 'স্ক্রিনশট বা কোনো ছবি পাঠানোর প্রয়োজন হলে আমাদের অফিসিয়াল ইমেইল (twinginfobd@mail.com) অথবা ফোনে (01619665875) যোগাযোগ করুন।',
 };
 
+export interface SmsGatewayConfig {
+  provider: 'greenweb' | 'bulksmsbd' | 'alphasms' | 'mimsms' | 'custom';
+  apiKey: string;
+  senderId: string;
+  username?: string;
+  customUrl?: string;
+  isEnabled: boolean;
+  maskedApiKey?: string;
+  hasApiKey?: boolean;
+}
+
 export type AdminTab =
   | 'dashboard'
+  | 'payment_settings'
+  | 'sms_gateway'
+  | 'super_admin_security'
+  | 'staff_management'
   | 'users'
   | 'subscriptions'
   | 'payments'
@@ -344,6 +359,6 @@ export type AdminTab =
   | 'notifications'
   | 'announcements'
   | 'app_update'
-  | 'activity_logs'
-  | 'staff_management';
+  | 'activity_logs';
+
 

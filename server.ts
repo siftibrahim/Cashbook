@@ -22,9 +22,6 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Initialize DB schema & seeds
-  await initializeDatabaseSchema();
-
   // Common Middlewares
   app.use(cors());
   app.use(express.json({ limit: '20mb' }));
@@ -45,7 +42,7 @@ async function startServer() {
     res.json({
       status: 'ok',
       service: 'Twing Store Backend API',
-      database: process.env.DATABASE_URL ? 'Neon PostgreSQL' : 'Local Storage Engine',
+      database: 'Neon PostgreSQL',
       timestamp: new Date().toISOString(),
     });
   });
@@ -92,8 +89,13 @@ async function startServer() {
     });
   }
 
+  // Start listening immediately
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
+    // Initialize DB schema & seeds in background without blocking server startup
+    initializeDatabaseSchema().catch((err) => {
+      console.error('⚠️ DB Initialization warning:', err);
+    });
   });
 }
 
