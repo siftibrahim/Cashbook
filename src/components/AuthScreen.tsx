@@ -962,10 +962,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
               {/* STEP 1: PHONE / IDENTIFIER INPUT */}
               {resetStep === 'phone' && (
-                <form onSubmit={handleSendResetOtp} className="space-y-3.5">
+                <form onSubmit={handleSendResetOtp} className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                      রেজিস্টার্ড মোবাইল নম্বর <span className="text-emerald-400">*</span>
+                      আপনার নিবন্ধিত (Registered) মোবাইল নম্বর <span className="text-emerald-400">*</span>
                     </label>
                     <div className="relative">
                       <Smartphone className="w-4 h-4 text-emerald-400 absolute left-3.5 top-3.5" />
@@ -975,28 +975,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         value={resetTarget}
                         onFocus={handleInputFocus}
                         onChange={(e) => setResetTarget(e.target.value)}
-                        placeholder="যেমন: 01306908115 বা 017XXXXXXXX"
-                        className="w-full pl-10 pr-4 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 tracking-wide font-medium"
+                        placeholder="অ্যাকাউন্ট খোলার সময় দেওয়া ১১ ডিজিটের মোবাইল নম্বর"
+                        className="w-full pl-10 pr-4 py-3.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 tracking-wide font-medium"
                       />
                     </div>
-                  </div>
-
-                  {/* Super Admin Quick Tap */}
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setResetTarget('01306908115')}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 font-bold transition cursor-pointer flex items-center gap-1"
-                    >
-                      👑 সুপার অ্যাডমিন মোবাইল (01306908115)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setResetTarget(ADMIN_EMAIL)}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 font-medium transition cursor-pointer flex items-center gap-1"
-                    >
-                      ✉️ {ADMIN_EMAIL}
-                    </button>
+                    <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                      💡 আপনি যে মোবাইল নম্বর দিয়ে অ্যাকাউন্ট খুলেছেন শুধুমাত্র সেই নম্বরেই ৬-সংখ্যার OTP মেসেজ পাঠানো হবে।
+                    </p>
                   </div>
 
                   <button

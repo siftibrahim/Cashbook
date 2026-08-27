@@ -28,8 +28,8 @@ import {
 interface StaffManagementTabProps {
   staffList: StaffMember[];
   onSaveStaff: (
-    staffData: Partial<StaffMember> & { name: string; phone: string; email: string }
-  ) => Promise<StaffMember>;
+    staffData: any
+  ) => Promise<any>;
   onUpdateStatus: (staffId: string, status: 'active' | 'disabled') => Promise<void>;
   onUpdatePermissions: (staffId: string, permissions: StaffPermission[]) => Promise<void>;
   onDeleteStaff: (staffId: string) => Promise<void>;

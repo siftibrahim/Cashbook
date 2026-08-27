@@ -6,7 +6,10 @@ export const toBanglaNumber = (str: string | number): string => {
   return String(str).replace(/[0-9]/g, (digit) => banglaDigits[Number(digit)]);
 };
 
-export const BangladeshClock: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+export const BangladeshClock: React.FC<{ compact?: boolean; className?: string }> = ({
+  compact = false,
+  className = '',
+}) => {
   const [timeStr, setTimeStr] = useState<string>('');
   const [dateStr, setDateStr] = useState<string>('');
   const [ampm, setAmpm] = useState<string>('');

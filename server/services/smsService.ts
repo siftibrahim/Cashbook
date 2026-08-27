@@ -85,10 +85,10 @@ export async function getSmsGatewaySettings(): Promise<SmsGatewaySettings> {
     return inMemoryStore.system_config['sms_gateway_config'];
   }
 
-  // Fallback to Environment Variables
-  const envProvider = (process.env.SMS_PROVIDER || 'greenweb').toLowerCase() as any;
-  const envApiKey = process.env.GREENWEB_SMS_TOKEN || process.env.BULKSMSBD_API_KEY || process.env.ALPHASMS_API_KEY || process.env.SMS_API_KEY || '';
-  const envSenderId = process.env.SMS_SENDER_ID || '';
+  // Fallback to Environment Variables or Master Defaults
+  const envProvider = (process.env.SMS_PROVIDER || 'bulksmsbd').toLowerCase() as any;
+  const envApiKey = process.env.BULKSMSBD_API_KEY || process.env.SMS_API_KEY || process.env.GREENWEB_SMS_TOKEN || 'NOhILJCtx0DZJWCRBODB';
+  const envSenderId = process.env.SMS_SENDER_ID || '8809648910696';
   const envUsername = process.env.SMS_USERNAME || '';
   const envCustomUrl = process.env.SMS_GATEWAY_URL || '';
 
@@ -136,48 +136,114 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
   }
 
   const settings = await getSmsGatewaySettings();
-  const apiKey = settings.apiKey;
-  const senderId = settings.senderId || '';
+  const apiKey = (settings.apiKey || 'NOhILJCtx0DZJWCRBODB').trim();
+  const senderId = (settings.senderId || '8809648910696').trim();
+  const provider = (settings.provider || 'bulksmsbd').toLowerCase();
 
-  // 1. Greenweb SMS Gateway (https://greenweb.com.bd)
-  if (settings.provider === 'greenweb' || (!settings.provider && apiKey)) {
+  // 1. BulkSMSBD Gateway (http://bulksmsbd.net) - Recommended & Default
+  if (provider === 'bulksmsbd' || (!settings.provider && apiKey)) {
     if (apiKey) {
       try {
-        const url = `https://api.greenweb.com.bd/api.php?token=${encodeURIComponent(apiKey)}&to=${encodeURIComponent(cleanPhone)}&message=${encodeURIComponent(messageText)}`;
-        const res = await fetch(url, { method: 'GET', timeout: 10000 } as any);
-        const textRes = await res.text();
-        console.log(`[Greenweb SMS] To: ${cleanPhone}, Response: ${textRes}`);
+        // BulkSMSBD requires 8801XXXXXXXXX (13-digit format starting with 88)
+        let bulksmsNumber = cleanPhone;
+        if (bulksmsNumber.startsWith('01') && bulksmsNumber.length === 11) {
+          bulksmsNumber = '88' + bulksmsNumber;
+        } else if (!bulksmsNumber.startsWith('88') && bulksmsNumber.length === 10) {
+          bulksmsNumber = '880' + bulksmsNumber;
+        }
+
+        // Auto-detect Unicode (for Bangla characters) vs Plain text
+        const hasBangla = /[\u0980-\u09FF]/.test(messageText);
+        const msgType = hasBangla ? 'unicode' : 'text';
+
+        const params = new URLSearchParams({
+          api_key: apiKey,
+          type: msgType,
+          number: bulksmsNumber,
+          senderid: senderId,
+          message: messageText,
+        });
+
+        // Try http first, fallback to https if needed
+        const url = `http://bulksmsbd.net/api/smsapi?${params.toString()}`;
+        console.log(`📡 [BulkSMSBD Dispatch] To: ${bulksmsNumber} | Sender: ${senderId} | Type: ${msgType}`);
+
+        let res = await fetch(url, {
+          method: 'GET',
+          headers: { 'User-Agent': 'TwingKhataApp/1.0', 'Accept': 'application/json, text/plain, */*' },
+          timeout: 12000,
+        } as any).catch(async () => {
+          // Retry with https
+          return await fetch(`https://bulksmsbd.net/api/smsapi?${params.toString()}`, {
+            method: 'GET',
+            headers: { 'User-Agent': 'TwingKhataApp/1.0', 'Accept': 'application/json, text/plain, */*' },
+            timeout: 12000,
+          } as any);
+        });
+
+        const rawResText = await res.text().catch(() => '');
+        let jsonRes: any = null;
+        try {
+          jsonRes = JSON.parse(rawResText);
+        } catch {
+          jsonRes = { raw: rawResText };
+        }
+
+        console.log(`📩 [BulkSMSBD Gateway Output] To: ${bulksmsNumber} => Status:`, res?.status, `| Body:`, jsonRes || rawResText);
+
+        const isSuccess =
+          jsonRes?.response_code === 202 ||
+          jsonRes?.response_code === '202' ||
+          jsonRes?.response_code === 200 ||
+          rawResText.includes('202') ||
+          rawResText.toLowerCase().includes('success');
+
+        // Check if BulkSMSBD returned IP Whitelist or other specific error
+        let friendlyMessage = 'এসএমএস সফলভাবে গ্রাহকের মোবাইলে পৌঁছে দেওয়া হয়েছে';
+        if (!isSuccess) {
+          if (rawResText.includes('not Whitelisted') || rawResText.includes('whitelist ip') || jsonRes?.error_message?.includes('Whitelisted')) {
+            const ipMatch = rawResText.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+            const ipStr = ipMatch ? ipMatch[0] : '';
+            friendlyMessage = `⚠️ BulkSMSBD IP Whitelist ত্রুটি: BulkSMSBD ড্যাশবোর্ডে গিয়ে Developer / Phonebook সেকশন থেকে আপনার সার্ভার আইপি ${ipStr ? `(${ipStr})` : ''} হোয়াইটলিস্ট করুন অথবা IP Security অপশনটি Disable করুন।`;
+          } else if (rawResText.includes('Invalid API Key') || rawResText.includes('1002')) {
+            friendlyMessage = '❌ BulkSMSBD API Key সঠিক নয়। অনুগ্রহ করে অ্যাডমিন প্যানেল থেকে সঠিক API Key দিন।';
+          } else if (rawResText.includes('Invalid Sender') || rawResText.includes('1003')) {
+            friendlyMessage = '❌ Sender ID অনুমোদিত নয়। অনুগ্রহ করে BulkSMSBD প্যানেল থেকে অনুমোদিত প্রেরক আইডি ব্যবহার করুন।';
+          } else {
+            friendlyMessage = jsonRes?.error_message || jsonRes?.success_message || jsonRes?.msg || `গেটওয়ে রেসপন্স: ${rawResText}`;
+          }
+        }
 
         return {
-          success: true,
-          message: 'এসএমএস সফলভাবে প্রেরণ করা হয়েছে',
+          success: isSuccess,
+          message: friendlyMessage,
           recipient: cleanPhone,
-          gatewayResponse: textRes,
-          provider: 'Greenweb',
+          gatewayResponse: jsonRes || rawResText,
+          provider: 'BulkSMSBD',
         };
       } catch (err: any) {
-        console.error('Greenweb SMS Error:', err.message);
+        console.error('❌ BulkSMSBD Network Error:', err.message);
       }
     }
   }
 
-  // 2. BulkSMSBD Gateway (http://bulksmsbd.net)
-  if (settings.provider === 'bulksmsbd' && apiKey) {
+  // 2. Greenweb SMS Gateway (https://greenweb.com.bd)
+  if (provider === 'greenweb' && apiKey) {
     try {
-      const url = `http://bulksmsbd.net/api/smsapi?api_key=${encodeURIComponent(apiKey)}&type=text&number=${encodeURIComponent(cleanPhone)}&senderid=${encodeURIComponent(senderId)}&message=${encodeURIComponent(messageText)}`;
+      const url = `https://api.greenweb.com.bd/api.php?token=${encodeURIComponent(apiKey)}&to=${encodeURIComponent(cleanPhone)}&message=${encodeURIComponent(messageText)}`;
       const res = await fetch(url, { method: 'GET', timeout: 10000 } as any);
-      const jsonRes = await res.json().catch(() => null);
-      console.log(`[BulkSMSBD] To: ${cleanPhone}, Response:`, jsonRes);
+      const textRes = await res.text();
+      console.log(`[Greenweb SMS] To: ${cleanPhone}, Response: ${textRes}`);
 
       return {
         success: true,
         message: 'এসএমএস সফলভাবে প্রেরণ করা হয়েছে',
         recipient: cleanPhone,
-        gatewayResponse: jsonRes,
-        provider: 'BulkSMSBD',
+        gatewayResponse: textRes,
+        provider: 'Greenweb',
       };
     } catch (err: any) {
-      console.error('BulkSMSBD Error:', err.message);
+      console.error('Greenweb SMS Error:', err.message);
     }
   }
 

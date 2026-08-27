@@ -70,8 +70,12 @@ export type PrintPaperSize = 'thermal_80' | 'thermal_58' | 'a4';
 export type ThemeColor = 'teal' | 'emerald' | 'indigo' | 'amber' | 'navy';
 
 export interface StoreProfile {
+  id?: string;
   name: string;
+  shopName?: string;
   owner: string;
+  ownerName?: string;
+  email?: string;
   phone: string;
   address: string;
   footerNote?: string;
@@ -116,6 +120,7 @@ export interface Product {
   buyPrice: number;
   salePrice: number;
   stock: number;
+  minStock?: number;
   minStockAlert?: number;
   updatedAt: number;
 }

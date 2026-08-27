@@ -1232,6 +1232,7 @@ export const App: React.FC = () => {
                         customerId: data.customerId || 'pos_instant',
                         type: 'sale',
                         amount: data.netAmount,
+                        description: 'পিওএস বিক্রয়',
                         subtotal: data.totalAmount,
                         discount: data.discount,
                         netAmount: data.netAmount,

@@ -29,7 +29,30 @@ import {
   saveStoreProfile,
 } from '../utils/storage';
 
-const API_BASE = '/api';
+const getEnvApiUrl = (): string => {
+  try {
+    // Vite client-side environment variable support
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta && import.meta.env && import.meta.env.VITE_API_URL) {
+      // @ts-ignore
+      return String(import.meta.env.VITE_API_URL).trim();
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    // Node environment fallback
+    if (typeof process !== 'undefined' && process && process.env && process.env.VITE_API_URL) {
+      return String(process.env.VITE_API_URL).trim();
+    }
+  } catch {
+    // ignore
+  }
+  return '';
+};
+
+const RAW_API_URL = getEnvApiUrl();
+const API_BASE = RAW_API_URL ? `${RAW_API_URL.replace(/\/+$/, '')}/api` : '/api';
 const TOKEN_KEY = 'twing_jwt_token';
 const USER_KEY = 'twing_user_data';
 const OFFLINE_USERS_KEY = 'twing_offline_registered_users';
@@ -94,12 +117,27 @@ async function apiRequest<T = any>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+    });
+  } catch (networkErr: any) {
+    const err = new Error(networkErr?.message || 'Network request failed (offline)');
+    (err as any).status = 0;
+    (err as any).isNetworkError = true;
+    throw err;
+  }
 
-  const data = await response.json().catch(() => ({}));
+  const contentType = response.headers.get('content-type') || '';
+  let data: any = {};
+  if (contentType.includes('application/json')) {
+    data = await response.json().catch(() => ({}));
+  } else {
+    const text = await response.text().catch(() => '');
+    data = { error: text || `Request failed with status ${response.status}` };
+  }
 
   if (!response.ok) {
     const errorMsg = data.error || data.message || `Request failed with status ${response.status}`;
@@ -119,11 +157,18 @@ function isFallbackEligible(err: any): boolean {
   return (
     status === 405 ||
     status === 404 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    status === 0 ||
     msg.includes('405') ||
     msg.includes('404') ||
+    msg.includes('502') ||
+    msg.includes('503') ||
     msg.includes('Failed to fetch') ||
     msg.includes('NetworkError') ||
-    msg.includes('Load failed')
+    msg.includes('Load failed') ||
+    msg.includes('Network request failed')
   );
 }
 

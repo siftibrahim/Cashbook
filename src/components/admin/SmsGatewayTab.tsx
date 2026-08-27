@@ -397,9 +397,26 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
           <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 text-xs space-y-3">
             <h4 className="font-bold text-white flex items-center gap-2">
               <Info className="w-4 h-4 text-indigo-400" />
-              <span>এসএমএস এপিআই পাওয়ার নির্দেশিকা</span>
+              <span>এসএমএস এপিআই ও IP Whitelist গাইড</span>
             </h4>
+            
+            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-[11px] leading-relaxed">
+              <strong>⚠️ BulkSMSBD ব্যবহারকারীদের জন্য জরুরি:</strong> BulkSMSBD ড্যাশবোর্ডে API ব্যবহারের জন্য আপনার সার্ভার আইপি হোয়াইটলিস্ট (IP Whitelist) করতে হয় অথবা IP Security অফ রাখতে হয়। অন্যথায় <code>Your ip not Whitelisted</code> এরর আসবে।
+            </div>
+
             <ul className="text-slate-400 space-y-2 text-[11px] list-disc list-inside">
+              <li>
+                <strong className="text-slate-200">BulkSMSBD:</strong>{' '}
+                <a
+                  href="https://bulksmsbd.net/developer"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-indigo-400 hover:underline"
+                >
+                  bulksmsbd.net/developer
+                </a>{' '}
+                থেকে API Key সংগ্রহ করুন এবং IP Whitelist অপশনে আপনার সার্ভার আইপি দিন অথবা আইপি সিকিউরিটি নিষ্ক্রিয় করুন।
+              </li>
               <li>
                 <strong className="text-slate-200">GreenWeb:</strong>{' '}
                 <a
@@ -410,19 +427,7 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
                 >
                   greenweb.com.bd
                 </a>{' '}
-                এ একাউন্ট খুলে টোকেন কপি করুন।
-              </li>
-              <li>
-                <strong className="text-slate-200">BulkSMSBD:</strong>{' '}
-                <a
-                  href="https://bulksmsbd.net"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-indigo-400 hover:underline"
-                >
-                  bulksmsbd.net
-                </a>{' '}
-                এ একাউন্ট তৈরি করে API Key সংগ্রহ করুন।
+                এ একাউন্ট খুলে টোকেন কপি করুন (আইপি বাইন্ডিং ছাড়া দ্রুত কাজ করে)।
               </li>
               <li>
                 <strong className="text-slate-200">AlphaSMS:</strong>{' '}

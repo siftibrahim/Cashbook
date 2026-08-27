@@ -33,6 +33,7 @@ interface AnalyticsModalProps {
   isOpen: boolean;
   customers: Customer[];
   transactions: Record<string, Transaction[]>;
+  expenses?: any[];
   store: StoreProfile;
   onClose: () => void;
 }

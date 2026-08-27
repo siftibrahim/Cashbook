@@ -46,7 +46,7 @@ export const inMemoryStore: {
 export function getDbPool(): pg.Pool | null {
   if (pool) return pool;
 
-  const dbUrl = process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_SJpztX3oWI8m@ep-dark-resonance-aygiq6u3-pooler.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+  const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {
     console.warn('⚠️ [DB Warning] DATABASE_URL environment variable is not set. Using secure in-memory storage fallback.');
     return null;
@@ -525,6 +525,58 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
     VALUES ($1, $2, $3, $4)
     ON CONFLICT (id) DO NOTHING;
   `, ['app_update_config', JSON.stringify(defaultAppUpdate), Date.now(), adminEmail]);
+
+  // Seed default BulkSMSBD SMS gateway config
+  const defaultSmsConfig = {
+    provider: 'bulksmsbd',
+    apiKey: 'NOhILJCtx0DZJWCRBODB',
+    senderId: '8809648910696',
+    username: '',
+    customUrl: '',
+    isEnabled: true,
+  };
+
+  await client.query(`
+    INSERT INTO system_config (id, data, updated_at, updated_by)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at;
+  `, ['sms_gateway_config', JSON.stringify(defaultSmsConfig), Date.now(), adminEmail]);
+
+  // Seed default staff member if none exists
+  try {
+    const staffCheck = await client.query('SELECT id FROM staff LIMIT 1');
+    if (staffCheck.rows.length === 0) {
+      const defaultStaffHash = await bcrypt.hash('staff123', 10);
+      const defaultPermissions = JSON.stringify([
+        'canManageUsers',
+        'canApprovePayments',
+        'canEditSubscriptions',
+        'canSendBroadcasts',
+        'canManageSupport',
+        'canViewAuditLogs',
+      ]);
+      await client.query(`
+        INSERT INTO staff (
+          id, name, phone, email, password_hash, role, status, permissions, created_by, notes, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (id) DO NOTHING;
+      `, [
+        'staff_default_1',
+        'অফিসিয়াল স্টাফ ম্যানেজার',
+        '01306908115',
+        'staff@twing.com',
+        defaultStaffHash,
+        'manager',
+        'active',
+        defaultPermissions,
+        adminEmail,
+        'Default Master Staff Account',
+        Date.now(),
+      ]);
+    }
+  } catch (staffErr) {
+    console.warn('⚠️ Staff seed check notice:', staffErr);
+  }
 }
 
 function seedDefaultDataInMemory() {
@@ -598,4 +650,36 @@ function seedDefaultDataInMemory() {
     downloadUrl: 'https://play.google.com/store',
     updatedAt: Date.now(),
   };
+
+  inMemoryStore.system_config['sms_gateway_config'] = {
+    provider: 'bulksmsbd',
+    apiKey: 'NOhILJCtx0DZJWCRBODB',
+    senderId: '8809648910696',
+    username: '',
+    customUrl: '',
+    isEnabled: true,
+  };
+
+  inMemoryStore.staff = [
+    {
+      id: 'staff_default_1',
+      name: 'অফিসিয়াল স্টাফ ম্যানেজার',
+      phone: '01306908115',
+      email: 'staff@twing.com',
+      password_hash: '$2a$10$7z7aMvJdM9QxT2eXoOq9se.r0sN9E07uFv8gE8T4B6gH9tY5u7gHy', // staff123
+      password: 'staff123',
+      role: 'manager',
+      status: 'active',
+      permissions: [
+        'canManageUsers',
+        'canApprovePayments',
+        'canEditSubscriptions',
+        'canSendBroadcasts',
+        'canManageSupport',
+        'canViewAuditLogs',
+      ],
+      createdBy: adminEmail,
+      createdAt: Date.now(),
+    },
+  ];
 }

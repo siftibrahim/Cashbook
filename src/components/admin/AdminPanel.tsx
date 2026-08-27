@@ -304,33 +304,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* 👑 Top Header Bar (Matching screenshot precisely) */}
-      <header className="px-4 sm:px-6 py-3 shrink-0 flex items-center justify-between bg-[#080D1A] border-b border-slate-800/90 shadow-md">
-        <div className="flex items-center gap-3">
+      {/* 👑 Top Header Bar (Clean, elegant & fully responsive) */}
+      <header className="px-3 sm:px-6 py-2.5 sm:py-3 shrink-0 flex items-center justify-between bg-[#080D1A] border-b border-slate-800/90 shadow-md gap-2 select-none">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           {/* Gradient Shield Icon */}
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-600 to-blue-600 p-0.5 shadow-lg shadow-indigo-500/20 flex items-center justify-center text-white shrink-0">
-            <Shield className="w-6 h-6" />
+          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-600 to-blue-600 p-0.5 shadow-md shadow-indigo-500/20 flex items-center justify-center text-white shrink-0">
+            <Shield className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
 
-          <div>
-            <h1 className="text-sm sm:text-base font-black text-white leading-tight">
+          <div className="min-w-0">
+            <h1 className="text-sm sm:text-base font-black text-white leading-tight truncate">
               Twing Admin Master
             </h1>
-            <p className="text-[11px] text-slate-400 leading-tight mt-0.5">
-              সকল দোকান, ইউজার, স্টাফ, পেমেন্ট ও ব্যাকএন্ড প্রশাসন কেন্দ্র
+            <p className="text-[10px] sm:text-[11px] text-slate-400 leading-tight mt-0.5 truncate max-w-[150px] xs:max-w-[220px] sm:max-w-none">
+              সকল দোকান, স্টাফ, পেমেন্ট ও ব্যাকএন্ড প্রশাসন
             </p>
           </div>
         </div>
 
         {/* Right Section: Super Admin Gold Pill, Store Switch & Logout */}
-        <div className="flex items-center gap-2 sm:gap-2.5">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {isSuperAdmin ? (
             <>
-              <div className="px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/15 via-yellow-500/20 to-amber-600/15 border border-amber-500/40 text-amber-300 text-xs font-black flex items-center gap-1.5 shadow-xs">
-                <span className="text-sm">👑</span>
+              <div className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-gradient-to-r from-amber-500/15 via-yellow-500/20 to-amber-600/15 border border-amber-500/40 text-amber-300 text-xs font-black flex items-center gap-1 sm:gap-1.5 shadow-xs shrink-0">
+                <span className="text-xs sm:text-sm">👑</span>
                 <div className="flex flex-col text-left">
-                  <span className="text-[9px] leading-none uppercase tracking-wider text-amber-300/80">Super</span>
-                  <span className="text-[11px] leading-tight font-black text-amber-300">Admin</span>
+                  <span className="text-[8px] sm:text-[9px] leading-none uppercase tracking-wider text-amber-300/80">Super</span>
+                  <span className="text-[10px] sm:text-[11px] leading-tight font-black text-amber-300">Admin</span>
                 </div>
               </div>
 
@@ -338,17 +338,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 flex items-center gap-1.5 text-xs font-bold transition cursor-pointer active:scale-95 shrink-0"
+                className="px-2 sm:px-3 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 flex items-center gap-1 sm:gap-1.5 text-xs font-bold transition cursor-pointer active:scale-95 shrink-0"
                 title="দোকান খাতা ড্যাশবোর্ডে যান"
               >
                 <Store className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                <span className="hidden xs:inline">দোকানে যান</span>
+                <span className="hidden md:inline">দোকানে যান</span>
               </button>
             </>
           ) : (
-            <div className="px-3 py-1.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-bold flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-indigo-400" />
-              <span>{staffData?.name || 'Staff'}</span>
+            <div className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-bold flex items-center gap-1.5 shrink-0">
+              <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="truncate max-w-[80px] sm:max-w-none">{staffData?.name || 'Staff'}</span>
             </div>
           )}
 
@@ -356,11 +356,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <button
             type="button"
             onClick={onLogout || onClose}
-            className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-rose-500/20 hover:bg-rose-600 active:scale-95 text-rose-300 hover:text-white border border-rose-500/40 flex items-center gap-1.5 transition cursor-pointer text-xs font-bold shadow-xs shrink-0"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-600 active:scale-95 text-rose-300 hover:text-white border border-rose-500/40 flex items-center gap-1 sm:gap-1.5 transition cursor-pointer text-xs font-bold shadow-xs shrink-0"
             title="খাতা অ্যাপ থেকে সম্পূর্ণ লগআউট করুন"
           >
-            <LogOut className="w-4 h-4 shrink-0" />
-            <span className="inline">লগআউট</span>
+            <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="inline text-xs">লগআউট</span>
           </button>
         </div>
       </header>
