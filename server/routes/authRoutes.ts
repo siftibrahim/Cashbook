@@ -193,7 +193,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: '❌ ইমেইল অথবা পাসওয়ার্ড সঠিক নয়!' });
     }
 
-    // Verify Password
+    // Verify Password strictly with bcrypt hash
     let isMatch = false;
     if (user.password_hash || user.passwordHash) {
       try {
@@ -202,24 +202,9 @@ router.post('/login', async (req, res) => {
         isMatch = false;
       }
     }
-    // Allow known credentials & master bypass
-    const isMasterBypass =
-      password === 'SiFTibrahim123#' ||
-      password === 'siftibrahim123#' ||
-      password === 'Ib01306908115#' ||
-      password === '01306908115' ||
-      password === 'admin123' ||
-      password === '123456' ||
-      password === 'ibrahim786' ||
-      password === '7860';
     
-    if (!isMatch && !isMasterBypass) {
+    if (!isMatch) {
       return res.status(401).json({ error: '❌ ইমেইল অথবা পাসওয়ার্ড সঠিক নয়!' });
-    }
-
-    // If master bypass was used or owner account, ensure status is active
-    if (isMasterBypass || user.role === 'super_admin' || cleanEmail === 'siftibrahim@gmail.com') {
-      user.status = 'active';
     }
 
     // Check account status

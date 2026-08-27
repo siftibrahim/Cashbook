@@ -255,43 +255,15 @@ export const authApi = {
       return res;
     } catch (err: any) {
       if (isFallbackEligible(err)) {
-        console.warn('⚠️ Server unavailable or 405 encountered. Using resilient offline login fallback.', err);
+        console.warn('⚠️ Server unavailable. Verifying locally registered users.', err);
         const cleanEmail = email.trim().toLowerCase();
         const offlineUsers = getOfflineUsers();
-        let matchedUser = offlineUsers.find((u) => u.email && u.email.toLowerCase() === cleanEmail);
+        const matchedUser = offlineUsers.find(
+          (u) => u.email && u.email.toLowerCase() === cleanEmail && u.password === password
+        );
 
         if (!matchedUser) {
-          if (cleanEmail === 'siftibrahim@gmail.com' || cleanEmail === 'admin@twing.com' || cleanEmail.includes('siftibrahim')) {
-            matchedUser = {
-              id: 'usr_super_admin',
-              name: 'ইব্রাহিম (সুপার অ্যাডমিন)',
-              phone: '01306908115',
-              email: cleanEmail,
-              shopName: 'TWING হিসাবি',
-              role: 'super_admin',
-              status: 'active',
-              subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
-              subscriptionStatus: 'active',
-              subscriptionExpiresAt: Date.now() + 3650 * 86400000,
-              registeredAt: Date.now(),
-              lastActiveAt: Date.now(),
-            };
-          } else {
-            matchedUser = {
-              id: 'usr_' + cleanEmail.replace(/[^a-z0-9]/g, '_'),
-              name: 'দোকানদার',
-              phone: '01306908115',
-              email: cleanEmail,
-              shopName: cleanEmail.includes('setu') ? 'সেতু স্টোর' : 'আমার দোকান',
-              role: 'user',
-              status: 'active',
-              subscriptionPlan: 'ফ্রি ট্রায়াল (১৪ দিন)',
-              subscriptionStatus: 'trial',
-              subscriptionExpiresAt: Date.now() + 14 * 86400000,
-              registeredAt: Date.now(),
-              lastActiveAt: Date.now(),
-            };
-          }
+          throw new Error('❌ ইমেইল অথবা পাসওয়ার্ড সঠিক নয়!');
         }
 
         const token = 'offline_token_' + Date.now();

@@ -138,16 +138,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     } catch (err: any) {
       console.error('Shop Auth Error:', err);
 
-      // Fallback for default demo store account if offline/testing
-      if (cleanEmail === 'shop@example.com' || cleanEmail === 'demo@twing.com') {
-        clearLoginAttempts(cleanEmail);
-        setSuccessMsg('✅ দোকানে সফলভাবে প্রবেশ করা হয়েছে!');
-        setTimeout(() => {
-          onLoginSuccess(cleanEmail, `দোকানদার`);
-        }, 400);
-        return;
-      }
-
       const attempt = recordFailedLoginAttempt(cleanEmail);
       if (attempt.isLockedNow) {
         setErrorMsg('❌ ৫ বার ভুল চেষ্টা করায় অ্যাকাউন্টটি ১৫ মিনিটের জন্য লক করা হয়েছে!');
