@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { getDbPool, inMemoryStore } from '../db';
+import { getDbPool, inMemoryStore, setAndConnectDatabaseUrl } from '../db';
 import {
   AuthenticatedRequest,
   requireAdminOrStaff,
@@ -26,34 +26,103 @@ router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const pool = getDbPool();
     if (pool) {
-      const result = await pool.query('SELECT * FROM users ORDER BY registered_at DESC');
-      const users = result.rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        phone: row.phone,
-        email: row.email,
-        shopName: row.shop_name,
-        businessType: row.business_type,
-        address: row.address,
-        role: row.role,
-        status: row.status,
-        subscriptionPlan: row.subscription_plan,
-        subscriptionStatus: row.subscription_status,
-        subscriptionExpiresAt: Number(row.subscription_expires_at),
-        registeredAt: Number(row.registered_at),
-        lastActiveAt: Number(row.last_active_at),
+      // Fetch users with resilient fallback from Neon PostgreSQL
+      let rows: any[] = [];
+      try {
+        const result = await pool.query(`
+          SELECT 
+            u.*,
+            COALESCE((SELECT COUNT(*) FROM customers c WHERE c.user_id = u.id), 0) as total_customers,
+            COALESCE((SELECT COUNT(*) FROM transactions t WHERE t.user_id = u.id), 0) as total_transactions
+          FROM users u 
+          ORDER BY COALESCE(u.registered_at, 0) DESC
+        `);
+        rows = result.rows;
+      } catch (subErr) {
+        console.warn('Fallback basic user query in /api/admin/users:', subErr);
+        const basicResult = await pool.query('SELECT * FROM users ORDER BY registered_at DESC');
+        rows = basicResult.rows;
+      }
+
+      const users = rows.map((row: any) => ({
+        id: String(row.id || ''),
+        name: row.name || 'ইউজার',
+        phone: row.phone || '',
+        email: row.email || '',
+        shopName: row.shop_name || 'আমার দোকান',
+        businessType: row.business_type || 'জেনারেল স্টোর',
+        address: row.address || 'বাংলাদেশ',
+        role: row.role || 'user',
+        status: row.status || 'active',
+        subscriptionPlan: row.subscription_plan || 'ফ্রি ট্রায়াল (১৪ দিন)',
+        subscriptionStatus: row.subscription_status || 'active',
+        subscriptionExpiresAt: Number(row.subscription_expires_at) || (Date.now() + 14 * 86400000),
+        registeredAt: Number(row.registered_at) || Date.now(),
+        lastActiveAt: Number(row.last_active_at) || Date.now(),
         totalCustomers: parseInt(row.total_customers || '0', 10),
         totalTransactions: parseInt(row.total_transactions || '0', 10),
-        notes: row.notes,
-        deviceInfo: row.device_info,
-        appVersion: row.app_version,
+        notes: row.notes || '',
+        deviceInfo: row.device_info || '',
+        appVersion: row.app_version || '2.5.0',
       }));
-      return res.json({ users });
+
+      return res.json({ users, isPostgresConnected: true, totalCount: users.length });
     } else {
-      return res.json({ users: inMemoryStore.users });
+      return res.json({ users: inMemoryStore.users, isPostgresConnected: false, totalCount: inMemoryStore.users.length });
     }
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    console.error('❌ Error fetching users from DB in /api/admin/users:', err);
+    return res.status(500).json({ error: err.message, users: inMemoryStore.users, isPostgresConnected: false });
+  }
+});
+
+/**
+ * POST /api/admin/set-database-url - Connect & configure live Neon PostgreSQL
+ */
+router.post('/set-database-url', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { databaseUrl } = req.body;
+    if (!databaseUrl) {
+      return res.status(400).json({ error: 'DATABASE_URL (Connection String) প্রদান করুন' });
+    }
+
+    const result = await setAndConnectDatabaseUrl(databaseUrl);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || 'ডাটাবেজে কানেক্ট করা সম্ভব হয়নি' });
+  }
+});
+
+/**
+ * GET /api/admin/db-status - Check Neon PostgreSQL connection status
+ */
+router.get('/db-status', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const pool = getDbPool();
+    if (!pool) {
+      return res.json({
+        connected: false,
+        message: 'DATABASE_URL এনভায়রনমেন্ট ভেরিয়েবল সেট করা নেই। ইন-মেমোরি মোডে চলছে।',
+        provider: 'In-Memory Fallback',
+        userCount: inMemoryStore.users.length,
+      });
+    }
+
+    const check = await pool.query('SELECT current_database(), count(*) as user_count FROM users');
+    return res.json({
+      connected: true,
+      message: '✅ Neon PostgreSQL ডাটাবেজে সফলভাবে সংযুক্ত রয়েছে!',
+      provider: 'Neon PostgreSQL',
+      databaseName: check.rows[0]?.current_database || 'neondb',
+      userCount: parseInt(check.rows[0]?.user_count || '0', 10),
+    });
+  } catch (err: any) {
+    return res.json({
+      connected: false,
+      message: `❌ ডাটাবেজ কানেকশন এরর: ${err.message}`,
+      provider: 'Disconnected',
+      userCount: inMemoryStore.users.length,
+    });
   }
 });
 

@@ -254,28 +254,6 @@ export const authApi = {
       }
       return res;
     } catch (err: any) {
-      if (isFallbackEligible(err)) {
-        console.warn('⚠️ Server unavailable. Verifying locally registered users.', err);
-        const cleanEmail = email.trim().toLowerCase();
-        const offlineUsers = getOfflineUsers();
-        const matchedUser = offlineUsers.find(
-          (u) => u.email && u.email.toLowerCase() === cleanEmail && u.password === password
-        );
-
-        if (!matchedUser) {
-          throw new Error('❌ ইমেইল অথবা পাসওয়ার্ড সঠিক নয়!');
-        }
-
-        const token = 'offline_token_' + Date.now();
-        setAuthToken(token);
-        setStoredUser(matchedUser);
-
-        return {
-          token,
-          user: matchedUser,
-          message: '✅ সফলভাবে লগইন হয়েছে!',
-        };
-      }
       throw err;
     }
   },
@@ -292,39 +270,6 @@ export const authApi = {
       }
       return res;
     } catch (err: any) {
-      if (isFallbackEligible(err)) {
-        console.warn('⚠️ Server unavailable or 405 encountered. Using resilient offline admin login fallback.', err);
-        const adminEmail = (params.email || 'siftibrahim@gmail.com').trim().toLowerCase();
-        const pin = (params.pin || '').trim();
-        const password = params.password || '';
-
-        // Master bypass pins
-        if (pin === '1234' || pin === '123456' || pin === '013069' || password === 'admin123' || password === '123456' || adminEmail.includes('siftibrahim') || adminEmail === 'admin@twing.com') {
-          const adminUser = {
-            id: 'usr_super_admin',
-            name: 'ইব্রাহিম (সুপার অ্যাডমিন)',
-            phone: '01306908115',
-            email: adminEmail,
-            role: 'super_admin',
-            status: 'active',
-            subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
-            subscriptionStatus: 'active',
-            subscriptionExpiresAt: Date.now() + 3650 * 86400000,
-            registeredAt: Date.now(),
-            lastActiveAt: Date.now(),
-          };
-
-          const token = 'offline_admin_token_' + Date.now();
-          setAuthToken(token);
-          setStoredUser(adminUser);
-
-          return {
-            token,
-            user: adminUser,
-            message: '✅ সুপার অ্যাডমিন ভেরিফিকেশন সফল!',
-          };
-        }
-      }
       throw err;
     }
   },
@@ -341,45 +286,20 @@ export const authApi = {
       }
       return res;
     } catch (err: any) {
-      if (isFallbackEligible(err)) {
-        const staffObj = {
-          id: 'staff_offline_1',
-          name: identifier,
-          email: identifier.includes('@') ? identifier : `${identifier}@twing.com`,
-          phone: '01306908115',
-          role: 'manager',
-          status: 'active',
-          permissions: {
-            canManageUsers: true,
-            canApprovePayments: true,
-            canEditSubscriptions: true,
-            canDeleteRecords: false,
-            canManageStaff: false,
-            canSendBroadcasts: true,
-            canManageSupport: true,
-            canViewAuditLogs: true,
-          },
-        };
-        const token = 'offline_staff_token_' + Date.now();
-        setAuthToken(token);
-        setStoredUser(staffObj);
-        return {
-          token,
-          staff: staffObj,
-          message: '✅ স্টাফ লগইন সফল!',
-        };
-      }
       throw err;
     }
   },
 
   async getCurrentUser() {
     try {
-      return await apiRequest<{ user: any }>('/auth/me');
+      const res = await apiRequest<{ user: any }>('/auth/me');
+      if (res && res.user) {
+        setStoredUser(res.user);
+        return res;
+      }
+      return null;
     } catch (err: any) {
-      const local = getStoredUser();
-      if (local) return { user: local };
-      throw err;
+      return null;
     }
   },
 
@@ -491,6 +411,8 @@ export const authApi = {
 
   logout() {
     removeAuthToken();
+    localStorage.removeItem('ibrahim_is_logged_in');
+    localStorage.removeItem('ibrahim_user_role');
   },
 };
 
@@ -1087,6 +1009,25 @@ export const adminApi = {
     try {
       await apiRequest(`/admin/staff/${staffId}`, { method: 'DELETE' });
     } catch {}
+  },
+
+  async getDbStatus(): Promise<{ connected: boolean; message: string; provider: string; databaseName?: string; userCount?: number }> {
+    try {
+      return await apiRequest<{ connected: boolean; message: string; provider: string; databaseName?: string; userCount?: number }>('/admin/db-status');
+    } catch (err: any) {
+      return {
+        connected: false,
+        message: err.message || 'ডাটাবেজ কানেকশন বিচ্ছিন্ন',
+        provider: 'Disconnected',
+      };
+    }
+  },
+
+  async setDatabaseUrl(databaseUrl: string): Promise<{ success: boolean; message: string; databaseName?: string; userCount?: number }> {
+    return await apiRequest<{ success: boolean; message: string; databaseName?: string; userCount?: number }>('/admin/set-database-url', {
+      method: 'POST',
+      body: JSON.stringify({ databaseUrl }),
+    });
   },
 
   async getSupportThreads(): Promise<SupportThread[]> {

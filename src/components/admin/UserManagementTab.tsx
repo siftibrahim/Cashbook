@@ -21,11 +21,18 @@ import {
   SlidersHorizontal,
   ChevronDown,
   Sparkles,
+  Database,
+  RefreshCw,
+  AlertTriangle,
+  Plug,
 } from 'lucide-react';
 import { formatMoney } from '../../utils/storage';
 
 interface UserManagementTabProps {
   users: AppUser[];
+  dbStatus?: { connected: boolean; provider: string; message: string; userCount?: number; databaseName?: string } | null;
+  onOpenDbModal?: () => void;
+  onRefreshDb?: () => void;
   onSaveUser: (user: AppUser) => Promise<void>;
   onUpdateStatus: (userId: string, status: UserStatus, note?: string) => Promise<void>;
   onExtendSubscription: (userId: string, days: number, planName?: string) => Promise<void>;
@@ -36,6 +43,9 @@ interface UserManagementTabProps {
 
 export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   users,
+  dbStatus,
+  onOpenDbModal,
+  onRefreshDb,
   onSaveUser,
   onUpdateStatus,
   onExtendSubscription,
@@ -182,6 +192,70 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Database Connection Status Banner */}
+      {dbStatus && (
+        <div
+          className={`p-3.5 sm:p-4 rounded-3xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md ${
+            dbStatus.connected
+              ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+              : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 ${
+                dbStatus.connected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+              }`}
+            >
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs sm:text-sm font-bold text-white">
+                  {dbStatus.connected ? '🟢 Neon PostgreSQL ডাটাবেজ সংযুক্ত' : '⚠️ Neon ডাটাবেজ কানেক্ট করা নেই'}
+                </h4>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900/80 border border-slate-700 text-slate-300 font-semibold">
+                  {dbStatus.provider}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 mt-0.5">
+                {dbStatus.connected
+                  ? `ডাটাবেজ: ${dbStatus.databaseName || 'neondb'} • ডাটাবেজে মোট ইউজার: ${users.length} জন`
+                  : 'console.neon.tech-এ থাকা আপনার ৬ জন আসল ইউজার দেখতে ডাটাবেজ কানেকশন স্ট্রিং সেট করুন।'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            {onRefreshDb && (
+              <button
+                type="button"
+                onClick={onRefreshDb}
+                className="px-3 py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                title="ডাটাবেজ রিফ্রেশ"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+                <span>রিফ্রেশ</span>
+              </button>
+            )}
+            {onOpenDbModal && (
+              <button
+                type="button"
+                onClick={onOpenDbModal}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md transition active:scale-95 cursor-pointer ${
+                  dbStatus.connected
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
+                    : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/30'
+                }`}
+              >
+                <Plug className="w-3.5 h-3.5" />
+                <span>{dbStatus.connected ? 'কানেকশন সেটিংস' : '🔌 Neon কানেক্ট করুন'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Users Count Summary */}
       <div className="flex items-center justify-between text-xs text-slate-400 px-2 font-semibold">

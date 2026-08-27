@@ -1,10 +1,54 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
+import fs from 'fs';
+import path from 'path';
 
 dotenv.config();
 
 const { Pool } = pg;
+
+// Config file path for persistent DATABASE_URL
+const CONFIG_FILE_PATH = path.join(process.cwd(), 'server', 'db-config.json');
+
+export function sanitizePostgresUrl(rawUrl: string): string {
+  let url = (rawUrl || '').trim();
+  if (!url) return '';
+
+  // Remove invalid/unsupported parameters like channel_binding=...
+  url = url.replace(/[?&]channel_binding=[^&]*/gi, '');
+  
+  // Clean up dangling ? or &
+  if (url.includes('?') && !url.split('?')[1]) {
+    url = url.replace('?', '');
+  } else if (url.includes('?&')) {
+    url = url.replace('?&', '?');
+  }
+
+  // Ensure sslmode=require for neon.tech if missing
+  if (url.includes('neon.tech') && !url.includes('sslmode=')) {
+    url += (url.includes('?') ? '&' : '?') + 'sslmode=require';
+  }
+
+  return url;
+}
+
+function getStoredDbUrl(): string {
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim()) {
+    return sanitizePostgresUrl(process.env.DATABASE_URL.trim());
+  }
+  try {
+    if (fs.existsSync(CONFIG_FILE_PATH)) {
+      const data = JSON.parse(fs.readFileSync(CONFIG_FILE_PATH, 'utf-8'));
+      if (data && data.databaseUrl && typeof data.databaseUrl === 'string') {
+        return sanitizePostgresUrl(data.databaseUrl.trim());
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return '';
+}
 
 // Neon PostgreSQL Database Pool
 let pool: pg.Pool | null = null;
@@ -46,9 +90,9 @@ export const inMemoryStore: {
 export function getDbPool(): pg.Pool | null {
   if (pool) return pool;
 
-  const dbUrl = process.env.DATABASE_URL;
+  const dbUrl = getStoredDbUrl();
   if (!dbUrl) {
-    console.warn('⚠️ [DB Warning] DATABASE_URL environment variable is not set. Using secure in-memory storage fallback.');
+    console.warn('⚠️ [DB Warning] DATABASE_URL is not set. Using secure in-memory storage fallback.');
     return null;
   }
 
@@ -72,6 +116,89 @@ export function getDbPool(): pg.Pool | null {
   } catch (err) {
     console.error('❌ Failed to initialize PostgreSQL pool:', err);
     return null;
+  }
+}
+
+/**
+ * Dynamically set, test and persist a new Neon Database URL
+ */
+export async function setAndConnectDatabaseUrl(newDbUrl: string): Promise<{ success: boolean; message: string; databaseName?: string; userCount?: number }> {
+  const cleanUrl = (newDbUrl || '').trim();
+  if (!cleanUrl) {
+    throw new Error('ডাটাবেজ ইউআরএল (Connection String) ফাঁকা হতে পারে না');
+  }
+
+  if (!cleanUrl.startsWith('postgres://') && !cleanUrl.startsWith('postgresql://')) {
+    throw new Error('অবৈধ ডাটাবেজ ইউআরএল ফরম্যাট! URL অবশ্যই postgresql:// বা postgres:// দিয়ে শুরু হতে হবে।');
+  }
+
+  // Test connection first
+  let testPool: pg.Pool | null = null;
+  try {
+    const isNeonOrCloud = cleanUrl.includes('neon.tech') || cleanUrl.includes('sslmode=require') || true;
+    testPool = new Pool({
+      connectionString: cleanUrl,
+      ssl: isNeonOrCloud ? { rejectUnauthorized: false } : false,
+      connectionTimeoutMillis: 12000,
+    });
+
+    const client = await testPool.connect();
+    const res = await client.query('SELECT current_database() as db_name, COUNT(*) as user_count FROM (SELECT 1 FROM information_schema.tables WHERE table_name = \'users\') t');
+    
+    // Check if users table exists and get count if exists
+    let userCount = 0;
+    try {
+      const uRes = await client.query('SELECT COUNT(*) as cnt FROM users');
+      userCount = parseInt(uRes.rows[0]?.cnt || '0', 10);
+    } catch (tblErr) {
+      // Table might need creation
+    }
+    client.release();
+    await testPool.end();
+
+    // Connection successful! Save to file and environment
+    process.env.DATABASE_URL = cleanUrl;
+    try {
+      const dir = path.dirname(CONFIG_FILE_PATH);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify({ databaseUrl: cleanUrl, updatedAt: new Date().toISOString() }, null, 2));
+    } catch (saveErr) {
+      console.warn('Could not write to db-config.json:', saveErr);
+    }
+
+    // Close old pool if any
+    if (pool) {
+      try {
+        await pool.end();
+      } catch {}
+      pool = null;
+    }
+
+    // Initialize new pool and schemas
+    pool = new Pool({
+      connectionString: cleanUrl,
+      ssl: { rejectUnauthorized: false },
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    });
+
+    await initializeDatabaseSchema();
+
+    return {
+      success: true,
+      message: '✅ Neon PostgreSQL ডাটাবেজে সফলভাবে সংযুক্ত হয়েছে!',
+      databaseName: res.rows[0]?.db_name || 'neondb',
+      userCount,
+    };
+  } catch (err: any) {
+    if (testPool) {
+      try { await testPool.end(); } catch {}
+    }
+    console.error('❌ Failed to connect to provided Neon database:', err);
+    throw new Error(`ডাটাবেজ কানেকশন ব্যর্থ হয়েছে: ${err.message}`);
   }
 }
 
@@ -580,13 +707,32 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
 }
 
 function seedDefaultDataInMemory() {
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@twing.com';
+  const adminEmail = process.env.ADMIN_EMAIL || 'siftibrahim@gmail.com';
   inMemoryStore.users = [
     {
       id: 'usr_super_admin',
       name: 'ইব্রাহিম (সুপার অ্যাডমিন)',
-      phone: '01619665875',
-      email: adminEmail,
+      phone: '01306908115',
+      email: 'siftibrahim@gmail.com',
+      password_hash: '$2a$10$wN35i7t77b8H5hJ9uW7CGeL7O0Zl9KqXgN0vL3Z3zP8M9.5/cKzG', // admin123
+      shopName: 'TWING হিসাবি',
+      businessType: 'জেনারেল স্টোর',
+      address: 'ঢাকা, বাংলাদেশ',
+      role: 'super_admin',
+      status: 'active',
+      subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
+      subscriptionStatus: 'active',
+      subscriptionExpiresAt: Date.now() + 3650 * 86400000,
+      registeredAt: Date.now(),
+      lastActiveAt: Date.now(),
+      totalCustomers: 0,
+      totalTransactions: 0,
+    },
+    {
+      id: 'usr_super_admin_2',
+      name: 'ইব্রাহিম (অ্যাডমিন)',
+      phone: '01306908115',
+      email: 'admin@twing.com',
       password_hash: '$2a$10$wN35i7t77b8H5hJ9uW7CGeL7O0Zl9KqXgN0vL3Z3zP8M9.5/cKzG', // admin123
       shopName: 'TWING হিসাবি',
       businessType: 'জেনারেল স্টোর',

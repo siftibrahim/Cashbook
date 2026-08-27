@@ -48,6 +48,7 @@ import {
   ADMIN_EMAIL,
   INITIAL_PAYMENT_SETTINGS,
 } from '../../services/adminService';
+import { adminApi } from '../../services/apiService';
 import { AdminDashboardOverview } from './AdminDashboardOverview';
 import { UserManagementTab } from './UserManagementTab';
 import { SubscriptionManagementTab } from './SubscriptionManagementTab';
@@ -90,6 +91,12 @@ import {
   KeyRound,
   Sliders,
   Wallet,
+  Database,
+  Plug,
+  AlertTriangle,
+  ExternalLink,
+  Link2,
+  Lock,
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -145,9 +152,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [logs, setLogs] = useState<AdminActivityLog[]>([]);
   const [supportThreads, setSupportThreads] = useState<SupportThread[]>([]);
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean; provider: string; message: string; userCount?: number; databaseName?: string } | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isDbModalOpen, setIsDbModalOpen] = useState(false);
+  const [dbUrlInput, setDbUrlInput] = useState('');
+  const [isSavingDbUrl, setIsSavingDbUrl] = useState(false);
+
+  const checkDbAndRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const status = await adminApi.getDbStatus();
+      setDbStatus(status);
+      const latestUsers = await adminApi.getUsers();
+      if (latestUsers && latestUsers.length > 0) {
+        setUsers(latestUsers);
+      }
+      showToast(status.connected ? `✅ Neon PostgreSQL থেকে ${latestUsers.length} জন ইউজার লোড হয়েছে!` : '⚠️ ইন-মেমোরি মোড: DATABASE_URL কনফিগার করুন');
+    } catch (err: any) {
+      showToast('❌ ডাটাবেজ রিফ্রেশ করতে সমস্যা হয়েছে');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleConnectDatabase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!dbUrlInput.trim()) {
+      showToast('অনুগ্রহ করে আপনার Neon Database Connection String দিন');
+      return;
+    }
+
+    setIsSavingDbUrl(true);
+    try {
+      const res = await adminApi.setDatabaseUrl(dbUrlInput.trim());
+      showToast(res.message || '✅ ডাটাবেজ সফলভাবে সংযুক্ত হয়েছে!');
+      setIsDbModalOpen(false);
+      setDbUrlInput('');
+      await checkDbAndRefresh();
+    } catch (err: any) {
+      showToast(`❌ ডাটাবেজ কানেকশন ব্যর্থ: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsSavingDbUrl(false);
+    }
+  };
 
   // Subscriptions
   useEffect(() => {
+    adminApi.getDbStatus().then(setDbStatus).catch(() => {});
     const unsubUsers = subscribeToAdminUsers(setUsers);
     const unsubPayments = subscribeToAdminPayments(setPayments);
     const unsubPaymentSettings = subscribeToPaymentSettings(setPaymentSettings);
@@ -324,6 +375,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         {/* Right Section: Super Admin Gold Pill, Store Switch & Logout */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+          {/* Neon DB Status & Connect/Refresh Button */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsDbModalOpen(true)}
+              className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl text-[10px] sm:text-xs font-bold border flex items-center gap-1.5 transition cursor-pointer active:scale-95 shrink-0 ${
+                dbStatus?.connected
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25'
+                  : 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30 animate-pulse'
+              }`}
+              title="Neon PostgreSQL ডাটাবেজ কনফিগারেশন"
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="font-bold">
+                {dbStatus?.connected ? `Neon PG (${users.length})` : '🔌 ডাটাবেজ কানেক্ট'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={checkDbAndRefresh}
+              disabled={isRefreshing}
+              className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/80 transition cursor-pointer active:scale-95 shrink-0"
+              title="ডাটাবেজ রিফ্রেশ"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-white' : 'text-slate-300'}`} />
+            </button>
+          </div>
+
           {isSuperAdmin ? (
             <>
               <div className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-gradient-to-r from-amber-500/15 via-yellow-500/20 to-amber-600/15 border border-amber-500/40 text-amber-300 text-xs font-black flex items-center gap-1 sm:gap-1.5 shadow-xs shrink-0">
@@ -442,6 +522,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {activeTab === 'users' && (
             <UserManagementTab
               users={users}
+              dbStatus={dbStatus}
+              onOpenDbModal={() => setIsDbModalOpen(true)}
+              onRefreshDb={checkDbAndRefresh}
               onSaveUser={saveAppUser}
               onUpdateStatus={updateUserStatus}
               onExtendSubscription={extendUserSubscription}
@@ -609,6 +692,138 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           )}
         </div>
       </main>
+
+      {/* 🔌 Neon PostgreSQL Database Connection Modal */}
+      {isDbModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+          <div className="bg-[#101A2D] border border-slate-700/80 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white leading-tight flex items-center gap-2">
+                    Neon PostgreSQL ডাটাবেজ সেটিংস
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    আপনার আসল ইউজার ও লাইভ ডাটা লোড করার জন্য কানেক্ট করুন
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDbModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 overflow-y-auto">
+              {/* Current Status Box */}
+              <div
+                className={`p-4 rounded-2xl border ${
+                  dbStatus?.connected
+                    ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                    : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-bold text-sm">
+                    {dbStatus?.connected ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>সফলভাবে সংযুক্ত (Connected)</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>কানেক্টেড নয় (ইন-মেমোরি মোড)</span>
+                      </>
+                    )}
+                  </div>
+                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-900/90 border border-slate-700 text-slate-300 font-semibold">
+                    {dbStatus?.provider || 'In-Memory'}
+                  </span>
+                </div>
+                <p className="text-xs mt-2 text-slate-300 leading-relaxed">
+                  {dbStatus?.message}
+                </p>
+                {dbStatus?.databaseName && (
+                  <div className="mt-2 text-xs flex gap-4 text-slate-400 pt-2 border-t border-slate-800">
+                    <span>ডাটাবেজ: <strong className="text-white">{dbStatus.databaseName}</strong></span>
+                    <span>ইউজার সংখ্যা: <strong className="text-emerald-400">{users.length} জন</strong></span>
+                  </div>
+                )}
+              </div>
+
+              {/* Instructions Box */}
+              <div className="p-4 bg-slate-900/90 rounded-2xl border border-slate-800 text-xs space-y-2 text-slate-300">
+                <div className="font-bold text-white flex items-center gap-1.5 text-xs">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>কীভাবে Neon Connection String পাবেন?</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-slate-400 leading-relaxed">
+                  <li>আপনার <strong className="text-indigo-300">console.neon.tech</strong> ড্যাশবোর্ডে যান।</li>
+                  <li>আপনার প্রজেক্টের <strong className="text-white">Connection Details</strong> থেকে <strong className="text-white">Connection string</strong> কপি করুন।</li>
+                  <li>নিচের বক্সে পেস্ট করে <strong className="text-emerald-400">"ডাটাবেজ কানেক্ট করুন"</strong> বাটনে চাপুন।</li>
+                </ol>
+              </div>
+
+              {/* Input Form */}
+              <form onSubmit={handleConnectDatabase} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                    Neon PostgreSQL Connection URL:
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={dbUrlInput}
+                      onChange={(e) => setDbUrlInput(e.target.value)}
+                      placeholder="postgresql://neondb_owner:password@ep-cold-bread-....neon.tech/neondb?sslmode=require"
+                      className="w-full px-3.5 py-3 bg-slate-950 border border-slate-700 rounded-2xl text-xs font-mono text-emerald-400 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    নিরাপদ SSL এনক্রিপশনের মাধ্যমে এটি সংরক্ষণ হবে এবং সাথে সাথে ইউজার লোড করবে।
+                  </p>
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsDbModalOpen(false)}
+                    className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+                  >
+                    বন্ধ করুন
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingDbUrl || !dbUrlInput.trim()}
+                    className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white text-xs font-black transition flex items-center gap-2 shadow-lg shadow-emerald-600/25 active:scale-95 cursor-pointer"
+                  >
+                    {isSavingDbUrl ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>কানেকশন চেক হচ্ছে...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plug className="w-4 h-4" />
+                        <span>🔌 ডাটাবেজ কানেক্ট করুন</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

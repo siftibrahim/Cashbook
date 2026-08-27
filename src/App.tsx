@@ -234,9 +234,8 @@ export const App: React.FC = () => {
     const checkAuth = async () => {
       const token = getAuthToken();
       const storedUser = getStoredUser();
-      const wasLoggedIn = localStorage.getItem('ibrahim_is_logged_in') === 'true';
 
-      if (token || storedUser || wasLoggedIn) {
+      if (token && storedUser) {
         try {
           const res = await authApi.getCurrentUser().catch(() => null);
           const currentUser = res?.user || storedUser;
@@ -276,19 +275,15 @@ export const App: React.FC = () => {
           } else {
             authApi.logout();
             setIsLoggedIn(false);
-            localStorage.removeItem('ibrahim_is_logged_in');
-            localStorage.removeItem('ibrahim_user_role');
             setAdminSession(null);
             setIsAdminPanelOpen(false);
           }
         } catch (err) {
           console.warn('Auth check catch:', err);
-          if (storedUser) {
-            setIsLoggedIn(true);
-            await loadUserAccountData(storedUser.id);
-          } else {
-            setIsLoggedIn(false);
-          }
+          authApi.logout();
+          setIsLoggedIn(false);
+          setAdminSession(null);
+          setIsAdminPanelOpen(false);
         }
       } else {
         setIsLoggedIn(false);
