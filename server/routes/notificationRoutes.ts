@@ -11,8 +11,46 @@ router.get('/', authenticateUser, async (req: AuthenticatedRequest, res: Respons
   try {
     const userId = req.user?.userId;
     const pool = getDbPool();
+    const now = Date.now();
 
-    if (pool) {
+    if (pool && userId) {
+      // Check if user's subscription expires in <= 3 days (and > 0)
+      try {
+        const uRes = await pool.query('SELECT subscription_expires_at, subscription_plan FROM users WHERE id = $1', [userId]);
+        if (uRes.rows.length > 0 && uRes.rows[0].subscription_expires_at) {
+          const exp = Number(uRes.rows[0].subscription_expires_at);
+          const msLeft = exp - now;
+          const daysLeft = Math.ceil(msLeft / 86400000);
+
+          if (msLeft > 0 && daysLeft <= 3) {
+            // Check if we sent an expiry warning in the last 20 hours
+            const lastWarn = await pool.query(
+              "SELECT id FROM notifications WHERE target_user_id = $1 AND type = 'subscription_warning' AND created_at > $2",
+              [userId, now - 20 * 3600000]
+            );
+            if (lastWarn.rows.length === 0) {
+              const warnId = 'notif_exp_' + now;
+              await pool.query(`
+                INSERT INTO notifications (id, title, message, type, target, target_user_id, priority, is_read, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+              `, [
+                warnId,
+                '⚠️ সাবস্ক্রিপশন মেয়াদ শেষ হচ্ছে!',
+                `আপনার সাবস্ক্রিপশনের মেয়াদ আর মাত্র ${daysLeft === 1 ? '১ দিন' : daysLeft + ' দিন'} বাকি রয়েছে! নিরবচ্ছিন্ন সেবা অব্যাহত রাখতে এখনই প্যাকেজ রিনিউ করুন।`,
+                'subscription_warning',
+                'specific',
+                userId,
+                'high',
+                false,
+                now
+              ]);
+            }
+          }
+        }
+      } catch (checkErr) {
+        // Non-blocking
+      }
+
       const result = await pool.query(
         `SELECT * FROM notifications 
          WHERE target = 'all' OR target_user_id = $1 

@@ -392,11 +392,16 @@ export const App: React.FC = () => {
     fetchNotifs();
     const notifInterval = setInterval(fetchNotifs, 8000);
 
+    // Initial subscription status check and periodic refresh
+    handleRefreshSubscriptionStatus();
+    const subCheckInterval = setInterval(handleRefreshSubscriptionStatus, 15000);
+
     return () => {
       unsubSupport();
       unsubAnnouncements();
       unsubAppConfig();
       clearInterval(notifInterval);
+      clearInterval(subCheckInterval);
     };
   }, [isLoggedIn, currentUserId]);
 
@@ -486,15 +491,37 @@ export const App: React.FC = () => {
   const userSubExpiry = (store as any)?.subscriptionExpiresAt || (currentUser as any)?.subscriptionExpiresAt;
   const isSubscriptionExpired = !isSuperAdmin && !isStaffMember && userSubExpiry && Number(userSubExpiry) < Date.now();
 
+  const [pendingPaymentInfo, setPendingPaymentInfo] = useState<{
+    hasPending: boolean;
+    record: any;
+  }>({ hasPending: false, record: null });
+
   const handleRefreshSubscriptionStatus = async () => {
     try {
       const statusData = await subscriptionApi.getMyStatus();
-      if (statusData && statusData.subscriptionExpiresAt) {
-        setStore((prev) => ({
-          ...prev,
-          subscriptionExpiresAt: statusData.subscriptionExpiresAt,
-        }));
-        showToast('✅ সাবস্ক্রিপশন স্ট্যাটাস হালনাগাদ করা হয়েছে!');
+      if (statusData) {
+        if (statusData.subscriptionExpiresAt) {
+          setStore((prev) => ({
+            ...prev,
+            subscriptionExpiresAt: statusData.subscriptionExpiresAt,
+            subscriptionPlan: statusData.subscriptionPlan || (prev as any)?.subscriptionPlan,
+            subscriptionStatus: statusData.subscriptionStatus || (prev as any)?.subscriptionStatus,
+          }));
+          
+          const curU = getStoredUser();
+          if (curU) {
+            setStoredUser({
+              ...curU,
+              subscriptionExpiresAt: statusData.subscriptionExpiresAt,
+              subscriptionPlan: statusData.subscriptionPlan || curU.subscriptionPlan,
+              subscriptionStatus: statusData.subscriptionStatus || curU.subscriptionStatus,
+            });
+          }
+        }
+        setPendingPaymentInfo({
+          hasPending: Boolean(statusData.hasPendingPayment),
+          record: statusData.pendingPayment || null,
+        });
       }
     } catch (err) {
       console.warn('Status refresh error:', err);
@@ -1121,6 +1148,8 @@ export const App: React.FC = () => {
             {isSubscriptionExpired ? (
               <SubscriptionLockScreen
                 store={store}
+                hasPendingPayment={pendingPaymentInfo.hasPending}
+                pendingPayment={pendingPaymentInfo.record}
                 onOpenRenewModal={() => setIsSubscriptionModalOpen(true)}
                 onRefreshStatus={handleRefreshSubscriptionStatus}
                 onLogout={triggerLogoutConfirm}
@@ -1180,6 +1209,8 @@ export const App: React.FC = () => {
                     onOpenReport={() => setIsReportModalOpen(true)}
                     onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
                     onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+                    pendingPaymentInfo={pendingPaymentInfo}
+                    onRefreshSubscriptionStatus={handleRefreshSubscriptionStatus}
                     onSelectCustomer={(id) => setActiveCustomerId(id)}
                   />
                 )}

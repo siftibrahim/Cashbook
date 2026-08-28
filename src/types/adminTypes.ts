@@ -112,6 +112,7 @@ export interface PaymentRecord {
   planId: string;
   planName: string;
   durationDays: number;
+  bonusDays?: number;
   amount: number;
   paymentMethod: AdminPaymentMethod;
   paymentMode?: PaymentMode;

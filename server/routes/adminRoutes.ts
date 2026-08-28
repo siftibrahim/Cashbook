@@ -13,6 +13,7 @@ import {
   sendSmsNotification,
   SmsGatewaySettings,
 } from '../services/smsService';
+import { SubscriptionEngine } from '../services/subscriptionEngine';
 
 const router = Router();
 
@@ -324,7 +325,10 @@ router.post('/payments/:id/approve', async (req: AuthenticatedRequest, res: Resp
       if (pRes.rows.length === 0) return res.status(404).json({ error: 'পেমেন্ট রেকর্ড পাওয়া যায়নি' });
 
       const p = pRes.rows[0];
-      const durationMs = (parseInt(p.duration_days, 10) || 30) * 86400000;
+      const baseDays = parseInt(p.duration_days, 10) || 30;
+      const bonusDays = parseInt(p.bonus_days, 10) || 0;
+      const totalDays = baseDays + bonusDays;
+      const durationMs = totalDays * 86400000;
 
       // Update payment record
       await pool.query(`
@@ -335,33 +339,21 @@ router.post('/payments/:id/approve', async (req: AuthenticatedRequest, res: Resp
         WHERE id = $3
       `, [now, adminNotes, paymentId]);
 
-      // Update User subscription
-      const uRes = await pool.query('SELECT subscription_expires_at FROM users WHERE id = $1', [p.user_id]);
-      if (uRes.rows.length > 0) {
-        const curExp = Number(uRes.rows[0].subscription_expires_at);
-        const newExp = Math.max(now, curExp) + durationMs;
+      // Automatically recalculate and synchronize exact user subscription timeline
+      const synced = await SubscriptionEngine.recalculateAndSyncUserSubscription(p.user_id);
 
-        await pool.query(`
-          UPDATE users SET
-            subscription_plan = $1,
-            subscription_status = 'active',
-            subscription_expires_at = $2,
-            status = 'active'
-          WHERE id = $3
-        `, [p.plan_name || 'প্রো মেম্বারশিপ', newExp, p.user_id]);
-      }
-
-      // Notify User
+      // Notify User specifically (Targeted Notification)
       await pool.query(`
-        INSERT INTO notifications (id, title, message, type, target, target_user_id, priority, is_read, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       `, [
         'notif_' + now,
-        'পেমেন্ট অনুমোদিত হয়েছে! 🎉',
-        `আপনার ৳${p.amount} পেমেন্ট (TrxID: ${p.trx_id}) সফলভাবে অনুমোদিত হয়েছে। ${p.plan_name} প্ল্যান সক্রিয় করা হয়েছে।`,
+        '🎉 আপনার সাবস্ক্রিপশন সফলভাবে সক্রিয় হয়েছে!',
+        `আপনার ৳${p.amount} পেমেন্ট (TrxID: ${p.trx_id}) সফলভাবে অনুমোদিত হয়েছে। ${p.plan_name} প্ল্যান ${totalDays} দিনের জন্য সফলভাবে চালু হয়েছে${bonusDays > 0 ? ` (বোনাস: +${bonusDays} দিন অন্তর্ভুক্ত)` : ''}।`,
         'payment_receipt',
         'specific',
         p.user_id,
+        p.user_name || p.shop_name,
         'high',
         false,
         now,
@@ -378,7 +370,7 @@ router.post('/payments/:id/approve', async (req: AuthenticatedRequest, res: Resp
         'Payment',
         paymentId,
         p.shop_name,
-        `৳${p.amount} পেমেন্ট অনুমোদন করা হয়েছে (Trx: ${p.trx_id})`,
+        `৳${p.amount} পেমেন্ট অনুমোদন করা হয়েছে (Trx: ${p.trx_id}, মোট: ${totalDays} দিন, মেয়াদ: ${new Date(synced.subscriptionExpiresAt).toLocaleDateString('bn-BD')})`,
         now,
       ]);
     } else {
@@ -388,14 +380,20 @@ router.post('/payments/:id/approve', async (req: AuthenticatedRequest, res: Resp
         p.approvedAt = now;
         if (adminNotes) p.adminNotes = adminNotes;
 
-        const u = inMemoryStore.users.find(x => x.id === p.userId);
-        if (u) {
-          const durMs = (p.durationDays || 30) * 86400000;
-          u.subscriptionExpiresAt = Math.max(now, u.subscriptionExpiresAt || now) + durMs;
-          u.subscriptionStatus = 'active';
-          u.subscriptionPlan = p.planName || 'প্রো মেম্বারশিপ';
-          u.status = 'active';
-        }
+        await SubscriptionEngine.recalculateAndSyncUserSubscription(p.userId);
+
+        if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+        inMemoryStore.notifications.unshift({
+          id: 'notif_' + now,
+          title: '🎉 আপনার সাবস্ক্রিপশন সফলভাবে সক্রিয় হয়েছে!',
+          message: `আপনার ৳${p.amount} পেমেন্ট (TrxID: ${p.trxId}) অনুমোদিত হয়েছে। সাবস্ক্রিপশন চালু হয়েছে।`,
+          type: 'payment_receipt',
+          target: 'specific',
+          targetUserId: p.userId,
+          priority: 'high',
+          isRead: false,
+          createdAt: now,
+        });
       }
     }
 
@@ -413,23 +411,58 @@ router.post('/payments/:id/reject', async (req: AuthenticatedRequest, res: Respo
     const paymentId = req.params.id;
     const { rejectedReason } = req.body;
     const pool = getDbPool();
+    const now = Date.now();
 
     if (pool) {
-      await pool.query(`
-        UPDATE payments SET
-          status = 'rejected',
-          rejected_reason = $1
-        WHERE id = $2
-      `, [rejectedReason || 'ভুল বা অসঙ্গতিপূর্ণ ট্রানজেকশন আইডি', paymentId]);
+      const pRes = await pool.query('SELECT * FROM payments WHERE id = $1', [paymentId]);
+      if (pRes.rows.length > 0) {
+        const p = pRes.rows[0];
+        await pool.query(`
+          UPDATE payments SET
+            status = 'rejected',
+            rejected_reason = $1
+          WHERE id = $2
+        `, [rejectedReason || 'ভুল বা অসঙ্গতিপূর্ণ ট্রানজেকশন আইডি', paymentId]);
+
+        // Send targeted notification to that specific user
+        await pool.query(`
+          INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `, [
+          'notif_rej_' + now,
+          '⚠️ পেমেন্ট অনুরোধ বাতিল করা হয়েছে',
+          `আপনার ৳${p.amount} পেমেন্ট অনুরোধ (TrxID: ${p.trx_id}) বাতিল করা হয়েছে। কারণ: ${rejectedReason || 'ভুল ট্রানজেকশন আইডি বা অসঙ্গতিপূর্ণ তথ্য'}। দয়া করে সঠিক তথ্য দিয়ে পুনরায় সাবমিট করুন।`,
+          'warning',
+          'specific',
+          p.user_id,
+          p.user_name || p.shop_name,
+          'high',
+          false,
+          now,
+        ]);
+      }
     } else {
       const p = inMemoryStore.payments.find(x => x.id === paymentId);
       if (p) {
         p.status = 'rejected';
         p.rejectedReason = rejectedReason || 'ভুল তথ্য';
+
+        if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+        inMemoryStore.notifications.unshift({
+          id: 'notif_rej_' + now,
+          title: '⚠️ পেমেন্ট অনুরোধ বাতিল করা হয়েছে',
+          message: `আপনার ৳${p.amount} পেমেন্ট অনুরোধ (TrxID: ${p.trxId}) বাতিল করা হয়েছে। কারণ: ${rejectedReason || 'ভুল তথ্য'}`,
+          type: 'warning',
+          target: 'specific',
+          targetUserId: p.userId,
+          priority: 'high',
+          isRead: false,
+          createdAt: now,
+        });
       }
     }
 
-    return res.json({ message: '✅ পেমেন্ট রিকোয়েস্ট বাতিল করা হয়েছে' });
+    return res.json({ message: '✅ পেমেন্ট রিকোয়েস্ট বাতিল করা হয়েছে এবং গ্রাহককে নোটিফাই করা হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -630,24 +663,45 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
   try {
     const pool = getDbPool();
     let superAdminUser: any = null;
+    let masterPin = '1234';
 
     if (pool) {
       const dbRes = await pool.query(
-        "SELECT id, name, phone, email, role, shop_name FROM users WHERE role = 'super_admin' LIMIT 1"
+        "SELECT id, name, phone, email, role, shop_name FROM users WHERE role = 'super_admin' OR id = 'usr_super_admin' ORDER BY registered_at ASC LIMIT 1"
       );
       if (dbRes.rows.length > 0) {
         superAdminUser = dbRes.rows[0];
       }
+
+      try {
+        const secRes = await pool.query("SELECT data FROM system_config WHERE id = 'super_admin_security' LIMIT 1");
+        if (secRes.rows.length > 0 && secRes.rows[0].data) {
+          const cfg = typeof secRes.rows[0].data === 'string' ? JSON.parse(secRes.rows[0].data) : secRes.rows[0].data;
+          if (cfg?.masterPin) masterPin = String(cfg.masterPin);
+          if (cfg?.email && !superAdminUser) {
+            superAdminUser = {
+              id: 'usr_super_admin',
+              name: cfg.name || 'সুপার অ্যাডমিন',
+              email: cfg.email,
+              phone: cfg.phone || '01306908115',
+              role: 'super_admin',
+            };
+          }
+        }
+      } catch (e) {}
     }
 
     if (!superAdminUser) {
-      superAdminUser = inMemoryStore.users.find(u => u.role === 'super_admin') || {
+      superAdminUser = inMemoryStore.users.find(u => u.role === 'super_admin' || u.id === 'usr_super_admin') || {
         id: 'usr_super_admin',
         name: 'সুপার অ্যাডমিন',
         email: req.user?.email || 'admin@twing.com',
         phone: '01306908115',
         role: 'super_admin',
       };
+      if (inMemoryStore.system_config['super_admin_security']?.masterPin) {
+        masterPin = String(inMemoryStore.system_config['super_admin_security'].masterPin);
+      }
     }
 
     return res.json({
@@ -656,6 +710,7 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
       email: superAdminUser.email,
       phone: superAdminUser.phone,
       role: superAdminUser.role,
+      masterPin,
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -667,7 +722,7 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
     const { name, email, phone, password, masterPin } = req.body;
     const pool = getDbPool();
 
-    let passwordHash = undefined;
+    let passwordHash: string | undefined = undefined;
     if (password && password.trim().length >= 6) {
       passwordHash = await bcrypt.hash(password.trim(), 10);
     }
@@ -675,48 +730,111 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
     const cleanEmail = email ? email.trim().toLowerCase() : undefined;
     const cleanPhone = phone ? phone.trim() : undefined;
     const cleanName = name ? name.trim() : undefined;
+    const cleanPin = masterPin ? String(masterPin).trim() : undefined;
+    const now = Date.now();
 
     if (pool) {
-      // 1. Update user row with super_admin role
-      await pool.query(`
-        UPDATE users SET
-          name = COALESCE($1, name),
-          email = COALESCE($2, email),
-          phone = COALESCE($3, phone),
-          password_hash = COALESCE($4, password_hash),
-          updated_at = NOW()
-        WHERE role = 'super_admin' OR id = 'usr_super_admin'
-      `, [cleanName || null, cleanEmail || null, cleanPhone || null, passwordHash || null]);
+      // 1. Check if super admin exists in users table
+      const userRes = await pool.query(
+        "SELECT id FROM users WHERE role = 'super_admin' OR id = 'usr_super_admin' LIMIT 1"
+      );
 
-      // 2. Save master pin or credentials config if provided
-      if (masterPin || cleanEmail) {
+      if (userRes.rows.length > 0) {
+        if (passwordHash) {
+          await pool.query(`
+            UPDATE users SET
+              name = COALESCE($1, name),
+              email = COALESCE($2, email),
+              phone = COALESCE($3, phone),
+              password_hash = $4,
+              last_active_at = $5
+            WHERE role = 'super_admin' OR id = 'usr_super_admin'
+          `, [cleanName || null, cleanEmail || null, cleanPhone || null, passwordHash, now]);
+        } else {
+          await pool.query(`
+            UPDATE users SET
+              name = COALESCE($1, name),
+              email = COALESCE($2, email),
+              phone = COALESCE($3, phone),
+              last_active_at = $4
+            WHERE role = 'super_admin' OR id = 'usr_super_admin'
+          `, [cleanName || null, cleanEmail || null, cleanPhone || null, now]);
+        }
+      } else {
+        const hashToSave = passwordHash || (await bcrypt.hash('admin123', 10));
         await pool.query(`
-          INSERT INTO system_config (key, value, updated_at)
-          VALUES ('super_admin_security', $1, NOW())
-          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-        `, [JSON.stringify({
-          email: cleanEmail,
-          phone: cleanPhone,
-          masterPin: masterPin ? masterPin.trim() : '7860',
-          updatedAt: Date.now(),
-        })]);
+          INSERT INTO users (
+            id, name, phone, email, password_hash, shop_name, business_type, address, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at, last_active_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, 'সুপার অ্যাডমিন ড্যাশবোর্ড', 'জেনারেল স্টোর', 'বাংলাদেশ', 'super_admin', 'active', 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)', 'active', 9999999999999, $6, $6
+          )
+        `, [
+          'usr_super_admin',
+          cleanName || 'সুপার অ্যাডমিন',
+          cleanPhone || '01306908115',
+          cleanEmail || 'admin@twing.com',
+          hashToSave,
+          now,
+        ]);
       }
+
+      // 2. Save master pin or credentials in system_config
+      const secData: any = {
+        updatedAt: now,
+      };
+      if (cleanEmail) secData.email = cleanEmail;
+      if (cleanPhone) secData.phone = cleanPhone;
+      if (cleanName) secData.name = cleanName;
+      if (cleanPin) secData.masterPin = cleanPin;
+
+      await pool.query(`
+        INSERT INTO system_config (id, data, updated_at, updated_by)
+        VALUES ('super_admin_security', $1, $2, $3)
+        ON CONFLICT (id) DO UPDATE SET
+          data = EXCLUDED.data,
+          updated_at = EXCLUDED.updated_at,
+          updated_by = EXCLUDED.updated_by
+      `, [JSON.stringify(secData), now, req.user?.email || cleanEmail || 'super_admin']);
     } else {
-      const u = inMemoryStore.users.find(x => x.role === 'super_admin' || x.id === 'usr_super_admin');
+      let u = inMemoryStore.users.find(x => x.role === 'super_admin' || x.id === 'usr_super_admin');
       if (u) {
         if (cleanName) u.name = cleanName;
         if (cleanEmail) u.email = cleanEmail;
         if (cleanPhone) u.phone = cleanPhone;
         if (passwordHash) u.password_hash = passwordHash;
+        u.last_active_at = now;
+      } else {
+        inMemoryStore.users.push({
+          id: 'usr_super_admin',
+          name: cleanName || 'সুপার অ্যাডমিন',
+          phone: cleanPhone || '01306908115',
+          email: cleanEmail || 'admin@twing.com',
+          password_hash: passwordHash || (await bcrypt.hash('admin123', 10)),
+          role: 'super_admin',
+          status: 'active',
+          subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
+          subscriptionStatus: 'active',
+          subscriptionExpiresAt: 9999999999999,
+          registeredAt: now,
+          lastActiveAt: now,
+        });
       }
+      inMemoryStore.system_config['super_admin_security'] = {
+        email: cleanEmail,
+        phone: cleanPhone,
+        name: cleanName,
+        masterPin: cleanPin,
+        updatedAt: now,
+      };
     }
 
     return res.json({
-      message: '✅ সুপার অ্যাডমিন প্রোফাইল ও সিকিউরিটি ক্রেডেনশিয়ালস সফলভাবে আপডেট হয়েছে!',
+      message: '✅ সুপার অ্যাডমিন ইমেইল ও পাসওয়ার্ড ডাটাবেজে সফলভাবে সংরক্ষিত হয়েছে!',
       updatedEmail: cleanEmail,
     });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    console.error('Error updating super admin credentials:', err);
+    return res.status(500).json({ error: err.message || 'ক্রেডেনশিয়াল আপডেট করতে ত্রুটি হয়েছে' });
   }
 });
 

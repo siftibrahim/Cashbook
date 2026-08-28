@@ -16,6 +16,8 @@ import {
   Sparkles,
   Zap,
   CreditCard,
+  RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -29,6 +31,8 @@ interface DashboardViewProps {
   onOpenReport: () => void;
   onOpenSalesHistory?: () => void;
   onOpenSubscription?: () => void;
+  pendingPaymentInfo?: { hasPending: boolean; record?: any };
+  onRefreshSubscriptionStatus?: () => void | Promise<any>;
   onSelectCustomer: (customerId: string) => void;
 }
 
@@ -43,6 +47,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenReport,
   onOpenSalesHistory,
   onOpenSubscription,
+  pendingPaymentInfo,
+  onRefreshSubscriptionStatus,
   onSelectCustomer,
 }) => {
   // Collect all recent transactions
@@ -67,7 +73,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Subscription calculation
   const rawSubExpiry = (store as any)?.subscriptionExpiresAt;
   const expiresAt = useMemo(() => {
-    return rawSubExpiry || (Date.now() + 14 * 86400000);
+    return rawSubExpiry ? Number(rawSubExpiry) : (Date.now() + 14 * 86400000);
   }, [rawSubExpiry]);
   const daysLeft = Math.max(0, Math.ceil((expiresAt - Date.now()) / (1000 * 60 * 60 * 24)));
   const isExpired = Date.now() > expiresAt;
@@ -83,39 +89,102 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Subscription Plan & Status Banner */}
       {onOpenSubscription && (
-        <section className="bg-gradient-to-r from-amber-500/10 via-teal-500/10 to-emerald-500/10 border border-amber-300/40 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-700 flex items-center justify-center font-bold shrink-0 border border-amber-400/30">
-              <Sparkles className="w-5 h-5 animate-pulse text-amber-600" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-bold text-slate-800">প্যাকেজ: <span className="font-extrabold text-teal-800">{currentPlan}</span></span>
-                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                  isExpired 
-                    ? 'bg-rose-100 text-rose-700 border border-rose-200' 
-                    : daysLeft <= 3 
-                    ? 'bg-amber-100 text-amber-800 border border-amber-200' 
-                    : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                }`}>
-                  {isExpired ? '⚠️ মেয়াদ উত্তীর্ণ' : `⏳ ${daysLeft} দিন বাকি`}
-                </span>
+        <>
+          {pendingPaymentInfo?.hasPending ? (
+            /* CASE A: PENDING PAYMENT VERIFICATION BANNER */
+            <section className="bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 border-2 border-amber-400/60 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-700 flex items-center justify-center font-bold shrink-0 border border-amber-400/40">
+                  <Clock className="w-5 h-5 text-amber-600 animate-spin" style={{ animationDuration: '4s' }} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[10px] font-black uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-ping" />
+                      <span>পেমেন্ট ভেরিফিকেশন চলছে...</span>
+                    </span>
+                    {pendingPaymentInfo.record?.trxId && (
+                      <span className="text-[11px] font-mono font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded border border-amber-300">
+                        TrxID: {pendingPaymentInfo.record.trxId}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-amber-950 font-semibold leading-relaxed">
+                    {pendingPaymentInfo.record?.planName ? `${pendingPaymentInfo.record.planName} (৳${formatMoney(pendingPaymentInfo.record.amount)}) - ` : ''}
+                    সুপার অ্যাডমিন অনুমোদন করলেই আপনার সাবস্ক্রিপশন স্বয়ংক্রিয়ভাবে সক্রিয় হয়ে যাবে।
+                  </p>
+                </div>
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                bKash, Nagad, Rocket বা ব্যাংকের মাধ্যমে সহজেই সাবস্ক্রিপশন রিনিউ বা প্যাকেজ আপগ্রেড করুন।
-              </p>
-            </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={onOpenSubscription}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-[#004D40] to-teal-700 hover:from-[#00382E] hover:to-teal-800 active:scale-95 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition cursor-pointer shrink-0"
-          >
-            <CreditCard className="w-4 h-4 text-amber-300" />
-            <span>প্যাকেজ রিনিউ / আপগ্রেড</span>
-          </button>
-        </section>
+              <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                {onRefreshSubscriptionStatus && (
+                  <button
+                    type="button"
+                    onClick={() => onRefreshSubscriptionStatus()}
+                    title="স্ট্যাটাস রিফ্রেশ করুন"
+                    className="p-2 sm:px-3 sm:py-2 rounded-xl bg-amber-200/80 hover:bg-amber-300 text-amber-900 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">রিফ্রেশ</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onOpenSubscription}
+                  className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  <span>পেমেন্ট বিস্তারিত / পরিবর্তন</span>
+                </button>
+              </div>
+            </section>
+          ) : (
+            /* CASE B: STANDARD SUBSCRIPTION STATUS BANNER */
+            <section className="bg-gradient-to-r from-amber-500/10 via-teal-500/10 to-emerald-500/10 border border-amber-300/40 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-700 flex items-center justify-center font-bold shrink-0 border border-amber-400/30">
+                  <Sparkles className="w-5 h-5 animate-pulse text-amber-600" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-slate-800">প্যাকেজ: <span className="font-extrabold text-teal-800">{currentPlan}</span></span>
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                      isExpired 
+                        ? 'bg-rose-100 text-rose-700 border border-rose-200' 
+                        : daysLeft <= 3 
+                        ? 'bg-amber-100 text-amber-800 border border-amber-200' 
+                        : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    }`}>
+                      {isExpired
+                        ? '⚠️ মেয়াদ উত্তীর্ণ'
+                        : daysLeft <= 3
+                        ? `⚠️ মেয়াদ শেষ হতে ${daysLeft} দিন বাকি`
+                        : `✅ সক্রিয় (${daysLeft} দিন বাকি)`}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    {isExpired
+                      ? 'আপনার অ্যাকাউন্টের মেয়াদ শেষ হয়েছে। হিসাবের সকল সেবা চালু রাখতে সাবস্ক্রিপশন রিনিউ করুন।'
+                      : daysLeft <= 3
+                      ? 'মেয়াদ শেষ হওয়ার আগেই সাবস্ক্রিপশন রিনিউ করে নিরবচ্ছিন্ন সেবা উপভোগ করুন।'
+                      : 'আপনার অ্যাকাউন্টের সাবস্ক্রিপশন সক্রিয় রয়েছে। মেয়াদ শেষ হওয়ার ৩ দিন আগে রিনিউ অপশন চালু হবে।'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onOpenSubscription}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-[#004D40] to-teal-700 hover:from-[#00382E] hover:to-teal-800 active:scale-95 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition cursor-pointer shrink-0"
+              >
+                <CreditCard className="w-4 h-4 text-amber-300" />
+                <span>
+                  {isExpired ? 'এখনই রিনিউ করুন' : daysLeft <= 3 ? 'প্যাকেজ রিনিউ করুন' : 'সাবস্ক্রিপশন বিবরণ'}
+                </span>
+              </button>
+            </section>
+          )}
+        </>
       )}
 
       {/* Quick Action Hub */}

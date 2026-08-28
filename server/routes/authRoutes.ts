@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { getDbPool, inMemoryStore } from '../db';
 import { generateToken, AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { sendSmsNotification, normalizePhone, generateOtp } from '../services/smsService';
+import { SubscriptionEngine } from '../services/subscriptionEngine';
 
 const router = Router();
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@twing.com';
@@ -187,6 +188,9 @@ router.post('/login', async (req, res) => {
       user.lastActiveAt = now;
     }
 
+    // Recalculate and synchronize subscription details
+    const syncedSub = await SubscriptionEngine.recalculateAndSyncUserSubscription(user.id);
+
     const token = generateToken({
       userId: user.id,
       email: user.email,
@@ -205,9 +209,9 @@ router.post('/login', async (req, res) => {
         shopName: user.shop_name || user.shopName,
         role: user.role,
         status: user.status,
-        subscriptionPlan: user.subscription_plan || user.subscriptionPlan,
-        subscriptionStatus: user.subscription_status || user.subscriptionStatus,
-        subscriptionExpiresAt: Number(user.subscription_expires_at || user.subscriptionExpiresAt),
+        subscriptionPlan: syncedSub.subscriptionPlan,
+        subscriptionStatus: syncedSub.subscriptionStatus,
+        subscriptionExpiresAt: syncedSub.subscriptionExpiresAt,
       },
     });
   } catch (err: any) {
@@ -500,6 +504,17 @@ router.get('/me', authenticateUser, async (req: AuthenticatedRequest, res: Respo
       const result = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
       if (result.rows.length > 0) {
         const u = result.rows[0];
+        let syncedSub = {
+          subscriptionPlan: u.subscription_plan,
+          subscriptionStatus: u.subscription_status,
+          subscriptionExpiresAt: Number(u.subscription_expires_at),
+        };
+        try {
+          syncedSub = await SubscriptionEngine.recalculateAndSyncUserSubscription(userId);
+        } catch (e) {
+          // fallback
+        }
+
         return res.json({
           user: {
             id: u.id,
@@ -511,9 +526,9 @@ router.get('/me', authenticateUser, async (req: AuthenticatedRequest, res: Respo
             address: u.address,
             role: u.role,
             status: u.status,
-            subscriptionPlan: u.subscription_plan,
-            subscriptionStatus: u.subscription_status,
-            subscriptionExpiresAt: Number(u.subscription_expires_at),
+            subscriptionPlan: syncedSub.subscriptionPlan,
+            subscriptionStatus: syncedSub.subscriptionStatus,
+            subscriptionExpiresAt: syncedSub.subscriptionExpiresAt,
           },
         });
       }

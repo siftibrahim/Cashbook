@@ -15,6 +15,7 @@ import notificationRoutes from './server/routes/notificationRoutes';
 import adminRoutes from './server/routes/adminRoutes';
 import { migrateDataToPostgres } from './server/migration';
 import { requireSuperAdmin } from './server/authMiddleware';
+import { SubscriptionEngine } from './server/services/subscriptionEngine';
 
 dotenv.config();
 
@@ -93,9 +94,14 @@ async function startServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
     // Initialize DB schema & seeds in background without blocking server startup
-    initializeDatabaseSchema().catch((err) => {
-      console.error('⚠️ DB Initialization warning:', err);
-    });
+    initializeDatabaseSchema()
+      .then(() => {
+        SubscriptionEngine.start();
+      })
+      .catch((err) => {
+        console.error('⚠️ DB Initialization warning:', err);
+        SubscriptionEngine.start();
+      });
   });
 }
 

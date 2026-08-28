@@ -12,7 +12,7 @@ import {
   savePaymentRecord,
   INITIAL_PAYMENT_SETTINGS,
 } from '../services/adminService';
-import { subscriptionApi } from '../services/apiService';
+import { subscriptionApi, getStoredUser } from '../services/apiService';
 import {
   CreditCard,
   CheckCircle2,
@@ -85,15 +85,19 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
   const [selectedReceiptPayment, setSelectedReceiptPayment] = useState<PaymentRecord | null>(null);
 
-  // Live Subscription Expiry & Countdown
-  const effectiveUserId = propUserId || store?.phone || 'user_default';
-  const effectiveShopName = propShopName || store?.shopName || 'আমার দোকান';
-  const effectiveUserName = propUserName || store?.ownerName || 'গ্রাহক';
-  const effectiveUserPhone = propUserPhone || store?.phone || '';
+  // Live Subscription Expiry & Countdown (Scoped strictly to Authenticated User)
+  const storedUser = getStoredUser();
+  const effectiveUserId = propUserId || storedUser?.id || store?.id || 'usr_default';
+  const effectiveShopName = propShopName || storedUser?.shopName || store?.shopName || 'আমার দোকান';
+  const effectiveUserName = propUserName || storedUser?.name || store?.ownerName || 'গ্রাহক';
+  const effectiveUserPhone = propUserPhone || storedUser?.phone || store?.phone || '';
   
-  const rawExpiresAt = propExpiresAt || (store as any)?.subscriptionExpiresAt;
+  const [subscriptionServerStatus, setSubscriptionServerStatus] = useState<any | null>(null);
+  const [isModifyingPending, setIsModifyingPending] = useState(false);
+
+  const rawExpiresAt = subscriptionServerStatus?.subscriptionExpiresAt || (store as any)?.subscriptionExpiresAt || storedUser?.subscriptionExpiresAt || propExpiresAt;
   const effectiveExpiresAt = useMemo(() => {
-    return rawExpiresAt || (Date.now() + 14 * 86400000);
+    return Number(rawExpiresAt) || (Date.now() + 14 * 86400000);
   }, [rawExpiresAt]);
 
   const [timeLeft, setTimeLeft] = useState<{
@@ -104,9 +108,22 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
     isExpired: boolean;
   }>({ days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: false });
 
+  // Fetch status from server
+  const fetchMySubscriptionStatus = async () => {
+    try {
+      const data = await subscriptionApi.getMyStatus();
+      if (data) {
+        setSubscriptionServerStatus(data);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch subscription status:', err);
+    }
+  };
+
   // Update countdown timer every second
   useEffect(() => {
     if (!isOpen) return;
+    fetchMySubscriptionStatus();
 
     const calculateTimeLeft = () => {
       const difference = effectiveExpiresAt - Date.now();
@@ -175,12 +192,20 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
   const handleSubmitPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!trxId.trim()) {
-      onShowToast('অনুগ্রহ করে সঠিক Transaction ID (TrxID) দিন');
+      onShowToast('❌ অনুগ্রহ করে সঠিক Transaction ID (TrxID) দিন');
       return;
     }
     if (!senderNumber.trim()) {
-      onShowToast('যে নম্বর বা অ্যাকাউন্ট থেকে টাকা পাঠিয়েছেন তা দিন');
+      onShowToast('❌ যে নম্বর বা অ্যাকাউন্ট থেকে টাকা পাঠিয়েছেন তা দিন');
       return;
+    }
+
+    if (paymentMethod !== 'bank') {
+      const cleanDigits = senderNumber.replace(/\D/g, '');
+      if (cleanDigits.length !== 11 || !cleanDigits.startsWith('01')) {
+        onShowToast('❌ অনুগ্রহ করে সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 017XXXXXXXX)');
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -210,12 +235,14 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
       };
 
       await subscriptionApi.submitPayment(newRecord);
+      setIsModifyingPending(false);
       setStep('success');
       loadHistory();
-      onShowToast('🎉 পেমেন্ট রিকোয়েস্ট জমা হয়েছে! অ্যাডমিন দ্রুত যাচাই করে সাবস্ক্রিপশন চালু করবেন।');
+      fetchMySubscriptionStatus();
+      onShowToast('🎉 পেমেন্ট রিকোয়েস্ট জমা হয়েছে! সুপার অ্যাডমিন ভেরিফাই করে একসেপ্ট করলেই আপনার সাবস্ক্রিপশন চালু হবে।');
     } catch (err: any) {
       console.error(err);
-      onShowToast(`পেমেন্ট জমাদানে সমস্যা: ${err.message || 'Error'}`);
+      onShowToast(`❌ ${err.message || 'পেমেন্ট জমাদানে সমস্যা হয়েছে'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -280,7 +307,10 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              setIsModifyingPending(false);
+              onClose();
+            }}
             className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer transition"
           >
             ✕
@@ -385,87 +415,285 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
           {/* TAB 1: PACKAGES & PAYMENT FLOW */}
           {activeTab === 'packages' && (
             <>
-              {/* STEP 1: SELECT PLAN */}
-              {step === 'select_plan' && (
+              {/* CASE 1: PENDING PAYMENT VERIFICATION */}
+              {subscriptionServerStatus?.hasPendingPayment && !isModifyingPending ? (
                 <div className="space-y-4">
-                  <div className="text-xs text-slate-600 bg-teal-50/70 p-3 rounded-2xl border border-teal-100 flex items-center gap-2">
-                    <Info className="w-4 h-4 text-teal-700 shrink-0" />
-                    <span>আপনার পছন্দের সাবস্ক্রিপশন প্যাকেজটি বেছে নিয়ে পেমেন্ট করুন:</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    {plans.filter((p) => p.price > 0).map((plan) => {
-                      const isSelected = selectedPlan.id === plan.id;
-                      return (
-                        <div
-                          key={plan.id}
-                          onClick={() => setSelectedPlan(plan)}
-                          className={`p-4 sm:p-5 rounded-3xl border-2 cursor-pointer transition-all flex flex-col justify-between relative shadow-xs ${
-                            isSelected
-                              ? 'border-teal-600 bg-teal-50/30 ring-2 ring-teal-100'
-                              : 'border-slate-200 hover:border-teal-300 bg-white'
-                          }`}
-                        >
-                          {plan.badge && (
-                            <span
-                              className={`absolute -top-2.5 right-4 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase text-white shadow-xs ${
-                                plan.isPopular ? 'bg-teal-700' : 'bg-slate-800'
-                              }`}
-                            >
-                              {plan.badge}
-                            </span>
-                          )}
-
-                          <div>
-                            <h4 className="text-sm sm:text-base font-black text-slate-900 mb-1">
-                              {plan.nameBn}
-                            </h4>
-
-                            <div className="flex items-baseline gap-2 mb-3">
-                              <span className="text-2xl sm:text-3xl font-black text-teal-800">
-                                ৳{formatMoney(plan.price)}
-                              </span>
-                              {plan.originalPrice && (
-                                <span className="text-xs text-slate-400 line-through">
-                                  ৳{formatMoney(plan.originalPrice)}
-                                </span>
-                              )}
-                              <span className="text-xs text-slate-500 font-semibold">
-                                / {plan.durationDays} দিন
-                              </span>
-                            </div>
-
-                            <ul className="space-y-1.5 text-xs text-slate-600 mb-4">
-                              {plan.features.map((feat, idx) => (
-                                <li key={idx} className="flex items-center gap-1.5">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                                  <span>{feat}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedPlan(plan);
-                              setStep('select_method');
-                            }}
-                            className={`w-full py-2.5 rounded-2xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
-                              isSelected
-                                ? 'bg-teal-700 hover:bg-teal-800 text-white'
-                                : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
-                            }`}
-                          >
-                            <span>এই প্যাকেজটি কিনুন (৳{formatMoney(plan.price)})</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </button>
+                  <div className="p-5 bg-gradient-to-b from-amber-50 to-orange-50/40 border-2 border-amber-400/60 rounded-3xl text-amber-950 space-y-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-700 shrink-0">
+                          <Clock className="w-6 h-6 animate-spin text-amber-600" style={{ animationDuration: '4s' }} />
                         </div>
-                      );
-                    })}
+                        <div>
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-200/80 text-amber-900 text-[11px] font-black uppercase tracking-wider mb-0.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-ping" />
+                            <span>পেমেন্ট ভেরিফিকেশন হচ্ছে</span>
+                          </div>
+                          <h4 className="text-base font-black text-slate-900 leading-tight">
+                            আপনার পেমেন্ট যাচাই প্রক্রিয়াধীন রয়েছে
+                          </h4>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-700 leading-relaxed">
+                      আপনার পাঠানো পেমেন্ট তথ্য সফলভাবে গ্রহণ করা হয়েছে। সুপার অ্যাডমিন এডমিন প্যানেল থেকে তথ্য যাচাই করে অনুমোদন (Approve) করলেই আপনার সাবস্ক্রিপশন স্বয়ংক্রিয়ভাবে সক্রিয় হয়ে যাবে।
+                    </p>
+
+                    {subscriptionServerStatus.pendingPayment && (
+                      <div className="bg-white/90 border border-amber-200/80 rounded-2xl p-4 space-y-2.5 text-xs shadow-xs">
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                          <span className="text-slate-500 font-medium">নির্বাচিত প্যাকেজ:</span>
+                          <span className="font-bold text-slate-900">
+                            {subscriptionServerStatus.pendingPayment.planName || 'প্রিমিয়াম প্যাক'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                          <span className="text-slate-500 font-medium">টাকার পরিমাণ:</span>
+                          <span className="font-black text-emerald-600 text-sm">
+                            ৳{formatMoney(subscriptionServerStatus.pendingPayment.amount)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                          <span className="text-slate-500 font-medium">পেমেন্ট মেথড:</span>
+                          <span className="font-bold uppercase text-slate-800">
+                            {subscriptionServerStatus.pendingPayment.paymentMethod}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                          <span className="text-slate-500 font-medium">প্রেরক মোবাইল নম্বর:</span>
+                          <span className="font-mono font-bold text-slate-800">
+                            {subscriptionServerStatus.pendingPayment.senderNumber || subscriptionServerStatus.pendingPayment.senderPhone}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                          <span className="text-slate-500 font-medium">Transaction ID (TrxID):</span>
+                          <span className="font-mono font-black text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            {subscriptionServerStatus.pendingPayment.trxId}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500 font-medium">সাবমিটের সময়:</span>
+                          <span className="font-medium text-slate-600">
+                            {new Date(subscriptionServerStatus.pendingPayment.createdAt || Date.now()).toLocaleString('bn-BD')}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={fetchMySubscriptionStatus}
+                        className="w-full sm:w-auto px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>স্ট্যাটাস রিফ্রেশ করুন</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsModifyingPending(true);
+                          setStep('select_plan');
+                        }}
+                        className="w-full sm:flex-1 py-2.5 bg-slate-800 hover:bg-slate-900 text-amber-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span>পেমেন্ট তথ্য পরিবর্তন / অন্য প্যাকেজ</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              )}
+              ) : subscriptionServerStatus &&
+                !isModifyingPending &&
+                !subscriptionServerStatus.canRenew &&
+                !subscriptionServerStatus.isTrial &&
+                !subscriptionServerStatus.isExpired &&
+                (subscriptionServerStatus.status === 'ACTIVE' || subscriptionServerStatus.status === 'active') ? (
+                /* CASE 2: ACTIVE SUBSCRIPTION (AND > 3 DAYS REMAINING) - NO NEW SUBSCRIPTION OPTION SHOWN */
+                <div className="space-y-4">
+                  <div className="p-6 bg-gradient-to-b from-teal-50 via-emerald-50/40 to-white border-2 border-teal-500/40 rounded-3xl text-center space-y-4 shadow-sm">
+                    <div className="w-16 h-16 rounded-3xl bg-teal-600/10 border-2 border-teal-500/30 text-teal-600 mx-auto flex items-center justify-center shadow-inner">
+                      <CheckCircle2 className="w-10 h-10 text-teal-600" />
+                    </div>
+
+                    <div>
+                      <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-teal-100 text-teal-800 text-xs font-black uppercase tracking-wider mb-1.5">
+                        <ShieldCheck className="w-4 h-4 text-teal-700" />
+                        <span>আপনার সাবস্ক্রিপশন সক্রিয় রয়েছে</span>
+                      </div>
+                      <h3 className="text-lg font-black text-slate-900">
+                        {subscriptionServerStatus.subscriptionPlan || 'প্রিমিয়াম মেম্বারশিপ'}
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        মেয়াদ উত্তীর্ণের তারিখ: <strong className="text-slate-800 font-bold">{new Date(effectiveExpiresAt).toLocaleDateString('bn-BD')}</strong>
+                      </p>
+                    </div>
+
+                    {/* Prominent Live Remaining Countdown */}
+                    <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-md max-w-sm mx-auto">
+                      <span className="text-[11px] text-teal-300 font-semibold block mb-2">
+                        সাবস্ক্রিপশনের বাকি মেয়াদ
+                      </span>
+                      <div className="grid grid-cols-4 gap-2 text-center">
+                        <div className="bg-slate-800/90 p-2 rounded-xl border border-slate-700">
+                          <span className="block text-base font-black text-teal-300 font-mono">{timeLeft.days}</span>
+                          <span className="text-[10px] text-slate-400">দিন</span>
+                        </div>
+                        <div className="bg-slate-800/90 p-2 rounded-xl border border-slate-700">
+                          <span className="block text-base font-black text-teal-300 font-mono">{timeLeft.hours}</span>
+                          <span className="text-[10px] text-slate-400">ঘণ্টা</span>
+                        </div>
+                        <div className="bg-slate-800/90 p-2 rounded-xl border border-slate-700">
+                          <span className="block text-base font-black text-teal-300 font-mono">{timeLeft.minutes}</span>
+                          <span className="text-[10px] text-slate-400">মি.</span>
+                        </div>
+                        <div className="bg-slate-800/90 p-2 rounded-xl border border-slate-700">
+                          <span className="block text-base font-black text-teal-300 font-mono">{timeLeft.seconds}</span>
+                          <span className="text-[10px] text-slate-400">সে.</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-sky-50 border border-sky-200/80 rounded-2xl text-left text-xs text-sky-950 space-y-1">
+                      <div className="flex items-center gap-2 font-black text-sky-900">
+                        <Info className="w-4 h-4 text-sky-700 shrink-0" />
+                        <span>রিনিউ সংক্রান্ত তথ্য:</span>
+                      </div>
+                      <p className="text-sky-800 leading-relaxed pl-6">
+                        আপনার বর্তমান সাবস্ক্রিপশনের মেয়াদ শেষ হওয়ার <strong>৩ দিন আগে</strong> স্বয়ংক্রিয়ভাবে নতুন প্যাকেজ নির্বাচন ও রিনিউ অপশন চালু হবে। ওই সময় আপনি যেকোনো প্যাকেজ বেছে নিয়ে পুনরায় মেয়াদ বাড়িয়ে নিতে পারবেন।
+                      </p>
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('history');
+                          loadHistory();
+                        }}
+                        className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <History className="w-4 h-4" />
+                        <span>পেমেন্ট হিস্টোরি ও রসিদ দেখুন</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* CASE 3: RENEWAL & PACKAGE SELECTION FLOW (FREE TRIAL, EXPIRED, OR <= 3 DAYS REMAINING) */
+                <>
+                  {/* STEP 1: SELECT PLAN */}
+                  {step === 'select_plan' && (
+                    <div className="space-y-4">
+                      {/* Free Trial User 7-Day Bonus Banner */}
+                      {(subscriptionServerStatus?.eligibleForEarlyBonus || subscriptionServerStatus?.isTrial) && (
+                        <div className="p-3.5 bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-2xl shadow-md flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                            <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-black block text-amber-200">
+                              🎁 বিশেষ বোনাস অফার!
+                            </span>
+                            <span className="text-[11px] text-white/90">
+                              ফ্রি ট্রায়াল শেষ হওয়ার আগে সাবস্ক্রিপশন করলেই আরও <strong className="text-amber-300">১ সপ্তাহ (+৭ দিন)</strong> অতিরিক্ত ফ্রি বোনাস যুক্ত হবে!
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Expiring Soon Notice if <= 3 days */}
+                      {subscriptionServerStatus && !subscriptionServerStatus.isExpired && subscriptionServerStatus.daysRemaining <= 3 && !subscriptionServerStatus.isTrial && (
+                        <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl text-amber-950 flex items-center gap-2.5">
+                          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                          <div className="text-xs">
+                            <strong className="block text-amber-900">মেয়াদ দ্রুত শেষ হচ্ছে (বাকি আর {subscriptionServerStatus.daysRemaining} দিন)!</strong>
+                            <span>হিসাবের সকল ডেটা ও সেবা নিরবচ্ছিন্ন রাখতে এখনই পরবর্তী মেয়াদের জন্য রিনিউ করুন।</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="text-xs text-slate-600 bg-teal-50/70 p-3 rounded-2xl border border-teal-100 flex items-center gap-2">
+                        <Info className="w-4 h-4 text-teal-700 shrink-0" />
+                        <span>আপনার পছন্দের সাবস্ক্রিপশন প্যাকেজটি বেছে নিয়ে পেমেন্ট করুন:</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {plans.filter((p) => p.price > 0).map((plan) => {
+                          const isSelected = selectedPlan.id === plan.id;
+
+                          return (
+                            <div
+                              key={plan.id}
+                              onClick={() => setSelectedPlan(plan)}
+                              className={`p-4 sm:p-5 rounded-3xl border-2 transition-all flex flex-col justify-between relative shadow-xs cursor-pointer ${
+                                isSelected
+                                  ? 'border-teal-600 bg-teal-50/30 ring-2 ring-teal-100'
+                                  : 'border-slate-200 hover:border-teal-300 bg-white'
+                              }`}
+                            >
+                              {plan.badge && (
+                                <span
+                                  className={`absolute -top-2.5 right-4 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase text-white shadow-xs ${
+                                    plan.isPopular ? 'bg-teal-700' : 'bg-slate-800'
+                                  }`}
+                                >
+                                  {plan.badge}
+                                </span>
+                              )}
+
+                              <div>
+                                <h4 className="text-sm sm:text-base font-black text-slate-900 mb-1">
+                                  {plan.nameBn}
+                                </h4>
+
+                                <div className="flex items-baseline gap-2 mb-3">
+                                  <span className="text-2xl sm:text-3xl font-black text-teal-800">
+                                    ৳{formatMoney(plan.price)}
+                                  </span>
+                                  {plan.originalPrice && (
+                                    <span className="text-xs text-slate-400 line-through">
+                                      ৳{formatMoney(plan.originalPrice)}
+                                    </span>
+                                  )}
+                                  <span className="text-xs text-slate-500 font-semibold">
+                                    / {plan.durationDays} দিন
+                                  </span>
+                                </div>
+
+                                <ul className="space-y-1.5 text-xs text-slate-600 mb-4">
+                                  {plan.features.map((feat, idx) => (
+                                    <li key={idx} className="flex items-center gap-1.5">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                                      <span>{feat}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedPlan(plan);
+                                  setStep('select_method');
+                                }}
+                                className={`w-full py-2.5 rounded-2xl text-xs font-black transition flex items-center justify-center gap-1.5 shadow-md cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-teal-700 hover:bg-teal-800 text-white'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+                                }`}
+                              >
+                                <span>এই প্যাকেজটি কিনুন (৳{formatMoney(plan.price)})</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
               {/* STEP 2: SELECT PAYMENT METHOD */}
               {step === 'select_method' && (
@@ -812,6 +1040,8 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
                     </button>
                   </div>
                 </div>
+              )}
+                </>
               )}
             </>
           )}

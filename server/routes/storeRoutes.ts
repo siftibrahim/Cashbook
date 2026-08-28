@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { getDbPool, inMemoryStore } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
+import { SubscriptionEngine } from '../services/subscriptionEngine';
 
 const router = Router();
 router.use(authenticateUser);
@@ -12,6 +13,21 @@ router.get('/profile', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
     const pool = getDbPool();
+
+    let subExpiresAt = Date.now() + 14 * 86400000;
+    let subPlan = '১৪ দিনের ফ্রি ট্রায়াল';
+    let subStatus = 'trial';
+
+    if (userId) {
+      try {
+        const synced = await SubscriptionEngine.recalculateAndSyncUserSubscription(userId);
+        subExpiresAt = synced.subscriptionExpiresAt;
+        subPlan = synced.subscriptionPlan;
+        subStatus = synced.subscriptionStatus;
+      } catch (e) {
+        // fallback
+      }
+    }
 
     if (pool) {
       const result = await pool.query('SELECT * FROM store_profiles WHERE user_id = $1', [userId]);
@@ -35,12 +51,24 @@ router.get('/profile', async (req: AuthenticatedRequest, res: Response) => {
             printPaperSize: row.print_paper_size || 'thermal_80',
             showQrOnInvoice: row.show_qr_on_invoice !== false,
             defaultCreditLimit: parseFloat(row.default_credit_limit) || 10000,
+            subscriptionExpiresAt: subExpiresAt,
+            subscriptionPlan: subPlan,
+            subscriptionStatus: subStatus,
           },
         });
       }
     } else {
       const s = inMemoryStore.stores.find(x => x.userId === userId || !x.userId);
-      if (s) return res.json({ profile: s });
+      if (s) {
+        return res.json({
+          profile: {
+            ...s,
+            subscriptionExpiresAt: subExpiresAt,
+            subscriptionPlan: subPlan,
+            subscriptionStatus: subStatus,
+          },
+        });
+      }
     }
 
     return res.json({
@@ -51,6 +79,9 @@ router.get('/profile', async (req: AuthenticatedRequest, res: Response) => {
         address: 'বাংলাদেশ',
         currencySymbol: '৳',
         themeColor: 'teal',
+        subscriptionExpiresAt: subExpiresAt,
+        subscriptionPlan: subPlan,
+        subscriptionStatus: subStatus,
       },
     });
   } catch (err: any) {

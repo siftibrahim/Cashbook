@@ -716,14 +716,11 @@ export const subscriptionApi = {
   },
 
   async submitPayment(paymentData: Partial<PaymentRecord>): Promise<void> {
-    try {
-      await apiRequest('/subscription/submit-payment', {
-        method: 'POST',
-        body: JSON.stringify(paymentData),
-      });
-    } catch (err) {
-      console.warn('submitPayment offline fallback:', err);
-    }
+    const res = await apiRequest<{ success: boolean; message?: string }>('/subscription/submit-payment', {
+      method: 'POST',
+      body: JSON.stringify(paymentData),
+    });
+    return;
   },
 
   async getMyPayments(): Promise<PaymentRecord[]> {

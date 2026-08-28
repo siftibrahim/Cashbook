@@ -3,6 +3,7 @@ import { getDbPool, inMemoryStore } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { DEFAULT_PLANS } from '../../src/services/adminService';
 import { PaymentGatewayManager } from '../services/paymentProviders';
+import { SubscriptionEngine } from '../services/subscriptionEngine';
 
 const router = Router();
 
@@ -67,49 +68,12 @@ router.get('/payment-settings', async (req, res) => {
 router.get('/my-status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
-    const pool = getDbPool();
-    let subscriptionExpiresAt = Date.now() + 14 * 86400000;
-    let pendingPaymentsCount = 0;
-    let lastPayment: any = null;
-
-    if (pool) {
-      const uRes = await pool.query('SELECT subscription_expires_at FROM users WHERE id = $1', [userId]);
-      if (uRes.rows.length > 0 && uRes.rows[0].subscription_expires_at) {
-        subscriptionExpiresAt = Number(uRes.rows[0].subscription_expires_at);
-      }
-
-      const pRes = await pool.query(
-        "SELECT * FROM payments WHERE user_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
-        [userId]
-      );
-      if (pRes.rows.length > 0) {
-        pendingPaymentsCount = pRes.rowCount || 1;
-        lastPayment = pRes.rows[0];
-      }
-    } else {
-      const u = inMemoryStore.users.find(u => u.id === userId);
-      if (u && u.subscription_expires_at) {
-        subscriptionExpiresAt = Number(u.subscription_expires_at);
-      }
-      const pendingList = inMemoryStore.payments.filter(p => p.userId === userId && p.status === 'pending');
-      pendingPaymentsCount = pendingList.length;
-      if (pendingList.length > 0) lastPayment = pendingList[0];
+    if (!userId) {
+      return res.status(401).json({ error: 'ব্যবহারকারী অনুমোদিত নয়' });
     }
 
-    const now = Date.now();
-    const isExpired = subscriptionExpiresAt < now;
-    const msRemaining = Math.max(0, subscriptionExpiresAt - now);
-    const daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
-
-    return res.json({
-      subscriptionExpiresAt,
-      isExpired,
-      daysRemaining,
-      msRemaining,
-      hasPendingPayment: pendingPaymentsCount > 0,
-      pendingPayment: lastPayment,
-      status: isExpired ? (pendingPaymentsCount > 0 ? 'pending_verification' : 'expired') : 'active',
-    });
+    const status = await SubscriptionEngine.getUserStatus(userId);
+    return res.json(status);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -121,6 +85,10 @@ router.get('/my-status', authenticateUser, async (req: AuthenticatedRequest, res
 router.post('/submit-payment', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'ব্যবহারকারী অনুমোদিত নয়' });
+    }
+
     const {
       planId,
       planName,
@@ -135,48 +103,78 @@ router.post('/submit-payment', authenticateUser, async (req: AuthenticatedReques
     } = req.body;
 
     if (!planId || !amount || !trxId || !senderNumber || !paymentMethod) {
-      return res.status(400).json({ error: 'সকল প্রয়োজনীয় পেমেন্ট তথ্য (প্ল্যান, টাকা, ট্রানজেকশন আইডি ও নম্বর) প্রদান করুন' });
+      return res.status(400).json({ error: 'সকল প্রয়োজনীয় পেমেন্ট তথ্য (প্যাকেজ, টাকা, ট্রানজেকশন আইডি ও প্রেরক নম্বর) প্রদান করুন' });
     }
 
     const cleanTrx = trxId.trim().toUpperCase();
     const cleanSender = senderNumber.trim();
     const cleanAmount = parseFloat(amount) || 0;
 
-    // Input validation
-    const validation = PaymentGatewayManager.validatePaymentInput({
-      paymentMethod,
-      senderNumber: cleanSender,
-      trxId: cleanTrx,
-      amount: cleanAmount,
-    });
-    if (!validation.isValid) {
-      return res.status(400).json({ error: validation.error });
+    // Strict 11-digit mobile validation for MFS (bKash, Nagad, Rocket, Upay)
+    if (['bkash', 'nagad', 'rocket', 'upay'].includes(paymentMethod)) {
+      const strippedNum = cleanSender.replace(/[\s-]/g, '');
+      const bdPhoneRegex = /^01[3-9]\d{8}$/;
+      if (!bdPhoneRegex.test(strippedNum) || strippedNum.length !== 11) {
+        return res.status(400).json({
+          error: 'মোবাইল নম্বর অবশ্যই সঠিক ১১ ডিজিটের হতে হবে (যেমন: 017XXXXXXXX)।'
+        });
+      }
+    }
+
+    // Strict TrxID validation
+    if (cleanTrx.length < 6) {
+      return res.status(400).json({
+        error: 'অনুগ্রহ করে সঠিক Transaction ID (TrxID) দিন (কমপক্ষে ৬-১০ ডিজিটের অক্ষর/সংখ্যা)।'
+      });
     }
 
     const pool = getDbPool();
     const now = Date.now();
 
-    // Check for duplicate TrxID
+    // Check if user ALREADY has a pending payment request (Duplicate Pending Protection)
     if (pool) {
+      const pendingCheck = await pool.query(
+        "SELECT id, trx_id, plan_name, amount FROM payments WHERE user_id = $1 AND status = 'pending'",
+        [userId]
+      );
+      if (pendingCheck.rows.length > 0) {
+        const p = pendingCheck.rows[0];
+        return res.status(400).json({
+          error: `আপনার ইতিমধ্যে একটি পেমেন্ট ভেরিফিকেশন অপেক্ষমাণ রয়েছে (TrxID: ${p.trx_id}, ৳${p.amount})। সুপার অ্যাডমিন যাচাই করার পর নতুন অনুরোধ করা যাবে।`
+        });
+      }
+
+      // Check duplicate TrxID across all pending & approved records
       const dupCheck = await pool.query(
-        "SELECT id, status, shop_name FROM payments WHERE UPPER(trx_id) = $1 AND status IN ('pending', 'approved')",
+        "SELECT id, status, shop_name, user_id FROM payments WHERE UPPER(trx_id) = $1 AND status IN ('pending', 'approved')",
         [cleanTrx]
       );
       if (dupCheck.rows.length > 0) {
         return res.status(400).json({
-          error: `এই Transaction ID (${cleanTrx}) ইতিমধ্যে একবার ব্যবহার বা সাবমিট করা হয়েছে। অনুগ্রহ করে সঠিক TrxID দিন।`
+          error: `এই Transaction ID (${cleanTrx}) ইতিমধ্যে একবার ব্যবহার বা সাবমিট করা হয়েছে। একই TrxID বারবার ব্যবহার করা যাবে না। অনুগ্রহ করে আপনার সঠিক TrxID দিন।`
         });
       }
     } else {
-      const dup = inMemoryStore.payments.find(
+      const userPending = (inMemoryStore.payments || []).find(p => p.userId === userId && p.status === 'pending');
+      if (userPending) {
+        return res.status(400).json({
+          error: `আপনার ইতিমধ্যে একটি পেমেন্ট ভেরিফিকেশন অপেক্ষমাণ রয়েছে (TrxID: ${userPending.trxId})। সুপার অ্যাডমিন যাচাই করা পর্যন্ত অপেক্ষা করুন।`
+        });
+      }
+
+      const dup = (inMemoryStore.payments || []).find(
         p => p.trxId?.toUpperCase() === cleanTrx && ['pending', 'approved'].includes(p.status)
       );
       if (dup) {
         return res.status(400).json({
-          error: `এই Transaction ID (${cleanTrx}) ইতিমধ্যে একবার ব্যবহার বা সাবমিট করা হয়েছে। অনুগ্রহ করে সঠিক TrxID দিন।`
+          error: `এই Transaction ID (${cleanTrx}) ইতিমধ্যে একবার ব্যবহার বা সাবমিট করা হয়েছে। একই TrxID বারবার ব্যবহার করা যাবে না।`
         });
       }
     }
+
+    // Exact package duration without extra bonus days
+    const bonusDays = 0;
+    const planDuration = parseInt(durationDays, 10) || (cleanAmount === 100 ? 60 : (cleanAmount === 200 ? 120 : (cleanAmount === 50 ? 30 : 30)));
 
     const paymentId = 'pay_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
 
@@ -195,26 +193,43 @@ router.post('/submit-payment', authenticateUser, async (req: AuthenticatedReques
       await pool.query(`
         INSERT INTO payments (
           id, user_id, user_name, user_phone, sender_phone, sender_number, shop_name,
-          plan_id, plan_name, duration_days, amount, payment_method, payment_mode,
+          plan_id, plan_name, duration_days, bonus_days, amount, payment_method, payment_mode,
           trx_id, bank_details, admin_notes, status, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       `, [
         paymentId, userId, userName, userPhone, cleanSender, cleanSender, shopName,
-        planId, planName || planId, durationDays || 30, cleanAmount, paymentMethod, paymentMode || 'manual_mfs',
+        planId, planName || planId, planDuration, bonusDays, cleanAmount, paymentMethod, paymentMode || 'manual_mfs',
         cleanTrx, JSON.stringify(bankDetails || {}), userNote ? `গ্রাহক নোট: ${userNote}` : null, 'pending', now
       ]);
 
-      // Create Admin notification
+      // 1. Notify Admin
       await pool.query(`
         INSERT INTO notifications (id, title, message, type, target, target_user_id, priority, is_read, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `, [
-        'notif_' + now,
+        'notif_admin_' + now,
         'নতুন পেমেন্ট অনুরোধ (ভেরিফিকেশন অপেক্ষমাণ)',
-        `${shopName} (${userName}) ৳${cleanAmount} পেমেন্ট সাবমিট করেছেন। TrxID: ${cleanTrx}`,
+        `${shopName} (${userName}) ৳${cleanAmount} পেমেন্ট সাবমিট করেছেন। TrxID: ${cleanTrx} (${planName || 'প্যাকেজ'})`,
         'payment_receipt',
         'all',
         null,
+        'high',
+        false,
+        now
+      ]);
+
+      // 2. Targeted Notification for THIS specific user ONLY
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [
+        'notif_user_' + now,
+        '⏳ পেমেন্ট ভেরিফিকেশন হচ্ছে',
+        `আপনার ৳${cleanAmount} টাকার পেমেন্ট তথ্য (TrxID: ${cleanTrx}) জমা হয়েছে। সুপার অ্যাডমিন যাচাই করলেই আপনার অ্যাকাউন্টে সাবস্ক্রিপশনটি সক্রিয় হবে।${bonusDays > 0 ? ' (বোনাস +৭ দিন যুক্ত হবে)' : ''}`,
+        'payment_receipt',
+        'specific',
+        userId,
+        userName,
         'high',
         false,
         now
@@ -230,6 +245,7 @@ router.post('/submit-payment', authenticateUser, async (req: AuthenticatedReques
         planId,
         planName: planName || planId,
         durationDays: durationDays || 30,
+        bonusDays,
         amount: cleanAmount,
         paymentMethod,
         paymentMode: paymentMode || 'manual_mfs',
@@ -240,11 +256,26 @@ router.post('/submit-payment', authenticateUser, async (req: AuthenticatedReques
         createdAt: now,
       };
       inMemoryStore.payments.push(payRecord);
+
+      // Targeted Notification in memory
+      if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+      inMemoryStore.notifications.unshift({
+        id: 'notif_user_' + now,
+        title: '⏳ পেমেন্ট ভেরিফিকেশন হচ্ছে',
+        message: `আপনার ৳${cleanAmount} টাকার পেমেন্ট তথ্য (TrxID: ${cleanTrx}) জমা হয়েছে। সুপার অ্যাডমিন যাচাই করলেই আপনার অ্যাকাউন্টে সাবস্ক্রিপশনটি সক্রিয় হবে।${bonusDays > 0 ? ' (বোনাস +৭ দিন যুক্ত হবে)' : ''}`,
+        type: 'payment_receipt',
+        target: 'specific',
+        targetUserId: userId,
+        priority: 'high',
+        isRead: false,
+        createdAt: now,
+      });
     }
 
     return res.status(201).json({
-      message: '✅ আপনার পেমেন্ট তথ্য সফলভাবে জমা হয়েছে! অ্যাডমিন দ্রুত যাচাই করে অনুমোদন করবেন।',
+      message: '✅ আপনার পেমেন্ট তথ্য সফলভাবে জমা হয়েছে! সুপার অ্যাডমিন দ্রুত যাচাই করে অনুমোদন করবেন।',
       paymentId,
+      bonusDays,
     });
   } catch (err: any) {
     console.error('Payment Submission Error:', err);

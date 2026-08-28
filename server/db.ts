@@ -15,17 +15,18 @@ export function sanitizePostgresUrl(rawUrl: string): string {
   let url = (rawUrl || '').trim();
   if (!url) return '';
 
-  // Remove invalid/unsupported parameters like channel_binding=...
+  // 1. Remove invalid / truncated / unsupported query parameters like channel_binding=..., channel_bibi, channel_..., etc.
+  url = url.replace(/[?&]channel_[^&]*/gi, '');
   url = url.replace(/[?&]channel_binding=[^&]*/gi, '');
   
-  // Clean up dangling ? or &
-  if (url.includes('?') && !url.split('?')[1]) {
-    url = url.replace('?', '');
-  } else if (url.includes('?&')) {
-    url = url.replace('?&', '?');
+  // 2. Clean up dangling ? or & or ?& or &&
+  url = url.replace(/\?&/g, '?');
+  url = url.replace(/&&+/g, '&');
+  if (url.endsWith('?') || url.endsWith('&')) {
+    url = url.slice(0, -1);
   }
 
-  // Ensure sslmode=require for neon.tech if missing
+  // 3. Ensure sslmode=require for neon.tech if missing
   if (url.includes('neon.tech') && !url.includes('sslmode=')) {
     url += (url.includes('?') ? '&' : '?') + 'sslmode=require';
   }
@@ -53,6 +54,7 @@ function getStoredDbUrl(): string {
 // Neon PostgreSQL Database Pool
 let pool: pg.Pool | null = null;
 let isDbConnected = false;
+let heartbeatInterval: NodeJS.Timeout | null = null;
 
 // In-memory store fallback when DATABASE_URL is not yet provided
 export const inMemoryStore: {
@@ -87,6 +89,67 @@ export const inMemoryStore: {
   password_reset_otps: [],
 };
 
+// Helper to create an optimized, resilient pool for Neon serverless
+function createNeonPool(connectionString: string): pg.Pool {
+  const sanitized = sanitizePostgresUrl(connectionString);
+  const isNeonOrCloud = sanitized.includes('neon.tech') || sanitized.includes('sslmode=require') || process.env.NODE_ENV === 'production';
+
+  const newPool = new Pool({
+    connectionString: sanitized,
+    ssl: isNeonOrCloud ? { rejectUnauthorized: false } : false,
+    max: 10, // Optimized connection limit for Neon PgBouncer
+    min: 0,
+    idleTimeoutMillis: 10000, // Recycle idle connections in 10s so dead sockets don't linger
+    connectionTimeoutMillis: 25000, // 25s allows cold-start Neon compute to wake up without erroring
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000, // TCP keepalive probes prevent intermediate proxy drops
+    allowExitOnIdle: false,
+  });
+
+  newPool.on('error', (err: any) => {
+    console.error('⚠️ [PostgreSQL Pool Auto-Recovery] Transient pool error caught:', err?.message || err);
+    // If connection was forcibly closed or pool became invalid, reset pool reference so next query creates fresh connection
+    if (
+      err?.message?.includes('Connection terminated') ||
+      err?.message?.includes('terminating connection') ||
+      err?.message?.includes('Client was closed') ||
+      err?.code === '57P01' ||
+      err?.code === 'ECONNRESET'
+    ) {
+      console.log('🔄 Evicting stale pool client after serverless sleep/reconnect.');
+    }
+  });
+
+  return newPool;
+}
+
+// Start a background lightweight heartbeat to prevent Neon compute sleep during active sessions
+function startDbHeartbeat() {
+  if (heartbeatInterval) return;
+
+  heartbeatInterval = setInterval(async () => {
+    if (!pool) return;
+    try {
+      // Lightweight probe
+      await pool.query('SELECT 1');
+      isDbConnected = true;
+    } catch (err: any) {
+      console.warn('⚠️ [DB Keep-Alive Ping] Waking up sleeping Neon instance or refreshing pool...', err?.message);
+      // Try to touch/reconnect gracefully
+      try {
+        const dbUrl = getStoredDbUrl();
+        if (dbUrl) {
+          // Verify if fresh query works
+          await pool.query('SELECT 1');
+          isDbConnected = true;
+        }
+      } catch (retryErr) {
+        // Handled on next active query
+      }
+    }
+  }, 120000); // Every 2 minutes
+}
+
 export function getDbPool(): pg.Pool | null {
   if (pool) return pool;
 
@@ -97,21 +160,8 @@ export function getDbPool(): pg.Pool | null {
   }
 
   try {
-    // Neon PostgreSQL requires SSL
-    const isNeonOrCloud = dbUrl.includes('neon.tech') || dbUrl.includes('sslmode=require') || process.env.NODE_ENV === 'production';
-    
-    pool = new Pool({
-      connectionString: dbUrl,
-      ssl: isNeonOrCloud ? { rejectUnauthorized: false } : false,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    });
-
-    pool.on('error', (err) => {
-      console.error('❌ Unexpected PostgreSQL pool error:', err);
-    });
-
+    pool = createNeonPool(dbUrl);
+    startDbHeartbeat();
     return pool;
   } catch (err) {
     console.error('❌ Failed to initialize PostgreSQL pool:', err);
@@ -123,7 +173,7 @@ export function getDbPool(): pg.Pool | null {
  * Dynamically set, test and persist a new Neon Database URL
  */
 export async function setAndConnectDatabaseUrl(newDbUrl: string): Promise<{ success: boolean; message: string; databaseName?: string; userCount?: number }> {
-  const cleanUrl = (newDbUrl || '').trim();
+  const cleanUrl = sanitizePostgresUrl(newDbUrl || '');
   if (!cleanUrl) {
     throw new Error('ডাটাবেজ ইউআরএল (Connection String) ফাঁকা হতে পারে না');
   }
@@ -132,20 +182,14 @@ export async function setAndConnectDatabaseUrl(newDbUrl: string): Promise<{ succ
     throw new Error('অবৈধ ডাটাবেজ ইউআরএল ফরম্যাট! URL অবশ্যই postgresql:// বা postgres:// দিয়ে শুরু হতে হবে।');
   }
 
-  // Test connection first
+  // Test connection first with clean sanitized url
   let testPool: pg.Pool | null = null;
   try {
-    const isNeonOrCloud = cleanUrl.includes('neon.tech') || cleanUrl.includes('sslmode=require') || true;
-    testPool = new Pool({
-      connectionString: cleanUrl,
-      ssl: isNeonOrCloud ? { rejectUnauthorized: false } : false,
-      connectionTimeoutMillis: 12000,
-    });
+    testPool = createNeonPool(cleanUrl);
 
     const client = await testPool.connect();
-    const res = await client.query('SELECT current_database() as db_name, COUNT(*) as user_count FROM (SELECT 1 FROM information_schema.tables WHERE table_name = \'users\') t');
+    const res = await client.query('SELECT current_database() as db_name');
     
-    // Check if users table exists and get count if exists
     let userCount = 0;
     try {
       const uRes = await client.query('SELECT COUNT(*) as cnt FROM users');
@@ -177,13 +221,8 @@ export async function setAndConnectDatabaseUrl(newDbUrl: string): Promise<{ succ
     }
 
     // Initialize new pool and schemas
-    pool = new Pool({
-      connectionString: cleanUrl,
-      ssl: { rejectUnauthorized: false },
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    });
+    pool = createNeonPool(cleanUrl);
+    startDbHeartbeat();
 
     await initializeDatabaseSchema();
 
@@ -202,12 +241,43 @@ export async function setAndConnectDatabaseUrl(newDbUrl: string): Promise<{ succ
   }
 }
 
+/**
+ * Resilient query wrapper with automatic 1-time retry on transient Neon scale-to-zero / socket disconnect
+ */
 export async function query(text: string, params?: any[]): Promise<pg.QueryResult<any>> {
-  const p = getDbPool();
+  let p = getDbPool();
   if (!p) {
     throw new Error('DATABASE_URL_NOT_CONFIGURED');
   }
-  return p.query(text, params);
+
+  try {
+    return await p.query(text, params);
+  } catch (err: any) {
+    const isTransientDisconnect =
+      err?.message?.includes('Connection terminated') ||
+      err?.message?.includes('terminating connection') ||
+      err?.message?.includes('Client was closed') ||
+      err?.message?.includes('socket hang up') ||
+      err?.code === '57P01' ||
+      err?.code === 'ECONNRESET' ||
+      err?.code === 'ETIMEDOUT';
+
+    if (isTransientDisconnect) {
+      console.warn('⚠️ Transient DB disconnect caught, reconnecting and retrying query...', err?.message);
+      // Wait 350ms for Neon compute to complete wake-up
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      
+      const dbUrl = getStoredDbUrl();
+      if (dbUrl) {
+        p = getDbPool();
+        if (p) {
+          return await p.query(text, params);
+        }
+      }
+    }
+
+    throw err;
+  }
 }
 
 /**
@@ -377,6 +447,7 @@ export async function initializeDatabaseSchema() {
         plan_id VARCHAR(100),
         plan_name VARCHAR(255),
         duration_days INT DEFAULT 30,
+        bonus_days INT DEFAULT 0,
         amount NUMERIC(12, 2) NOT NULL,
         payment_method VARCHAR(50) NOT NULL,
         payment_mode VARCHAR(50),
@@ -396,6 +467,7 @@ export async function initializeDatabaseSchema() {
       CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
       CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
       CREATE INDEX IF NOT EXISTS idx_payments_trx_id ON payments(trx_id);
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS bonus_days INT DEFAULT 0;
     `);
 
     // 8. Notifications Table
@@ -413,6 +485,60 @@ export async function initializeDatabaseSchema() {
         created_at BIGINT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_notifications_target_user ON notifications(target_user_id, target);
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'USER';
+    `);
+
+    // 8.1 Subscriptions Packages Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS subscription_packages (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        price NUMERIC(12, 2) NOT NULL,
+        duration_days INT NOT NULL,
+        bonus_days INT DEFAULT 0,
+        active BOOLEAN DEFAULT TRUE,
+        description TEXT,
+        features JSONB DEFAULT '[]'::jsonb,
+        badge VARCHAR(100),
+        is_popular BOOLEAN DEFAULT FALSE,
+        created_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_subscription_packages_active ON subscription_packages(active);
+    `);
+
+    // 8.2 Subscriptions Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+        package_id VARCHAR(64),
+        status VARCHAR(50) DEFAULT 'FREE',
+        start_date BIGINT NOT NULL,
+        expiry_date BIGINT NOT NULL,
+        bonus_days INT DEFAULT 0,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
+      CREATE INDEX IF NOT EXISTS idx_subscriptions_expiry ON subscriptions(expiry_date);
+    `);
+
+    // 8.3 Subscription Audit Logs Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS subscription_audit_logs (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+        subscription_id VARCHAR(64),
+        admin_id VARCHAR(255),
+        action VARCHAR(100) NOT NULL,
+        old_status VARCHAR(50),
+        new_status VARCHAR(50),
+        note TEXT,
+        created_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_sub_audit_user_id ON subscription_audit_logs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_sub_audit_created_at ON subscription_audit_logs(created_at DESC);
     `);
 
     // 9. Announcements Table
