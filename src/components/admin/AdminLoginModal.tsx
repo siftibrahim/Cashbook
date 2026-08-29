@@ -51,7 +51,23 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // 2FA State
+  const [show2FAStep, setShow2FAStep] = useState(false);
+  const [twoFaOtp, setTwoFaOtp] = useState('');
+  const [twoFaSessionToken, setTwoFaSessionToken] = useState('');
+  const [twoFaMaskedPhone, setTwoFaMaskedPhone] = useState('');
+  const [trustDevice, setTrustDevice] = useState(true);
+
   if (!isOpen) return null;
+
+  const getOrGenerateFingerprint = () => {
+    let fp = localStorage.getItem('twing_device_fingerprint');
+    if (!fp) {
+      fp = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
+      localStorage.setItem('twing_device_fingerprint', fp);
+    }
+    return fp;
+  };
 
   const handleSuperAdminPinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,10 +84,14 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     try {
       const cleanPin = pin.trim();
       const res = await authApi.adminLogin({ pin: cleanPin, authType: 'pin' });
-      clearLoginAttempts(superAdminIdentifier);
-      onShowToast(res.message || '✅ সুপার অ্যাডমিন ভেরিফিকেশন সফল!');
-      onAdminAuthenticated({ role: 'super_admin', email: ADMIN_EMAIL });
-      onClose();
+      if (res.requires2FA) {
+        setShow2FAStep(true);
+        setTwoFaSessionToken(res.twoFaSessionToken || '');
+        setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
+        onShowToast('🔐 আপনার নিবন্ধিত মোবাইল নম্বরে 2FA OTP কোড পাঠানো হয়েছে!');
+        return;
+      }
+      setErrorMsg('সুপার অ্যাডমিন সিকিউরিটির জন্য ২FA ওটিপি যাচাই প্রয়োজন।');
     } catch (err: any) {
       const attempt = recordFailedLoginAttempt(superAdminIdentifier);
       if (attempt.isLockedNow) {
@@ -98,15 +118,23 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setLoading(true);
 
     try {
+      const fp = getOrGenerateFingerprint();
       const res = await authApi.adminLogin({
         email: targetEmail,
         password,
         authType: 'password',
+        deviceFingerprint: fp,
       });
-      clearLoginAttempts(targetEmail);
-      onShowToast(res.message || '✅ সুপার অ্যাডমিন কনসোলে সফলভাবে প্রবেশ করেছেন!');
-      onAdminAuthenticated({ role: 'super_admin', email: targetEmail });
-      onClose();
+
+      if (res.requires2FA) {
+        setShow2FAStep(true);
+        setTwoFaSessionToken(res.twoFaSessionToken || '');
+        setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
+        onShowToast('🔐 আপনার নিবন্ধিত মোবাইল নম্বরে 2FA OTP কোড পাঠানো হয়েছে!');
+        return;
+      }
+
+      setErrorMsg('সুপার অ্যাডমিন সিকিউরিটির জন্য ২FA ওটিপি যাচাই প্রয়োজন।');
     } catch (err: any) {
       console.warn('Admin sign-in error:', err);
       const attempt = recordFailedLoginAttempt(targetEmail);
@@ -115,6 +143,41 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       } else {
         setErrorMsg(`ইমেইল বা পাসওয়ার্ড সঠিক নয়। (বাকি সুযোগ: ${attempt.attemptsLeft} বার)`);
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerify2FASubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+
+    const cleanOtp = twoFaOtp.trim();
+    if (!cleanOtp) {
+      setErrorMsg('৬ ডিজিটের OTP কোড লিখুন');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const fp = getOrGenerateFingerprint();
+      const res = await authApi.verifyAdmin2FA({
+        otp: cleanOtp,
+        twoFaSessionToken,
+        trustDevice,
+        deviceFingerprint: fp,
+        deviceName: navigator.userAgent.slice(0, 100),
+      });
+
+      if (res.deviceFingerprint) {
+        localStorage.setItem('twing_device_fingerprint', res.deviceFingerprint);
+      }
+
+      onShowToast(res.message || '✅ 2FA যাচাইকরণ সফল! স্বাগতম সুপার অ্যাডমিন।');
+      onAdminAuthenticated({ role: 'super_admin', email: email.trim().toLowerCase() || ADMIN_EMAIL });
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err.message || '❌ ভুল অথবা মেয়াদোত্তীর্ণ OTP কোড!');
     } finally {
       setLoading(false);
     }
@@ -230,27 +293,100 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         {/* SUPER ADMIN FORM */}
         {adminType === 'super' && (
           <div className="space-y-3 pt-1">
-            {/* PIN vs Password Selector */}
-            <div className="flex justify-center gap-3 text-xs font-bold text-slate-500 pb-1">
-              <button
-                type="button"
-                onClick={() => setMode('password')}
-                className={`cursor-pointer ${mode === 'password' ? 'text-teal-800 underline' : 'hover:text-slate-800'}`}
-              >
-                ইমেইল ও পাসওয়ার্ড
-              </button>
-              <span>•</span>
-              <button
-                type="button"
-                onClick={() => setMode('pin')}
-                className={`cursor-pointer ${mode === 'pin' ? 'text-teal-800 underline' : 'hover:text-slate-800'}`}
-              >
-                মাস্টার পিন
-              </button>
-            </div>
+            {show2FAStep ? (
+              <form onSubmit={handleVerify2FASubmit} className="space-y-3 animate-in fade-in">
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-xs space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                    <ShieldAlert className="w-4 h-4 text-amber-700" />
+                    <span>টু-ফ্যাক্টর অথেনটিকেশন (2FA)</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    অ্যাডমিন সিকিউরিটির জন্য আপনার ভেরিফাইড মোবাইল নম্বরে (<span className="font-bold text-amber-900">{twoFaMaskedPhone}</span>) একটি ৬ ডিজিটের ওটিপি কোড পাঠানো হয়েছে।
+                  </p>
+                </div>
 
-            {mode === 'password' ? (
-              <form onSubmit={handleSuperAdminPasswordSubmit} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    ৬ ডিজিটের 2FA OTP কোড <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    required
+                    value={twoFaOtp}
+                    onChange={(e) => setTwoFaOtp(e.target.value.replace(/\D/g, ''))}
+                    placeholder="যেমন: 123456"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border-2 border-teal-500 rounded-xl text-center text-lg font-black tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="trustDeviceCheck"
+                    checked={trustDevice}
+                    onChange={(e) => setTrustDevice(e.target.checked)}
+                    className="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500 cursor-pointer"
+                  />
+                  <label htmlFor="trustDeviceCheck" className="text-xs font-bold text-slate-700 cursor-pointer">
+                    এই ডিভাইসটি ট্রাস্টেড হিসেবে সংরক্ষণ করুন (৯০ দিন)
+                  </label>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || twoFaOtp.length < 4}
+                  className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs sm:text-sm cursor-pointer disabled:opacity-50 mt-2"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>যাচাই হচ্ছে...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>2FA ভেরিফাই ও প্রবেশ</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="text-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShow2FAStep(false);
+                      setTwoFaOtp('');
+                    }}
+                    className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                  >
+                    ← পাসওয়ার্ড পরিবর্তন বা ফিরে যান
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                {/* PIN vs Password Selector */}
+                <div className="flex justify-center gap-3 text-xs font-bold text-slate-500 pb-1">
+                  <button
+                    type="button"
+                    onClick={() => setMode('password')}
+                    className={`cursor-pointer ${mode === 'password' ? 'text-teal-800 underline' : 'hover:text-slate-800'}`}
+                  >
+                    ইমেইল ও পাসওয়ার্ড
+                  </button>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={() => setMode('pin')}
+                    className={`cursor-pointer ${mode === 'pin' ? 'text-teal-800 underline' : 'hover:text-slate-800'}`}
+                  >
+                    মাস্টার পিন
+                  </button>
+                </div>
+
+                {mode === 'password' ? (
+                  <form onSubmit={handleSuperAdminPasswordSubmit} className="space-y-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     সুপার অ্যাডমিন ইমেইল <span className="text-red-500">*</span>
@@ -339,10 +475,12 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 </button>
               </form>
             )}
-          </div>
+          </>
         )}
+      </div>
+    )}
 
-        {/* STAFF FORM */}
+    {/* STAFF FORM */}
         {adminType === 'staff' && (
           <form onSubmit={handleStaffSubmit} className="space-y-3 pt-1">
             <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-900 font-bold">

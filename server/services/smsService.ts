@@ -164,24 +164,35 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
           message: messageText,
         });
 
-        // Try http first, fallback to https if needed
-        const url = `http://bulksmsbd.net/api/smsapi?${params.toString()}`;
         console.log(`📡 [BulkSMSBD Dispatch] To: ${bulksmsNumber} | Sender: ${senderId} | Type: ${msgType}`);
 
-        let res = await fetch(url, {
-          method: 'GET',
-          headers: { 'User-Agent': 'TwingKhataApp/1.0', 'Accept': 'application/json, text/plain, */*' },
-          timeout: 12000,
-        } as any).catch(async () => {
-          // Retry with https
-          return await fetch(`https://bulksmsbd.net/api/smsapi?${params.toString()}`, {
-            method: 'GET',
-            headers: { 'User-Agent': 'TwingKhataApp/1.0', 'Accept': 'application/json, text/plain, */*' },
-            timeout: 12000,
-          } as any);
-        });
+        let res: any = null;
+        let rawResText = '';
 
-        const rawResText = await res.text().catch(() => '');
+        // Try HTTPS first, then fallback to HTTP
+        const endpoints = [
+          `https://bulksmsbd.net/api/smsapi?${params.toString()}`,
+          `http://bulksmsbd.net/api/smsapi?${params.toString()}`,
+          `http://api.bulksmsbd.net/api/smsapi?${params.toString()}`,
+        ];
+
+        for (const endpoint of endpoints) {
+          try {
+            res = await fetch(endpoint, {
+              method: 'GET',
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+              },
+              timeout: 10000,
+            } as any);
+            rawResText = await res.text().catch(() => '');
+            if (rawResText) break;
+          } catch (e: any) {
+            console.warn(`[BulkSMSBD Try Failed on ${endpoint}]:`, e.message);
+          }
+        }
+
         let jsonRes: any = null;
         try {
           jsonRes = JSON.parse(rawResText);
@@ -195,6 +206,7 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
           jsonRes?.response_code === 202 ||
           jsonRes?.response_code === '202' ||
           jsonRes?.response_code === 200 ||
+          jsonRes?.success === true ||
           rawResText.includes('202') ||
           rawResText.toLowerCase().includes('success');
 

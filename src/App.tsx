@@ -30,6 +30,7 @@ import {
   authApi,
   getAuthToken,
   getStoredUser,
+  setStoredUser,
   customerApi,
   transactionApi,
   expenseApi,
@@ -498,7 +499,7 @@ export const App: React.FC = () => {
 
   const handleRefreshSubscriptionStatus = async () => {
     try {
-      const statusData = await subscriptionApi.getMyStatus();
+      const statusData: any = await subscriptionApi.getMyStatus();
       if (statusData) {
         if (statusData.subscriptionExpiresAt) {
           setStore((prev) => ({

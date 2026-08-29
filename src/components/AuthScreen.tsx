@@ -67,6 +67,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [adminAuthType, setAdminAuthType] = useState<'password' | 'pin'>('password');
 
+  // Super Admin 2FA State
+  const [showAdmin2FA, setShowAdmin2FA] = useState(false);
+  const [admin2FASessionToken, setAdmin2FASessionToken] = useState('');
+  const [admin2FAMaskedPhone, setAdmin2FAMaskedPhone] = useState('');
+  const [admin2FAOtp, setAdmin2FAOtp] = useState('');
+  const [admin2FACountdown, setAdmin2FACountdown] = useState(0);
+
   // Staff login state
   const [staffIdentifier, setStaffIdentifier] = useState('');
   const [staffPassword, setStaffPassword] = useState('');
@@ -97,6 +104,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }, 1000);
     return () => clearInterval(timer);
   }, [resetCountdown]);
+
+  // Admin 2FA Countdown timer
+  useEffect(() => {
+    if (admin2FACountdown <= 0) return;
+    const timer = setInterval(() => {
+      setAdmin2FACountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [admin2FACountdown]);
 
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     setTimeout(() => {
@@ -203,14 +219,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       if (adminAuthType === 'pin') {
         const cleanPin = adminPin.trim();
         const res = await authApi.adminLogin({ pin: cleanPin, authType: 'pin' });
-        setSuccessMsg(res.message || '✅ সুপার অ্যাডমিন ভেরিফিকেশন সফল!');
-        setTimeout(() => {
-          if (onAdminLoginSuccess) {
-            onAdminLoginSuccess(ADMIN_EMAIL, { role: 'super_admin', email: ADMIN_EMAIL });
-          } else {
-            onLoginSuccess(ADMIN_EMAIL, 'admin');
-          }
-        }, 400);
+        if (res.requires2FA) {
+          setShowAdmin2FA(true);
+          setAdmin2FASessionToken(res.twoFaSessionToken || '');
+          setAdmin2FAMaskedPhone(res.maskedPhone || '013****8115');
+          setAdmin2FACountdown(60);
+          setSuccessMsg('🔐 সুপার অ্যাডমিনের নিবন্ধিত নম্বরে ২FA ওটিপি কোড পাঠানো হয়েছে!');
+          return;
+        }
+        setErrorMsg('সুপার অ্যাডমিন সিকিউরিটির জন্য ২FA ওটিপি যাচাই প্রয়োজন।');
       } else {
         const cleanAdminEmail = adminEmail.trim() || ADMIN_EMAIL;
         const res = await authApi.adminLogin({
@@ -218,21 +235,91 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           password: adminPassword,
           authType: 'password',
         });
-        setSuccessMsg(res.message || '✅ সুপার অ্যাডমিন যাচাই সফল!');
-        setTimeout(() => {
-          if (onAdminLoginSuccess) {
-            onAdminLoginSuccess(cleanAdminEmail, {
-              role: 'super_admin',
-              email: cleanAdminEmail,
-            });
-          } else {
-            onLoginSuccess(cleanAdminEmail, 'admin');
-          }
-        }, 400);
+        if (res.requires2FA) {
+          setShowAdmin2FA(true);
+          setAdmin2FASessionToken(res.twoFaSessionToken || '');
+          setAdmin2FAMaskedPhone(res.maskedPhone || '013****8115');
+          setAdmin2FACountdown(60);
+          setSuccessMsg('🔐 সুপার অ্যাডমিনের নিবন্ধিত নম্বরে ২FA ওটিপি কোড পাঠানো হয়েছে!');
+          return;
+        }
+        setErrorMsg('সুপার অ্যাডমিন সিকিউরিটির জন্য ২FA ওটিপি যাচাই প্রয়োজন।');
       }
     } catch (err: any) {
       console.warn('Super admin sign-in error:', err);
       setErrorMsg(err.message || '❌ সুপার অ্যাডমিন যাচাই ব্যর্থ হয়েছে।');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyAdmin2FASubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const cleanOtp = admin2FAOtp.trim();
+    if (!cleanOtp) {
+      setErrorMsg('অনুগ্রহ করে মোবাইলে প্রাপ্ত ৬-সংখ্যার OTP কোড লিখুন');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await authApi.verifyAdmin2FA({
+        otp: cleanOtp,
+        twoFaSessionToken: admin2FASessionToken,
+      });
+
+      if (!res.token) {
+        setErrorMsg('❌ 2FA যাচাইকরণ ব্যর্থ হয়েছে। সঠিক ওটিপি দিন।');
+        setLoading(false);
+        return;
+      }
+
+      setSuccessMsg('✅ ২FA যাচাইকরণ সফল! সুপার অ্যাডমিন ড্যাশবোর্ডে প্রবেশ করছেন...');
+      setTimeout(() => {
+        if (onAdminLoginSuccess) {
+          onAdminLoginSuccess(res.user?.email || ADMIN_EMAIL, {
+            role: 'super_admin',
+            email: res.user?.email || ADMIN_EMAIL,
+          });
+        } else {
+          onLoginSuccess(res.user?.email || ADMIN_EMAIL, 'admin');
+        }
+      }, 400);
+    } catch (err: any) {
+      console.warn('Verify Admin 2FA Error:', err);
+      setErrorMsg(err.message || '❌ ভুল অথবা মেয়াদোত্তীর্ণ 2FA OTP কোড!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendAdmin2FAOtp = async () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    setLoading(true);
+    try {
+      if (adminAuthType === 'pin') {
+        const cleanPin = adminPin.trim();
+        const res = await authApi.adminLogin({ pin: cleanPin, authType: 'pin' });
+        setAdmin2FASessionToken(res.twoFaSessionToken || '');
+        setAdmin2FACountdown(60);
+        setSuccessMsg('✅ নতুন ২FA ওটিপি কোড পাঠানো হয়েছে!');
+      } else {
+        const cleanAdminEmail = adminEmail.trim() || ADMIN_EMAIL;
+        const res = await authApi.adminLogin({
+          email: cleanAdminEmail,
+          password: adminPassword,
+          authType: 'password',
+        });
+        setAdmin2FASessionToken(res.twoFaSessionToken || '');
+        setAdmin2FACountdown(60);
+        setSuccessMsg('✅ নতুন ২FA ওটিপি কোড পাঠানো হয়েছে!');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'ওটিপি পুনরায় পাঠাতে ব্যর্থ হয়েছে');
     } finally {
       setLoading(false);
     }
@@ -693,145 +780,236 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               {/* SUPER ADMIN SUB-TAB */}
               {adminSubTab === 'super' && (
                 <div className="space-y-3.5 animate-in fade-in">
-                  {/* Banner */}
-                  <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-2xl flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-sm">
-                      <ShieldCheck className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-black text-amber-300">
-                        👑 সুপার অ্যাডমিন এক্সেস
-                      </h4>
-                      <p className="text-[11px] text-amber-200/80">
-                        সম্পূর্ণ সিস্টেম, স্টাফ ও ইউজার কন্ট্রোল।
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Super admin form */}
-                  <form onSubmit={handleSuperAdminLogin} className="space-y-3">
-                    {adminAuthType === 'password' ? (
-                      <>
+                  {showAdmin2FA ? (
+                    <div className="space-y-3.5 animate-in fade-in">
+                      {/* 2FA Banner */}
+                      <div className="p-3.5 bg-amber-950/50 border border-amber-500/50 rounded-2xl flex items-start gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-sm mt-0.5">
+                          <ShieldCheck className="w-5 h-5" />
+                        </div>
                         <div>
-                          <label className="block text-xs font-bold text-slate-300 mb-1">
-                            সুপার অ্যাডমিন ইমেইল <span className="text-amber-400">*</span>
+                          <h4 className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                            <span>🔐 ২-ধাপের নিরাপত্তা যাচাই (2FA OTP)</span>
+                          </h4>
+                          <p className="text-[11px] text-amber-200/90 mt-0.5 leading-relaxed">
+                            সুপার অ্যাডমিনের নিবন্ধিত নম্বরে (<span className="font-mono font-bold text-white">{admin2FAMaskedPhone || '013****8115'}</span>) পাঠানো ৬-সংখ্যার OTP কোডটি লিখুন।
+                          </p>
+                        </div>
+                      </div>
+
+                      <form onSubmit={handleVerifyAdmin2FASubmit} className="space-y-3">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-300 mb-1.5 text-center">
+                            ৬-সংখ্যার OTP কোড দিন <span className="text-amber-400">*</span>
                           </label>
                           <div className="relative">
-                            <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                            <KeyRound className="w-4 h-4 text-amber-400 absolute left-3.5 top-3.5" />
                             <input
-                              type="email"
+                              type="text"
                               required
-                              value={adminEmail}
+                              maxLength={6}
+                              autoFocus
+                              value={admin2FAOtp}
                               onFocus={handleInputFocus}
-                              onChange={(e) => setAdminEmail(e.target.value)}
-                              placeholder="admin@twing.com"
-                              className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-900/90 border border-slate-750 rounded-2xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-white placeholder-slate-500"
+                              onChange={(e) => setAdmin2FAOtp(e.target.value.replace(/\D/g, ''))}
+                              placeholder="••••••"
+                              className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-amber-500/60 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
                             />
                           </div>
+                          <p className="text-[10px] text-slate-400 text-center mt-1">
+                            কোডের মেয়াদ: ৫ মিনিট
+                          </p>
                         </div>
 
-                        <div>
-                          <label className="block text-xs font-bold text-slate-300 mb-1">
-                            অ্যাডমিন পাসওয়ার্ড <span className="text-amber-400">*</span>
-                          </label>
-                          <div className="relative">
-                            <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                            <input
-                              type={showAdminPassword ? 'text' : 'password'}
-                              required
-                              value={adminPassword}
-                              onFocus={handleInputFocus}
-                              onChange={(e) => setAdminPassword(e.target.value)}
-                              placeholder="পাসওয়ার্ড লিখুন"
-                              className="w-full pl-10 pr-10 py-2.5 text-xs bg-slate-900/90 border border-slate-750 rounded-2xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-white placeholder-slate-500"
-                            />
+                        <div className="flex items-center justify-between text-xs pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAdmin2FA(false);
+                              setAdmin2FAOtp('');
+                              setErrorMsg('');
+                            }}
+                            className="text-slate-400 hover:text-slate-200 font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                            <span>আগের ধাপে ফিরুন</span>
+                          </button>
+
+                          {admin2FACountdown > 0 ? (
+                            <span className="text-slate-400 text-[11px] font-mono">
+                              পুনরায় কোড: {admin2FACountdown} সেকেন্ড
+                            </span>
+                          ) : (
                             <button
                               type="button"
-                              onClick={() => setShowAdminPassword(!showAdminPassword)}
-                              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                              onClick={handleResendAdmin2FAOtp}
+                              className="text-amber-400 hover:underline font-bold flex items-center gap-1 cursor-pointer text-[11px]"
                             >
-                              {showAdminPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              <RefreshCw className="w-3 h-3" />
+                              <span>পুনরায় OTP পাঠান</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={loading || admin2FAOtp.length < 6}
+                          className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-amber-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
+                        >
+                          {loading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                              <span>OTP যাচাই করা হচ্ছে...</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                              <span>OTP যাচাই করে ড্যাশবোর্ডে প্রবেশ</span>
+                            </>
+                          )}
+                        </button>
+                      </form>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Banner */}
+                      <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-2xl flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-sm">
+                          <ShieldCheck className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-black text-amber-300">
+                            👑 সুপার অ্যাডমিন এক্সেস
+                          </h4>
+                          <p className="text-[11px] text-amber-200/80">
+                            সম্পূর্ণ সিস্টেম, স্টাফ ও ইউজার কন্ট্রোল।
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Super admin form */}
+                      <form onSubmit={handleSuperAdminLogin} className="space-y-3">
+                        {adminAuthType === 'password' ? (
+                          <>
+                            <div>
+                              <label className="block text-xs font-bold text-slate-300 mb-1">
+                                সুপার অ্যাডমিন ইমেইল <span className="text-amber-400">*</span>
+                              </label>
+                              <div className="relative">
+                                <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                                <input
+                                  type="email"
+                                  required
+                                  value={adminEmail}
+                                  onFocus={handleInputFocus}
+                                  onChange={(e) => setAdminEmail(e.target.value)}
+                                  placeholder="admin@twing.com"
+                                  className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-900/90 border border-slate-750 rounded-2xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-white placeholder-slate-500"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-slate-300 mb-1">
+                                অ্যাডমিন পাসওয়ার্ড <span className="text-amber-400">*</span>
+                              </label>
+                              <div className="relative">
+                                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                                <input
+                                  type={showAdminPassword ? 'text' : 'password'}
+                                  required
+                                  value={adminPassword}
+                                  onFocus={handleInputFocus}
+                                  onChange={(e) => setAdminPassword(e.target.value)}
+                                  placeholder="পাসওয়ার্ড লিখুন"
+                                  className="w-full pl-10 pr-10 py-2.5 text-xs bg-slate-900/90 border border-slate-750 rounded-2xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-white placeholder-slate-500"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAdminPassword(!showAdminPassword)}
+                                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                                >
+                                  {showAdminPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div>
+                            <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                              অ্যাডমিন সিক্রেট পিন <span className="text-amber-400">*</span>
+                            </label>
+                            <div className="relative">
+                              <Key className="w-4 h-4 text-amber-400 absolute left-3.5 top-3.5" />
+                              <input
+                                type="password"
+                                required
+                                autoFocus
+                                maxLength={6}
+                                value={adminPin}
+                                onChange={(e) => setAdminPin(e.target.value)}
+                                placeholder="PIN দিন"
+                                className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-amber-600/40 rounded-2xl text-center text-lg tracking-widest font-mono font-black text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Switch between PIN & Password & OTP Reset */}
+                        <div className="flex flex-col gap-1.5 pt-1">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAdminAuthType(adminAuthType === 'password' ? 'pin' : 'password');
+                                setErrorMsg('');
+                              }}
+                              className="text-amber-400 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                            >
+                              <KeyRound className="w-3 h-3" />
+                              <span>{adminAuthType === 'password' ? 'মাস্টার পিন দিয়ে লগইন' : 'ইমেইল ও পাসওয়ার্ড দিয়ে লগইন'}</span>
+                            </button>
+                          </div>
+
+                          <div className="text-right">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setResetTarget('01306908115');
+                                setIsResetForAdmin(true);
+                                setResetStep('phone');
+                                setActiveTab('reset');
+                                setErrorMsg('');
+                                setSuccessMsg('');
+                              }}
+                              className="text-[11px] text-amber-400 hover:underline font-bold inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Smartphone className="w-3 h-3" />
+                              <span>সুপার অ্যাডমিন পাসওয়ার্ড রিসেট (মোবাইল OTP)</span>
                             </button>
                           </div>
                         </div>
-                      </>
-                    ) : (
-                      <div>
-                        <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                          অ্যাডমিন সিক্রেট পিন <span className="text-amber-400">*</span>
-                        </label>
-                        <div className="relative">
-                          <Key className="w-4 h-4 text-amber-400 absolute left-3.5 top-3.5" />
-                          <input
-                            type="password"
-                            required
-                            autoFocus
-                            maxLength={6}
-                            value={adminPin}
-                            onChange={(e) => setAdminPin(e.target.value)}
-                            placeholder="PIN দিন (যেমন: 7860)"
-                            className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-amber-600/40 rounded-2xl text-center text-lg tracking-widest font-mono font-black text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-400 mt-1 text-center">
-                          ডিফল্ট মাস্টার অ্যাডমিন পিন: 7860
-                        </p>
-                      </div>
-                    )}
 
-                    {/* Switch between PIN & Password & OTP Reset */}
-                    <div className="flex flex-col gap-1.5 pt-1">
-                      <div className="flex items-center justify-between text-[11px]">
                         <button
-                          type="button"
-                          onClick={() => {
-                            setAdminAuthType(adminAuthType === 'password' ? 'pin' : 'password');
-                            setErrorMsg('');
-                          }}
-                          className="text-amber-400 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                          type="submit"
+                          disabled={loading}
+                          className="w-full py-3 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-amber-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-1"
                         >
-                          <KeyRound className="w-3 h-3" />
-                          <span>{adminAuthType === 'password' ? 'মাস্টার পিন দিয়ে লগইন' : 'ইমেইল ও পাসওয়ার্ড দিয়ে লগইন'}</span>
+                          {loading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                              <span>যাচাই হচ্ছে...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Key className="w-4 h-4 text-slate-950" />
+                              <span>🔑 পাসওয়ার্ড দিয়ে ২FA OTP পাঠান</span>
+                            </>
+                          )}
                         </button>
-                      </div>
-
-                      <div className="text-right">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setResetTarget('01306908115');
-                            setIsResetForAdmin(true);
-                            setResetStep('phone');
-                            setActiveTab('reset');
-                            setErrorMsg('');
-                            setSuccessMsg('');
-                          }}
-                          className="text-[11px] text-amber-400 hover:underline font-bold inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          <Smartphone className="w-3 h-3" />
-                          <span>সুপার অ্যাডমিন পাসওয়ার্ড রিসেট (মোবাইল OTP)</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="w-full py-3 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-amber-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-1"
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                          <span>যাচাই হচ্ছে...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Key className="w-4 h-4 text-slate-950" />
-                          <span>🔑 সুপার অ্যাডমিন প্যানেলে প্রবেশ</span>
-                        </>
-                      )}
-                    </button>
-                  </form>
+                      </form>
+                    </>
+                  )}
                 </div>
               )}
 

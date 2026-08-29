@@ -9,6 +9,48 @@ const router = Router();
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@twing.com';
 const DEFAULT_ADMIN_EMAIL = ADMIN_EMAIL;
 
+// In-memory rate limiting map for brute-force & DDoS protection on auth endpoints
+const authRateLimitMap = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
+
+function checkRateLimit(key: string, maxAttempts: number = 5, windowMs: number = 15 * 60 * 1000): { isBlocked: boolean; remainingAttempts: number; retryAfterSec: number } {
+  const now = Date.now();
+  const record = authRateLimitMap.get(key);
+
+  if (!record) {
+    authRateLimitMap.set(key, { count: 1, firstAttempt: now });
+    return { isBlocked: false, remainingAttempts: maxAttempts - 1, retryAfterSec: 0 };
+  }
+
+  if (record.lockedUntil && record.lockedUntil > now) {
+    return {
+      isBlocked: true,
+      remainingAttempts: 0,
+      retryAfterSec: Math.ceil((record.lockedUntil - now) / 1000),
+    };
+  }
+
+  if (now - record.firstAttempt > windowMs) {
+    authRateLimitMap.set(key, { count: 1, firstAttempt: now });
+    return { isBlocked: false, remainingAttempts: maxAttempts - 1, retryAfterSec: 0 };
+  }
+
+  record.count += 1;
+  if (record.count > maxAttempts) {
+    record.lockedUntil = now + windowMs;
+    return {
+      isBlocked: true,
+      remainingAttempts: 0,
+      retryAfterSec: Math.ceil(windowMs / 1000),
+    };
+  }
+
+  return { isBlocked: false, remainingAttempts: maxAttempts - record.count, retryAfterSec: 0 };
+}
+
+function clearRateLimit(key: string) {
+  authRateLimitMap.delete(key);
+}
+
 /**
  * 1. User Registration (New Shop)
  */
@@ -145,6 +187,15 @@ router.post('/login', async (req, res) => {
     }
 
     const cleanEmail = email.trim().toLowerCase();
+    const rateLimitKey = `login_${cleanEmail}_${req.ip}`;
+    const rateLimit = checkRateLimit(rateLimitKey, 5, 15 * 60 * 1000);
+
+    if (rateLimit.isBlocked) {
+      return res.status(429).json({
+        error: `⚠️ অতিরিক্ত ভুল চেষ্টার কারণে লগইন সাময়িকভাবে লক করা হয়েছে। অনুগ্রহ করে ${Math.ceil(rateLimit.retryAfterSec / 60)} মিনিট পর চেষ্টা করুন।`,
+      });
+    }
+
     const pool = getDbPool();
 
     let user: any = null;
@@ -175,6 +226,13 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: '❌ ইমেইল অথবা পাসওয়ার্ড সঠিক নয়!' });
     }
 
+    // Block direct non-2FA login for super_admin account via regular shop login
+    if (user.role === 'super_admin' || cleanEmail === 'siftibrahim@gmail.com' || cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+      return res.status(403).json({
+        error: '⚠️ সুপার অ্যাডমিন অ্যাকাউন্টের জন্য "অ্যাডমিন" ট্যাব থেকে ২FA ওটিপি ভেরিফিকেশন সম্পন্ন করে লগইন করুন।',
+      });
+    }
+
     // Check account status
     if (user.status === 'suspended') {
       return res.status(403).json({ error: '⚠️ আপনার অ্যাকাউন্টটি সাময়িক স্থগিত করা হয়েছে। হেল্পলাইনে যোগাযোগ করুন।' });
@@ -190,6 +248,7 @@ router.post('/login', async (req, res) => {
 
     // Recalculate and synchronize subscription details
     const syncedSub = await SubscriptionEngine.recalculateAndSyncUserSubscription(user.id);
+    clearRateLimit(rateLimitKey);
 
     const token = generateToken({
       userId: user.id,
@@ -221,7 +280,7 @@ router.post('/login', async (req, res) => {
 });
 
 /**
- * 3. Super Admin Login
+ * 3. Super Admin Login (Single Master Password + Mandatory 2FA OTP)
  */
 router.post('/admin-login', async (req, res) => {
   try {
@@ -232,127 +291,285 @@ router.post('/admin-login', async (req, res) => {
     let customPin = '7860';
     let superAdminEmail = DEFAULT_ADMIN_EMAIL;
     let superAdminName = 'সুপার অ্যাডমিন';
+    let superAdminPhone = '01306908115';
+    let superAdminHash = '';
 
     if (pool) {
       try {
-        const secRes = await pool.query("SELECT value FROM system_config WHERE key = 'super_admin_security' LIMIT 1");
-        if (secRes.rows.length > 0 && secRes.rows[0].value) {
-          const cfg = typeof secRes.rows[0].value === 'string' ? JSON.parse(secRes.rows[0].value) : secRes.rows[0].value;
-          if (cfg.masterPin) customPin = cfg.masterPin;
-          if (cfg.email) superAdminEmail = cfg.email;
+        // 1. Fetch Super Admin User from DB
+        const adminRes = await pool.query(
+          "SELECT id, name, email, phone, password_hash, role FROM users WHERE role = 'super_admin' OR id = 'usr_super_admin' ORDER BY registered_at ASC LIMIT 1"
+        );
+        if (adminRes.rows.length > 0) {
+          const row = adminRes.rows[0];
+          if (row.email) superAdminEmail = row.email.toLowerCase();
+          if (row.name) superAdminName = row.name;
+          if (row.phone) superAdminPhone = row.phone;
+          if (row.password_hash) superAdminHash = row.password_hash;
+        }
+
+        // 2. Fetch Super Admin Security Config if exists
+        const secRes = await pool.query("SELECT data FROM system_config WHERE id = 'super_admin_security' LIMIT 1");
+        if (secRes.rows.length > 0) {
+          const rawVal = secRes.rows[0].data;
+          const cfg = typeof rawVal === 'string' ? JSON.parse(rawVal) : rawVal;
+          if (cfg?.masterPin) customPin = String(cfg.masterPin).trim();
+          if (cfg?.email && !adminRes.rows.length) superAdminEmail = cfg.email.toLowerCase();
+          if (cfg?.phone && !adminRes.rows.length) superAdminPhone = cfg.phone;
         }
       } catch (e) {
-        // fallback
+        console.warn('DB error reading super admin config:', e);
+      }
+    } else {
+      const memAdmin = inMemoryStore.users.find(u => u.role === 'super_admin' || u.id === 'usr_super_admin');
+      if (memAdmin) {
+        if (memAdmin.email) superAdminEmail = memAdmin.email.toLowerCase();
+        if (memAdmin.name) superAdminName = memAdmin.name;
+        if (memAdmin.phone) superAdminPhone = memAdmin.phone;
+        if (memAdmin.password_hash) superAdminHash = memAdmin.password_hash;
+      }
+      if (inMemoryStore.system_config['super_admin_security']?.masterPin) {
+        customPin = String(inMemoryStore.system_config['super_admin_security'].masterPin).trim();
       }
     }
 
-    // PIN Login Mode
-    if (authType === 'pin' || pin) {
+    // Rate Limiting Protection on Super Admin Login
+    const rateLimitKey = `admin_login_${superAdminEmail}_${req.ip}`;
+    const rateLimit = checkRateLimit(rateLimitKey, 5, 15 * 60 * 1000);
+    if (rateLimit.isBlocked) {
+      return res.status(429).json({
+        error: `⚠️ অতিরিক্ত ভুল চেষ্টার কারণে অ্যাডমিন লগইন সাময়িকভাবে লক করা হয়েছে। অনুগ্রহ করে ${Math.ceil(rateLimit.retryAfterSec / 60)} মিনিট পর চেষ্টা করুন।`,
+      });
+    }
+
+    let isCredentialValid = false;
+
+    // PIN Mode
+    if (authType === 'pin' || (pin && !password)) {
       const cleanPin = (pin || '').trim();
-      if (cleanPin === customPin || cleanPin === '7860' || cleanPin === '1234' || cleanPin === '2026' || cleanPin === '8115' || cleanPin === '013069') {
-        const token = generateToken({
-          userId: 'usr_super_admin',
-          email: superAdminEmail,
-          role: 'super_admin',
-          shopName: 'সুপার অ্যাডমিন ড্যাশবোর্ড',
-        });
-        return res.json({
-          message: '✅ সুপার অ্যাডমিন ভেরিফিকেশন সফল!',
-          token,
-          user: {
-            id: 'usr_super_admin',
-            name: superAdminName,
-            email: superAdminEmail,
-            role: 'super_admin',
-          },
-        });
+      if (cleanPin && cleanPin === customPin) {
+        isCredentialValid = true;
+      } else {
+        return res.status(401).json({ error: '❌ ভুল অ্যাডমিন পিন কোড!' });
       }
-      return res.status(401).json({ error: '❌ ভুল অ্যাডমিন পিন কোড!' });
-    }
+    } else {
+      // Password Mode - STRICT SINGLE PASSWORD VALIDATION
+      const cleanEmail = (email || '').trim().toLowerCase();
+      const cleanPassword = (password || '').trim();
 
-    // Password Mode
-    const cleanEmail = (email || superAdminEmail).trim().toLowerCase();
-    const isOwnerEmail =
-      cleanEmail === 'siftibrahim@gmail.com' ||
-      cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase() ||
-      cleanEmail === 'admin@twing.com' ||
-      cleanEmail.includes('siftibrahim');
+      if (!cleanPassword) {
+        return res.status(400).json({ error: 'সুপার অ্যাডমিন পাসওয়ার্ড প্রদান করুন' });
+      }
 
-    const isValidAdminPass =
-      password === 'SiFTibrahim123#' ||
-      password === 'siftibrahim123#' ||
-      password === 'Ib01306908115#' ||
-      password === '01306908115' ||
-      password === 'admin123' ||
-      password === 'ibrahim786' ||
-      password === '7860' ||
-      password === '123456';
-    
-    let isMatch = false;
-    if (isOwnerEmail && isValidAdminPass) {
-      isMatch = true;
-    }
+      // If cleanEmail provided, ensure it matches the Super Admin's single email
+      const isEmailMatch =
+        !cleanEmail ||
+        cleanEmail === superAdminEmail.toLowerCase() ||
+        cleanEmail === 'siftibrahim@gmail.com' ||
+        cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase();
 
-    if (!isMatch && pool) {
-      try {
-        const dbUser = await pool.query(
-          "SELECT id, name, email, password_hash, role FROM users WHERE LOWER(email) = $1 OR role = 'super_admin'",
-          [cleanEmail]
-        );
-        if (dbUser.rows.length > 0) {
-          for (const row of dbUser.rows) {
-            if (row.password_hash) {
-              try {
-                const match = await bcrypt.compare(password, row.password_hash);
-                if (match) {
-                  isMatch = true;
-                  superAdminEmail = row.email || cleanEmail;
-                  if (row.name) superAdminName = row.name;
-                  break;
-                }
-              } catch (e) {
-                // next
-              }
-            }
+      if (!isEmailMatch) {
+        return res.status(401).json({ error: '❌ ভুল সুপার অ্যাডমিন ইমেইল!' });
+      }
+
+      if (superAdminHash) {
+        // Compare strictly against the single password hash in DB
+        try {
+          isCredentialValid = await bcrypt.compare(cleanPassword, superAdminHash);
+        } catch {
+          isCredentialValid = false;
+        }
+      } else {
+        // If DB has no password hash set yet, check against initial single default master password
+        if (cleanPassword === 'siftibrahim123#' || cleanPassword === 'admin123') {
+          isCredentialValid = true;
+          // Hash and store it immediately so only this hash exists
+          const newHash = await bcrypt.hash(cleanPassword, 10);
+          if (pool) {
+            try {
+              await pool.query(
+                `INSERT INTO users (id, name, phone, email, password_hash, role, status, shop_name, registered_at, last_active_at)
+                 VALUES ('usr_super_admin', 'সুপার অ্যাডমিন', $1, $2, $3, 'super_admin', 'active', 'সুপার অ্যাডমিন ড্যাশবোর্ড', $4, $4)
+                 ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+                [superAdminPhone, superAdminEmail, newHash, Date.now()]
+              );
+            } catch (e) {}
           }
         }
-      } catch (err) {
-        console.warn('DB query error during admin auth:', err);
       }
-    } else if (!isMatch) {
-      const adminUser = inMemoryStore.users.find(u => u.email === cleanEmail || u.role === 'super_admin');
-      if (adminUser && adminUser.password_hash) {
-        try {
-          isMatch = await bcrypt.compare(password, adminUser.password_hash);
-        } catch {
-          isMatch = false;
-        }
+
+      if (!isCredentialValid) {
+        return res.status(401).json({ error: '❌ সুপার অ্যাডমিন পাসওয়ার্ড সঠিক নয়।' });
       }
     }
 
-    if (isMatch) {
-      const token = generateToken({
+    clearRateLimit(rateLimitKey);
+
+    // MANDATORY TWO-FACTOR AUTHENTICATION (2FA) OTP
+    // Even when email & password are correct, Super Admin CANNOT enter dashboard without OTP verification
+    const cleanAdminPhone = normalizePhone(superAdminPhone) || '01306908115';
+    const otpCode = generateOtp();
+    const now = Date.now();
+    const expiresAt = now + 5 * 60 * 1000; // 5 minutes
+    const tempAuthSession = '2fa_' + now.toString(36) + Math.random().toString(36).substring(2, 8);
+
+    if (pool) {
+      try {
+        await pool.query('DELETE FROM password_reset_otps WHERE phone = $1 OR user_id = $2', [cleanAdminPhone, 'usr_super_admin']);
+        await pool.query(
+          `INSERT INTO password_reset_otps (id, phone, user_id, otp, expires_at, verified, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [tempAuthSession, cleanAdminPhone, 'usr_super_admin', otpCode, expiresAt, false, now]
+        );
+      } catch (e) {
+        console.warn('Error storing 2FA OTP:', e);
+      }
+    } else {
+      inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(o => o.phone !== cleanAdminPhone && o.userId !== 'usr_super_admin');
+      inMemoryStore.password_reset_otps.push({
+        id: tempAuthSession,
+        phone: cleanAdminPhone,
         userId: 'usr_super_admin',
-        email: cleanEmail || superAdminEmail,
-        role: 'super_admin',
-        shopName: 'সুপার অ্যাডমিন ড্যাশবোর্ড',
-      });
-      return res.json({
-        message: '✅ সুপার অ্যাডমিন যাচাই সফল!',
-        token,
-        user: {
-          id: 'usr_super_admin',
-          name: superAdminName,
-          email: cleanEmail || superAdminEmail,
-          role: 'super_admin',
-        },
+        otp: otpCode,
+        expiresAt,
+        verified: false,
+        createdAt: now,
       });
     }
 
-    return res.status(401).json({ error: '❌ সুপার অ্যাডমিন পাসওয়ার্ড সঠিক নয়।' });
+    // Exact Approved SMS Template
+    const smsText = `Your Twing Hisabi OTP is ${otpCode}. Valid for 5 minutes. Do not share this OTP with anyone.`;
+    console.log(`📡 [SUPER ADMIN 2FA OTP DISPATCH] To: ${cleanAdminPhone} | OTP: ${otpCode}`);
+    await sendSmsNotification(cleanAdminPhone, smsText);
+
+    const maskedPhone = cleanAdminPhone.length >= 11
+      ? cleanAdminPhone.substring(0, 3) + '****' + cleanAdminPhone.substring(cleanAdminPhone.length - 4)
+      : cleanAdminPhone;
+
+    return res.json({
+      requires2FA: true,
+      message: `🔐 সুপার অ্যাডমিন সিকিউরিটি 2FA: ড্যাশবোর্ডে প্রবেশের জন্য আপনার নিবন্ধিত মোবাইল নম্বরে (${maskedPhone}) একটি ওটিপি কোড পাঠানো হয়েছে।`,
+      twoFaSessionToken: tempAuthSession,
+      maskedPhone,
+      superAdminEmail,
+    });
   } catch (err: any) {
     console.error('Admin Login Error:', err);
     return res.status(500).json({ error: 'অ্যাডমিন লগইনে ত্রুটি' });
+  }
+});
+
+/**
+ * 3.1 Super Admin 2FA OTP Verification & Dashboard Token Issuance
+ */
+router.post('/admin-verify-2fa', async (req, res) => {
+  try {
+    const { otp, twoFaSessionToken, trustDevice, deviceFingerprint, deviceName } = req.body;
+    const cleanOtp = (otp || '').trim();
+    const cleanPhone = '01306908115';
+
+    if (!cleanOtp) {
+      return res.status(400).json({ error: 'অনুগ্রহ করে ৬-সংখ্যার OTP কোড লিখুন' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+    let isOtpValid = false;
+
+    if (pool) {
+      try {
+        const otpRes = await pool.query(
+          `SELECT * FROM password_reset_otps 
+           WHERE (phone = $1 OR id = $2 OR user_id = 'usr_super_admin') AND otp = $3 AND expires_at > $4 
+           ORDER BY created_at DESC LIMIT 1`,
+          [cleanPhone, twoFaSessionToken || '', cleanOtp, now]
+        );
+        if (otpRes.rows.length > 0) {
+          isOtpValid = true;
+          await pool.query('UPDATE password_reset_otps SET verified = true WHERE id = $1', [otpRes.rows[0].id]);
+        }
+      } catch (err) {
+        console.warn('2FA verification db error:', err);
+      }
+    }
+
+    if (!isOtpValid) {
+      const memOtp = inMemoryStore.password_reset_otps.find(
+        o => (o.phone === cleanPhone || o.id === twoFaSessionToken || o.userId === 'usr_super_admin') && o.otp === cleanOtp && o.expiresAt > now
+      );
+      if (memOtp) {
+        isOtpValid = true;
+        memOtp.verified = true;
+      }
+    }
+
+    if (!isOtpValid) {
+      return res.status(400).json({ error: '❌ ভুল অথবা মেয়াদোত্তীর্ণ 2FA OTP কোড!' });
+    }
+
+    // If user requested device trust
+    const fingerprint = (deviceFingerprint || '').trim() || 'fp_' + Math.random().toString(36).substring(2, 10);
+    if (trustDevice && fingerprint) {
+      const trustedUntil = now + 90 * 86400000; // 90 days
+      const devId = 'dev_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+      const userAgent = (req.headers['user-agent'] || '').slice(0, 200);
+      const ipAddress = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString().slice(0, 50);
+
+      if (pool) {
+        try {
+          await pool.query(`
+            INSERT INTO trusted_devices (id, user_id, device_fingerprint, device_name, ip_address, user_agent, trusted_until, created_at, last_used_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          `, [
+            devId,
+            'usr_super_admin',
+            fingerprint,
+            deviceName || 'অ্যাডমিন ব্রাউজার / ডিভাইস',
+            ipAddress,
+            userAgent,
+            trustedUntil,
+            now,
+            now,
+          ]);
+        } catch (devErr) {
+          console.warn('Error saving trusted device:', devErr);
+        }
+      } else {
+        if (!inMemoryStore.trusted_devices) inMemoryStore.trusted_devices = [];
+        inMemoryStore.trusted_devices.push({
+          id: devId,
+          userId: 'usr_super_admin',
+          deviceFingerprint: fingerprint,
+          deviceName: deviceName || 'অ্যাডমিন ব্রাউজার / ডিভাইস',
+          trustedUntil,
+          createdAt: now,
+          lastUsedAt: now,
+        });
+      }
+    }
+
+    const token = generateToken({
+      userId: 'usr_super_admin',
+      email: DEFAULT_ADMIN_EMAIL,
+      role: 'super_admin',
+      shopName: 'সুপার অ্যাডমিন ড্যাশবোর্ড',
+    });
+
+    return res.json({
+      success: true,
+      message: '✅ 2FA ভেরিফিকেশন সফল! সুপার অ্যাডমিন ড্যাশবোর্ডে প্রবেশ করছেন...',
+      token,
+      deviceFingerprint: fingerprint,
+      user: {
+        id: 'usr_super_admin',
+        name: 'সুপার অ্যাডমিন',
+        email: DEFAULT_ADMIN_EMAIL,
+        role: 'super_admin',
+      },
+    });
+  } catch (err: any) {
+    console.error('2FA verification error:', err);
+    return res.status(500).json({ error: err.message || '2FA যাচাইকরণ ব্যর্থ হয়েছে' });
   }
 });
 
@@ -643,6 +860,16 @@ router.post('/send-reset-otp', async (req, res) => {
 
     const cleanPhone = normalizePhone(rawTarget);
     const cleanEmail = rawTarget.toLowerCase();
+
+    // Rate limiting on OTP send (Max 4 OTP requests per 10 minutes per IP/Phone)
+    const otpLimitKey = `otp_send_${cleanPhone || cleanEmail}_${req.ip}`;
+    const rateLimit = checkRateLimit(otpLimitKey, 4, 10 * 60 * 1000);
+    if (rateLimit.isBlocked) {
+      return res.status(429).json({
+        error: `⚠️ অতিরিক্ত OTP অনুরোধের কারণে সাময়িক বিরতি দেওয়া হয়েছে। দয়া করে ${Math.ceil(rateLimit.retryAfterSec / 60)} মিনিট পর চেষ্টা করুন।`,
+      });
+    }
+
     const pool = getDbPool();
 
     let targetUser: any = null;
@@ -760,8 +987,7 @@ router.post('/send-reset-otp', async (req, res) => {
     }
 
     // Prepare BulkSMSBD Whitelist-Compliant OTP SMS Message
-    // Template approved format: "Your {Brand/Company Name} OTP is XXXX"
-    const smsText = `Your TWING OTP is ${otpCode}. Valid for 5 minutes. (Ibrahim Khata)`;
+    const smsText = `Your Twing Hisabi OTP is ${otpCode}. Valid for 5 minutes. Do not share this OTP with anyone.`;
 
     console.log(`\n======================================================`);
     console.log(`🔐 [PASSWORD RESET OTP DISPATCH]`);
@@ -841,10 +1067,7 @@ router.post('/verify-reset-otp', async (req, res) => {
       }
     }
 
-    // Master OTP bypass for super admin testing if needed
-    const isMasterBypassOtp = cleanOtp === '123456' || cleanOtp === '786000';
-
-    if (!otpRecord && !isMasterBypassOtp) {
+    if (!otpRecord) {
       return res.status(400).json({ error: '❌ ভুল অথবা মেয়াদোত্তীর্ণ OTP কোড! দয়া করে সঠিক কোড দিন অথবা নতুন কোড রিকোয়েস্ট করুন।' });
     }
 

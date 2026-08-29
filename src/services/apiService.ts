@@ -258,9 +258,52 @@ export const authApi = {
     }
   },
 
-  async adminLogin(params: { email?: string; password?: string; pin?: string; authType?: 'password' | 'pin' }) {
+  async adminLogin(params: {
+    email?: string;
+    password?: string;
+    pin?: string;
+    authType?: 'password' | 'pin';
+    deviceFingerprint?: string;
+    require2fa?: boolean;
+  }) {
     try {
-      const res = await apiRequest<{ token: string; user: any; message: string }>('/auth/admin-login', {
+      const res = await apiRequest<{
+        token?: string;
+        user?: any;
+        message: string;
+        requires2FA?: boolean;
+        twoFaSessionToken?: string;
+        maskedPhone?: string;
+        superAdminEmail?: string;
+      }>('/auth/admin-login', {
+        method: 'POST',
+        body: JSON.stringify(params),
+      });
+      if (res.token) {
+        setAuthToken(res.token);
+        setStoredUser(res.user);
+      }
+      return res;
+    } catch (err: any) {
+      throw err;
+    }
+  },
+
+  async verifyAdmin2FA(params: {
+    otp: string;
+    twoFaSessionToken?: string;
+    trustDevice?: boolean;
+    deviceFingerprint?: string;
+    deviceName?: string;
+  }) {
+    try {
+      const res = await apiRequest<{
+        success: boolean;
+        message: string;
+        token: string;
+        deviceFingerprint?: string;
+        user: any;
+      }>('/auth/admin-verify-2fa', {
         method: 'POST',
         body: JSON.stringify(params),
       });

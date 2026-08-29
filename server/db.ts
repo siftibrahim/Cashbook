@@ -72,6 +72,7 @@ export const inMemoryStore: {
   system_config: Record<string, any>;
   admin_activity_logs: any[];
   password_reset_otps: any[];
+  trusted_devices: any[];
 } = {
   users: [],
   stores: [],
@@ -87,6 +88,7 @@ export const inMemoryStore: {
   system_config: {},
   admin_activity_logs: [],
   password_reset_otps: [],
+  trusted_devices: [],
 };
 
 // Helper to create an optimized, resilient pool for Neon serverless
@@ -634,6 +636,22 @@ export async function initializeDatabaseSchema() {
       );
       CREATE INDEX IF NOT EXISTS idx_pw_reset_phone ON password_reset_otps(phone);
       CREATE INDEX IF NOT EXISTS idx_pw_reset_expires ON password_reset_otps(expires_at);
+    `);
+
+    // 15. Trusted Devices Table (for Super Admin 2FA & Device Management)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS trusted_devices (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        device_fingerprint VARCHAR(255) NOT NULL,
+        device_name VARCHAR(255),
+        ip_address VARCHAR(100),
+        user_agent TEXT,
+        trusted_until BIGINT NOT NULL,
+        created_at BIGINT NOT NULL,
+        last_used_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_trusted_devices_user_fp ON trusted_devices(user_id, device_fingerprint);
     `);
 
     // Schema Evolution Safety: Ensure columns exist on already created tables
