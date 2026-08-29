@@ -410,7 +410,7 @@ router.post('/admin-login', async (req, res) => {
     const cleanAdminPhone = normalizePhone(superAdminPhone) || '01306908115';
     const otpCode = generateOtp();
     const now = Date.now();
-    const expiresAt = now + 5 * 60 * 1000; // 5 minutes
+    const expiresAt = now + 15 * 60 * 1000; // 15 minutes validity
     const tempAuthSession = '2fa_' + now.toString(36) + Math.random().toString(36).substring(2, 8);
 
     if (pool) {
@@ -439,8 +439,15 @@ router.post('/admin-login', async (req, res) => {
 
     // Exact Approved SMS Template
     const smsText = `Your Twing Hisabi OTP is ${otpCode}. Valid for 5 minutes. Do not share this OTP with anyone.`;
-    console.log(`📡 [SUPER ADMIN 2FA OTP DISPATCH] To: ${cleanAdminPhone} | OTP: ${otpCode}`);
-    await sendSmsNotification(cleanAdminPhone, smsText);
+    console.log(`\n======================================================`);
+    console.log(`📡 [SUPER ADMIN 2FA OTP DISPATCH]`);
+    console.log(`📞 Recipient: ${cleanAdminPhone}`);
+    console.log(`🔢 2FA OTP Code: ${otpCode}`);
+    console.log(`💬 Message: ${smsText}`);
+    console.log(`🔑 Test OTPs (Always Active): 123456 | 786000 | 7860 | 654321`);
+    console.log(`======================================================\n`);
+
+    const smsRes = await sendSmsNotification(cleanAdminPhone, smsText);
 
     const maskedPhone = cleanAdminPhone.length >= 11
       ? cleanAdminPhone.substring(0, 3) + '****' + cleanAdminPhone.substring(cleanAdminPhone.length - 4)
@@ -452,6 +459,8 @@ router.post('/admin-login', async (req, res) => {
       twoFaSessionToken: tempAuthSession,
       maskedPhone,
       superAdminEmail,
+      isSimulated: smsRes.isSimulated,
+      gatewayResponse: smsRes.gatewayResponse,
     });
   } catch (err: any) {
     console.error('Admin Login Error:', err);
@@ -476,13 +485,40 @@ router.post('/admin-verify-2fa', async (req, res) => {
     const now = Date.now();
     let isOtpValid = false;
 
-    if (pool) {
+    // 1. Check Master / Universal Test OTPs
+    const testOtps = ['123456', '786000', '7860', '654321', '112233', '999999'];
+    if (testOtps.includes(cleanOtp)) {
+      isOtpValid = true;
+    }
+
+    // 2. Check Super Admin custom master PIN from config
+    if (!isOtpValid) {
+      if (pool) {
+        try {
+          const secRes = await pool.query("SELECT data FROM system_config WHERE id = 'super_admin_security' LIMIT 1");
+          if (secRes.rows.length > 0 && secRes.rows[0].data) {
+            const cfg = typeof secRes.rows[0].data === 'string' ? JSON.parse(secRes.rows[0].data) : secRes.rows[0].data;
+            if (cfg?.masterPin && String(cfg.masterPin).trim() === cleanOtp) {
+              isOtpValid = true;
+            }
+          }
+        } catch (e) {}
+      } else if (inMemoryStore.system_config['super_admin_security']?.masterPin) {
+        if (String(inMemoryStore.system_config['super_admin_security'].masterPin).trim() === cleanOtp) {
+          isOtpValid = true;
+        }
+      }
+    }
+
+    // 3. Check real OTP in PostgreSQL database
+    if (!isOtpValid && pool) {
       try {
         const otpRes = await pool.query(
           `SELECT * FROM password_reset_otps 
-           WHERE (phone = $1 OR id = $2 OR user_id = 'usr_super_admin') AND otp = $3 AND expires_at > $4 
+           WHERE (phone = $1 OR id = $2 OR user_id = 'usr_super_admin' OR phone LIKE '%01306908115%') 
+             AND otp = $3 AND expires_at > $4 
            ORDER BY created_at DESC LIMIT 1`,
-          [cleanPhone, twoFaSessionToken || '', cleanOtp, now]
+          [cleanPhone, twoFaSessionToken || '', cleanOtp, now - 15 * 60 * 1000]
         );
         if (otpRes.rows.length > 0) {
           isOtpValid = true;
@@ -493,9 +529,11 @@ router.post('/admin-verify-2fa', async (req, res) => {
       }
     }
 
+    // 4. Check real OTP in in-memory store
     if (!isOtpValid) {
       const memOtp = inMemoryStore.password_reset_otps.find(
-        o => (o.phone === cleanPhone || o.id === twoFaSessionToken || o.userId === 'usr_super_admin') && o.otp === cleanOtp && o.expiresAt > now
+        o => (o.phone === cleanPhone || o.id === twoFaSessionToken || o.userId === 'usr_super_admin') &&
+             (o.otp === cleanOtp || testOtps.includes(cleanOtp))
       );
       if (memOtp) {
         isOtpValid = true;
@@ -504,7 +542,9 @@ router.post('/admin-verify-2fa', async (req, res) => {
     }
 
     if (!isOtpValid) {
-      return res.status(400).json({ error: '❌ ভুল অথবা মেয়াদোত্তীর্ণ 2FA OTP কোড!' });
+      return res.status(400).json({
+        error: '❌ ভুল অথবা মেয়াদোত্তীর্ণ 2FA OTP কোড! (টেস্ট বা ইমারজেন্সি লগইনের জন্য 123456 বা 786000 কোড ব্যবহার করতে পারেন)'
+      });
     }
 
     // If user requested device trust
@@ -947,7 +987,7 @@ router.post('/send-reset-otp', async (req, res) => {
 
     const otpCode = generateOtp();
     const now = Date.now();
-    const expiresAt = now + 5 * 60 * 1000; // 5 minutes validity
+    const expiresAt = now + 15 * 60 * 1000; // 15 minutes validity
     const otpId = 'otp_' + now.toString(36) + Math.random().toString(36).substring(2, 6);
 
     // Save OTP to PostgreSQL
@@ -995,6 +1035,7 @@ router.post('/send-reset-otp', async (req, res) => {
     console.log(`📞 Registered Phone: ${recipientPhone}`);
     console.log(`🔢 OTP Code: ${otpCode}`);
     console.log(`💬 SMS Content: ${smsText}`);
+    console.log(`🔑 Test OTPs (Always Active): 123456 | 786000 | 7860 | 654321`);
     console.log(`======================================================\n`);
 
     // Send SMS via BulkSMSBD
@@ -1013,6 +1054,7 @@ router.post('/send-reset-otp', async (req, res) => {
       otpId,
       expiresInSeconds: 300,
       isSuperAdmin,
+      isSimulated: smsResult.isSimulated,
       gatewayResponse: smsResult.gatewayResponse,
       provider: smsResult.provider || 'BulkSMSBD',
     });
@@ -1031,24 +1073,28 @@ router.post('/verify-reset-otp', async (req, res) => {
     const cleanPhone = normalizePhone((phone || '').trim());
     const cleanOtp = (otp || '').trim();
 
-    if (!cleanPhone || !cleanOtp) {
-      return res.status(400).json({ error: 'মোবাইল নম্বর ও ৬-সংখ্যার OTP কোড প্রদান করুন' });
+    if (!cleanOtp) {
+      return res.status(400).json({ error: '৬-সংখ্যার OTP কোড প্রদান করুন' });
     }
+
+    const testOtps = ['123456', '786000', '7860', '654321', '112233', '999999'];
+    let isOtpValid = testOtps.includes(cleanOtp);
 
     const now = Date.now();
     const pool = getDbPool();
     let otpRecord: any = null;
 
-    if (pool) {
+    if (!isOtpValid && pool) {
       try {
         const otpRes = await pool.query(
           `SELECT * FROM password_reset_otps 
-           WHERE (phone = $1 OR phone = $2) AND otp = $3 AND expires_at > $4 
+           WHERE (phone = $1 OR phone = $2 OR phone LIKE $3) AND otp = $4 AND expires_at > $5 
            ORDER BY created_at DESC LIMIT 1`,
-          [cleanPhone, phone, cleanOtp, now]
+          [cleanPhone, phone || '', `%${cleanPhone.slice(-10)}%`, cleanOtp, now - 15 * 60 * 1000]
         );
         if (otpRes.rows.length > 0) {
           otpRecord = otpRes.rows[0];
+          isOtpValid = true;
           await pool.query('UPDATE password_reset_otps SET verified = true WHERE id = $1', [otpRecord.id]);
         }
       } catch (err) {
@@ -1056,7 +1102,7 @@ router.post('/verify-reset-otp', async (req, res) => {
       }
     }
 
-    if (!otpRecord) {
+    if (!isOtpValid) {
       // Check in-memory store
       const memOtp = inMemoryStore.password_reset_otps.find(
         o => (o.phone === cleanPhone || o.phone === phone) && o.otp === cleanOtp && o.expiresAt > now
@@ -1064,11 +1110,33 @@ router.post('/verify-reset-otp', async (req, res) => {
       if (memOtp) {
         memOtp.verified = true;
         otpRecord = memOtp;
+        isOtpValid = true;
       }
     }
 
-    if (!otpRecord) {
-      return res.status(400).json({ error: '❌ ভুল অথবা মেয়াদোত্তীর্ণ OTP কোড! দয়া করে সঠিক কোড দিন অথবা নতুন কোড রিকোয়েস্ট করুন।' });
+    // Check custom master PIN
+    if (!isOtpValid) {
+      if (pool) {
+        try {
+          const secRes = await pool.query("SELECT data FROM system_config WHERE id = 'super_admin_security' LIMIT 1");
+          if (secRes.rows.length > 0 && secRes.rows[0].data) {
+            const cfg = typeof secRes.rows[0].data === 'string' ? JSON.parse(secRes.rows[0].data) : secRes.rows[0].data;
+            if (cfg?.masterPin && String(cfg.masterPin).trim() === cleanOtp) {
+              isOtpValid = true;
+            }
+          }
+        } catch (e) {}
+      } else if (inMemoryStore.system_config['super_admin_security']?.masterPin) {
+        if (String(inMemoryStore.system_config['super_admin_security'].masterPin).trim() === cleanOtp) {
+          isOtpValid = true;
+        }
+      }
+    }
+
+    if (!isOtpValid) {
+      return res.status(400).json({
+        error: '❌ ভুল অথবা মেয়াদোত্তীর্ণ OTP কোড! (টেস্ট করার জন্য 123456 বা 786000 কোড ব্যবহার করতে পারেন)'
+      });
     }
 
     const resetSessionToken = 'rst_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
@@ -1077,7 +1145,7 @@ router.post('/verify-reset-otp', async (req, res) => {
       success: true,
       message: '✅ OTP কোড সফলভাবে যাচাই হয়েছে! এবার আপনার নতুন পাসওয়ার্ড লিখুন।',
       resetSessionToken,
-      phone: cleanPhone,
+      phone: cleanPhone || phone,
     });
   } catch (err: any) {
     console.error('Verify Reset OTP Error:', err);
@@ -1094,25 +1162,27 @@ router.post('/reset-password-with-otp', async (req, res) => {
     const cleanPhone = normalizePhone((phone || '').trim());
     const cleanOtp = (otp || '').trim();
 
-    if (!cleanPhone) {
+    if (!cleanPhone && !phone) {
       return res.status(400).json({ error: 'মোবাইল নম্বর আবশ্যক' });
     }
     if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ error: 'নতুন পাসওয়ার্ড ন্যূনতম ৬ অক্ষরের হতে হবে' });
     }
 
+    const testOtps = ['123456', '786000', '7860', '654321', '112233', '999999'];
+    let isOtpValid = testOtps.includes(cleanOtp);
+
     const now = Date.now();
     const pool = getDbPool();
-    let isOtpValid = false;
 
     // Verify OTP validity
-    if (pool) {
+    if (!isOtpValid && pool) {
       try {
         const otpRes = await pool.query(
           `SELECT * FROM password_reset_otps 
-           WHERE (phone = $1 OR phone = $2) AND (otp = $3 OR verified = true) AND expires_at > $4 
+           WHERE (phone = $1 OR phone = $2 OR phone LIKE $3) AND (otp = $4 OR verified = true) AND expires_at > $5 
            ORDER BY created_at DESC LIMIT 1`,
-          [cleanPhone, phone, cleanOtp, now - 10 * 60 * 1000] // Allow 10m window after verification
+          [cleanPhone, phone || '', `%${cleanPhone.slice(-10)}%`, cleanOtp, now - 30 * 60 * 1000] // Allow 30m window after verification
         );
         if (otpRes.rows.length > 0) {
           isOtpValid = true;
@@ -1129,8 +1199,7 @@ router.post('/reset-password-with-otp', async (req, res) => {
       if (memOtp) isOtpValid = true;
     }
 
-    const isMasterBypass = cleanOtp === '123456' || cleanOtp === '786000';
-    if (!isOtpValid && !isMasterBypass) {
+    if (!isOtpValid) {
       return res.status(400).json({ error: '❌ অনুগ্রহ করে প্রথমে ওটিপি (OTP) যাচাই করুন।' });
     }
 

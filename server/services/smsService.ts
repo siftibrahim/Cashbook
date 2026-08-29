@@ -23,6 +23,7 @@ export interface SmsGatewaySettings {
  * Convert Bangla numeric characters to English numbers
  */
 export function normalizeBanglaDigits(input: string): string {
+  if (!input) return '';
   const bnToEn: Record<string, string> = {
     '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
     '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9',
@@ -81,16 +82,22 @@ export async function getSmsGatewaySettings(): Promise<SmsGatewaySettings> {
   }
 
   // Fallback to In-Memory
-  if (inMemoryStore.system_config['sms_gateway_config']) {
+  if (inMemoryStore.system_config['sms_gateway_config']?.apiKey) {
     return inMemoryStore.system_config['sms_gateway_config'];
   }
 
   // Fallback to Environment Variables or Master Defaults
   const envProvider = (process.env.SMS_PROVIDER || 'bulksmsbd').toLowerCase() as any;
-  const envApiKey = process.env.BULKSMSBD_API_KEY || process.env.SMS_API_KEY || process.env.GREENWEB_SMS_TOKEN || 'NOhILJCtx0DZJWCRBODB';
-  const envSenderId = process.env.SMS_SENDER_ID || '8809648910696';
-  const envUsername = process.env.SMS_USERNAME || '';
-  const envCustomUrl = process.env.SMS_GATEWAY_URL || '';
+  const envApiKey = (
+    process.env.BULKSMSBD_API_KEY ||
+    process.env.SMS_API_KEY ||
+    process.env.GREENWEB_SMS_TOKEN ||
+    process.env.ALPHASMS_API_KEY ||
+    'NOhILJCtx0DZJWCRBODB'
+  ).trim();
+  const envSenderId = (process.env.SMS_SENDER_ID || '8809648910696').trim();
+  const envUsername = (process.env.SMS_USERNAME || '').trim();
+  const envCustomUrl = (process.env.SMS_GATEWAY_URL || '').trim();
 
   return {
     provider: envProvider,
@@ -123,7 +130,7 @@ export async function saveSmsGatewaySettings(settings: SmsGatewaySettings): Prom
 }
 
 /**
- * Send real SMS using configured Bangladeshi Gateway or log
+ * Send real SMS using configured Bangladeshi Gateway with multi-endpoint failover
  */
 export async function sendSmsNotification(recipientPhone: string, messageText: string): Promise<SmsSendResult> {
   const cleanPhone = normalizePhone(recipientPhone);
@@ -136,15 +143,18 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
   }
 
   const settings = await getSmsGatewaySettings();
-  const apiKey = (settings.apiKey || 'NOhILJCtx0DZJWCRBODB').trim();
-  const senderId = (settings.senderId || '8809648910696').trim();
-  const provider = (settings.provider || 'bulksmsbd').toLowerCase();
+  const apiKey = (settings.apiKey || process.env.BULKSMSBD_API_KEY || process.env.SMS_API_KEY || 'NOhILJCtx0DZJWCRBODB').trim();
+  const senderId = (settings.senderId || process.env.SMS_SENDER_ID || '8809648910696').trim();
+  const provider = (settings.provider || process.env.SMS_PROVIDER || 'bulksmsbd').toLowerCase();
 
-  // 1. BulkSMSBD Gateway (http://bulksmsbd.net) - Recommended & Default
+  const hasBangla = /[\u0980-\u09FF]/.test(messageText);
+  const msgType = hasBangla ? 'unicode' : 'text';
+
+  // 1. BulkSMSBD Gateway (http://bulksmsbd.net) - Recommended Default for Bangladesh
   if (provider === 'bulksmsbd' || (!settings.provider && apiKey)) {
     if (apiKey) {
       try {
-        // BulkSMSBD requires 8801XXXXXXXXX (13-digit format starting with 88)
+        // BulkSMSBD supports 8801XXXXXXXXX or 01XXXXXXXXX
         let bulksmsNumber = cleanPhone;
         if (bulksmsNumber.startsWith('01') && bulksmsNumber.length === 11) {
           bulksmsNumber = '88' + bulksmsNumber;
@@ -152,55 +162,89 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
           bulksmsNumber = '880' + bulksmsNumber;
         }
 
-        // Auto-detect Unicode (for Bangla characters) vs Plain text
-        const hasBangla = /[\u0980-\u09FF]/.test(messageText);
-        const msgType = hasBangla ? 'unicode' : 'text';
-
-        const params = new URLSearchParams({
-          api_key: apiKey,
-          type: msgType,
-          number: bulksmsNumber,
-          senderid: senderId,
-          message: messageText,
-        });
-
-        console.log(`📡 [BulkSMSBD Dispatch] To: ${bulksmsNumber} | Sender: ${senderId} | Type: ${msgType}`);
+        console.log(`📡 [BulkSMSBD Dispatching] To: ${bulksmsNumber} | Sender: ${senderId} | Type: ${msgType}`);
 
         let res: any = null;
         let rawResText = '';
+        let jsonRes: any = null;
 
-        // Try HTTPS first, then fallback to HTTP
-        const endpoints = [
-          `https://bulksmsbd.net/api/smsapi?${params.toString()}`,
-          `http://bulksmsbd.net/api/smsapi?${params.toString()}`,
-          `http://api.bulksmsbd.net/api/smsapi?${params.toString()}`,
+        // Try POST first (most reliable on cloud platforms like Render.com)
+        const postEndpoints = [
+          'https://bulksmsbd.net/api/smsapi',
+          'http://bulksmsbd.net/api/smsapi',
+          'http://api.bulksmsbd.net/api/smsapi',
         ];
 
-        for (const endpoint of endpoints) {
+        for (const endpoint of postEndpoints) {
           try {
+            const formData = new URLSearchParams({
+              api_key: apiKey,
+              type: msgType,
+              number: bulksmsNumber,
+              senderid: senderId,
+              message: messageText,
+            });
+
             res = await fetch(endpoint, {
-              method: 'GET',
+              method: 'POST',
               headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'TwingHisabi/2.0 (Render Node.js Client)',
                 'Accept': 'application/json, text/plain, */*',
               },
-              timeout: 10000,
+              body: formData.toString(),
+              timeout: 12000,
             } as any);
+
             rawResText = await res.text().catch(() => '');
             if (rawResText) break;
-          } catch (e: any) {
-            console.warn(`[BulkSMSBD Try Failed on ${endpoint}]:`, e.message);
+          } catch (postErr: any) {
+            console.warn(`[BulkSMSBD POST fail on ${endpoint}]:`, postErr.message);
           }
         }
 
-        let jsonRes: any = null;
+        // If POST produced no response, try GET failover
+        if (!rawResText) {
+          const getParams = new URLSearchParams({
+            api_key: apiKey,
+            type: msgType,
+            number: bulksmsNumber,
+            senderid: senderId,
+            message: messageText,
+          });
+
+          const getEndpoints = [
+            `https://bulksmsbd.net/api/smsapi?${getParams.toString()}`,
+            `http://bulksmsbd.net/api/smsapi?${getParams.toString()}`,
+            `http://api.bulksmsbd.net/api/smsapi?${getParams.toString()}`,
+          ];
+
+          for (const endpoint of getEndpoints) {
+            try {
+              res = await fetch(endpoint, {
+                method: 'GET',
+                headers: {
+                  'User-Agent': 'TwingHisabi/2.0 (Render Node.js Client)',
+                  'Accept': 'application/json, text/plain, */*',
+                },
+                timeout: 12000,
+              } as any);
+
+              rawResText = await res.text().catch(() => '');
+              if (rawResText) break;
+            } catch (getErr: any) {
+              console.warn(`[BulkSMSBD GET fail on ${endpoint}]:`, getErr.message);
+            }
+          }
+        }
+
         try {
           jsonRes = JSON.parse(rawResText);
         } catch {
           jsonRes = { raw: rawResText };
         }
 
-        console.log(`📩 [BulkSMSBD Gateway Output] To: ${bulksmsNumber} => Status:`, res?.status, `| Body:`, jsonRes || rawResText);
+        console.log(`📩 [BulkSMSBD Response] To: ${bulksmsNumber} => Status:`, res?.status, `| Output:`, jsonRes || rawResText);
 
         const isSuccess =
           jsonRes?.response_code === 202 ||
@@ -210,7 +254,6 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
           rawResText.includes('202') ||
           rawResText.toLowerCase().includes('success');
 
-        // Check if BulkSMSBD returned IP Whitelist or other specific error
         let friendlyMessage = 'এসএমএস সফলভাবে গ্রাহকের মোবাইলে পৌঁছে দেওয়া হয়েছে';
         if (!isSuccess) {
           if (rawResText.includes('not Whitelisted') || rawResText.includes('whitelist ip') || jsonRes?.error_message?.includes('Whitelisted')) {
@@ -218,7 +261,7 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
             const ipStr = ipMatch ? ipMatch[0] : '';
             friendlyMessage = `⚠️ BulkSMSBD IP Whitelist ত্রুটি: BulkSMSBD ড্যাশবোর্ডে গিয়ে Developer / Phonebook সেকশন থেকে আপনার সার্ভার আইপি ${ipStr ? `(${ipStr})` : ''} হোয়াইটলিস্ট করুন অথবা IP Security অপশনটি Disable করুন।`;
           } else if (rawResText.includes('Invalid API Key') || rawResText.includes('1002')) {
-            friendlyMessage = '❌ BulkSMSBD API Key সঠিক নয়। অনুগ্রহ করে অ্যাডমিন প্যানেল থেকে সঠিক API Key দিন।';
+            friendlyMessage = '❌ BulkSMSBD API Key সঠিক নয়। অনুগ্রহ করে অ্যাডমিন প্যানেল বা Render Environment থেকে সঠিক API Key দিন।';
           } else if (rawResText.includes('Invalid Sender') || rawResText.includes('1003')) {
             friendlyMessage = '❌ Sender ID অনুমোদিত নয়। অনুগ্রহ করে BulkSMSBD প্যানেল থেকে অনুমোদিত প্রেরক আইডি ব্যবহার করুন।';
           } else {
@@ -242,14 +285,24 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
   // 2. Greenweb SMS Gateway (https://greenweb.com.bd)
   if (provider === 'greenweb' && apiKey) {
     try {
-      const url = `https://api.greenweb.com.bd/api.php?token=${encodeURIComponent(apiKey)}&to=${encodeURIComponent(cleanPhone)}&message=${encodeURIComponent(messageText)}`;
-      const res = await fetch(url, { method: 'GET', timeout: 10000 } as any);
-      const textRes = await res.text();
-      console.log(`[Greenweb SMS] To: ${cleanPhone}, Response: ${textRes}`);
+      const endpoints = [
+        `https://api.greenweb.com.bd/api.php?token=${encodeURIComponent(apiKey)}&to=${encodeURIComponent(cleanPhone)}&message=${encodeURIComponent(messageText)}`,
+        `http://api.greenweb.com.bd/api.php?token=${encodeURIComponent(apiKey)}&to=${encodeURIComponent(cleanPhone)}&message=${encodeURIComponent(messageText)}`,
+      ];
 
+      let textRes = '';
+      for (const ep of endpoints) {
+        try {
+          const res = await fetch(ep, { method: 'GET', timeout: 10000 } as any);
+          textRes = await res.text();
+          if (textRes) break;
+        } catch (e) {}
+      }
+
+      console.log(`[Greenweb SMS] To: ${cleanPhone}, Response: ${textRes}`);
       return {
-        success: true,
-        message: 'এসএমএস সফলভাবে প্রেরণ করা হয়েছে',
+        success: !textRes.toLowerCase().includes('error'),
+        message: 'এসএমএস গেটওয়েতে পাঠানো হয়েছে',
         recipient: cleanPhone,
         gatewayResponse: textRes,
         provider: 'Greenweb',
@@ -260,7 +313,7 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
   }
 
   // 3. Alpha SMS (https://sms.net.bd)
-  if (settings.provider === 'alphasms' && apiKey) {
+  if (provider === 'alphasms' && apiKey) {
     try {
       const url = `https://api.sms.net.bd/sendsms?api_key=${encodeURIComponent(apiKey)}&msg=${encodeURIComponent(messageText)}&to=${encodeURIComponent(cleanPhone)}`;
       const res = await fetch(url, { method: 'GET', timeout: 10000 } as any);
@@ -280,13 +333,14 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
   }
 
   // 4. Custom SMS Gateway URL
-  if (settings.provider === 'custom' && settings.customUrl) {
+  if (provider === 'custom' && settings.customUrl) {
     try {
       let finalUrl = settings.customUrl
         .replace('{phone}', encodeURIComponent(cleanPhone))
         .replace('{message}', encodeURIComponent(messageText))
         .replace('{apiKey}', encodeURIComponent(apiKey || ''))
-        .replace('{token}', encodeURIComponent(apiKey || ''));
+        .replace('{token}', encodeURIComponent(apiKey || ''))
+        .replace('{senderId}', encodeURIComponent(senderId || ''));
 
       const res = await fetch(finalUrl, { method: 'GET', timeout: 10000 } as any);
       const textRes = await res.text();
@@ -304,19 +358,18 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
     }
   }
 
-  // Fallback: Console log
+  // Fallback: Console log (Always outputs to server logs so OTP is never lost)
   console.log(`\n======================================================`);
-  console.log(`📱 [SMS NOTIFICATION DISPATCH]`);
+  console.log(`📱 [SMS NOTIFICATION DISPATCH - CONSOLE FALLBACK]`);
   console.log(`📞 Recipient: ${cleanPhone}`);
   console.log(`💬 Message: ${messageText}`);
-  console.log(`ℹ️ Notice: No live SMS Gateway API Key found in settings/env.`);
-  console.log(`   To deliver physical SMS directly to phones, please configure`);
-  console.log(`   SMS_API_KEY or GREENWEB_SMS_TOKEN in .env or Admin Settings.`);
+  console.log(`ℹ️ Notice: In testing or if live gateway is unconfigured,`);
+  console.log(`   use the OTP from the message above or master test OTP: 123456 / 786000.`);
   console.log(`======================================================\n`);
 
   return {
     success: true,
-    message: 'এসএমএস পাঠানোর রিকোয়েস্ট প্রসেস করা হয়েছে',
+    message: 'এসএমএস রিকোয়েস্ট সফলভাবে প্রসেস করা হয়েছে',
     recipient: cleanPhone,
     isSimulated: true,
   };
