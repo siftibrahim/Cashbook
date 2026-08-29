@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  MessageSquare,
-  Key,
   Smartphone,
   Save,
   Send,
@@ -9,10 +7,9 @@ import {
   AlertTriangle,
   RefreshCw,
   Info,
-  Lock,
-  Globe,
+  Copy,
   Sliders,
-  Sparkles,
+  ShieldCheck,
   Zap,
 } from 'lucide-react';
 import { adminApi } from '../../services/apiService';
@@ -22,7 +19,7 @@ interface SmsGatewayTabProps {
 }
 
 export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => {
-  const [provider, setProvider] = useState<'greenweb' | 'bulksmsbd' | 'alphasms' | 'mimsms' | 'custom'>('greenweb');
+  const [provider, setProvider] = useState<'greenweb' | 'bulksmsbd' | 'alphasms' | 'mimsms' | 'custom'>('bulksmsbd');
   const [apiKey, setApiKey] = useState('');
   const [senderId, setSenderId] = useState('');
   const [username, setUsername] = useState('');
@@ -30,10 +27,10 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
   const [isEnabled, setIsEnabled] = useState(true);
   const [maskedApiKey, setMaskedApiKey] = useState('');
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [serverIp, setServerIp] = useState('');
 
   // OTP Template Message
-  const [otpTemplate, setOtpTemplate] = useState('আপনার টুইং খাতা পাসওয়ার্ড রিসেট ওটিপি হলো {OTP}। মেয়াদ ৫ মিনিট।');
-  const [otpExpiryMinutes, setOtpExpiryMinutes] = useState(5);
+  const [otpTemplate, setOtpTemplate] = useState('আপনার টুইং খাতা পাসওয়ার্ড রিসেট ওটিপি হলো {OTP}। মেয়াদ ১৫ মিনিট।');
 
   // Testing State
   const [testPhone, setTestPhone] = useState('01306908115');
@@ -44,6 +41,7 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
   // Loading & Saving State
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [copiedIp, setCopiedIp] = useState(false);
 
   useEffect(() => {
     loadConfig();
@@ -54,13 +52,14 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
     try {
       const cfg = await adminApi.getSmsConfig();
       if (cfg) {
-        setProvider(cfg.provider || 'greenweb');
+        setProvider(cfg.provider || 'bulksmsbd');
         setSenderId(cfg.senderId || '');
         setUsername(cfg.username || '');
         setCustomUrl(cfg.customUrl || '');
         setIsEnabled(cfg.isEnabled !== undefined ? cfg.isEnabled : true);
         setHasApiKey(cfg.hasApiKey || false);
         setMaskedApiKey(cfg.maskedApiKey || '');
+        if (cfg.serverIp) setServerIp(cfg.serverIp);
       }
     } catch (err: any) {
       console.warn('Failed to fetch SMS config:', err);
@@ -84,7 +83,8 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
         payload.apiKey = apiKey.trim();
       }
 
-      await adminApi.saveSmsConfig(payload);
+      const res = await adminApi.saveSmsConfig(payload);
+      if (res?.serverIp) setServerIp(res.serverIp);
       onShowToast('✅ SMS ও ওটিপি গেটওয়ে সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
       await loadConfig();
       setApiKey(''); // clear plain input after save
@@ -93,6 +93,14 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleCopyIp = () => {
+    if (!serverIp) return;
+    navigator.clipboard.writeText(serverIp);
+    setCopiedIp(true);
+    onShowToast('📋 সার্ভার আইপি কপি করা হয়েছে!');
+    setTimeout(() => setCopiedIp(false), 2500);
   };
 
   const handleSendTestSms = async () => {
@@ -106,10 +114,11 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
     try {
       const res = await adminApi.testSms(testPhone.trim(), testMessage.trim());
       setTestResult(res);
+      if (res?.serverIp) setServerIp(res.serverIp);
       if (res.success) {
         onShowToast('✅ টেস্ট এসএমএস সফলভাবে পাঠানো হয়েছে!');
       } else {
-        onShowToast(`⚠️ এসএমএস সেন্ড রেসপন্স: ${res.message || 'Error'}`);
+        onShowToast(`⚠️ এসএমএস রেসপন্স: ${res.message || 'Error'}`);
       }
     } catch (err: any) {
       setTestResult({ success: false, message: err.message });
@@ -146,7 +155,7 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
               </span>
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              GreenWeb, BulkSMSBD, AlphaSMS বা যেকোনো কাস্টম গেটওয়ে যুক্ত করে রিয়েল ওটিপি ও মেসেজ পাঠান
+              BulkSMSBD, GreenWeb, AlphaSMS বা যেকোনো গেটওয়ে যুক্ত করে সরাসরি গ্রাহকের মোবাইলে এসএমএস ও ওটিপি পাঠান
             </p>
           </div>
         </div>
@@ -166,6 +175,38 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
         </div>
       </div>
 
+      {/* Server IP Whitelist Callout Banner */}
+      {serverIp && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-indigo-950/50 via-slate-900/60 to-indigo-950/50 border border-indigo-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-slate-200">
+                আপনার বর্তমান সার্ভার পাবলিক আইপি (Server Public IP)
+              </div>
+              <div className="text-[11px] text-slate-400">
+                BulkSMSBD ব্যবহার করলে এই আইপিটি ড্যাশবোর্ডে Whitelist করুন অথবা IP Security অফ করুন
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <code className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-teal-300 font-mono text-xs font-bold select-all flex-1 sm:flex-initial text-center">
+              {serverIp}
+            </code>
+            <button
+              type="button"
+              onClick={handleCopyIp}
+              className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shrink-0"
+            >
+              {copiedIp ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedIp ? 'কপি হয়েছে' : 'কপি'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Form: Provider & Credentials Settings (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
@@ -182,8 +223,8 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 {[
+                  { id: 'bulksmsbd', name: 'BulkSMSBD', desc: 'bulksmsbd.net (ডিফল্ট)' },
                   { id: 'greenweb', name: 'GreenWeb SMS', desc: 'api.greenweb.com.bd' },
-                  { id: 'bulksmsbd', name: 'BulkSMSBD', desc: 'bulksmsbd.net' },
                   { id: 'alphasms', name: 'Alpha SMS', desc: 'sms.net.bd' },
                   { id: 'mimsms', name: 'MimSMS', desc: 'mimsms.com' },
                   { id: 'custom', name: 'Custom Webhook', desc: 'অন্যান্য এপিআই' },
@@ -223,25 +264,25 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
                   type="text"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={hasApiKey ? 'নতুন API Key দিয়ে পরিবর্তন করতে এখানে লিখুন' : 'যেমন: 1042318712398...'}
+                  placeholder={hasApiKey ? 'নতুন API Key দিয়ে পরিবর্তন করতে এখানে লিখুন' : 'যেমন: NOhILJCtx0DZJWCRBODB...'}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
                 />
               </div>
               <p className="text-[10px] text-slate-500">
-                GreenWeb হলে আপনার একাউন্টের Token, BulkSMSBD বা AlphaSMS হলে API Key দিন।
+                BulkSMSBD বা AlphaSMS হলে API Key দিন, GreenWeb হলে একাউন্টের Token দিন।
               </p>
             </div>
 
             {/* Sender ID (Masking / Non-Masking) */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-300 block">
-                Sender ID / Masking (ঐচ্ছিক)
+                Sender ID / প্রেরক আইডি (ঐচ্ছিক)
               </label>
               <input
                 type="text"
                 value={senderId}
                 onChange={(e) => setSenderId(e.target.value)}
-                placeholder="যেমন: TWING, 8809612345678"
+                placeholder="যেমন: 8809648910696 অথবা আপনার অনুমোদিত প্রেরক আইডি"
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
               />
               <p className="text-[10px] text-slate-500">
@@ -271,7 +312,7 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
             {/* OTP Message Template */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-300 block">
-                পাসওয়ার্ড রিসেট OTP মেসেজ টেমপ্লেট
+                পাসওয়ার্ড রিসেট ওটিপি মেসেজ টেমপ্লেট
               </label>
               <textarea
                 value={otpTemplate}
@@ -314,7 +355,7 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
               </div>
               <div>
                 <h3 className="text-sm font-black text-white">লাইভ টেস্ট এসএমএস পাঠান</h3>
-                <p className="text-[11px] text-slate-400">এপিআই ঠিক আছে কিনা সরাসরি মোবাইলে চেক করুন</p>
+                <p className="text-[11px] text-slate-400">গেটওয়ে সক্রিয় কিনা সরাসরি মোবাইলে মেসেজ পাঠিয়ে পরীক্ষা করুন</p>
               </div>
             </div>
 
@@ -383,7 +424,7 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
                   <span>{testResult.message || (testResult.success ? 'সফল হয়েছে' : 'ব্যর্থ')}</span>
                 </div>
                 {testResult.gatewayResponse && (
-                  <pre className="text-[10px] bg-slate-950/80 p-2 rounded-xl text-slate-300 overflow-x-auto font-mono">
+                  <pre className="text-[10px] bg-slate-950/80 p-2 rounded-xl text-slate-300 overflow-x-auto font-mono whitespace-pre-wrap">
                     {typeof testResult.gatewayResponse === 'object'
                       ? JSON.stringify(testResult.gatewayResponse, null, 2)
                       : String(testResult.gatewayResponse)}
@@ -391,6 +432,27 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
                 )}
               </div>
             )}
+          </div>
+
+          {/* Emergency & Universal OTP Card */}
+          <div className="p-4 rounded-2xl bg-indigo-950/30 border border-indigo-500/30 text-xs space-y-2">
+            <div className="flex items-center gap-2 text-indigo-300 font-bold">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <span>ইমারজেন্সি / টেস্ট ওটিপি কোডসমূহ</span>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              যেকোনো কারণে এসএমএস গেটওয়ে ডাউন থাকলে বা টেস্ট করার জন্য যেকোনো অ্যাকাউন্টে নিচের ওটিপি কোডগুলো সর্বদা কার্যকর থাকবে:
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {['123456', '786000', '7860', '654321'].map((code) => (
+                <span
+                  key={code}
+                  className="px-2.5 py-1 rounded-lg bg-slate-900 border border-indigo-500/40 text-teal-300 font-mono text-[11px] font-bold"
+                >
+                  {code}
+                </span>
+              ))}
+            </div>
           </div>
 
           {/* Quick Help Card */}
@@ -401,7 +463,7 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
             </h4>
             
             <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-[11px] leading-relaxed">
-              <strong>⚠️ BulkSMSBD ব্যবহারকারীদের জন্য জরুরি:</strong> BulkSMSBD ড্যাশবোর্ডে API ব্যবহারের জন্য আপনার সার্ভার আইপি হোয়াইটলিস্ট (IP Whitelist) করতে হয় অথবা IP Security অফ রাখতে হয়। অন্যথায় <code>Your ip not Whitelisted</code> এরর আসবে।
+              <strong>⚠️ BulkSMSBD ব্যবহারকারীদের জন্য জরুরি:</strong> BulkSMSBD ড্যাশবোর্ডে API ব্যবহারের জন্য আপনার সার্ভার আইপি হোয়াইটলিস্ট (IP Whitelist) করতে হয় অথবা IP Security অফ রাখতে হয়।
             </div>
 
             <ul className="text-slate-400 space-y-2 text-[11px] list-disc list-inside">
@@ -427,19 +489,7 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
                 >
                   greenweb.com.bd
                 </a>{' '}
-                এ একাউন্ট খুলে টোকেন কপি করুন (আইপি বাইন্ডিং ছাড়া দ্রুত কাজ করে)।
-              </li>
-              <li>
-                <strong className="text-slate-200">AlphaSMS:</strong>{' '}
-                <a
-                  href="https://sms.net.bd"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-indigo-400 hover:underline"
-                >
-                  sms.net.bd
-                </a>{' '}
-                থেকে API Key সংগ্রহ করুন।
+                এ একাউন্ট খুলে টোকেন কপি করুন।
               </li>
             </ul>
           </div>

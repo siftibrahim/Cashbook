@@ -1141,18 +1141,20 @@ export const adminApi = {
     isEnabled: boolean;
     hasApiKey: boolean;
     maskedApiKey: string;
+    serverIp?: string;
   }> {
     try {
       return await apiRequest('/admin/sms-config');
     } catch {
       return {
-        provider: 'greenweb',
+        provider: 'bulksmsbd',
         senderId: '',
         username: '',
         customUrl: '',
         isEnabled: false,
         hasApiKey: false,
         maskedApiKey: '',
+        serverIp: '',
       };
     }
   },
@@ -1164,7 +1166,7 @@ export const adminApi = {
     username?: string;
     customUrl?: string;
     isEnabled?: boolean;
-  }): Promise<{ message: string }> {
+  }): Promise<{ message: string; serverIp?: string }> {
     return await apiRequest('/admin/sms-config', {
       method: 'POST',
       body: JSON.stringify(config),

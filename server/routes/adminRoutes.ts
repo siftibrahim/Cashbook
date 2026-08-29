@@ -11,6 +11,7 @@ import {
   getSmsGatewaySettings,
   saveSmsGatewaySettings,
   sendSmsNotification,
+  getServerPublicIp,
   SmsGatewaySettings,
 } from '../services/smsService';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
@@ -1029,8 +1030,9 @@ router.get('/activity-logs', async (req: AuthenticatedRequest, res: Response) =>
 router.get('/sms-config', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const config = await getSmsGatewaySettings();
+    const serverIp = await getServerPublicIp();
     return res.json({
-      provider: config.provider,
+      provider: config.provider || 'bulksmsbd',
       senderId: config.senderId || '',
       username: config.username || '',
       customUrl: config.customUrl || '',
@@ -1039,6 +1041,7 @@ router.get('/sms-config', requireSuperAdmin, async (req: AuthenticatedRequest, r
       maskedApiKey: config.apiKey
         ? config.apiKey.substring(0, 4) + '****' + config.apiKey.substring(config.apiKey.length - 4)
         : '',
+      serverIp,
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1051,7 +1054,7 @@ router.post('/sms-config', requireSuperAdmin, async (req: AuthenticatedRequest, 
     const current = await getSmsGatewaySettings();
 
     const newSettings: SmsGatewaySettings = {
-      provider: provider || current.provider || 'greenweb',
+      provider: provider || current.provider || 'bulksmsbd',
       apiKey: apiKey !== undefined ? apiKey : current.apiKey,
       senderId: senderId !== undefined ? senderId : current.senderId,
       username: username !== undefined ? username : current.username,
@@ -1060,7 +1063,8 @@ router.post('/sms-config', requireSuperAdmin, async (req: AuthenticatedRequest, 
     };
 
     await saveSmsGatewaySettings(newSettings);
-    return res.json({ message: '✅ SMS গেটওয়ে সেটিংস সংরক্ষিত হয়েছে', settings: newSettings });
+    const serverIp = await getServerPublicIp();
+    return res.json({ message: '✅ SMS গেটওয়ে সেটিংস সংরক্ষিত হয়েছে', settings: newSettings, serverIp });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

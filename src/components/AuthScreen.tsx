@@ -816,9 +816,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                               className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-amber-500/60 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
                             />
                           </div>
-                          <p className="text-[10px] text-slate-400 text-center mt-1">
-                            কোডের মেয়াদ: ৫ মিনিট
-                          </p>
                         </div>
 
                         <div className="flex items-center justify-between text-xs pt-1">
