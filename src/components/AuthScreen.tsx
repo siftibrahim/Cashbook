@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StoreProfile } from '../types';
-import { StaffMember, AdminSession } from '../types/adminTypes';
+import { AdminSession } from '../types/adminTypes';
 import {
   Store,
   Lock,
@@ -13,17 +13,14 @@ import {
   AlertCircle,
   Key,
   UserPlus,
-  ArrowRight,
   User,
   Phone,
   CheckCircle2,
-  Shield,
   UserCheck,
   KeyRound,
   Smartphone,
   RefreshCw,
   ArrowLeft,
-  Check,
   Sparkles,
 } from 'lucide-react';
 import { ADMIN_EMAIL } from '../services/adminService';
@@ -45,39 +42,36 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   onLoginSuccess,
   onAdminLoginSuccess,
 }) => {
-  const [activeTab, setActiveTab] = useState<'shop-login' | 'shop-register' | 'admin' | 'reset'>('shop-login');
-  const [adminSubTab, setAdminSubTab] = useState<'super' | 'staff'>('super');
-  
-  // Shop login state
-  const [email, setEmail] = useState('');
+  // Tabs: 'login' (Unified for User, Super Admin, Staff), 'register', 'reset'
+  const [activeTab, setActiveTab] = useState<'login' | 'register' | 'reset'>('login');
+
+  // Unified Login state (User, Super Admin, Staff)
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  // Shop registration state
+  // 2FA OTP State (for Super Admin & Staff)
+  const [show2FA, setShow2FA] = useState(false);
+  const [twoFaRole, setTwoFaRole] = useState<'super_admin' | 'staff'>('super_admin');
+  const [twoFaStaffId, setTwoFaStaffId] = useState('');
+  const [twoFaStaffName, setTwoFaStaffName] = useState('');
+  const [twoFaPhone, setTwoFaPhone] = useState('');
+  const [twoFaMaskedPhone, setTwoFaMaskedPhone] = useState('');
+  const [twoFaSessionToken, setTwoFaSessionToken] = useState('');
+  const [twoFaOtp, setTwoFaOtp] = useState('');
+  const [twoFaCountdown, setTwoFaCountdown] = useState(0);
+
+  // Shop registration state (11-digit Phone, PIN, Shop Name, Owner Name & SMS OTP)
   const [regShopName, setRegShopName] = useState('');
   const [regOwnerName, setRegOwnerName] = useState('');
   const [regPhone, setRegPhone] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-
-  // Super Admin login state
-  const [adminPin, setAdminPin] = useState('');
-  const [adminEmail, setAdminEmail] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [showAdminPassword, setShowAdminPassword] = useState(false);
-  const [adminAuthType, setAdminAuthType] = useState<'password' | 'pin'>('password');
-
-  // Super Admin 2FA State
-  const [showAdmin2FA, setShowAdmin2FA] = useState(false);
-  const [admin2FASessionToken, setAdmin2FASessionToken] = useState('');
-  const [admin2FAMaskedPhone, setAdmin2FAMaskedPhone] = useState('');
-  const [admin2FAOtp, setAdmin2FAOtp] = useState('');
-  const [admin2FACountdown, setAdmin2FACountdown] = useState(0);
-
-  // Staff login state
-  const [staffIdentifier, setStaffIdentifier] = useState('');
-  const [staffPassword, setStaffPassword] = useState('');
-  const [showStaffPassword, setShowStaffPassword] = useState(false);
+  const [regPin, setRegPin] = useState('');
+  const [showRegPin, setShowRegPin] = useState(false);
+  const [regStep, setRegStep] = useState<'form' | 'otp'>('form');
+  const [regOtp, setRegOtp] = useState('');
+  const [regSessionToken, setRegSessionToken] = useState('');
+  const [regMaskedPhone, setRegMaskedPhone] = useState('');
+  const [regCountdown, setRegCountdown] = useState(0);
 
   // OTP Password Reset State (User & Super Admin)
   const [resetStep, setResetStep] = useState<'phone' | 'otp' | 'new_password' | 'success'>('phone');
@@ -96,7 +90,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // OTP Countdown timer
+  // Registration OTP Countdown timer
+  useEffect(() => {
+    if (regCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setRegCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [regCountdown]);
+
+  // OTP Countdown timer for Password Reset
   useEffect(() => {
     if (resetCountdown <= 0) return;
     const timer = setInterval(() => {
@@ -105,14 +108,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     return () => clearInterval(timer);
   }, [resetCountdown]);
 
-  // Admin 2FA Countdown timer
+  // 2FA Countdown timer for Admin/Staff
   useEffect(() => {
-    if (admin2FACountdown <= 0) return;
+    if (twoFaCountdown <= 0) return;
     const timer = setInterval(() => {
-      setAdmin2FACountdown((prev) => (prev > 0 ? prev - 1 : 0));
+      setTwoFaCountdown((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(timer);
-  }, [admin2FACountdown]);
+  }, [twoFaCountdown]);
 
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     setTimeout(() => {
@@ -120,23 +123,25 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }, 150);
   };
 
-  // 1. Regular Shop Login Handler
-  const handleShopLogin = async (e: React.FormEvent) => {
+  // -------------------------------------------------------------
+  // 1. UNIFIED LOGIN HANDLER (User, Super Admin, Staff)
+  // -------------------------------------------------------------
+  const handleUnifiedLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) {
-      setErrorMsg('অনুগ্রহ করে ইমেইল এড্রেস প্রদান করুন');
+    const cleanIdentifier = identifier.trim();
+    if (!cleanIdentifier) {
+      setErrorMsg('অনুগ্রহ করে মোবাইল নম্বর, ইমেইল বা ইউজারনেম দিন');
       return;
     }
     if (!password) {
-      setErrorMsg('অনুগ্রহ করে পাসওয়ার্ড প্রদান করুন');
+      setErrorMsg('অনুগ্রহ করে গোপন পাসওয়ার্ড অথবা পিন লিখুন');
       return;
     }
 
-    const rateLimit = checkLoginRateLimit(cleanEmail);
+    const rateLimit = checkLoginRateLimit(cleanIdentifier.toLowerCase());
     if (rateLimit.isLocked) {
       setErrorMsg(`⚠️ অতিরিক্ত ভুল চেষ্টার কারণে অ্যাকাউন্টটি সাময়িক লক করা হয়েছে। দয়া করে ${rateLimit.remainingMinutes} মিনিট পর চেষ্টা করুন।`);
       return;
@@ -145,120 +150,52 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoading(true);
 
     try {
-      const res = await authApi.login(cleanEmail, password);
-      clearLoginAttempts(cleanEmail);
+      const res = await authApi.login(cleanIdentifier, password);
+
+      // Check if 2FA OTP is required (Super Admin or Staff)
+      if (res.requires2FA) {
+        clearLoginAttempts(cleanIdentifier.toLowerCase());
+        setShow2FA(true);
+        setTwoFaRole(res.role === 'staff' ? 'staff' : 'super_admin');
+        setTwoFaStaffId(res.staffId || '');
+        setTwoFaStaffName(res.staffName || '');
+        setTwoFaPhone(res.phone || '');
+        setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
+        setTwoFaSessionToken(res.twoFaSessionToken || '');
+        setTwoFaCountdown(60);
+        setSuccessMsg(res.message || '🔐 আপনার নিবন্ধিত মোবাইল নম্বরে ৬-সংখ্যার ২FA ওটিপি কোড পাঠানো হয়েছে!');
+        return;
+      }
+
+      // Regular User direct login
+      clearLoginAttempts(cleanIdentifier.toLowerCase());
       setSuccessMsg('✅ দোকানে সফলভাবে প্রবেশ করা হয়েছে!');
       setTimeout(() => {
-        onLoginSuccess(res.user?.email || cleanEmail, `দোকানদার`);
+        onLoginSuccess(res.user?.email || cleanIdentifier, 'দোকানদার');
       }, 400);
     } catch (err: any) {
-      console.error('Shop Auth Error:', err);
+      console.error('Unified Auth Error:', err);
 
-      const attempt = recordFailedLoginAttempt(cleanEmail);
+      const attempt = recordFailedLoginAttempt(cleanIdentifier.toLowerCase());
       if (attempt.isLockedNow) {
         setErrorMsg('❌ ৫ বার ভুল চেষ্টা করায় অ্যাকাউন্টটি ১৫ মিনিটের জন্য লক করা হয়েছে!');
       } else {
-        setErrorMsg(`❌ ${err.message || 'ইমেইল অথবা পাসওয়ার্ড সঠিক নয়!'} (বাকি সুযোগ: ${attempt.attemptsLeft} বার)`);
+        setErrorMsg(`❌ ${err.message || 'মোবাইল নম্বর/ইমেইল অথবা পাসওয়ার্ড/পিন সঠিক নয়!'} (বাকি সুযোগ: ${attempt.attemptsLeft} বার)`);
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // 2. New Shop Registration Handler
-  const handleShopRegister = async (e: React.FormEvent) => {
+  // -------------------------------------------------------------
+  // 2. 2FA OTP VERIFICATION HANDLER (Super Admin & Staff)
+  // -------------------------------------------------------------
+  const handleVerify2FASubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    const cleanEmail = regEmail.trim();
-    if (!regShopName.trim()) {
-      setErrorMsg('দোকানের নাম লিখুন');
-      return;
-    }
-    if (!cleanEmail) {
-      setErrorMsg('ইমেইল এড্রেস লিখুন');
-      return;
-    }
-    if (regPassword.length < 6) {
-      setErrorMsg('পাসওয়ার্ড ন্যূনতম ৬ অক্ষরের হতে হবে');
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const res = await authApi.register({
-        name: regOwnerName.trim() || regShopName.trim(),
-        shopName: regShopName.trim(),
-        phone: regPhone.trim() || '০১৭০০০০০০০০',
-        email: cleanEmail,
-        password: regPassword,
-      });
-
-      setSuccessMsg(res.message || '🎉 আপনার নতুন দোকান সফলভাবে খোলা হয়েছে! স্বাগতম...');
-      setTimeout(() => {
-        onLoginSuccess(cleanEmail, regOwnerName.trim() || 'মালিক');
-      }, 500);
-    } catch (err: any) {
-      console.error('Registration Error:', err);
-      setErrorMsg(err.message || 'দোকান তৈরিতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 3. Super Admin Login Handler
-  const handleSuperAdminLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    setLoading(true);
-    try {
-      if (adminAuthType === 'pin') {
-        const cleanPin = adminPin.trim();
-        const res = await authApi.adminLogin({ pin: cleanPin, authType: 'pin' });
-        if (res.requires2FA) {
-          setShowAdmin2FA(true);
-          setAdmin2FASessionToken(res.twoFaSessionToken || '');
-          setAdmin2FAMaskedPhone(res.maskedPhone || '013****8115');
-          setAdmin2FACountdown(60);
-          setSuccessMsg('🔐 সুপার অ্যাডমিনের নিবন্ধিত নম্বরে ২FA ওটিপি কোড পাঠানো হয়েছে!');
-          return;
-        }
-        setErrorMsg('সুপার অ্যাডমিন সিকিউরিটির জন্য ২FA ওটিপি যাচাই প্রয়োজন।');
-      } else {
-        const cleanAdminEmail = adminEmail.trim() || ADMIN_EMAIL;
-        const res = await authApi.adminLogin({
-          email: cleanAdminEmail,
-          password: adminPassword,
-          authType: 'password',
-        });
-        if (res.requires2FA) {
-          setShowAdmin2FA(true);
-          setAdmin2FASessionToken(res.twoFaSessionToken || '');
-          setAdmin2FAMaskedPhone(res.maskedPhone || '013****8115');
-          setAdmin2FACountdown(60);
-          setSuccessMsg('🔐 সুপার অ্যাডমিনের নিবন্ধিত নম্বরে ২FA ওটিপি কোড পাঠানো হয়েছে!');
-          return;
-        }
-        setErrorMsg('সুপার অ্যাডমিন সিকিউরিটির জন্য ২FA ওটিপি যাচাই প্রয়োজন।');
-      }
-    } catch (err: any) {
-      console.warn('Super admin sign-in error:', err);
-      setErrorMsg(err.message || '❌ সুপার অ্যাডমিন যাচাই ব্যর্থ হয়েছে।');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyAdmin2FASubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    const cleanOtp = admin2FAOtp.trim();
+    const cleanOtp = twoFaOtp.trim();
     if (!cleanOtp) {
       setErrorMsg('অনুগ্রহ করে মোবাইলে প্রাপ্ত ৬-সংখ্যার OTP কোড লিখুন');
       return;
@@ -268,7 +205,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     try {
       const res = await authApi.verifyAdmin2FA({
         otp: cleanOtp,
-        twoFaSessionToken: admin2FASessionToken,
+        twoFaSessionToken,
+        role: twoFaRole,
+        staffId: twoFaStaffId,
+        phone: twoFaPhone,
       });
 
       if (!res.token) {
@@ -277,47 +217,54 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         return;
       }
 
-      setSuccessMsg('✅ ২FA যাচাইকরণ সফল! সুপার অ্যাডমিন ড্যাশবোর্ডে প্রবেশ করছেন...');
-      setTimeout(() => {
-        if (onAdminLoginSuccess) {
-          onAdminLoginSuccess(res.user?.email || ADMIN_EMAIL, {
-            role: 'super_admin',
-            email: res.user?.email || ADMIN_EMAIL,
-          });
-        } else {
-          onLoginSuccess(res.user?.email || ADMIN_EMAIL, 'admin');
-        }
-      }, 400);
+      if (twoFaRole === 'staff' || res.role === 'staff') {
+        const staffEmail = res.staff?.email || identifier || 'staff@twing.com';
+        setSuccessMsg(`✅ ২FA যাচাইকরণ সফল! স্বাগতম ${res.staff?.name || twoFaStaffName || 'স্টাফ মেম্বার'}!`);
+        setTimeout(() => {
+          if (onAdminLoginSuccess) {
+            onAdminLoginSuccess(staffEmail, {
+              role: 'staff',
+              email: staffEmail,
+              staffData: res.staff,
+            });
+          } else {
+            onLoginSuccess(staffEmail, 'staff');
+          }
+        }, 400);
+      } else {
+        const adminMail = res.user?.email || ADMIN_EMAIL;
+        setSuccessMsg('✅ ২FA যাচাইকরণ সফল! সুপার অ্যাডমিন ড্যাশবোর্ডে প্রবেশ করছেন...');
+        setTimeout(() => {
+          if (onAdminLoginSuccess) {
+            onAdminLoginSuccess(adminMail, {
+              role: 'super_admin',
+              email: adminMail,
+            });
+          } else {
+            onLoginSuccess(adminMail, 'admin');
+          }
+        }, 400);
+      }
     } catch (err: any) {
-      console.warn('Verify Admin 2FA Error:', err);
+      console.warn('Verify 2FA Error:', err);
       setErrorMsg(err.message || '❌ ভুল অথবা মেয়াদোত্তীর্ণ 2FA OTP কোড!');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleResendAdmin2FAOtp = async () => {
+  const handleResend2FAOtp = async () => {
     setErrorMsg('');
     setSuccessMsg('');
     setLoading(true);
     try {
-      if (adminAuthType === 'pin') {
-        const cleanPin = adminPin.trim();
-        const res = await authApi.adminLogin({ pin: cleanPin, authType: 'pin' });
-        setAdmin2FASessionToken(res.twoFaSessionToken || '');
-        setAdmin2FACountdown(60);
-        setSuccessMsg('✅ নতুন ২FA ওটিপি কোড পাঠানো হয়েছে!');
-      } else {
-        const cleanAdminEmail = adminEmail.trim() || ADMIN_EMAIL;
-        const res = await authApi.adminLogin({
-          email: cleanAdminEmail,
-          password: adminPassword,
-          authType: 'password',
-        });
-        setAdmin2FASessionToken(res.twoFaSessionToken || '');
-        setAdmin2FACountdown(60);
-        setSuccessMsg('✅ নতুন ২FA ওটিপি কোড পাঠানো হয়েছে!');
+      const cleanIdentifier = identifier.trim();
+      const res = await authApi.login(cleanIdentifier, password);
+      if (res.twoFaSessionToken) {
+        setTwoFaSessionToken(res.twoFaSessionToken);
       }
+      setTwoFaCountdown(60);
+      setSuccessMsg('✅ নতুন ২FA ওটিপি কোড পাঠানো হয়েছে!');
     } catch (err: any) {
       setErrorMsg(err.message || 'ওটিপি পুনরায় পাঠাতে ব্যর্থ হয়েছে');
     } finally {
@@ -325,54 +272,132 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   };
 
-  // 4. Staff Login Handler
-  const handleStaffLogin = async (e: React.FormEvent) => {
+  // Helper for Bengali to English digits
+  const toEnglishDigits = (str: string) => {
+    const bn = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+    return str.replace(/[০-৯]/g, (d) => String(bn.indexOf(d)));
+  };
+
+  // -------------------------------------------------------------
+  // 3. NEW SHOP REGISTRATION HANDLERS (11-digit Mobile, PIN & SMS OTP)
+  // -------------------------------------------------------------
+  const handleSendRegOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    const cleanIdentifier = staffIdentifier.trim();
-    const cleanPass = staffPassword.trim();
+    const cleanShop = regShopName.trim();
+    const cleanOwner = regOwnerName.trim();
+    const cleanPhone = toEnglishDigits(regPhone.trim()).replace(/\D/g, '');
+    const cleanPin = regPin.trim();
 
-    if (!cleanIdentifier) {
-      setErrorMsg('অনুগ্রহ করে স্টাফ ইমেইল বা ফোন নম্বর দিন');
+    if (!cleanShop) {
+      setErrorMsg('অনুগ্রহ করে দোকানের নাম লিখুন');
       return;
     }
-    if (!cleanPass) {
-      setErrorMsg('অনুগ্রহ করে স্টাফ পাসওয়ার্ড দিন');
+    if (!cleanPhone || cleanPhone.length !== 11 || !cleanPhone.startsWith('01')) {
+      setErrorMsg('❌ অনুগ্রহ করে ১১-সংখ্যার সঠিক বাংলাদেশি মোবাইল নম্বর দিন (যেমন: 017XXXXXXXX)');
+      return;
+    }
+    if (!cleanPin || cleanPin.length < 4) {
+      setErrorMsg('গোপন পিন ন্যূনতম ৪ সংখ্যার হতে হবে');
       return;
     }
 
     setLoading(true);
-    try {
-      const res = await authApi.staffLogin(cleanIdentifier, cleanPass);
-      if (!res.staff) {
-        setErrorMsg('❌ স্টাফ ভেরিফিকেশন ব্যর্থ হয়েছে');
-        setLoading(false);
-        return;
-      }
 
-      setSuccessMsg(`✅ স্বাগতম ${res.staff.name}! আপনার স্টাফ ড্যাশবোর্ড লোড হচ্ছে...`);
-      setTimeout(() => {
-        if (onAdminLoginSuccess) {
-          onAdminLoginSuccess(res.staff.email, {
-            role: 'staff',
-            email: res.staff.email,
-            staffData: res.staff,
-          });
-        } else {
-          onLoginSuccess(res.staff.email, 'staff');
-        }
-      }, 400);
+    try {
+      const res = await authApi.sendRegistrationOtp({
+        shopName: cleanShop,
+        name: cleanOwner,
+        phone: cleanPhone,
+      });
+
+      setRegPhone(cleanPhone);
+      setRegSessionToken(res.sessionToken || '');
+      setRegMaskedPhone(res.maskedPhone || cleanPhone);
+      setRegStep('otp');
+      setRegOtp('');
+      setRegCountdown(60);
+      setSuccessMsg(res.message || '✅ আপনার মোবাইলে ৬-সংখ্যার OTP ভেরিফিকেশন কোড পাঠানো হয়েছে!');
     } catch (err: any) {
-      console.error('Staff login error:', err);
-      setErrorMsg(err.message || '❌ স্টাফ লগইনে ত্রুটি ঘটেছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
+      console.error('Send Reg OTP Error:', err);
+      setErrorMsg(err.message || 'OTP পাঠাতে ব্যর্থ হয়েছে। অনুগ্রহ করে মোবাইল নম্বরটি পরীক্ষা করুন।');
     } finally {
       setLoading(false);
     }
   };
 
-  // 5. Mobile SMS OTP Password Reset Handlers (User & Super Admin)
+  const handleVerifyRegOtpAndRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const cleanOtp = toEnglishDigits(regOtp.trim()).replace(/\D/g, '');
+    if (!cleanOtp) {
+      setErrorMsg('অনুগ্রহ করে মোবাইলে প্রাপ্ত ৬-সংখ্যার OTP কোড লিখুন');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const cleanPhone = toEnglishDigits(regPhone.trim()).replace(/\D/g, '');
+      const cleanShop = regShopName.trim();
+      const cleanOwner = regOwnerName.trim() || cleanShop;
+      const cleanPin = regPin.trim();
+
+      const res = await authApi.register({
+        shopName: cleanShop,
+        name: cleanOwner,
+        phone: cleanPhone,
+        pin: cleanPin,
+        password: cleanPin,
+        otp: cleanOtp,
+        sessionToken: regSessionToken,
+      });
+
+      setSuccessMsg(res.message || '🎉 আপনার নতুন দোকান সফলভাবে খোলা হয়েছে! স্বাগতম...');
+      setTimeout(() => {
+        onLoginSuccess(res.user?.phone || cleanPhone, cleanOwner || 'দোকানদার');
+      }, 500);
+    } catch (err: any) {
+      console.error('Verify & Register Error:', err);
+      setErrorMsg(err.message || 'দোকান তৈরিতে সমস্যা হয়েছে। সঠিক ওটিপি দিন।');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendRegOtp = async () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    setLoading(true);
+    try {
+      const cleanShop = regShopName.trim();
+      const cleanOwner = regOwnerName.trim();
+      const cleanPhone = toEnglishDigits(regPhone.trim()).replace(/\D/g, '');
+
+      const res = await authApi.sendRegistrationOtp({
+        shopName: cleanShop,
+        name: cleanOwner,
+        phone: cleanPhone,
+      });
+      if (res.sessionToken) {
+        setRegSessionToken(res.sessionToken);
+      }
+      setRegCountdown(60);
+      setSuccessMsg('✅ নতুন ভেরিফিকেশন ওটিপি কোড পাঠানো হয়েছে!');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'ওটিপি পুনরায় পাঠাতে ব্যর্থ হয়েছে');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // 4. MOBILE SMS OTP PASSWORD RESET HANDLERS
+  // -------------------------------------------------------------
   const handleSendResetOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMsg('');
@@ -427,12 +452,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (resetNewPass.length < 6) {
-      setErrorMsg('নতুন পাসওয়ার্ড ন্যূনতম ৬ অক্ষরের হতে হবে');
+    if (resetNewPass.length < 4) {
+      setErrorMsg('নতুন পিন ন্যূনতম ৪ সংখ্যার হতে হবে');
       return;
     }
     if (resetNewPass !== resetConfirmPass) {
-      setErrorMsg('উভয় পাসওয়ার্ড হুবহু একই হতে হবে!');
+      setErrorMsg('উভয় পিন হুবহু একই হতে হবে!');
       return;
     }
 
@@ -443,23 +468,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         otp: resetOtp,
         newPassword: resetNewPass,
       });
-      setSuccessMsg(res.message || '🎉 পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে!');
+      setSuccessMsg(res.message || '🎉 পিন সফলভাবে পরিবর্তিত হয়েছে!');
       setResetStep('success');
     } catch (err: any) {
       console.error('Reset Password Error:', err);
-      setErrorMsg(err.message || 'পাসওয়ার্ড রিসেট করতে সমস্যা হয়েছে');
+      setErrorMsg(err.message || 'পিন রিসেট করতে সমস্যা হয়েছে');
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePasswordReset = async (e: React.FormEvent) => {
-    handleSendResetOtp(e);
-  };
-
   return (
-    <div className="flex-1 flex flex-col justify-center items-center p-3 sm:p-6 bg-[#030712] min-h-[600px] w-full text-slate-100 selection:bg-emerald-500 selection:text-white">
-      <div className="w-full max-w-md">
+    <div className="flex-1 w-full overflow-y-auto smooth-scroll-container flex flex-col justify-start sm:justify-center items-center p-3.5 sm:p-6 py-6 bg-[#030712] text-slate-100 selection:bg-emerald-500 selection:text-white">
+      <div className="w-full max-w-md my-auto">
         {/* Main Card Container */}
         <div className="bg-[#0B132B]/90 rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-800/80 backdrop-blur-md">
           {/* Brand Header */}
@@ -475,56 +496,43 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </p>
           </div>
 
-          {/* 3 Main Segmented Tabs */}
+          {/* 2 Main Segmented Tabs (Unified Login & Registration) */}
           {activeTab !== 'reset' && (
             <div className="flex bg-slate-900/90 p-1 rounded-2xl border border-slate-800 mb-6 text-xs font-bold shadow-inner">
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTab('shop-login');
+                  setActiveTab('login');
+                  setShow2FA(false);
                   setErrorMsg('');
                   setSuccessMsg('');
                 }}
-                className={`flex-1 py-2 sm:py-2.5 rounded-xl transition-all duration-200 cursor-pointer text-center ${
-                  activeTab === 'shop-login'
+                className={`flex-1 py-2 sm:py-2.5 rounded-xl transition-all duration-200 cursor-pointer text-center flex items-center justify-center gap-1.5 ${
+                  activeTab === 'login'
                     ? 'bg-emerald-500 text-slate-950 shadow-md font-black scale-[1.02]'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                দোকান লগইন
+                <LogIn className="w-3.5 h-3.5" />
+                <span>প্রবেশ / লগইন</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTab('shop-register');
+                  setActiveTab('register');
+                  setShow2FA(false);
                   setErrorMsg('');
                   setSuccessMsg('');
                 }}
-                className={`flex-1 py-2 sm:py-2.5 rounded-xl transition-all duration-200 cursor-pointer text-center ${
-                  activeTab === 'shop-register'
+                className={`flex-1 py-2 sm:py-2.5 rounded-xl transition-all duration-200 cursor-pointer text-center flex items-center justify-center gap-1.5 ${
+                  activeTab === 'register'
                     ? 'bg-emerald-500 text-slate-950 shadow-md font-black scale-[1.02]'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                নতুন দোকান (ফ্রি)
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('admin');
-                  setErrorMsg('');
-                  setSuccessMsg('');
-                }}
-                className={`flex-1 py-2 sm:py-2.5 rounded-xl transition-all duration-200 cursor-pointer text-center flex items-center justify-center gap-1 ${
-                  activeTab === 'admin'
-                    ? 'bg-amber-500 text-slate-950 shadow-md font-black scale-[1.02]'
-                    : 'text-slate-400 hover:text-amber-300'
-                }`}
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>অ্যাডমিন</span>
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>নতুন দোকান (ফ্রি)</span>
               </button>
             </div>
           )}
@@ -545,558 +553,437 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </div>
           )}
 
-          {/* ----------------- TAB 1: SHOP LOGIN ----------------- */}
-          {activeTab === 'shop-login' && (
-            <form onSubmit={handleShopLogin} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  ইমেইল এড্রেস (Email) <span className="text-emerald-400">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onFocus={handleInputFocus}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="shop@example.com"
-                    className="w-full px-4 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 transition"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-xs font-bold text-slate-300">
-                    পাসওয়ার্ড (Password) <span className="text-emerald-400">*</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('reset');
-                      setErrorMsg('');
-                      setSuccessMsg('');
-                    }}
-                    className="text-[11px] text-emerald-400 hover:underline font-bold cursor-pointer"
-                  >
-                    পাসওয়ার্ড ভুলে গেছেন?
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onFocus={handleInputFocus}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full px-4 pr-11 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 tracking-wider transition"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-sm cursor-pointer mt-2"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                    <span>যাচাই করা হচ্ছে...</span>
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="w-4 h-4 text-slate-950" />
-                    <span>দোকানে প্রবেশ করুন</span>
-                  </>
-                )}
-              </button>
-            </form>
-          )}
-
-          {/* ----------------- TAB 2: SHOP REGISTRATION ----------------- */}
-          {activeTab === 'shop-register' && (
-            <form onSubmit={handleShopRegister} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">
-                  দোকানের নাম <span className="text-emerald-400">*</span>
-                </label>
-                <div className="relative">
-                  <Store className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                  <input
-                    type="text"
-                    required
-                    value={regShopName}
-                    onFocus={handleInputFocus}
-                    onChange={(e) => setRegShopName(e.target.value)}
-                    placeholder="যেমন: ভাই ভাই স্টোর"
-                    className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
-                    প্রোপ্রাইটরের নাম
-                  </label>
-                  <div className="relative">
-                    <User className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
-                    <input
-                      type="text"
-                      value={regOwnerName}
-                      onFocus={handleInputFocus}
-                      onChange={(e) => setRegOwnerName(e.target.value)}
-                      placeholder="আপনার নাম"
-                      className="w-full pl-9 pr-3 py-2.5 text-xs bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
-                    মোবাইল নম্বর <span className="text-emerald-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <Phone className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
-                    <input
-                      type="tel"
-                      required
-                      value={regPhone}
-                      onFocus={handleInputFocus}
-                      onChange={(e) => setRegPhone(e.target.value)}
-                      placeholder="০১XXXXXXXXX"
-                      className="w-full pl-9 pr-3 py-2.5 text-xs bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">
-                  ইমেইল এড্রেস <span className="text-emerald-400">*</span>
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                  <input
-                    type="email"
-                    required
-                    value={regEmail}
-                    onFocus={handleInputFocus}
-                    onChange={(e) => setRegEmail(e.target.value)}
-                    placeholder="myemail@gmail.com"
-                    className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">
-                  গোপন পাসওয়ার্ড <span className="text-emerald-400">*</span>
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    value={regPassword}
-                    onFocus={handleInputFocus}
-                    onChange={(e) => setRegPassword(e.target.value)}
-                    placeholder="ন্যূনতম ৬ অক্ষরের পাসওয়ার্ড"
-                    className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                    <span>দোকান তৈরি হচ্ছে...</span>
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="w-4 h-4 text-slate-950" />
-                    <span>বিনামূল্যে দোকান তৈরি করুন</span>
-                  </>
-                )}
-              </button>
-            </form>
-          )}
-
-          {/* ----------------- TAB 3: INDEPENDENT ADMIN & STAFF PORTAL LOGIN ----------------- */}
-          {activeTab === 'admin' && (
+          {/* ----------------- TAB 1: UNIFIED LOGIN & 2FA VERIFICATION ----------------- */}
+          {activeTab === 'login' && (
             <div className="space-y-4">
-              {/* Admin Sub-Tabs (Super Admin vs Staff Login) */}
-              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-900/90 border border-slate-800 rounded-2xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAdminSubTab('super');
-                    setErrorMsg('');
-                    setSuccessMsg('');
-                  }}
-                  className={`py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                    adminSubTab === 'super'
-                      ? 'bg-amber-500 text-slate-950 shadow-md'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <ShieldCheck className="w-4 h-4 shrink-0" />
-                  <span>👑 সুপার অ্যাডমিন</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAdminSubTab('staff');
-                    setErrorMsg('');
-                    setSuccessMsg('');
-                  }}
-                  className={`py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                    adminSubTab === 'staff'
-                      ? 'bg-blue-500 text-slate-950 shadow-md'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <UserCheck className="w-4 h-4 shrink-0" />
-                  <span>👤 স্টাফ লগইন</span>
-                </button>
-              </div>
-
-              {/* SUPER ADMIN SUB-TAB */}
-              {adminSubTab === 'super' && (
+              {show2FA ? (
+                /* 2FA OTP Screen for Super Admin & Staff */
                 <div className="space-y-3.5 animate-in fade-in">
-                  {showAdmin2FA ? (
-                    <div className="space-y-3.5 animate-in fade-in">
-                      {/* 2FA Banner */}
-                      <div className="p-3.5 bg-amber-950/50 border border-amber-500/50 rounded-2xl flex items-start gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-sm mt-0.5">
-                          <ShieldCheck className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-black text-amber-300 flex items-center gap-1.5">
-                            <span>🔐 ২-ধাপের নিরাপত্তা যাচাই (2FA OTP)</span>
-                          </h4>
-                          <p className="text-[11px] text-amber-200/90 mt-0.5 leading-relaxed">
-                            সুপার অ্যাডমিনের নিবন্ধিত নম্বরে (<span className="font-mono font-bold text-white">{admin2FAMaskedPhone || '013****8115'}</span>) পাঠানো ৬-সংখ্যার OTP কোডটি লিখুন।
-                          </p>
-                        </div>
-                      </div>
-
-                      <form onSubmit={handleVerifyAdmin2FASubmit} className="space-y-3">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-300 mb-1.5 text-center">
-                            ৬-সংখ্যার OTP কোড দিন <span className="text-amber-400">*</span>
-                          </label>
-                          <div className="relative">
-                            <KeyRound className="w-4 h-4 text-amber-400 absolute left-3.5 top-3.5" />
-                            <input
-                              type="text"
-                              required
-                              maxLength={6}
-                              autoFocus
-                              value={admin2FAOtp}
-                              onFocus={handleInputFocus}
-                              onChange={(e) => setAdmin2FAOtp(e.target.value.replace(/\D/g, ''))}
-                              placeholder="••••••"
-                              className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-amber-500/60 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs pt-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowAdmin2FA(false);
-                              setAdmin2FAOtp('');
-                              setErrorMsg('');
-                            }}
-                            className="text-slate-400 hover:text-slate-200 font-bold flex items-center gap-1 cursor-pointer"
-                          >
-                            <ArrowLeft className="w-3.5 h-3.5" />
-                            <span>আগের ধাপে ফিরুন</span>
-                          </button>
-
-                          {admin2FACountdown > 0 ? (
-                            <span className="text-slate-400 text-[11px] font-mono">
-                              পুনরায় কোড: {admin2FACountdown} সেকেন্ড
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={handleResendAdmin2FAOtp}
-                              className="text-amber-400 hover:underline font-bold flex items-center gap-1 cursor-pointer text-[11px]"
-                            >
-                              <RefreshCw className="w-3 h-3" />
-                              <span>পুনরায় OTP পাঠান</span>
-                            </button>
-                          )}
-                        </div>
-
-                        <button
-                          type="submit"
-                          disabled={loading || admin2FAOtp.length < 6}
-                          className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-amber-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
-                        >
-                          {loading ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                              <span>OTP যাচাই করা হচ্ছে...</span>
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle2 className="w-4 h-4 text-slate-950" />
-                              <span>OTP যাচাই করে ড্যাশবোর্ডে প্রবেশ</span>
-                            </>
-                          )}
-                        </button>
-                      </form>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Banner */}
-                      <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-2xl flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-sm">
-                          <ShieldCheck className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-black text-amber-300">
-                            👑 সুপার অ্যাডমিন এক্সেস
-                          </h4>
-                          <p className="text-[11px] text-amber-200/80">
-                            সম্পূর্ণ সিস্টেম, স্টাফ ও ইউজার কন্ট্রোল।
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Super admin form */}
-                      <form onSubmit={handleSuperAdminLogin} className="space-y-3">
-                        {adminAuthType === 'password' ? (
-                          <>
-                            <div>
-                              <label className="block text-xs font-bold text-slate-300 mb-1">
-                                সুপার অ্যাডমিন ইমেইল <span className="text-amber-400">*</span>
-                              </label>
-                              <div className="relative">
-                                <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                                <input
-                                  type="email"
-                                  required
-                                  value={adminEmail}
-                                  onFocus={handleInputFocus}
-                                  onChange={(e) => setAdminEmail(e.target.value)}
-                                  placeholder="admin@twing.com"
-                                  className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-900/90 border border-slate-750 rounded-2xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-white placeholder-slate-500"
-                                />
-                              </div>
-                            </div>
-
-                            <div>
-                              <label className="block text-xs font-bold text-slate-300 mb-1">
-                                অ্যাডমিন পাসওয়ার্ড <span className="text-amber-400">*</span>
-                              </label>
-                              <div className="relative">
-                                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                                <input
-                                  type={showAdminPassword ? 'text' : 'password'}
-                                  required
-                                  value={adminPassword}
-                                  onFocus={handleInputFocus}
-                                  onChange={(e) => setAdminPassword(e.target.value)}
-                                  placeholder="পাসওয়ার্ড লিখুন"
-                                  className="w-full pl-10 pr-10 py-2.5 text-xs bg-slate-900/90 border border-slate-750 rounded-2xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-white placeholder-slate-500"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowAdminPassword(!showAdminPassword)}
-                                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 cursor-pointer"
-                                >
-                                  {showAdminPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                </button>
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          <div>
-                            <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                              অ্যাডমিন সিক্রেট পিন <span className="text-amber-400">*</span>
-                            </label>
-                            <div className="relative">
-                              <Key className="w-4 h-4 text-amber-400 absolute left-3.5 top-3.5" />
-                              <input
-                                type="password"
-                                required
-                                autoFocus
-                                maxLength={6}
-                                value={adminPin}
-                                onChange={(e) => setAdminPin(e.target.value)}
-                                placeholder="PIN দিন"
-                                className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-amber-600/40 rounded-2xl text-center text-lg tracking-widest font-mono font-black text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Switch between PIN & Password & OTP Reset */}
-                        <div className="flex flex-col gap-1.5 pt-1">
-                          <div className="flex items-center justify-between text-[11px]">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAdminAuthType(adminAuthType === 'password' ? 'pin' : 'password');
-                                setErrorMsg('');
-                              }}
-                              className="text-amber-400 hover:underline font-bold flex items-center gap-1 cursor-pointer"
-                            >
-                              <KeyRound className="w-3 h-3" />
-                              <span>{adminAuthType === 'password' ? 'মাস্টার পিন দিয়ে লগইন' : 'ইমেইল ও পাসওয়ার্ড দিয়ে লগইন'}</span>
-                            </button>
-                          </div>
-
-                          <div className="text-right">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setResetTarget('01306908115');
-                                setIsResetForAdmin(true);
-                                setResetStep('phone');
-                                setActiveTab('reset');
-                                setErrorMsg('');
-                                setSuccessMsg('');
-                              }}
-                              className="text-[11px] text-amber-400 hover:underline font-bold inline-flex items-center gap-1 cursor-pointer"
-                            >
-                              <Smartphone className="w-3 h-3" />
-                              <span>সুপার অ্যাডমিন পাসওয়ার্ড রিসেট (মোবাইল OTP)</span>
-                            </button>
-                          </div>
-                        </div>
-
-                        <button
-                          type="submit"
-                          disabled={loading}
-                          className="w-full py-3 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-amber-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-1"
-                        >
-                          {loading ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                              <span>যাচাই হচ্ছে...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Key className="w-4 h-4 text-slate-950" />
-                              <span>🔑 পাসওয়ার্ড দিয়ে ২FA OTP পাঠান</span>
-                            </>
-                          )}
-                        </button>
-                      </form>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* STAFF SUB-TAB */}
-              {adminSubTab === 'staff' && (
-                <div className="space-y-3.5 animate-in fade-in">
-                  {/* Banner */}
-                  <div className="p-3 bg-blue-950/40 border border-blue-800/60 rounded-2xl flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-blue-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-sm">
-                      <UserCheck className="w-4 h-4" />
+                  <div
+                    className={`p-3.5 rounded-2xl border flex items-start gap-2.5 ${
+                      twoFaRole === 'super_admin'
+                        ? 'bg-amber-950/50 border-amber-500/50'
+                        : 'bg-blue-950/50 border-blue-500/50'
+                    }`}
+                  >
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-black shrink-0 shadow-sm mt-0.5 ${
+                        twoFaRole === 'super_admin'
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'bg-blue-500 text-slate-950'
+                      }`}
+                    >
+                      {twoFaRole === 'super_admin' ? (
+                        <ShieldCheck className="w-5 h-5" />
+                      ) : (
+                        <UserCheck className="w-5 h-5" />
+                      )}
                     </div>
                     <div>
-                      <h4 className="text-xs font-black text-blue-300">
-                        👤 স্টাফ এক্সেস
+                      <h4
+                        className={`text-xs font-black flex items-center gap-1.5 ${
+                          twoFaRole === 'super_admin' ? 'text-amber-300' : 'text-blue-300'
+                        }`}
+                      >
+                        <span>
+                          {twoFaRole === 'super_admin'
+                            ? '👑 সুপার অ্যাডমিন ২FA ভেরিফিকেশন'
+                            : `👤 স্টাফ ২FA ভেরিফিকেশন (${twoFaStaffName || 'স্টাফ মেম্বার'})`}
+                        </span>
                       </h4>
-                      <p className="text-[11px] text-blue-200/80">
-                        অনুমোদিত পারমিশন অনুযায়ী কন্ট্রোল ও ম্যানেজমেন্ট।
+                      <p
+                        className={`text-[11px] mt-0.5 leading-relaxed ${
+                          twoFaRole === 'super_admin' ? 'text-amber-200/90' : 'text-blue-200/90'
+                        }`}
+                      >
+                        প্যানেলে প্রবেশের পূর্বে আপনার নিবন্ধিত নম্বরে (
+                        <span className="font-mono font-bold text-white">
+                          {twoFaMaskedPhone || '013****8115'}
+                        </span>
+                        ) পাঠানো ৬-সংখ্যার OTP কোডটি লিখুন।
                       </p>
                     </div>
                   </div>
 
-                  {/* Staff login form */}
-                  <form onSubmit={handleStaffLogin} className="space-y-3">
+                  <form onSubmit={handleVerify2FASubmit} className="space-y-3">
                     <div>
-                      <label className="block text-xs font-bold text-slate-300 mb-1">
-                        স্টাফ ইমেইল বা ফোন নম্বর <span className="text-blue-400">*</span>
+                      <label className="block text-xs font-bold text-slate-300 mb-1.5 text-center">
+                        ৬-সংখ্যার OTP কোড দিন <span className="text-emerald-400">*</span>
                       </label>
                       <div className="relative">
-                        <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                        <KeyRound
+                          className={`w-4 h-4 absolute left-3.5 top-3.5 ${
+                            twoFaRole === 'super_admin' ? 'text-amber-400' : 'text-blue-400'
+                          }`}
+                        />
                         <input
                           type="text"
                           required
-                          value={staffIdentifier}
+                          maxLength={6}
+                          autoFocus
+                          value={twoFaOtp}
                           onFocus={handleInputFocus}
-                          onChange={(e) => setStaffIdentifier(e.target.value)}
-                          placeholder="staff@twing.com বা 017XXXXXXXX"
-                          className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-900/90 border border-slate-750 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-slate-500"
+                          onChange={(e) => setTwoFaOtp(e.target.value.replace(/\D/g, ''))}
+                          placeholder="••••••"
+                          className={`w-full pl-10 pr-4 py-3 bg-slate-900 border rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black focus:outline-none focus:ring-2 ${
+                            twoFaRole === 'super_admin'
+                              ? 'border-amber-500/60 text-amber-300 focus:ring-amber-500'
+                              : 'border-blue-500/60 text-blue-300 focus:ring-blue-500'
+                          }`}
                         />
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 mb-1">
-                        স্টাফ পাসওয়ার্ড <span className="text-blue-400">*</span>
-                      </label>
-                      <div className="relative">
-                        <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                        <input
-                          type={showStaffPassword ? 'text' : 'password'}
-                          required
-                          value={staffPassword}
-                          onFocus={handleInputFocus}
-                          onChange={(e) => setStaffPassword(e.target.value)}
-                          placeholder="স্টাফ পাসওয়ার্ড লিখুন"
-                          className="w-full pl-10 pr-10 py-2.5 text-xs bg-slate-900/90 border border-slate-750 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-slate-500"
-                        />
+                    <div className="flex items-center justify-between text-xs pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShow2FA(false);
+                          setTwoFaOtp('');
+                          setErrorMsg('');
+                          setSuccessMsg('');
+                        }}
+                        className="text-slate-400 hover:text-slate-200 font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>আগের ধাপে ফিরুন</span>
+                      </button>
+
+                      {twoFaCountdown > 0 ? (
+                        <span className="text-slate-400 text-[11px] font-mono">
+                          পুনরায় কোড: {twoFaCountdown} সেকেন্ড
+                        </span>
+                      ) : (
                         <button
                           type="button"
-                          onClick={() => setShowStaffPassword(!showStaffPassword)}
-                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                          onClick={handleResend2FAOtp}
+                          className={`hover:underline font-bold flex items-center gap-1 cursor-pointer text-[11px] ${
+                            twoFaRole === 'super_admin' ? 'text-amber-400' : 'text-blue-400'
+                          }`}
                         >
-                          {showStaffPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          <RefreshCw className="w-3 h-3" />
+                          <span>পুনরায় OTP পাঠান</span>
                         </button>
-                      </div>
+                      )}
                     </div>
 
                     <button
                       type="submit"
-                      disabled={loading}
-                      className="w-full py-3 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-blue-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-1"
+                      disabled={loading || twoFaOtp.length < 6}
+                      className={`w-full py-3.5 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2 ${
+                        twoFaRole === 'super_admin'
+                          ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 shadow-amber-950/40'
+                          : 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 shadow-blue-950/40'
+                      }`}
                     >
                       {loading ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                          <span>যাচাই হচ্ছে...</span>
+                          <span>OTP যাচাই করা হচ্ছে...</span>
                         </>
                       ) : (
                         <>
-                          <UserCheck className="w-4 h-4 text-slate-950" />
-                          <span>👤 স্টাফ প্যানেলে প্রবেশ</span>
+                          <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                          <span>
+                            {twoFaRole === 'super_admin'
+                              ? 'OTP যাচাই করে সুপার অ্যাডমিন প্যানেলে প্রবেশ'
+                              : 'OTP যাচাই করে স্টাফ প্যানেলে প্রবেশ'}
+                          </span>
                         </>
                       )}
                     </button>
                   </form>
                 </div>
+              ) : (
+                /* Unified Login Form for User, Super Admin, and Staff */
+                <form onSubmit={handleUnifiedLogin} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      ১১ ডিজিটের মোবাইল নম্বর <span className="text-emerald-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                      <input
+                        type="text"
+                        required
+                        value={identifier}
+                        onFocus={handleInputFocus}
+                        onChange={(e) => setIdentifier(e.target.value)}
+                        placeholder="যেমন: ০১XXXXXXXXX"
+                        className="w-full pl-10 pr-4 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 transition tracking-wide"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="block text-xs font-bold text-slate-300">
+                        গোপন পিন (PIN) <span className="text-emerald-400">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('reset');
+                          setResetTarget(identifier);
+                          setErrorMsg('');
+                          setSuccessMsg('');
+                        }}
+                        className="text-[11px] text-emerald-400 hover:underline font-bold cursor-pointer"
+                      >
+                        পিন ভুলে গেছেন?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        value={password}
+                        onFocus={handleInputFocus}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="গোপন পিন লিখুন"
+                        className="w-full pl-10 pr-11 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 tracking-wider transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-sm cursor-pointer mt-2"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                        <span>যাচাই করা হচ্ছে...</span>
+                      </>
+                    ) : (
+                      <>
+                        <LogIn className="w-4 h-4 text-slate-950" />
+                        <span>লগইন করুন / প্রবেশ করুন</span>
+                      </>
+                    )}
+                  </button>
+                </form>
               )}
             </div>
           )}
 
-          {/* ----------------- TAB 4: MOBILE SMS OTP PASSWORD RESET ----------------- */}
+          {/* ----------------- TAB 2: SHOP REGISTRATION (11-digit Mobile, PIN & SMS OTP) ----------------- */}
+          {activeTab === 'register' && (
+            <div className="space-y-4">
+              {regStep === 'form' ? (
+                <form onSubmit={handleSendRegOtp} className="space-y-3.5">
+                  <div className="bg-emerald-950/30 border border-emerald-500/20 rounded-2xl p-3 text-xs text-slate-300">
+                    <p className="font-bold text-emerald-400 flex items-center gap-1.5">
+                      <Smartphone className="w-4 h-4" />
+                      <span>মোবাইল নম্বর ও পিন দিয়ে সহজ রেজিস্ট্রেশন</span>
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                      ইমেইলের প্রয়োজন নেই। শুধুমাত্র ১১ ডিজিটের মোবাইল নম্বর ও গোপন পিন দিয়ে দোকান খুলুন।
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      দোকানের নাম <span className="text-emerald-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <Store className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                      <input
+                        type="text"
+                        required
+                        value={regShopName}
+                        onFocus={handleInputFocus}
+                        onChange={(e) => setRegShopName(e.target.value)}
+                        placeholder="যেমন: ভাই ভাই স্টোর / মেসার্স ট্রেডার্স"
+                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      আপনার নাম (মালিক / প্রোপ্রাইটর)
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                      <input
+                        type="text"
+                        value={regOwnerName}
+                        onFocus={handleInputFocus}
+                        onChange={(e) => setRegOwnerName(e.target.value)}
+                        placeholder="যেমন: মো: রফিকুল ইসলাম"
+                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      ১১ ডিজিটের মোবাইল নম্বর <span className="text-emerald-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                      <input
+                        type="tel"
+                        required
+                        maxLength={15}
+                        value={regPhone}
+                        onFocus={handleInputFocus}
+                        onChange={(e) => setRegPhone(e.target.value)}
+                        placeholder="০১XXXXXXXXX (১১ ডিজিট)"
+                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 font-medium tracking-wide"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      💡 এই নম্বরে তাৎক্ষণিক SMS-এর মাধ্যমে ৬-সংখ্যার ভেরিফিকেশন কোড পাঠানো হবে।
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      গোপন পিন (PIN) <span className="text-emerald-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                      <input
+                        type={showRegPin ? 'text' : 'password'}
+                        required
+                        minLength={4}
+                        value={regPin}
+                        onFocus={handleInputFocus}
+                        onChange={(e) => setRegPin(e.target.value)}
+                        placeholder="৪ থেকে ৬ সংখ্যার গোপন পিন"
+                        className="w-full pl-10 pr-11 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 tracking-wider font-medium"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRegPin(!showRegPin)}
+                        className="absolute right-3.5 top-2.5 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+                      >
+                        {showRegPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                        <span>SMS কোড পাঠানো হচ্ছে...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Smartphone className="w-4 h-4 text-slate-950" />
+                        <span>মোবাইলে SMS OTP পাঠান ও এগিয়ে যান</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              ) : (
+                /* Step 2: SMS OTP Verification for Registration */
+                <form onSubmit={handleVerifyRegOtpAndRegister} className="space-y-3.5">
+                  <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-3.5 text-xs text-slate-300">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-emerald-400 flex items-center gap-1.5">
+                        <Smartphone className="w-4 h-4" />
+                        <span>SMS কোড প্রেরিত নম্বর:</span>
+                      </span>
+                      <span className="font-mono text-white font-bold text-sm bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-750">
+                        {regMaskedPhone || regPhone}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      মোবাইলের SMS ইনবক্স চেক করে ৬-সংখ্যার OTP কোডটি নিচে লিখুন।
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5 text-center">
+                      ৬-সংখ্যার OTP কোড লিখুন <span className="text-emerald-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-emerald-400 absolute left-3.5 top-3.5" />
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        autoFocus
+                        value={regOtp}
+                        onFocus={handleInputFocus}
+                        onChange={(e) => setRegOtp(e.target.value)}
+                        placeholder="••••••"
+                        className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-emerald-500/50 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRegStep('form');
+                        setRegOtp('');
+                        setErrorMsg('');
+                        setSuccessMsg('');
+                      }}
+                      className="text-slate-400 hover:text-slate-200 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>তথ্য পরিবর্তন</span>
+                    </button>
+
+                    {regCountdown > 0 ? (
+                      <span className="text-slate-400 text-[11px] font-mono">
+                        পুনরায় কোড: {regCountdown} সেকেন্ড
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleResendRegOtp}
+                        className="text-emerald-400 hover:underline font-bold flex items-center gap-1 cursor-pointer text-[11px]"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>পুনরায় OTP পাঠান</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading || regOtp.length < 6}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                        <span>দোকান অ্যাকাউন্ট তৈরি হচ্ছে...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                        <span>OTP যাচাই করে দোকান চালু করুন</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
+          {/* ----------------- TAB 3: MOBILE SMS OTP PASSWORD RESET ----------------- */}
           {activeTab === 'reset' && (
             <div className="space-y-4">
               {/* Header */}
@@ -1105,42 +992,56 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <Smartphone className="w-6 h-6" />
                 </div>
                 <h3 className="font-black text-white text-base sm:text-lg">
-                  মোবাইল SMS ওটিপি দিয়ে পাসওয়ার্ড রিসেট
+                  মোবাইল SMS ওটিপি দিয়ে পিন রিসেট
                 </h3>
                 <p className="text-xs text-slate-400 mt-1 font-medium leading-relaxed">
-                  সুপার অ্যাডমিন ও সাধারণ ইউজার উভয়ই তাদের রেজিস্টার্ড নম্বরে SMS OTP কোড পাবেন
+                  সুপার অ্যাডমিন, স্টাফ ও সাধারণ ইউজার তাদের রেজিস্টার্ড নম্বরে SMS OTP কোড পাবেন
                 </p>
               </div>
 
               {/* Progress Steps Pill */}
               <div className="flex items-center justify-between bg-slate-900/80 p-1.5 rounded-xl border border-slate-800 text-[11px] font-bold">
-                <div className={`flex-1 text-center py-1 rounded-lg transition ${resetStep === 'phone' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'}`}>
+                <div
+                  className={`flex-1 text-center py-1 rounded-lg transition ${
+                    resetStep === 'phone' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'
+                  }`}
+                >
                   ১. মোবাইল নম্বর
                 </div>
-                <div className={`flex-1 text-center py-1 rounded-lg transition ${resetStep === 'otp' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'}`}>
+                <div
+                  className={`flex-1 text-center py-1 rounded-lg transition ${
+                    resetStep === 'otp' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'
+                  }`}
+                >
                   ২. OTP কোড
                 </div>
-                <div className={`flex-1 text-center py-1 rounded-lg transition ${resetStep === 'new_password' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'}`}>
-                  ৩. নতুন পাসওয়ার্ড
+                <div
+                  className={`flex-1 text-center py-1 rounded-lg transition ${
+                    resetStep === 'new_password'
+                      ? 'bg-emerald-500 text-slate-950 font-black'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  ৩. নতুন পিন
                 </div>
               </div>
 
-              {/* STEP 1: PHONE / IDENTIFIER INPUT */}
+              {/* STEP 1: PHONE INPUT */}
               {resetStep === 'phone' && (
                 <form onSubmit={handleSendResetOtp} className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                      আপনার নিবন্ধিত (Registered) মোবাইল নম্বর <span className="text-emerald-400">*</span>
+                      আপনার নিবন্ধিত মোবাইল নম্বর বা ইমেইল <span className="text-emerald-400">*</span>
                     </label>
                     <div className="relative">
                       <Smartphone className="w-4 h-4 text-emerald-400 absolute left-3.5 top-3.5" />
                       <input
-                        type="tel"
+                        type="text"
                         required
                         value={resetTarget}
                         onFocus={handleInputFocus}
                         onChange={(e) => setResetTarget(e.target.value)}
-                        placeholder="অ্যাকাউন্ট খোলার সময় দেওয়া ১১ ডিজিটের মোবাইল নম্বর"
+                        placeholder="১১ ডিজিটের মোবাইল নম্বর লিখুন"
                         className="w-full pl-10 pr-4 py-3.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 tracking-wide font-medium"
                       />
                     </div>
@@ -1178,7 +1079,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       <span className="font-mono text-white font-bold">{resetMaskedPhone || resetTarget}</span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      মোবাইলের ইনবক্স চেক করে ৬-সংখ্যার OTP কোডটি নিচে লিখুন (মেয়াদ: ৫ মিনিট)।
+                      মোবাইলের ইনবক্স চেক করে ৬-সংখ্যার OTP কোডটি নিচে লিখুন (মেয়াদ: ১৫ মিনিট)।
                     </p>
                   </div>
 
@@ -1248,31 +1149,31 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 </form>
               )}
 
-              {/* STEP 3: SET NEW PASSWORD */}
+              {/* STEP 3: SET NEW PIN */}
               {resetStep === 'new_password' && (
                 <form onSubmit={handleSaveNewPassword} className="space-y-3.5">
                   <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-2xl p-3 text-xs text-slate-300">
                     <p className="font-bold text-emerald-400">✅ OTP সফলভাবে যাচাই হয়েছে!</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      এবার আপনার অ্যাকাউন্টের জন্য নতুন একটি শক্তিশালী পাসওয়ার্ড নির্ধারণ করুন।
+                      এবার আপনার অ্যাকাউন্টের জন্য নতুন একটি গোপন পিন নির্ধারণ করুন।
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1">
-                      নতুন পাসওয়ার্ড (New Password) <span className="text-emerald-400">*</span>
+                      নতুন গোপন পিন (New PIN) <span className="text-emerald-400">*</span>
                     </label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
                       <input
                         type={showResetNewPass ? 'text' : 'password'}
                         required
-                        minLength={6}
+                        minLength={4}
                         autoFocus
                         value={resetNewPass}
                         onFocus={handleInputFocus}
                         onChange={(e) => setResetNewPass(e.target.value)}
-                        placeholder="কমপক্ষে ৬ অক্ষরের নতুন পাসওয়ার্ড"
+                        placeholder="৪ বা ৬ সংখ্যার নতুন পিন"
                         className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
                       />
                       <button
@@ -1287,18 +1188,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1">
-                      পাসওয়ার্ড নিশ্চিত করুন (Confirm Password) <span className="text-emerald-400">*</span>
+                      পিন নিশ্চিত করুন (Confirm PIN) <span className="text-emerald-400">*</span>
                     </label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
                       <input
                         type={showResetConfirmPass ? 'text' : 'password'}
                         required
-                        minLength={6}
+                        minLength={4}
                         value={resetConfirmPass}
                         onFocus={handleInputFocus}
                         onChange={(e) => setResetConfirmPass(e.target.value)}
-                        placeholder="একই পাসওয়ার্ড পুনরায় লিখুন"
+                        placeholder="একই পিন পুনরায় লিখুন"
                         className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
                       />
                       <button
@@ -1313,18 +1214,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
                   <button
                     type="submit"
-                    disabled={loading || resetNewPass.length < 6 || resetNewPass !== resetConfirmPass}
+                    disabled={loading || resetNewPass.length < 4 || resetNewPass !== resetConfirmPass}
                     className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
                   >
                     {loading ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                        <span>পাসওয়ার্ড আপডেট হচ্ছে...</span>
+                        <span>পিন আপডেট হচ্ছে...</span>
                       </>
                     ) : (
                       <>
                         <Lock className="w-4 h-4 text-slate-950" />
-                        <span>🔒 নতুন পাসওয়ার্ড সেভ করুন</span>
+                        <span>🔒 নতুন পিন সেভ করুন</span>
                       </>
                     )}
                   </button>
@@ -1338,29 +1239,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     <CheckCircle2 className="w-10 h-10" />
                   </div>
                   <div>
-                    <h4 className="text-lg font-black text-white">পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে!</h4>
+                    <h4 className="text-lg font-black text-white">পিন সফলভাবে পরিবর্তিত হয়েছে!</h4>
                     <p className="text-xs text-slate-300 mt-1">
-                      আপনার নতুন পাসওয়ার্ডটি এখন সক্রিয় রয়েছে। অনুগ্রহ করে নতুন পাসওয়ার্ড দিয়ে লগইন করুন।
+                      আপনার নতুন পিনটি এখন সক্রিয় রয়েছে। অনুগ্রহ করে নতুন পিন দিয়ে লগইন করুন।
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      if (isResetForAdmin) {
-                        setActiveTab('admin');
-                        setAdminSubTab('super');
-                        setAdminEmail(resetTarget || '');
-                        setAdminPassword(resetNewPass);
-                      } else {
-                        setActiveTab('shop-login');
-                        setPassword(resetNewPass);
-                      }
+                      setActiveTab('login');
+                      setPassword(resetNewPass);
                       setResetStep('phone');
                       setResetOtp('');
                       setResetNewPass('');
                       setResetConfirmPass('');
                       setErrorMsg('');
-                      setSuccessMsg('✅ নতুন পাসওয়ার্ড স্বয়ংক্রিয়ভাবে ইনপুটে বসানো হয়েছে। লগইন বাটনে ক্লিক করুন।');
+                      setSuccessMsg('✅ নতুন পিন স্বয়ংক্রিয়ভাবে ইনপুটে বসানো হয়েছে। লগইন বাটনে ক্লিক করুন।');
                     }}
                     className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-black rounded-2xl shadow-lg text-sm cursor-pointer"
                   >
@@ -1375,29 +1269,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setActiveTab('shop-login');
+                      setActiveTab('login');
                       setErrorMsg('');
                       setSuccessMsg('');
                     }}
                     className="text-emerald-400 hover:underline cursor-pointer flex items-center gap-1"
                   >
                     <ArrowLeft className="w-3 h-3" />
-                    <span>দোকান লগইনে ফিরে যান</span>
-                  </button>
-
-                  <span className="text-slate-600">|</span>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('admin');
-                      setAdminSubTab('super');
-                      setErrorMsg('');
-                      setSuccessMsg('');
-                    }}
-                    className="text-amber-400 hover:underline cursor-pointer"
-                  >
-                    অ্যাডমিন লগইন
+                    <span>লগইন পেজে ফিরে যান</span>
                   </button>
                 </div>
               )}

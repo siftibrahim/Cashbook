@@ -35,8 +35,8 @@ export class SubscriptionEngine {
 
   /**
    * Mathematically calculates and reconciles a specific user's subscription:
-   * 1. Registration Trial: 14 days from registered_at
-   * 2. Every Approved Payment: adds exact package days (30 days for ৳50 starter pack, etc.)
+   * 1. Registration Trial: dynamic days from system_config trialConfig (default 14 days)
+   * 2. Every Approved Payment: adds exact package days + bonus days
    * 3. Total validity is mathematically chained and saved to database.
    */
   public static async recalculateAndSyncUserSubscription(userId: string): Promise<{
@@ -48,16 +48,37 @@ export class SubscriptionEngine {
     const pool = getDbPool();
     const now = Date.now();
 
+    // Fetch dynamic trial configuration
+    let isTrialEnabled = true;
+    let trialDays = 14;
+    let defaultTrialPlanName = 'ফ্রি ট্রায়াল (১৪ দিন)';
+
     if (pool) {
+      try {
+        const cfgRes = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings' LIMIT 1");
+        if (cfgRes.rows.length > 0 && cfgRes.rows[0].data) {
+          const cfg = typeof cfgRes.rows[0].data === 'string' ? JSON.parse(cfgRes.rows[0].data) : cfgRes.rows[0].data;
+          if (cfg?.trialConfig) {
+            isTrialEnabled = cfg.trialConfig.isTrialEnabled !== false;
+            trialDays = isTrialEnabled ? (parseInt(cfg.trialConfig.trialDays, 10) || 14) : 0;
+            defaultTrialPlanName = isTrialEnabled
+              ? (cfg.trialConfig.trialPlanName || `ফ্রি ট্রায়াল (${trialDays} দিন)`)
+              : 'ফ্রি একাউন্ট (সাবস্ক্রিপশন প্রয়োজন)';
+          }
+        }
+      } catch (e) {
+        console.warn('Error reading trial config:', e);
+      }
+
       const uRes = await pool.query(
         'SELECT id, name, role, registered_at, subscription_plan, subscription_status, subscription_expires_at FROM users WHERE id = $1',
         [userId]
       );
       if (uRes.rows.length === 0) {
         return {
-          subscriptionExpiresAt: now + 14 * 86400000,
-          subscriptionPlan: 'ফ্রি ট্রায়াল (১৪ দিন)',
-          subscriptionStatus: 'trial',
+          subscriptionExpiresAt: isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000),
+          subscriptionPlan: defaultTrialPlanName,
+          subscriptionStatus: isTrialEnabled ? 'trial' : 'expired',
           totalApprovedDays: 0,
         };
       }
@@ -72,9 +93,9 @@ export class SubscriptionEngine {
         };
       }
 
-      const regAt = Number(u.registered_at) || (now - 14 * 86400000);
-      let currentChainExpiry = regAt + 14 * 86400000; // 14 days free trial from registration
-      let latestPlanName = 'ফ্রি ট্রায়াল (১৪ দিন)';
+      const regAt = Number(u.registered_at) || (now - (isTrialEnabled ? trialDays : 0) * 86400000);
+      let currentChainExpiry = isTrialEnabled ? (regAt + trialDays * 86400000) : regAt;
+      let latestPlanName = defaultTrialPlanName;
       let totalApprovedDays = 0;
 
       // Fetch all approved payments for this user strictly
@@ -87,7 +108,6 @@ export class SubscriptionEngine {
         const payTime = Number(p.approved_at || p.created_at) || now;
         const amt = parseFloat(p.amount) || 0;
         
-        // Package days: ৳50 = 30 days, ৳100 = 60 days, ৳200 = 120 days, or exact duration_days
         let baseDays = parseInt(p.duration_days, 10);
         if (!baseDays || baseDays <= 0 || (amt === 50 && baseDays !== 30)) {
           if (amt === 50) baseDays = 30;
@@ -96,7 +116,8 @@ export class SubscriptionEngine {
           else baseDays = baseDays || 30;
         }
 
-        const totalDays = baseDays;
+        const bonusDays = parseInt(p.bonus_days, 10) || 0;
+        const totalDays = baseDays + bonusDays;
         totalApprovedDays += totalDays;
         const durMs = totalDays * 86400000;
 
@@ -121,7 +142,7 @@ export class SubscriptionEngine {
       const isExpired = currentChainExpiry < now;
       const computedStatus = isExpired
         ? 'expired'
-        : (pRes.rows.length > 0 ? 'active' : 'trial');
+        : (totalApprovedDays > 0 ? 'active' : (isTrialEnabled ? 'trial' : 'expired'));
 
       await pool.query(
         `UPDATE users SET
@@ -148,12 +169,21 @@ export class SubscriptionEngine {
       };
     } else {
       // In-memory fallback
+      if (inMemoryStore.system_config['system_payment_settings']?.trialConfig) {
+        const cfg = inMemoryStore.system_config['system_payment_settings'].trialConfig;
+        isTrialEnabled = cfg.isTrialEnabled !== false;
+        trialDays = isTrialEnabled ? (parseInt(cfg.trialDays, 10) || 14) : 0;
+        defaultTrialPlanName = isTrialEnabled
+          ? (cfg.trialPlanName || `ফ্রি ট্রায়াল (${trialDays} দিন)`)
+          : 'ফ্রি একাউন্ট (সাবস্ক্রিপশন প্রয়োজন)';
+      }
+
       const u = inMemoryStore.users.find(x => x.id === userId);
       if (!u) {
         return {
-          subscriptionExpiresAt: now + 14 * 86400000,
-          subscriptionPlan: 'ফ্রি ট্রায়াল (১৪ দিন)',
-          subscriptionStatus: 'trial',
+          subscriptionExpiresAt: isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000),
+          subscriptionPlan: defaultTrialPlanName,
+          subscriptionStatus: isTrialEnabled ? 'trial' : 'expired',
           totalApprovedDays: 0,
         };
       }
@@ -167,9 +197,9 @@ export class SubscriptionEngine {
         };
       }
 
-      const regAt = Number(u.registeredAt || u.registered_at) || (now - 14 * 86400000);
-      let currentChainExpiry = regAt + 14 * 86400000;
-      let latestPlanName = 'ফ্রি ট্রায়াল (১৪ দিন)';
+      const regAt = Number(u.registeredAt || u.registered_at) || (now - (isTrialEnabled ? trialDays : 0) * 86400000);
+      let currentChainExpiry = isTrialEnabled ? (regAt + trialDays * 86400000) : regAt;
+      let latestPlanName = defaultTrialPlanName;
       let totalApprovedDays = 0;
 
       const userPayments = (inMemoryStore.payments || [])
@@ -187,7 +217,8 @@ export class SubscriptionEngine {
           else baseDays = baseDays || 30;
         }
 
-        const totalDays = baseDays;
+        const bonusDays = parseInt(p.bonusDays || p.bonus_days, 10) || 0;
+        const totalDays = baseDays + bonusDays;
         totalApprovedDays += totalDays;
         const durMs = totalDays * 86400000;
 
@@ -210,7 +241,7 @@ export class SubscriptionEngine {
       const isExpired = currentChainExpiry < now;
       const computedStatus = isExpired
         ? 'expired'
-        : (userPayments.length > 0 ? 'active' : 'trial');
+        : (totalApprovedDays > 0 ? 'active' : (isTrialEnabled ? 'trial' : 'expired'));
 
       u.subscriptionExpiresAt = currentChainExpiry;
       u.subscription_expires_at = currentChainExpiry;

@@ -28,7 +28,7 @@ router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const pool = getDbPool();
     if (pool) {
-      // Fetch users with resilient fallback from Neon PostgreSQL
+      // Fetch users with resilient fallback from Neon PostgreSQL (excluding super_admin accounts)
       let rows: any[] = [];
       try {
         const result = await pool.query(`
@@ -37,12 +37,17 @@ router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
             COALESCE((SELECT COUNT(*) FROM customers c WHERE c.user_id = u.id), 0) as total_customers,
             COALESCE((SELECT COUNT(*) FROM transactions t WHERE t.user_id = u.id), 0) as total_transactions
           FROM users u 
+          WHERE u.role != 'super_admin' AND u.id != 'usr_super_admin' AND LOWER(TRIM(u.email)) NOT IN ('siftibrahim@gmail.com', 'admin@twing.com')
           ORDER BY COALESCE(u.registered_at, 0) DESC
         `);
         rows = result.rows;
       } catch (subErr) {
         console.warn('Fallback basic user query in /api/admin/users:', subErr);
-        const basicResult = await pool.query('SELECT * FROM users ORDER BY registered_at DESC');
+        const basicResult = await pool.query(`
+          SELECT * FROM users 
+          WHERE role != 'super_admin' AND id != 'usr_super_admin' AND LOWER(TRIM(email)) NOT IN ('siftibrahim@gmail.com', 'admin@twing.com')
+          ORDER BY registered_at DESC
+        `);
         rows = basicResult.rows;
       }
 
@@ -70,7 +75,10 @@ router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
 
       return res.json({ users, isPostgresConnected: true, totalCount: users.length });
     } else {
-      return res.json({ users: inMemoryStore.users, isPostgresConnected: false, totalCount: inMemoryStore.users.length });
+      const filteredInMemory = inMemoryStore.users.filter(
+        u => u.role !== 'super_admin' && u.id !== 'usr_super_admin' && u.email !== 'siftibrahim@gmail.com' && u.email !== 'admin@twing.com'
+      );
+      return res.json({ users: filteredInMemory, isPostgresConnected: false, totalCount: filteredInMemory.length });
     }
   } catch (err: any) {
     console.error('❌ Error fetching users from DB in /api/admin/users:', err);

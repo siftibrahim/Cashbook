@@ -4,6 +4,8 @@ import {
   BankAccountDetails,
   PaymentGatewayConfig,
   SubscriptionPlan,
+  FreeTrialConfig,
+  BonusConfig,
 } from '../../types/adminTypes';
 import { DEFAULT_PLANS } from '../../services/adminService';
 import {
@@ -28,6 +30,15 @@ import {
   Sliders,
   DollarSign,
   AlertCircle,
+  Gift,
+  Calendar,
+  Clock,
+  RotateCcw,
+  Check,
+  AlertTriangle,
+  ArrowRight,
+  Info,
+  Tag,
 } from 'lucide-react';
 
 interface PaymentSettingsTabProps {
@@ -41,9 +52,20 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
   onSaveSettings,
   onShowToast,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'mfs' | 'bank' | 'gateway' | 'packages'>('mfs');
+  const [activeSubTab, setActiveSubTab] = useState<'trial_bonus' | 'packages' | 'mfs' | 'bank' | 'gateway'>('trial_bonus');
   const [formData, setFormData] = useState<SystemPaymentSettings>({
     ...settings,
+    trialConfig: settings.trialConfig || {
+      isTrialEnabled: true,
+      trialDays: 14,
+      trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)',
+    },
+    bonusConfig: settings.bonusConfig || {
+      isBonusEnabled: true,
+      bonusDays: 7,
+      bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)',
+      bonusDescription: 'যেকোনো প্যাকেজ রিনিউ বা সাবস্ক্রিপশন নিলে সাথে আরও ৭ দিন বোনাস মেয়াদ যুক্ত হবে।',
+    },
     customPlans: settings.customPlans && settings.customPlans.length > 0 ? settings.customPlans : DEFAULT_PLANS,
     gateways: settings.gateways && settings.gateways.length > 0 ? settings.gateways : [
       {
@@ -100,12 +122,37 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
     setIsSaving(true);
     try {
       await onSaveSettings(formData);
-      onShowToast('✅ সকল পেমেন্ট মেথড, গেটওয়ে ও প্যাকেজ সেটিংস সফলভাবে ক্লাউডে সংরক্ষিত হয়েছে!');
+      onShowToast('✅ সকল ফ্রি ট্রায়াল, বোনাস অফার, প্যাকেজ ও পেমেন্ট সেটিংস সফলভাবে ক্লাউডে সংরক্ষিত হয়েছে!');
     } catch (err: any) {
       onShowToast(`❌ সংরক্ষণ ব্যর্থ হয়েছে: ${err.message || 'ত্রুটি'}`);
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleUpdateTrialConfig = (field: keyof FreeTrialConfig, value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      trialConfig: {
+        ...(prev.trialConfig || { isTrialEnabled: true, trialDays: 14, trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)' }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleUpdateBonusConfig = (field: keyof BonusConfig, value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      bonusConfig: {
+        ...(prev.bonusConfig || {
+          isBonusEnabled: true,
+          bonusDays: 7,
+          bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)',
+          bonusDescription: 'যেকোনো প্যাকেজ রিনিউ বা সাবস্ক্রিপশন নিলে সাথে আরও ৭ দিন বোনাস মেয়াদ যুক্ত হবে।',
+        }),
+        [field]: value,
+      },
+    }));
   };
 
   const handleAddBankAccount = () => {
@@ -210,17 +257,20 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
     const newPlan: SubscriptionPlan = {
       id: 'plan_' + Date.now().toString(36),
       name: 'Custom Package',
-      nameBn: 'কাস্টম প্যাকেজ',
-      price: 500,
-      originalPrice: 700,
-      durationDays: 60,
-      features: ['সম্পূর্ণ আনলিমিটেড হিসাব', 'ফ্রি এসএমএস অ্যালার্ট', '২৪/৭ সাপোর্ট'],
+      nameBn: 'নতুন কাস্টম প্যাকেজ',
+      price: 300,
+      originalPrice: 400,
+      durationDays: 90,
+      features: ['সম্পূর্ণ আনলিমিটেড হিসাব', 'ফ্রি এসএমএস অ্যালার্ট', '২৪/৭ ডেডিকেটেড সাপোর্ট'],
       isPopular: false,
+      isEnabled: true,
+      badge: 'সাশ্রয়ী অফার',
     };
     setFormData((prev) => ({
       ...prev,
       customPlans: [...(prev.customPlans || DEFAULT_PLANS), newPlan],
     }));
+    onShowToast('✅ নতুন প্যাকেজ যুক্ত করা হয়েছে');
   };
 
   const handleRemovePlan = (index: number) => {
@@ -230,6 +280,17 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
     }));
   };
 
+  const handleResetDefaultPlans = () => {
+    setFormData((prev) => ({
+      ...prev,
+      customPlans: DEFAULT_PLANS,
+    }));
+    onShowToast('🔄 ৪টি মূল ডিফল্ট প্যাকেজে রিসেট করা হয়েছে');
+  };
+
+  const currentTrial = formData.trialConfig || { isTrialEnabled: true, trialDays: 14, trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)' };
+  const currentBonus = formData.bonusConfig || { isBonusEnabled: true, bonusDays: 7, bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)', bonusDescription: 'যেকোনো প্যাকেজ রিনিউ বা সাবস্ক্রিপশন নিলে সাথে আরও ৭ দিন বোনাস মেয়াদ যুক্ত হবে।' };
+
   return (
     <div className="space-y-6">
       {/* Top Banner & Save Action */}
@@ -237,18 +298,18 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
         <div className="flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-600 p-0.5 shadow-lg flex items-center justify-center text-white shrink-0">
             <div className="w-full h-full bg-slate-950/80 rounded-[14px] flex items-center justify-center">
-              <CreditCard className="w-6 h-6 text-indigo-400" />
+              <Gift className="w-6 h-6 text-indigo-400" />
             </div>
           </div>
           <div>
             <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
-              <span>পেমেন্ট সেটিংস ও গেটওয়ে প্রশাসন</span>
+              <span>পেমেন্ট, ফ্রি ট্রায়াল ও সাবস্ক্রিপশন প্রশাসন</span>
               <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[11px] font-bold border border-indigo-500/30">
-                Live Admin Settings
+                Super Admin Control
               </span>
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              বিকাশ, নগদ, রকেট, উপায়, ব্যাংক অ্যাকাউন্ট ও অটোমেটেড অনলাইন পেমেন্ট গেটওয়ে কনফিগার করুন
+              ফ্রি ট্রায়াল (১৪ দিন), বোনাস অফার (+৭ দিন), সাবস্ক্রিপশন প্যাকেজের মেয়াদ/মূল্য ও MFS গেটওয়ে পরিচালনা করুন
             </p>
           </div>
         </div>
@@ -275,6 +336,35 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
 
       {/* Sub Tab Navigation */}
       <div className="flex items-center gap-2 overflow-x-auto no-scrollbar bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('trial_bonus')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
+            activeSubTab === 'trial_bonus'
+              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-md font-black shadow-amber-500/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+          }`}
+        >
+          <Gift className="w-4 h-4" />
+          <span>🎁 ফ্রি ট্রায়াল ও বোনাস অফার</span>
+          {(!currentTrial.isTrialEnabled || !currentBonus.isBonusEnabled) && (
+            <span className="w-2 h-2 rounded-full bg-rose-400" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('packages')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
+            activeSubTab === 'packages'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          <span>📦 সাবস্ক্রিপশন প্যাকেজ ও মেয়াদ ({(formData.customPlans || DEFAULT_PLANS).length})</span>
+        </button>
+
         <button
           type="button"
           onClick={() => setActiveSubTab('mfs')}
@@ -313,22 +403,462 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
           <Globe2 className="w-4 h-4" />
           <span>অটোমেটেড গেটওয়ে ({formData.gateways?.length || 0})</span>
         </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('packages')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
-            activeSubTab === 'packages'
-              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-          }`}
-        >
-          <Package className="w-4 h-4" />
-          <span>সাবস্ক্রিপশন প্যাকেজ প্রাইসিং ({formData.customPlans?.length || 0})</span>
-        </button>
       </div>
 
-      {/* 1. MFS WALLET CHANNELS */}
+      {/* 0. FREE TRIAL & BONUS DAYS DYNAMIC CONTROLS */}
+      {activeSubTab === 'trial_bonus' && (
+        <div className="space-y-6">
+          {/* Section 1: Free Trial Setting */}
+          <div className="p-6 rounded-3xl bg-[#0D1424] border border-amber-500/30 shadow-xl space-y-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white flex items-center gap-2">
+                    <span>নতুন রেজিস্ট্রেশনে ফ্রি ট্রায়াল নিয়ন্ত্রণ</span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                      currentTrial.isTrialEnabled !== false
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                    }`}>
+                      {currentTrial.isTrialEnabled !== false ? '🟢 চালু রয়েছে' : '🔴 বন্ধ রয়েছে'}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    নতুন অ্যাকাউন্ট খোলার পর দোকানদারকে বিনামূল্যে ব্যবহারের সুযোগ দিতে পারবেন এবং দিন কমাতে/বাড়াতে পারবেন
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 bg-slate-900/90 px-4 py-2 rounded-2xl border border-slate-800">
+                <span className="text-xs font-bold text-slate-300">ফ্রি ট্রায়াল স্ট্যাটাস:</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={currentTrial.isTrialEnabled !== false}
+                    onChange={(e) => handleUpdateTrialConfig('isTrialEnabled', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
+                </label>
+              </div>
+            </div>
+
+            {currentTrial.isTrialEnabled !== false ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-4 bg-slate-900/70 p-4 sm:p-5 rounded-2xl border border-slate-800">
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1.5 flex items-center justify-between">
+                      <span>ফ্রি ট্রায়াল মেয়াদের দিন সংখ্যা:</span>
+                      <span className="text-amber-400 font-mono font-black text-sm">
+                        {currentTrial.trialDays || 14} দিন
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={currentTrial.trialDays || 14}
+                        onChange={(e) => handleUpdateTrialConfig('trialDays', Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        className="w-full bg-slate-950 border border-slate-700/90 rounded-xl px-3.5 py-2.5 text-sm text-white font-bold focus:outline-none focus:border-amber-500 font-mono"
+                      />
+                    </div>
+                    {/* Quick Preset Buttons */}
+                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                      <span className="text-[11px] text-slate-500 font-semibold mr-1">কুইক সিলেক্ট:</span>
+                      {[3, 7, 14, 21, 30].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => handleUpdateTrialConfig('trialDays', d)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            (currentTrial.trialDays || 14) === d
+                              ? 'bg-amber-500 text-slate-950'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                          }`}
+                        >
+                          {d} দিন
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                      ট্রায়াল প্ল্যান শিরোনাম / নাম (বাংলা):
+                    </label>
+                    <input
+                      type="text"
+                      value={currentTrial.trialPlanName || `ফ্রি ট্রায়াল (${currentTrial.trialDays || 14} দিন)`}
+                      onChange={(e) => handleUpdateTrialConfig('trialPlanName', e.target.value)}
+                      placeholder="যেমন: ফ্রি ট্রায়াল (১৪ দিন)"
+                      className="w-full bg-slate-950 border border-slate-700/90 rounded-xl px-3.5 py-2 text-xs text-white font-bold focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-amber-950/20 border border-amber-500/20 p-4 sm:p-5 rounded-2xl space-y-3 flex flex-col justify-between">
+                  <div>
+                    <span className="text-xs font-black text-amber-300 uppercase tracking-wider block mb-1 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      <span>দোকানদার রেজিস্ট্রেশন প্রিভিউ</span>
+                    </span>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      নতুন কোনো গ্রাহক রেজিস্ট্রেশন করার সাথে সাথে সে কোনো টাকা ছাড়াই <strong>{currentTrial.trialDays || 14} দিন</strong> মেয়াদের পূর্ণ সুবিধা পাবে। মেয়াদ শেষ হওয়ার আগ পর্যন্ত অ্যাপটি কোনো সীমাবদ্ধতা ছাড়া চলবে।
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800 text-xs space-y-1">
+                    <div className="flex justify-between text-slate-400">
+                      <span>প্যাকেজ নাম:</span>
+                      <span className="font-bold text-white">{currentTrial.trialPlanName || `ফ্রি ট্রায়াল (${currentTrial.trialDays || 14} দিন)`}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>প্রারম্ভিক মেয়াদ:</span>
+                      <span className="font-mono font-bold text-amber-400">রেজিস্ট্রেশন তারিখ + {currentTrial.trialDays || 14} দিন</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>মূল্য:</span>
+                      <span className="font-bold text-emerald-400">৳০ (বিনামূল্যে)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+                <span>
+                  <strong>ফ্রি ট্রায়াল বন্ধ রাখা হয়েছে:</strong> নতুন কোনো দোকানদার একাউন্ট তৈরি করলে তাকে সরাসরি সাবস্ক্রিপশন পেইড প্যাকেজ কিনতে হবে, কোনো ফ্রি মেয়াদ স্বয়ংক্রিয়ভাবে পাবে না।
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Section 2: Bonus Offer Setting */}
+          <div className="p-6 rounded-3xl bg-[#0D1424] border border-teal-500/30 shadow-xl space-y-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-teal-500/20 text-teal-400 flex items-center justify-center font-bold">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white flex items-center gap-2">
+                    <span>প্রমোশনাল বোনাস অফার দিন নিয়ন্ত্রণ</span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                      currentBonus.isBonusEnabled !== false
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                    }`}>
+                      {currentBonus.isBonusEnabled !== false ? '🟢 চালু রয়েছে' : '🔴 বন্ধ রয়েছে'}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    সাবস্ক্রিপশন ক্রয় বা রিনিউ করার সময় গ্রাহককে অতিরিক্ত উপহার দিন (যেমন: +৭ দিন ফ্রি) যোগ করুন
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 bg-slate-900/90 px-4 py-2 rounded-2xl border border-slate-800">
+                <span className="text-xs font-bold text-slate-300">বোনাস অফার স্ট্যাটাস:</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={currentBonus.isBonusEnabled !== false}
+                    onChange={(e) => handleUpdateBonusConfig('isBonusEnabled', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-500" />
+                </label>
+              </div>
+            </div>
+
+            {currentBonus.isBonusEnabled !== false ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="space-y-4 bg-slate-900/70 p-4 sm:p-5 rounded-2xl border border-slate-800">
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1.5 flex items-center justify-between">
+                      <span>অতিরিক্ত বোনাস দিন সংখ্যা:</span>
+                      <span className="text-teal-400 font-mono font-black text-sm">
+                        +{currentBonus.bonusDays || 7} দিন ফ্রি
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="180"
+                        value={currentBonus.bonusDays ?? 7}
+                        onChange={(e) => handleUpdateBonusConfig('bonusDays', Math.max(0, parseInt(e.target.value, 10) || 0))}
+                        className="w-full bg-slate-950 border border-slate-700/90 rounded-xl px-3.5 py-2.5 text-sm text-white font-bold focus:outline-none focus:border-teal-500 font-mono"
+                      />
+                    </div>
+                    {/* Quick Preset Buttons */}
+                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                      <span className="text-[11px] text-slate-500 font-semibold mr-1">কুইক সিলেক্ট:</span>
+                      {[0, 3, 5, 7, 10, 15, 30].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => handleUpdateBonusConfig('bonusDays', d)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            (currentBonus.bonusDays ?? 7) === d
+                              ? 'bg-teal-500 text-slate-950'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                          }`}
+                        >
+                          {d === 0 ? '০ দিন (কোন বোনাস নেই)' : `+${d} দিন`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                      অফার শিরোনাম (ইউজারের জন্য প্রদর্শিত):
+                    </label>
+                    <input
+                      type="text"
+                      value={currentBonus.bonusTitle || `স্পেশাল বোনাস অফার (+${currentBonus.bonusDays || 7} দিন ফ্রি)`}
+                      onChange={(e) => handleUpdateBonusConfig('bonusTitle', e.target.value)}
+                      placeholder="যেমন: স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)"
+                      className="w-full bg-slate-950 border border-slate-700/90 rounded-xl px-3.5 py-2 text-xs text-white font-bold focus:outline-none focus:border-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                      অফারের বিবরণ:
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={currentBonus.bonusDescription || ''}
+                      onChange={(e) => handleUpdateBonusConfig('bonusDescription', e.target.value)}
+                      placeholder="অফারের নিয়ম ও বর্ণনা..."
+                      className="w-full bg-slate-950 border border-slate-700/90 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-teal-500 resize-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-teal-950/20 border border-teal-500/20 p-4 sm:p-5 rounded-2xl space-y-4 flex flex-col justify-between">
+                  <div>
+                    <span className="text-xs font-black text-teal-300 uppercase tracking-wider block mb-1 flex items-center gap-1.5">
+                      <Gift className="w-4 h-4 text-teal-400" />
+                      <span>লাইভ বোনাস ক্যালকুলেটর প্রিভিউ</span>
+                    </span>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      গ্রাহক যখন যেকোনো পেইড প্যাকেজ নির্বাচন করবেন, সুপার অ্যাডমিন পেমেন্ট অ্যাপ্রুভ করার সাথে সাথে মূল মেয়াদের সাথে এই বোনাস দিন স্বয়ংক্রিয়ভাবে যোগ হবে।
+                    </p>
+                  </div>
+
+                  {/* Dynamic calculation examples */}
+                  <div className="space-y-2">
+                    <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800 text-xs flex items-center justify-between">
+                      <span className="text-slate-400">১ মাসের প্যাকেজ (৩০ দিন):</span>
+                      <span className="font-mono font-bold text-teal-300">
+                        ৩০ + {currentBonus.bonusDays || 7} = <strong>{(30 + (currentBonus.bonusDays || 7))} দিন</strong> মেয়াদ পাবে
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800 text-xs flex items-center justify-between">
+                      <span className="text-slate-400">২ মাসের প্যাকেজ (৬০ দিন):</span>
+                      <span className="font-mono font-bold text-teal-300">
+                        ৬০ + {currentBonus.bonusDays || 7} = <strong>{(60 + (currentBonus.bonusDays || 7))} দিন</strong> মেয়াদ পাবে
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800 text-xs flex items-center justify-between">
+                      <span className="text-slate-400">১ বছরের প্যাকেজ (৩৬৫ দিন):</span>
+                      <span className="font-mono font-bold text-emerald-400">
+                        ৩৬৫ + {currentBonus.bonusDays || 7} = <strong>{(365 + (currentBonus.bonusDays || 7))} দিন</strong> মেয়াদ পাবে
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+                <span>
+                  <strong>বোনাস অফার বন্ধ রাখা হয়েছে:</strong> গ্রাহক সাবস্ক্রিপশন ক্রয় বা রিনিউ করলে শুধুমাত্র প্যাকেজের নির্ধারিত মূল দিনগুলো মেয়াদ হিসেবে পাবে, কোনো অতিরিক্ত বোনাস দিন যোগ হবে না।
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 1. SUBSCRIPTION PACKAGES & DURATION MANAGEMENT */}
+      {activeSubTab === 'packages' && (
+        <div className="space-y-5">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900 border border-slate-800">
+            <div className="flex items-center gap-3">
+              <Package className="w-5 h-5 text-indigo-400" />
+              <div>
+                <h4 className="text-sm font-bold text-white">সাবস্ক্রিপশন প্যাকেজ, মেয়াদ ও প্রাইসিং নিয়ন্ত্রণ</h4>
+                <p className="text-xs text-slate-400">
+                  দোকানদারদের জন্য প্রতিটি প্যাকেজের মূল্য (৳), মেয়াদ (দিন), ব্যাজ ও ফিচার ইচ্ছেমতো বাড়াতে/কমাতে বা চালু/বন্ধ করতে পারবেন
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleResetDefaultPlans}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition border border-slate-700"
+                title="ডিফল্ট ৪টি প্যাকেজে রিসেট করুন"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>ডিফল্ট রিসেট</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleAddNewPlan}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>নতুন প্যাকেজ যোগ করুন</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(formData.customPlans || DEFAULT_PLANS).map((plan, idx) => (
+              <div
+                key={plan.id || idx}
+                className={`p-5 rounded-3xl border transition-all shadow-xl space-y-3.5 relative ${
+                  plan.isEnabled !== false
+                    ? 'bg-[#0D1424] border-indigo-500/20'
+                    : 'bg-slate-950/60 border-slate-800/80 opacity-75'
+                }`}
+              >
+                {/* Header & Controls */}
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-indigo-400">প্যাকেজ #{idx + 1}</span>
+                    {plan.isEnabled === false && (
+                      <span className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-400 text-[10px] font-bold">
+                        নিষ্ক্রিয় (Disabled)
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Enable/Disable Switch */}
+                    <label className="flex items-center gap-1 cursor-pointer" title="প্যাকেজটি চালু বা বন্ধ রাখুন">
+                      <input
+                        type="checkbox"
+                        checked={plan.isEnabled !== false}
+                        onChange={(e) => handleUpdatePlan(idx, 'isEnabled', e.target.checked)}
+                        className="w-3.5 h-3.5 accent-emerald-500 rounded cursor-pointer"
+                      />
+                      <span className="text-[10px] font-bold text-slate-400">
+                        {plan.isEnabled !== false ? 'চালু' : 'বন্ধ'}
+                      </span>
+                    </label>
+
+                    {/* Popular Badge Switch */}
+                    <label className="flex items-center gap-1 cursor-pointer" title="পপুলার ব্যাজ যুক্ত করুন">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(plan.isPopular)}
+                        onChange={(e) => handleUpdatePlan(idx, 'isPopular', e.target.checked)}
+                        className="w-3.5 h-3.5 accent-amber-500 rounded cursor-pointer"
+                      />
+                      <span className="text-[10px] font-bold text-amber-400">পপুলার</span>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePlan(idx)}
+                      className="p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer"
+                      title="প্যাকেজ মুছুন"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-0.5">প্যাকেজের নাম (বাংলা)</label>
+                    <input
+                      type="text"
+                      value={plan.nameBn}
+                      onChange={(e) => handleUpdatePlan(idx, 'nameBn', e.target.value)}
+                      placeholder="১ মাস (স্ট্যান্ডার্ড)"
+                      className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white font-bold focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">মূল্য (টাকা ৳)</label>
+                      <input
+                        type="number"
+                        value={plan.price}
+                        onChange={(e) => handleUpdatePlan(idx, 'price', Number(e.target.value))}
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">মেয়াদ (দিন)</label>
+                      <input
+                        type="number"
+                        value={plan.durationDays}
+                        onChange={(e) => handleUpdatePlan(idx, 'durationDays', Number(e.target.value))}
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-teal-300 font-bold focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">আগের মূল্য / ডিসকাউন্ট (৳)</label>
+                      <input
+                        type="number"
+                        value={plan.originalPrice || ''}
+                        onChange={(e) => handleUpdatePlan(idx, 'originalPrice', e.target.value ? Number(e.target.value) : undefined)}
+                        placeholder="যেমন: ১০০"
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-slate-400 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">ব্যাজ টেক্সট (ঐচ্ছিক)</label>
+                      <input
+                        type="text"
+                        value={plan.badge || ''}
+                        onChange={(e) => handleUpdatePlan(idx, 'badge', e.target.value)}
+                        placeholder="যেমন: সেরা অফার"
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-amber-300 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">ফিচারসমূহ (কমা দিয়ে আলাদা করুন):</label>
+                    <textarea
+                      rows={2}
+                      value={(plan.features || []).join(', ')}
+                      onChange={(e) => handleUpdatePlan(idx, 'features', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
+                      placeholder="সম্পূর্ণ আনলিমিটেড হিসাব, ফ্রি এসএমএস অ্যালার্ট..."
+                      className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 resize-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 2. MFS WALLET CHANNELS */}
       {activeSubTab === 'mfs' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {/* bKash */}
@@ -363,9 +893,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
 
             <div className="space-y-3">
               <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  বিকাশ পার্সোনাল নম্বর (সেন্ড মানি)
-                </label>
+                <label className="text-xs font-bold text-slate-300 block mb-1">বিকাশ পার্সোনাল / মার্চেন্ট নম্বর</label>
                 <input
                   type="text"
                   value={formData.bkash.personal.number}
@@ -379,42 +907,15 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                     }))
                   }
                   placeholder="01306908115"
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-pink-500 font-mono"
+                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-pink-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  বিকাশ মার্চেন্ট নম্বর (পেমেন্ট - ঐচ্ছিক)
-                </label>
-                <input
-                  type="text"
-                  value={formData.bkash.merchant?.number || ''}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      bkash: {
-                        ...prev.bkash,
-                        merchant: {
-                          number: e.target.value,
-                          accountType: 'merchant',
-                          instructions: 'বিকাশ মেক পেমেন্ট করুন',
-                        },
-                      },
-                    }))
-                  }
-                  placeholder="01306908115 (মার্চেন্ট নম্বর)"
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-pink-500 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  ইউজারদের জন্য নির্দেশিকা
-                </label>
-                <input
-                  type="text"
-                  value={formData.bkash.personal.instructions || ''}
+                <label className="text-xs font-bold text-slate-300 block mb-1">নির্দেশনা (গ্রাহককে কী দেখানো হবে)</label>
+                <textarea
+                  rows={2}
+                  value={formData.bkash.personal.instructions}
                   onChange={(e) =>
                     setFormData((prev) => ({
                       ...prev,
@@ -424,8 +925,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       },
                     }))
                   }
-                  placeholder="বিকাশ অ্যাপ থেকে Send Money করুন এবং TrxID দিন।"
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-pink-500"
+                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-pink-500 resize-none"
                 />
               </div>
             </div>
@@ -463,9 +963,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
 
             <div className="space-y-3">
               <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  নগদ পার্সোনাল নম্বর (সেন্ড মানি)
-                </label>
+                <label className="text-xs font-bold text-slate-300 block mb-1">নগদ পার্সোনাল / মার্চেন্ট নম্বর</label>
                 <input
                   type="text"
                   value={formData.nagad.personal.number}
@@ -479,17 +977,15 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                     }))
                   }
                   placeholder="01306908115"
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-orange-500 font-mono"
+                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-orange-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  ইউজারদের জন্য নির্দেশিকা
-                </label>
-                <input
-                  type="text"
-                  value={formData.nagad.personal.instructions || ''}
+                <label className="text-xs font-bold text-slate-300 block mb-1">নির্দেশনা (গ্রাহককে কী দেখানো হবে)</label>
+                <textarea
+                  rows={2}
+                  value={formData.nagad.personal.instructions}
                   onChange={(e) =>
                     setFormData((prev) => ({
                       ...prev,
@@ -499,8 +995,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       },
                     }))
                   }
-                  placeholder="নগদ অ্যাপ বা *167# থেকে Send Money করুন।"
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-orange-500"
+                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-orange-500 resize-none"
                 />
               </div>
             </div>
@@ -514,8 +1009,8 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                   ৳
                 </div>
                 <div>
-                  <h4 className="text-sm font-black text-white">রকেট (Rocket)</h4>
-                  <p className="text-[11px] text-slate-400">ডাচ-বাংলা মোবাইল ব্যাংকিং</p>
+                  <h4 className="text-sm font-black text-white">রকেট (Rocket / DBBL)</h4>
+                  <p className="text-[11px] text-slate-400">ডাচ বাংলা ব্যাংক মোবাইল ব্যাংকিং</p>
                 </div>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
@@ -538,9 +1033,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
 
             <div className="space-y-3">
               <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  রকেট নম্বর (১২ ডিজিট - চেক ডিজিট সহ)
-                </label>
+                <label className="text-xs font-bold text-slate-300 block mb-1">রকেট একাউন্ট নম্বর (১২ ডিজিট)</label>
                 <input
                   type="text"
                   value={formData.rocket.personal.number}
@@ -554,17 +1047,15 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                     }))
                   }
                   placeholder="01306908115-8"
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-purple-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  ইউজারদের জন্য নির্দেশিকা
-                </label>
-                <input
-                  type="text"
-                  value={formData.rocket.personal.instructions || ''}
+                <label className="text-xs font-bold text-slate-300 block mb-1">নির্দেশনা</label>
+                <textarea
+                  rows={2}
+                  value={formData.rocket.personal.instructions}
                   onChange={(e) =>
                     setFormData((prev) => ({
                       ...prev,
@@ -574,23 +1065,22 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       },
                     }))
                   }
-                  placeholder="রকেট অ্যাপ থেকে Send Money করুন।"
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-purple-500 resize-none"
                 />
               </div>
             </div>
           </div>
 
           {/* Upay */}
-          <div className="p-5 rounded-3xl bg-[#0D1424] border border-cyan-500/20 shadow-xl space-y-4">
+          <div className="p-5 rounded-3xl bg-[#0D1424] border border-blue-500/20 shadow-xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-black text-sm">
+                <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center font-black text-sm">
                   ৳
                 </div>
                 <div>
-                  <h4 className="text-sm font-black text-white">উপায় (Upay)</h4>
-                  <p className="text-[11px] text-slate-400">UCB মোবাইল ফাইন্যান্সিয়াল সার্ভিস</p>
+                  <h4 className="text-sm font-black text-white">উপায় (Upay / UCB)</h4>
+                  <p className="text-[11px] text-slate-400">ইউসিবি মোবাইল ওয়ালেট</p>
                 </div>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
@@ -606,16 +1096,14 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       upay: { ...prev.upay, isEnabled: e.target.checked },
                     }))
                   }
-                  className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
+                  className="w-4 h-4 accent-blue-500 rounded cursor-pointer"
                 />
               </label>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  উপায় নম্বর
-                </label>
+                <label className="text-xs font-bold text-slate-300 block mb-1">উপায় নম্বর</label>
                 <input
                   type="text"
                   value={formData.upay.personal.number}
@@ -629,17 +1117,15 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                     }))
                   }
                   placeholder="01306908115"
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  ইউজারদের জন্য নির্দেশিকা
-                </label>
-                <input
-                  type="text"
-                  value={formData.upay.personal.instructions || ''}
+                <label className="text-xs font-bold text-slate-300 block mb-1">নির্দেশনা</label>
+                <textarea
+                  rows={2}
+                  value={formData.upay.personal.instructions}
                   onChange={(e) =>
                     setFormData((prev) => ({
                       ...prev,
@@ -649,8 +1135,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       },
                     }))
                   }
-                  placeholder="উপায় অ্যাপ থেকে সেন্ড মানি করুন।"
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-slate-300 focus:outline-none focus:border-blue-500 resize-none"
                 />
               </div>
             </div>
@@ -658,24 +1143,24 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
         </div>
       )}
 
-      {/* 2. BANK TRANSFER ACCOUNTS */}
+      {/* 3. BANK TRANSFER CHANNELS */}
       {activeSubTab === 'bank' && (
         <div className="space-y-5">
           <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-900 border border-slate-800">
             <div className="flex items-center gap-3">
               <Building2 className="w-5 h-5 text-indigo-400" />
               <div>
-                <h4 className="text-sm font-bold text-white">সরাসরি ব্যাংক অ্যাকাউন্ট তালিকা</h4>
+                <h4 className="text-sm font-bold text-white">ব্যাংক অ্যাকাউন্ট ট্রান্সফার</h4>
                 <p className="text-xs text-slate-400">
-                  ইউজাররা এই অ্যাকাউন্টগুলোতে ট্রান্সফার বা ডিপোজিট করে ট্রানজেকশন স্লিপ সাবমিট করতে পারবে
+                  সরাসরি ব্যাংক ডিপোজিট ও অনলাইন ট্রান্সফার (BEFTN/NPSB/RTGS) এর জন্য অ্যাকাউন্টসমূহ
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-center gap-2 cursor-pointer bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
                 <span className="text-xs font-bold text-slate-300">
-                  {formData.bankTransfer.isEnabled ? 'ব্যাংক ট্রান্সফার চালু' : 'বন্ধ'}
+                  ব্যাংক পেমেন্ট {formData.bankTransfer.isEnabled ? 'চালু' : 'বন্ধ'}
                 </span>
                 <input
                   type="checkbox"
@@ -702,92 +1187,85 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
           </div>
 
           {formData.bankTransfer.accounts.length === 0 ? (
-            <div className="p-8 text-center rounded-3xl bg-[#0D1424] border border-slate-800 text-slate-400">
-              <Building2 className="w-10 h-10 mx-auto text-slate-600 mb-2" />
-              <p className="text-sm font-bold text-slate-300">কোনো ব্যাংক অ্যাকাউন্ট যুক্ত করা হয়নি</p>
-              <p className="text-xs text-slate-500 mt-1">উপরের বাটনে ক্লিক করে আপনার অফিশিয়াল ব্যাংক হিসাব যোগ করুন।</p>
+            <div className="p-8 text-center bg-slate-900/50 rounded-3xl border border-dashed border-slate-800 space-y-2">
+              <Building2 className="w-8 h-8 text-slate-600 mx-auto" />
+              <p className="text-xs font-bold text-slate-400">কোন ব্যাংক অ্যাকাউন্ট যুক্ত করা হয়নি</p>
+              <p className="text-[11px] text-slate-500">গ্রাহকদের জন্য আপনার ব্যাংক অ্যাকাউন্ট তথ্য যোগ করুন</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {formData.bankTransfer.accounts.map((acc, idx) => (
-                <div key={idx} className="p-5 rounded-3xl bg-[#0D1424] border border-slate-800 shadow-xl space-y-3 relative group">
+                <div key={idx} className="p-5 rounded-3xl bg-[#0D1424] border border-slate-800 shadow-xl space-y-3 relative">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                    <span className="text-xs font-black text-indigo-400">ব্যাংক অ্যাকাউন্ট #{idx + 1}</span>
+                    <span className="text-xs font-black text-indigo-400">ব্যাংক #{idx + 1}</span>
                     <button
                       type="button"
                       onClick={() => handleRemoveBankAccount(idx)}
-                      className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white transition cursor-pointer"
-                      title="অ্যাকাউন্ট মুছুন"
+                      className="p-1 text-slate-500 hover:text-rose-400 transition"
+                      title="মুছুন"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="col-span-2">
-                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">ব্যাংকের নাম</label>
+                  <div className="space-y-2.5">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">ব্যাংকের নাম *</label>
                       <input
                         type="text"
                         value={acc.bankName}
                         onChange={(e) => handleUpdateBankAccount(idx, 'bankName', e.target.value)}
-                        placeholder="যেমন: Islami Bank Bangladesh Ltd"
+                        placeholder="যেমন: Islami Bank Bangladesh Ltd, City Bank, DBBL"
                         className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
                       />
                     </div>
 
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">অ্যাকাউন্টধারীর নাম</label>
-                      <input
-                        type="text"
-                        value={acc.accountName}
-                        onChange={(e) => handleUpdateBankAccount(idx, 'accountName', e.target.value)}
-                        placeholder="Twing Software"
-                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                      />
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-400 block mb-0.5">অ্যাকাউন্টের নাম</label>
+                        <input
+                          type="text"
+                          value={acc.accountName}
+                          onChange={(e) => handleUpdateBankAccount(idx, 'accountName', e.target.value)}
+                          placeholder="M/S Twing Enterprise"
+                          className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-400 block mb-0.5">অ্যাকাউন্ট নম্বর *</label>
+                        <input
+                          type="text"
+                          value={acc.accountNumber}
+                          onChange={(e) => handleUpdateBankAccount(idx, 'accountNumber', e.target.value)}
+                          placeholder="2050XXXXXXXXXXXXX"
+                          className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                        />
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">অ্যাকাউন্ট নম্বর</label>
-                      <input
-                        type="text"
-                        value={acc.accountNumber}
-                        onChange={(e) => handleUpdateBankAccount(idx, 'accountNumber', e.target.value)}
-                        placeholder="2050213020198765"
-                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-                      />
-                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-400 block mb-0.5">শাখা (Branch)</label>
+                        <input
+                          type="text"
+                          value={acc.branchName || ''}
+                          onChange={(e) => handleUpdateBankAccount(idx, 'branchName', e.target.value)}
+                          placeholder="ধানমন্ডি শাখা, ঢাকা"
+                          className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">শাখা (Branch)</label>
-                      <input
-                        type="text"
-                        value={acc.branchName}
-                        onChange={(e) => handleUpdateBankAccount(idx, 'branchName', e.target.value)}
-                        placeholder="Mirpur-10 Branch"
-                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">রাউটিং নম্বর (ঐচ্ছিক)</label>
-                      <input
-                        type="text"
-                        value={acc.routingNumber}
-                        onChange={(e) => handleUpdateBankAccount(idx, 'routingNumber', e.target.value)}
-                        placeholder="125262789"
-                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-                      />
-                    </div>
-
-                    <div className="col-span-2">
-                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">ডিপোজিট নির্দেশিকা</label>
-                      <input
-                        type="text"
-                        value={acc.instructions || ''}
-                        onChange={(e) => handleUpdateBankAccount(idx, 'instructions', e.target.value)}
-                        placeholder="NPSB/BEFTN ট্রান্সফার করুন।"
-                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-                      />
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-400 block mb-0.5">রাউটিং নম্বর (ঐচ্ছিক)</label>
+                        <input
+                          type="text"
+                          value={acc.routingNumber || ''}
+                          onChange={(e) => handleUpdateBankAccount(idx, 'routingNumber', e.target.value)}
+                          placeholder="125XXXXXXXX"
+                          className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -797,16 +1275,16 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
         </div>
       )}
 
-      {/* 3. AUTOMATED PAYMENT GATEWAYS */}
+      {/* 4. AUTOMATED PAYMENT GATEWAYS */}
       {activeSubTab === 'gateway' && (
         <div className="space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900 border border-slate-800">
+          <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-900 border border-slate-800">
             <div className="flex items-center gap-3">
               <Globe2 className="w-5 h-5 text-teal-400" />
               <div>
-                <h4 className="text-sm font-bold text-white">অটোমেটিক অনলাইন পেমেন্ট গেটওয়ে</h4>
+                <h4 className="text-sm font-bold text-white">অটোমেটেড পেমেন্ট গেটওয়ে প্রশাসন</h4>
                 <p className="text-xs text-slate-400">
-                  ইনস্ট্যান্ট অটো-ভেরিফিকেশন ও অনলাইন চেকআউট এপিআই ইন্টিগ্রেশন
+                  বিকাশ মার্চেন্ট এপিআই, নগদ ডিরেক্ট, SSLCommerz, ShurjoPay, AamarPay বা কাস্টম গেটওয়ে
                 </p>
               </div>
             </div>
@@ -814,51 +1292,37 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
             <button
               type="button"
               onClick={() => setShowAddGatewayModal(true)}
-              className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition"
+              className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition"
             >
-              <Plus className="w-4 h-4" />
-              <span>কাস্টম গেটওয়ে যোগ করুন</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>নতুন কাস্টম গেটওয়ে যোগ করুন</span>
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {(formData.gateways || []).map((gtw, idx) => (
-              <div
-                key={idx}
-                className={`p-5 rounded-3xl border transition shadow-xl space-y-3.5 ${
-                  gtw.isEnabled
-                    ? 'bg-[#0D1424] border-teal-500/30'
-                    : 'bg-slate-900/60 border-slate-800 opacity-80'
-                }`}
-              >
-                <div className="flex items-center justify-between pb-2.5 border-b border-slate-800">
+              <div key={idx} className="p-5 rounded-3xl bg-[#0D1424] border border-teal-500/20 shadow-xl space-y-3.5 relative">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center font-bold text-xs">
-                      API
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-black text-white">{gtw.name}</h4>
-                      <span className="text-[10px] text-slate-500 font-mono">{gtw.gatewayId}</span>
-                    </div>
+                    <Globe2 className="w-4 h-4 text-teal-400" />
+                    <span className="text-xs font-bold text-white">{gtw.name}</span>
                   </div>
-
                   <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-1.5 cursor-pointer bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-700">
-                      <span className="text-[11px] font-bold text-slate-300">
-                        {gtw.isEnabled ? 'সক্রিয়' : 'বন্ধ'}
-                      </span>
+                    <label className="flex items-center gap-1 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={gtw.isEnabled}
                         onChange={(e) => handleUpdateGateway(idx, 'isEnabled', e.target.checked)}
                         className="w-3.5 h-3.5 accent-teal-500 rounded cursor-pointer"
                       />
+                      <span className="text-[10px] font-bold text-slate-400">
+                        {gtw.isEnabled ? 'চালু' : 'বন্ধ'}
+                      </span>
                     </label>
-
                     <button
                       type="button"
                       onClick={() => handleRemoveGateway(idx)}
-                      className="p-1 rounded-lg text-slate-500 hover:text-rose-400 transition"
+                      className="p-1 text-slate-500 hover:text-rose-400 transition"
                       title="মুছুন"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -867,27 +1331,27 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                 </div>
 
                 <div className="space-y-2.5">
-                  <div className="flex items-center justify-between bg-slate-900/90 p-2 rounded-xl border border-slate-800">
-                    <span className="text-[11px] font-bold text-slate-400">পরিবেশ (Environment)</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateGateway(idx, 'isLive', false)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
-                          !gtw.isLive ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'text-slate-500'
-                        }`}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">গেটওয়ে আইডি</label>
+                      <input
+                        type="text"
+                        value={gtw.gatewayId}
+                        disabled
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-400 font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">পরিবেশ (Environment)</label>
+                      <select
+                        value={gtw.isLive ? 'live' : 'sandbox'}
+                        onChange={(e) => handleUpdateGateway(idx, 'isLive', e.target.value === 'live')}
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-teal-500"
                       >
-                        Sandbox / Test
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateGateway(idx, 'isLive', true)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
-                          gtw.isLive ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-slate-500'
-                        }`}
-                      >
-                        Production Live
-                      </button>
+                        <option value="sandbox">Sandbox / Test Mode</option>
+                        <option value="live">Production / Live Mode</option>
+                      </select>
                     </div>
                   </div>
 
@@ -932,107 +1396,6 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       onChange={(e) => handleUpdateGateway(idx, 'notes', e.target.value)}
                       placeholder="অটোমেটেড গেটওয়ে পেমেন্ট"
                       className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-teal-500"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 4. SUBSCRIPTION PACKAGES PRICING */}
-      {activeSubTab === 'packages' && (
-        <div className="space-y-5">
-          <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-900 border border-slate-800">
-            <div className="flex items-center gap-3">
-              <Package className="w-5 h-5 text-indigo-400" />
-              <div>
-                <h4 className="text-sm font-bold text-white">সাবস্ক্রিপশন প্ল্যান ও প্রাইসিং</h4>
-                <p className="text-xs text-slate-400">
-                  দোকানদার ইউজারদের জন্য সাবস্ক্রিপশন প্যাকেজের মূল্য, মেয়াদ ও অফার নিয়ন্ত্রণ করুন
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleAddNewPlan}
-              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>নতুন প্যাকেজ যোগ করুন</span>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {(formData.customPlans || DEFAULT_PLANS).map((plan, idx) => (
-              <div key={idx} className="p-5 rounded-3xl bg-[#0D1424] border border-indigo-500/20 shadow-xl space-y-3.5 relative">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                  <span className="text-xs font-black text-indigo-400">প্যাকেজ #{idx + 1}</span>
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-1 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(plan.isPopular)}
-                        onChange={(e) => handleUpdatePlan(idx, 'isPopular', e.target.checked)}
-                        className="w-3.5 h-3.5 accent-amber-500 rounded cursor-pointer"
-                      />
-                      <span className="text-[10px] font-bold text-amber-400">পপুলার ব্যাজ</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => handleRemovePlan(idx)}
-                      className="p-1 text-slate-500 hover:text-rose-400 transition"
-                      title="মুছুন"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2.5">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 block mb-0.5">প্যাকেজের নাম (বাংলা)</label>
-                    <input
-                      type="text"
-                      value={plan.nameBn}
-                      onChange={(e) => handleUpdatePlan(idx, 'nameBn', e.target.value)}
-                      placeholder="১ মাস (স্ট্যান্ডার্ড)"
-                      className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white font-bold focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">মূল্য (টাকা)</label>
-                      <input
-                        type="number"
-                        value={plan.price}
-                        onChange={(e) => handleUpdatePlan(idx, 'price', Number(e.target.value))}
-                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-indigo-500 font-mono"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-400 block mb-0.5">মেয়াদ (দিন)</label>
-                      <input
-                        type="number"
-                        value={plan.durationDays}
-                        onChange={(e) => handleUpdatePlan(idx, 'durationDays', Number(e.target.value))}
-                        className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white font-bold focus:outline-none focus:border-indigo-500 font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 block mb-0.5">আগের মূল্য / ডিসকাউন্ট (ঐচ্ছিক)</label>
-                    <input
-                      type="number"
-                      value={plan.originalPrice || ''}
-                      onChange={(e) => handleUpdatePlan(idx, 'originalPrice', Number(e.target.value))}
-                      placeholder="যেমন: ৫০০"
-                      className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-slate-400 focus:outline-none focus:border-indigo-500 font-mono"
                     />
                   </div>
                 </div>

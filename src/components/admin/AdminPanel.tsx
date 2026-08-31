@@ -231,8 +231,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }, 4000);
   };
 
+  const clientUsers = users.filter(
+    (u) =>
+      u.role !== 'super_admin' &&
+      u.id !== 'usr_super_admin' &&
+      u.email !== 'siftibrahim@gmail.com' &&
+      u.email !== 'admin@twing.com' &&
+      u.shopName !== 'সুপার অ্যাডমিন ড্যাশবোর্ড'
+  );
+
   const pendingPaymentsCount = payments.filter((p) => p.status === 'pending').length;
-  const expiredCount = users.filter((u) => u.subscriptionExpiresAt <= Date.now() || u.status === 'expired').length;
+  const expiredCount = clientUsers.filter((u) => u.subscriptionExpiresAt <= Date.now() || u.status === 'expired').length;
   const unreadSupportCount = supportThreads.reduce((acc, t) => acc + (t.unreadAdminCount || 0), 0);
 
   // Horizontal Tab Bar Items
@@ -277,7 +286,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       id: 'users',
       label: 'ইউজার তালিকা',
       icon: Users,
-      badge: users.length > 0 ? users.length : undefined,
+      badge: clientUsers.length > 0 ? clientUsers.length : undefined,
       badgeColor: 'bg-indigo-600 text-white',
       isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'users_view'),
     },
@@ -405,26 +414,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
 
           {isSuperAdmin ? (
-            <>
-              <div className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-gradient-to-r from-amber-500/15 via-yellow-500/20 to-amber-600/15 border border-amber-500/40 text-amber-300 text-xs font-black flex items-center gap-1 sm:gap-1.5 shadow-xs shrink-0">
-                <span className="text-xs sm:text-sm">👑</span>
-                <div className="flex flex-col text-left">
-                  <span className="text-[8px] sm:text-[9px] leading-none uppercase tracking-wider text-amber-300/80">Super</span>
-                  <span className="text-[10px] sm:text-[11px] leading-tight font-black text-amber-300">Admin</span>
-                </div>
+            <div className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-gradient-to-r from-amber-500/15 via-yellow-500/20 to-amber-600/15 border border-amber-500/40 text-amber-300 text-xs font-black flex items-center gap-1 sm:gap-1.5 shadow-xs shrink-0">
+              <span className="text-xs sm:text-sm">👑</span>
+              <div className="flex flex-col text-left">
+                <span className="text-[8px] sm:text-[9px] leading-none uppercase tracking-wider text-amber-300/80">Super</span>
+                <span className="text-[10px] sm:text-[11px] leading-tight font-black text-amber-300">Admin</span>
               </div>
-
-              {/* Switch to Shop button for Super Admin */}
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-2 sm:px-3 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 flex items-center gap-1 sm:gap-1.5 text-xs font-bold transition cursor-pointer active:scale-95 shrink-0"
-                title="দোকান খাতা ড্যাশবোর্ডে যান"
-              >
-                <Store className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                <span className="hidden md:inline">দোকানে যান</span>
-              </button>
-            </>
+            </div>
           ) : (
             <div className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-bold flex items-center gap-1.5 shrink-0">
               <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
@@ -486,7 +482,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         <div className="max-w-7xl mx-auto">
           {activeTab === 'dashboard' && (
             <AdminDashboardOverview
-              users={users}
+              users={clientUsers}
               payments={payments}
               notifications={notifications}
               announcements={announcements}
@@ -521,13 +517,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {activeTab === 'users' && (
             <UserManagementTab
-              users={users}
+              users={clientUsers}
               dbStatus={dbStatus}
               onOpenDbModal={() => setIsDbModalOpen(true)}
               onRefreshDb={checkDbAndRefresh}
               onSaveUser={saveAppUser}
               onUpdateStatus={updateUserStatus}
               onExtendSubscription={extendUserSubscription}
+              onSendNotificationToUser={(uid, title, msg) =>
+                sendAdminNotification({
+                  id: 'notif_' + Date.now(),
+                  title,
+                  message: msg,
+                  type: 'general',
+                  target: 'specific',
+                  targetUserId: uid,
+                  priority: 'high',
+                  createdAt: Date.now(),
+                  isRead: false,
+                })
+              }
               onDeleteUser={deleteAppUser}
               onResetPassword={triggerUserPasswordReset}
               onShowToast={showToast}
@@ -536,7 +545,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {activeTab === 'subscriptions' && (
             <SubscriptionManagementTab
-              users={users}
+              users={clientUsers}
               onExtendSubscription={extendUserSubscription}
               onShowToast={showToast}
             />
@@ -545,7 +554,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {activeTab === 'payments' && (
             <PaymentManagementTab
               payments={payments}
-              users={users}
+              users={clientUsers}
               paymentSettings={paymentSettings}
               onApprovePayment={async (id, note) => {
                 if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
@@ -595,7 +604,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {activeTab === 'expired' && (
             <ExpiredUsersTab
-              users={users}
+              users={clientUsers}
               onExtendSubscription={extendUserSubscription}
               onSendNotificationToUser={(uid, title, msg) =>
                 sendAdminNotification({
@@ -624,7 +633,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {activeTab === 'notifications' && (
             <NotificationManagementTab
               notifications={notifications}
-              users={users}
+              users={clientUsers}
               onSendNotification={sendAdminNotification}
               onDeleteNotification={deleteNotification}
               onShowToast={showToast}

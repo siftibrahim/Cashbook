@@ -243,42 +243,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     reader.readAsText(file);
   };
 
-  // Direct password change
+  // Direct PIN change
   const handleChangePasswordDirect = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPassword.trim()) {
-      onShowToast('নতুন পাসওয়ার্ড লিখুন!');
+      onShowToast('নতুন গোপন পিন (PIN) লিখুন!');
       return;
     }
-    if (newPassword.length < 6) {
-      onShowToast('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!');
+    if (newPassword.length < 4) {
+      onShowToast('গোপন পিন কমপক্ষে ৪ সংখ্যার হতে হবে!');
       return;
     }
     if (newPassword !== confirmPassword) {
-      onShowToast('উভয় পাসওয়ার্ড হুবহু এক নয়!');
+      onShowToast('উভয় গোপন পিন হুবহু এক নয়!');
       return;
     }
 
     const userEmail = getStoredUser()?.email || '';
     if (!userEmail) {
-      onShowToast('লগইনকৃত ইমেইল পাওয়া যায়নি!');
+      onShowToast('লগইনকৃত অ্যাকাউন্ট পাওয়া যায়নি!');
       return;
     }
     setIsChangingPassword(true);
     try {
       const res = await authApi.changePassword(userEmail, newPassword.trim());
-      onShowToast(res.message || '✅ পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে!');
+      onShowToast(res.message || '✅ গোপন পিন (PIN) সফলভাবে পরিবর্তিত হয়েছে!');
       setNewPassword('');
       setConfirmPassword('');
     } catch (err: any) {
       console.error(err);
-      onShowToast(`পাসওয়ার্ড পরিবর্তন করা যায়নি: ${err.message || 'ত্রুটি'}`);
+      onShowToast(`গোপন পিন পরিবর্তন করা যায়নি: ${err.message || 'ত্রুটি'}`);
     } finally {
       setIsChangingPassword(false);
     }
   };
 
-  // Password reset email
+  // Password / PIN reset email
   const handlePasswordReset = async () => {
     const userEmail = getStoredUser()?.email || '';
     if (!userEmail) {
@@ -288,10 +288,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setResettingPassword(true);
     try {
       const res = await authApi.forgotPassword(userEmail);
-      onShowToast(res.message || `পাসওয়ার্ড রিসেট লিংক ${userEmail} ইমেইলে পাঠানো হয়েছে!`);
+      onShowToast(res.message || `পিন রিসেট লিংক ${userEmail} ইমেইলে পাঠানো হয়েছে!`);
     } catch (err: any) {
       console.error(err);
-      onShowToast(`পাসওয়ার্ড রিসেট পাঠানো যায়নি: ${err.message || 'Error'}`);
+      onShowToast(`পিন রিসেট পাঠানো যায়নি: ${err.message || 'Error'}`);
     } finally {
       setResettingPassword(false);
     }
@@ -1076,29 +1076,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
                 </div>
 
-              {/* Direct Password Change Box */}
+              {/* Direct PIN Change Box */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
                 <div className="flex items-center gap-1.5 mb-2">
                   <Lock className="w-4 h-4 text-[#00695C]" />
                   <h5 className="text-xs sm:text-sm font-bold text-slate-800">
-                    পাসওয়ার্ড পরিবর্তন করুন (সরাসরি)
+                    গোপন পিন (PIN) পরিবর্তন করুন (সরাসরি)
                   </h5>
                 </div>
                 <p className="text-[11.5px] text-slate-500 mb-3">
-                  আপনার নতুন পাসওয়ার্ড টাইপ করে সরাসরি PostgreSQL ক্লাউড ডেটাবেজে সংরক্ষণ করুন।
+                  আপনার নতুন ৪-৬ সংখ্যার গোপন পিন (PIN) টাইপ করে সরাসরি PostgreSQL ক্লাউড ডেটাবেজে সংরক্ষণ করুন।
                 </p>
 
                 <div className="space-y-3">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      নতুন পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর)
+                      নতুন গোপন পিন (কমপক্ষে ৪-৬ সংখ্যা বা অক্ষর)
                     </label>
                     <div className="relative">
                       <input
                         type={showPassword ? 'text' : 'password'}
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="যেমন: Ib01306908115# বা নতুন পাসওয়ার্ড"
+                        placeholder="যেমন: ১২৩৪ বা নতুন গোপন পিন"
                         className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-[#00695C] focus:border-transparent outline-none pr-10 font-mono"
                       />
                       <button
@@ -1113,13 +1113,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   <div>
                     <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      পাসওয়ার্ড নিশ্চিত করুন
+                      নতুন পিন নিশ্চিত করুন
                     </label>
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="নতুন পাসওয়ার্ডটি পুনরায় লিখুন"
+                      placeholder="নতুন পিনটি পুনরায় লিখুন"
                       className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-[#00695C] focus:border-transparent outline-none font-mono"
                     />
                   </div>
@@ -1132,21 +1132,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="px-4 py-2 bg-[#00695C] hover:bg-[#004D40] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
                     >
                       <CheckCircle className="w-3.5 h-3.5" />
-                      <span>{isChangingPassword ? 'সংরক্ষণ হচ্ছে...' : 'পাসওয়ার্ড আপডেট করুন'}</span>
+                      <span>{isChangingPassword ? 'সংরক্ষণ হচ্ছে...' : 'গোপন পিন আপডেট করুন'}</span>
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* Email Password Reset Link */}
+              {/* Email PIN Reset Link */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
                   <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                     <Mail className="w-4 h-4 text-teal-700" />
-                    <span>ইমেইলে পাসওয়ার্ড রিসেট লিংক</span>
+                    <span>ইমেইলে পিন রিসেট লিংক</span>
                   </h5>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    আপনার রেজিস্টার্ড ইমেইল <span className="font-bold text-slate-700">{getStoredUser()?.email || 'অ্যাকাউন্ট ইমেইল'}</span>-এ পাসওয়ার্ড রিসেট তথ্য পাঠানো হবে।
+                    আপনার রেজিস্টার্ড ইমেইল <span className="font-bold text-slate-700">{getStoredUser()?.email || 'অ্যাকাউন্ট ইমেইল'}</span>-এ পিন রিসেট তথ্য পাঠানো হবে।
                   </p>
                 </div>
                 <button

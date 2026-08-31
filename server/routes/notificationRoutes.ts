@@ -5,25 +5,54 @@ import { AuthenticatedRequest, authenticateUser, optionalAuth } from '../authMid
 const router = Router();
 
 /**
- * 1. GET /api/notifications - User's notifications (Personal + Broadcast)
+ * 1. GET /api/notifications - User's notifications (Personal + Broadcast with Strict ID Targeting)
  */
 router.get('/', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
+    const userRole = req.user?.role;
+    const userEmail = req.user?.email || '';
     const pool = getDbPool();
     const now = Date.now();
 
-    if (pool && userId) {
-      // Check if user's subscription expires in <= 3 days (and > 0)
+    if (!userId) {
+      return res.status(401).json({ error: 'ব্যবহারকারী সনাক্তকরণ ব্যর্থ হয়েছে' });
+    }
+
+    const isAdmin = userRole === 'super_admin' || userRole === 'staff' || userRole === 'manager' || userEmail === 'siftibrahim@gmail.com' || userEmail === 'admin@twing.com';
+
+    if (pool) {
+      // 1. Fetch user profile for accurate active/expired status and phone matching
+      let userPhone = '';
+      let isActive = true;
+      let isExpired = false;
+
       try {
-        const uRes = await pool.query('SELECT subscription_expires_at, subscription_plan FROM users WHERE id = $1', [userId]);
-        if (uRes.rows.length > 0 && uRes.rows[0].subscription_expires_at) {
-          const exp = Number(uRes.rows[0].subscription_expires_at);
+        const uRes = await pool.query(
+          'SELECT phone, email, subscription_expires_at, subscription_status, subscription_plan FROM users WHERE id = $1',
+          [userId]
+        );
+        if (uRes.rows.length > 0) {
+          const uRow = uRes.rows[0];
+          userPhone = uRow.phone || '';
+          const exp = Number(uRow.subscription_expires_at || 0);
+          const plan = uRow.subscription_plan || 'free';
+          
+          if (plan === 'lifetime') {
+            isActive = true;
+            isExpired = false;
+          } else if (exp > 0) {
+            isExpired = exp < now;
+            isActive = exp >= now;
+          } else {
+            isActive = true;
+            isExpired = false;
+          }
+
+          // Check if subscription expires soon (<= 3 days) and send targeted warning if needed
           const msLeft = exp - now;
           const daysLeft = Math.ceil(msLeft / 86400000);
-
-          if (msLeft > 0 && daysLeft <= 3) {
-            // Check if we sent an expiry warning in the last 20 hours
+          if (msLeft > 0 && daysLeft <= 3 && plan !== 'lifetime' && plan !== 'free') {
             const lastWarn = await pool.query(
               "SELECT id FROM notifications WHERE target_user_id = $1 AND type = 'subscription_warning' AND created_at > $2",
               [userId, now - 20 * 3600000]
@@ -51,12 +80,75 @@ router.get('/', authenticateUser, async (req: AuthenticatedRequest, res: Respons
         // Non-blocking
       }
 
+      // 2. Query only notifications meant for THIS user ID, global broadcast, or matching status
+      const result = await pool.query(
+        `SELECT n.*,
+                COALESCE(r.read_at IS NOT NULL OR (n.target = 'specific' AND n.is_read = TRUE), FALSE) as is_read_by_user
+         FROM notifications n
+         LEFT JOIN user_notification_reads r ON r.notification_id = n.id AND r.user_id = $1
+         LEFT JOIN user_notification_dismissed d ON d.notification_id = n.id AND d.user_id = $1
+         WHERE d.notification_id IS NULL AND (
+           (n.target = 'all')
+           OR (n.target = 'specific' AND (n.target_user_id = $1 OR (n.target_user_id = $2 AND $2 != '') OR (n.target_user_id = $3 AND $3 != '')))
+           OR (n.target = 'active' AND $4 = TRUE)
+           OR (n.target = 'expired' AND $5 = TRUE)
+           OR (n.target = 'admin' AND $6 = TRUE)
+         )
+         ORDER BY n.created_at DESC 
+         LIMIT 100`,
+        [userId, userPhone, userEmail, isActive, isExpired, isAdmin]
+      );
+
+      const notifications = result.rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        message: row.message,
+        type: row.type || 'general',
+        target: row.target || 'all',
+        targetUserId: row.target_user_id || undefined,
+        targetUserName: row.target_user_name || undefined,
+        priority: row.priority || 'normal',
+        isRead: Boolean(row.is_read_by_user),
+        createdAt: Number(row.created_at),
+      }));
+
+      return res.json({ notifications });
+    } else {
+      // In-memory fallback with strict ID matching
+      const list = (inMemoryStore.notifications || [])
+        .filter(n => {
+          if (n.target === 'all') return true;
+          if (n.target === 'specific') return n.targetUserId === userId || n.targetUserId === userEmail;
+          if (n.target === 'admin') return isAdmin;
+          return false;
+        })
+        .sort((a, b) => b.createdAt - a.createdAt);
+      return res.json({ notifications: list });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 1.1 GET /api/notifications/admin-all - All Sent Notifications for Admin Panel History
+ */
+router.get('/admin-all', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userRole = req.user?.role;
+    const userEmail = req.user?.email || '';
+    const isAdmin = userRole === 'super_admin' || userRole === 'staff' || userRole === 'manager' || userEmail === 'siftibrahim@gmail.com' || userEmail === 'admin@twing.com';
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'শুধুমাত্র অ্যাডমিন বা অনুমোদিত স্টাফদের জন্য প্রযোজ্য' });
+    }
+
+    const pool = getDbPool();
+    if (pool) {
       const result = await pool.query(
         `SELECT * FROM notifications 
-         WHERE target = 'all' OR target_user_id = $1 
          ORDER BY created_at DESC 
-         LIMIT 100`,
-        [userId]
+         LIMIT 200`
       );
       const notifications = result.rows.map(row => ({
         id: row.id,
@@ -64,16 +156,15 @@ router.get('/', authenticateUser, async (req: AuthenticatedRequest, res: Respons
         message: row.message,
         type: row.type || 'general',
         target: row.target || 'all',
-        targetUserId: row.target_user_id,
+        targetUserId: row.target_user_id || undefined,
+        targetUserName: row.target_user_name || undefined,
         priority: row.priority || 'normal',
         isRead: Boolean(row.is_read),
         createdAt: Number(row.created_at),
       }));
       return res.json({ notifications });
     } else {
-      const list = (inMemoryStore.notifications || [])
-        .filter(n => n.target === 'all' || n.targetUserId === userId)
-        .sort((a, b) => b.createdAt - a.createdAt);
+      const list = (inMemoryStore.notifications || []).sort((a, b) => b.createdAt - a.createdAt);
       return res.json({ notifications: list });
     }
   } catch (err: any) {
@@ -86,7 +177,7 @@ router.get('/', authenticateUser, async (req: AuthenticatedRequest, res: Respons
  */
 router.post('/', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { title, message, type, target, targetUserId, priority } = req.body;
+    const { title, message, type, target, targetUserId, targetUserName, priority } = req.body;
     if (!title || !message) {
       return res.status(400).json({ error: 'শিরোনাম ও বার্তা আবশ্যক' });
     }
@@ -98,21 +189,37 @@ router.post('/', authenticateUser, async (req: AuthenticatedRequest, res: Respon
     const notifPriority = priority || 'normal';
     const pool = getDbPool();
 
+    let resolvedUserName = targetUserName || null;
+    let resolvedUserId = (notifTarget === 'specific' && targetUserId) ? targetUserId : null;
+
     if (pool) {
+      // If sending to a specific user, ensure user name is resolved for admin view
+      if (notifTarget === 'specific' && resolvedUserId && !resolvedUserName) {
+        try {
+          const uRes = await pool.query('SELECT name, shop_name, phone FROM users WHERE id = $1 OR phone = $1 OR email = $1', [resolvedUserId]);
+          if (uRes.rows.length > 0) {
+            resolvedUserName = uRes.rows[0].name || uRes.rows[0].shop_name || uRes.rows[0].phone;
+          }
+        } catch (uErr) {
+          // ignore
+        }
+      }
+
       await pool.query(
         `INSERT INTO notifications (
-          id, title, message, type, target, target_user_id, priority, is_read, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (id) DO UPDATE SET
           title = EXCLUDED.title,
           message = EXCLUDED.message,
           type = EXCLUDED.type,
           target = EXCLUDED.target,
           target_user_id = EXCLUDED.target_user_id,
+          target_user_name = EXCLUDED.target_user_name,
           priority = EXCLUDED.priority,
           created_at = EXCLUDED.created_at
         `,
-        [notifId, title.trim(), message.trim(), notifType, notifTarget, targetUserId || null, notifPriority, false, now]
+        [notifId, title.trim(), message.trim(), notifType, notifTarget, resolvedUserId, resolvedUserName, notifPriority, false, now]
       );
     }
 
@@ -124,7 +231,8 @@ router.post('/', authenticateUser, async (req: AuthenticatedRequest, res: Respon
       message: message.trim(),
       type: notifType,
       target: notifTarget,
-      targetUserId: targetUserId || undefined,
+      targetUserId: resolvedUserId || undefined,
+      targetUserName: resolvedUserName || undefined,
       priority: notifPriority,
       isRead: false,
       createdAt: now,
@@ -134,11 +242,12 @@ router.post('/', authenticateUser, async (req: AuthenticatedRequest, res: Respon
       message: '✅ নোটিফিকেশন সফলভাবে তৈরি ও পাঠানো হয়েছে',
       notification: {
         id: notifId,
-        title,
-        message,
+        title: title.trim(),
+        message: message.trim(),
         type: notifType,
         target: notifTarget,
-        targetUserId,
+        targetUserId: resolvedUserId || undefined,
+        targetUserName: resolvedUserName || undefined,
         priority: notifPriority,
         isRead: false,
         createdAt: now,
@@ -150,15 +259,29 @@ router.post('/', authenticateUser, async (req: AuthenticatedRequest, res: Respon
 });
 
 /**
- * 3. PATCH /api/notifications/:id/read - Mark single notification as read
+ * 3. PATCH /api/notifications/:id/read - Mark single notification as read for current user
  */
 router.patch('/:id/read', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const notifId = req.params.id;
+    const userId = req.user?.userId;
     const pool = getDbPool();
+    const now = Date.now();
 
-    if (pool) {
-      await pool.query('UPDATE notifications SET is_read = TRUE WHERE id = $1', [notifId]);
+    if (pool && userId) {
+      // Record user's read status
+      await pool.query(
+        `INSERT INTO user_notification_reads (user_id, notification_id, read_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, notification_id) DO NOTHING`,
+        [userId, notifId, now]
+      );
+
+      // If targeted notification, also mark the notification row
+      await pool.query(
+        'UPDATE notifications SET is_read = TRUE WHERE id = $1 AND target_user_id = $2',
+        [notifId, userId]
+      );
     }
 
     if (inMemoryStore.notifications) {
@@ -166,7 +289,7 @@ router.patch('/:id/read', authenticateUser, async (req: AuthenticatedRequest, re
       if (found) found.isRead = true;
     }
 
-    return res.json({ message: 'নোটিফিকেশন পঠিত মার্ক করা হয়েছে' });
+    return res.json({ message: 'নোটিফিকেশন পঠিত হিসেবে চিহ্নিত করা হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -179,11 +302,22 @@ router.post('/read-all', authenticateUser, async (req: AuthenticatedRequest, res
   try {
     const userId = req.user?.userId;
     const pool = getDbPool();
+    const now = Date.now();
 
-    if (pool) {
+    if (pool && userId) {
+      // Mark all visible notifications as read in user_notification_reads
       await pool.query(
-        `UPDATE notifications SET is_read = TRUE 
-         WHERE target = 'all' OR target_user_id = $1`,
+        `INSERT INTO user_notification_reads (user_id, notification_id, read_at)
+         SELECT $1, n.id, $2
+         FROM notifications n
+         WHERE n.target = 'all' OR n.target_user_id = $1
+         ON CONFLICT (user_id, notification_id) DO NOTHING`,
+        [userId, now]
+      );
+
+      // Update specific ones
+      await pool.query(
+        'UPDATE notifications SET is_read = TRUE WHERE target_user_id = $1',
         [userId]
       );
     }
@@ -196,29 +330,51 @@ router.post('/read-all', authenticateUser, async (req: AuthenticatedRequest, res
       });
     }
 
-    return res.json({ message: 'সকল নোটিফিকেশন পঠিত মার্ক করা হয়েছে' });
+    return res.json({ message: 'সকল নোটিফিকেশন পঠিত হিসেবে চিহ্নিত করা হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * 5. DELETE /api/notifications/:id - Delete a notification (Admin/Staff)
+ * 5. DELETE /api/notifications/:id - Delete / Dismiss a notification
  */
 router.delete('/:id', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const notifId = req.params.id;
+    const userId = req.user?.userId;
+    const userRole = req.user?.role;
+    const isAdmin = userRole === 'super_admin' || userRole === 'staff' || userRole === 'manager';
     const pool = getDbPool();
+    const now = Date.now();
 
-    if (pool) {
-      await pool.query('DELETE FROM notifications WHERE id = $1', [notifId]);
+    if (pool && userId) {
+      if (isAdmin) {
+        // Admin deletes completely
+        await pool.query('DELETE FROM notifications WHERE id = $1', [notifId]);
+        await pool.query('DELETE FROM user_notification_reads WHERE notification_id = $1', [notifId]);
+        await pool.query('DELETE FROM user_notification_dismissed WHERE notification_id = $1', [notifId]);
+      } else {
+        // Regular user dismisses from their view
+        await pool.query(
+          `INSERT INTO user_notification_dismissed (user_id, notification_id, dismissed_at)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (user_id, notification_id) DO NOTHING`,
+          [userId, notifId, now]
+        );
+        // If it was their personal notification, delete it
+        await pool.query(
+          'DELETE FROM notifications WHERE id = $1 AND target_user_id = $2',
+          [notifId, userId]
+        );
+      }
     }
 
     if (inMemoryStore.notifications) {
       inMemoryStore.notifications = inMemoryStore.notifications.filter(n => n.id !== notifId);
     }
 
-    return res.json({ message: '✅ নোটিফিকেশন ডিলিট করা হয়েছে' });
+    return res.json({ message: '✅ নোটিফিকেশন মুছে ফেলা হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

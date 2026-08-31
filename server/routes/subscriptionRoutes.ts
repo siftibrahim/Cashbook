@@ -14,16 +14,26 @@ const router = Router();
 router.get('/plans', async (req, res) => {
   try {
     const pool = getDbPool();
+    let settingsData: any = null;
+
     if (pool) {
       const result = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings'");
-      if (result.rows.length > 0 && result.rows[0].data?.customPlans?.length > 0) {
-        return res.json({ plans: result.rows[0].data.customPlans });
+      if (result.rows.length > 0 && result.rows[0].data) {
+        settingsData = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
       }
-    } else if (inMemoryStore.system_config['system_payment_settings']?.customPlans?.length > 0) {
-      return res.json({ plans: inMemoryStore.system_config['system_payment_settings'].customPlans });
+    } else if (inMemoryStore.system_config['system_payment_settings']) {
+      settingsData = inMemoryStore.system_config['system_payment_settings'];
     }
 
-    return res.json({ plans: DEFAULT_PLANS });
+    const allPlans = settingsData?.customPlans?.length > 0 ? settingsData.customPlans : DEFAULT_PLANS;
+    // Filter enabled plans
+    const enabledPlans = allPlans.filter((p: any) => p.isEnabled !== false);
+
+    return res.json({
+      plans: enabledPlans.length > 0 ? enabledPlans : DEFAULT_PLANS,
+      trialConfig: settingsData?.trialConfig || { isTrialEnabled: true, trialDays: 14, trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)' },
+      bonusConfig: settingsData?.bonusConfig || { isBonusEnabled: true, bonusDays: 7, bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)' },
+    });
   } catch (err: any) {
     return res.json({ plans: DEFAULT_PLANS });
   }
@@ -37,8 +47,9 @@ router.get('/payment-settings', async (req, res) => {
     const pool = getDbPool();
     if (pool) {
       const result = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings'");
-      if (result.rows.length > 0) {
-        return res.json({ settings: result.rows[0].data });
+      if (result.rows.length > 0 && result.rows[0].data) {
+        const settings = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
+        return res.json({ settings });
       }
     } else if (inMemoryStore.system_config['system_payment_settings']) {
       return res.json({ settings: inMemoryStore.system_config['system_payment_settings'] });
@@ -47,6 +58,8 @@ router.get('/payment-settings', async (req, res) => {
     return res.json({
       settings: {
         id: 'system_payment_settings',
+        trialConfig: { isTrialEnabled: true, trialDays: 14, trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)' },
+        bonusConfig: { isBonusEnabled: true, bonusDays: 7, bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)', bonusDescription: 'যেকোনো প্যাকেজ রিনিউ বা সাবস্ক্রিপশন নিলে সাথে আরও ৭ দিন বোনাস মেয়াদ যুক্ত হবে।' },
         bkash: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ অ্যাপ থেকে Send Money করুন' } },
         nagad: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'নগদ অ্যাপ থেকে Send Money করুন' } },
         rocket: { isEnabled: true, personal: { number: '01306908115-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে Send Money করুন' } },
@@ -172,8 +185,37 @@ router.post('/submit-payment', authenticateUser, async (req: AuthenticatedReques
       }
     }
 
-    // Exact package duration without extra bonus days
-    const bonusDays = 0;
+    // Dynamic bonus days calculation from system_payment_settings
+    let bonusDays = 0;
+    if (pool) {
+      try {
+        const cfgRes = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings' LIMIT 1");
+        if (cfgRes.rows.length > 0 && cfgRes.rows[0].data) {
+          const cfg = typeof cfgRes.rows[0].data === 'string' ? JSON.parse(cfgRes.rows[0].data) : cfgRes.rows[0].data;
+          if (cfg?.bonusConfig?.isBonusEnabled !== false) {
+            bonusDays = parseInt(cfg?.bonusConfig?.bonusDays, 10);
+            if (isNaN(bonusDays) || bonusDays < 0) bonusDays = 7;
+          } else {
+            bonusDays = 0;
+          }
+        } else {
+          bonusDays = 7;
+        }
+      } catch (e) {
+        bonusDays = 7;
+      }
+    } else if (inMemoryStore.system_config['system_payment_settings']?.bonusConfig) {
+      const bCfg = inMemoryStore.system_config['system_payment_settings'].bonusConfig;
+      if (bCfg.isBonusEnabled !== false) {
+        bonusDays = parseInt(bCfg.bonusDays, 10);
+        if (isNaN(bonusDays) || bonusDays < 0) bonusDays = 7;
+      } else {
+        bonusDays = 0;
+      }
+    } else {
+      bonusDays = 7;
+    }
+
     const planDuration = parseInt(durationDays, 10) || (cleanAmount === 100 ? 60 : (cleanAmount === 200 ? 120 : (cleanAmount === 50 ? 30 : 30)));
 
     const paymentId = 'pay_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
@@ -202,7 +244,7 @@ router.post('/submit-payment', authenticateUser, async (req: AuthenticatedReques
         cleanTrx, JSON.stringify(bankDetails || {}), userNote ? `গ্রাহক নোট: ${userNote}` : null, 'pending', now
       ]);
 
-      // 1. Notify Admin
+      // 1. Notify Admin ONLY (Target = 'admin', so regular users NEVER see this)
       await pool.query(`
         INSERT INTO notifications (id, title, message, type, target, target_user_id, priority, is_read, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -211,7 +253,7 @@ router.post('/submit-payment', authenticateUser, async (req: AuthenticatedReques
         'নতুন পেমেন্ট অনুরোধ (ভেরিফিকেশন অপেক্ষমাণ)',
         `${shopName} (${userName}) ৳${cleanAmount} পেমেন্ট সাবমিট করেছেন। TrxID: ${cleanTrx} (${planName || 'প্যাকেজ'})`,
         'payment_receipt',
-        'all',
+        'admin',
         null,
         'high',
         false,
@@ -225,7 +267,7 @@ router.post('/submit-payment', authenticateUser, async (req: AuthenticatedReques
       `, [
         'notif_user_' + now,
         '⏳ পেমেন্ট ভেরিফিকেশন হচ্ছে',
-        `আপনার ৳${cleanAmount} টাকার পেমেন্ট তথ্য (TrxID: ${cleanTrx}) জমা হয়েছে। সুপার অ্যাডমিন যাচাই করলেই আপনার অ্যাকাউন্টে সাবস্ক্রিপশনটি সক্রিয় হবে।${bonusDays > 0 ? ' (বোনাস +৭ দিন যুক্ত হবে)' : ''}`,
+        `আপনার ৳${cleanAmount} টাকার পেমেন্ট তথ্য (TrxID: ${cleanTrx}) জমা হয়েছে। সুপার অ্যাডমিন যাচাই করলেই আপনার অ্যাকাউন্টে সাবস্ক্রিপশনটি সক্রিয় হবে।${bonusDays > 0 ? ` (বোনাস +${bonusDays} দিন অন্তর্ভুক্ত হবে)` : ''}`,
         'payment_receipt',
         'specific',
         userId,
@@ -244,7 +286,7 @@ router.post('/submit-payment', authenticateUser, async (req: AuthenticatedReques
         shopName,
         planId,
         planName: planName || planId,
-        durationDays: durationDays || 30,
+        durationDays: planDuration,
         bonusDays,
         amount: cleanAmount,
         paymentMethod,
@@ -257,15 +299,28 @@ router.post('/submit-payment', authenticateUser, async (req: AuthenticatedReques
       };
       inMemoryStore.payments.push(payRecord);
 
-      // Targeted Notification in memory
+      // Targeted Notifications in memory
       if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+      // Admin notification (target: admin)
+      inMemoryStore.notifications.unshift({
+        id: 'notif_admin_' + now,
+        title: 'নতুন পেমেন্ট অনুরোধ (ভেরিফিকেশন অপেক্ষমাণ)',
+        message: `${shopName} (${userName}) ৳${cleanAmount} পেমেন্ট সাবমিট করেছেন। TrxID: ${cleanTrx} (${planName || 'প্যাকেজ'})`,
+        type: 'payment_receipt',
+        target: 'admin',
+        priority: 'high',
+        isRead: false,
+        createdAt: now,
+      });
+      // User targeted notification (target: specific)
       inMemoryStore.notifications.unshift({
         id: 'notif_user_' + now,
         title: '⏳ পেমেন্ট ভেরিফিকেশন হচ্ছে',
-        message: `আপনার ৳${cleanAmount} টাকার পেমেন্ট তথ্য (TrxID: ${cleanTrx}) জমা হয়েছে। সুপার অ্যাডমিন যাচাই করলেই আপনার অ্যাকাউন্টে সাবস্ক্রিপশনটি সক্রিয় হবে।${bonusDays > 0 ? ' (বোনাস +৭ দিন যুক্ত হবে)' : ''}`,
+        message: `আপনার ৳${cleanAmount} টাকার পেমেন্ট তথ্য (TrxID: ${cleanTrx}) জমা হয়েছে। সুপার অ্যাডমিন যাচাই করলেই আপনার অ্যাকাউন্টে সাবস্ক্রিপশনটি সক্রিয় হবে।${bonusDays > 0 ? ` (বোনাস +${bonusDays} দিন অন্তর্ভুক্ত হবে)` : ''}`,
         type: 'payment_receipt',
         target: 'specific',
         targetUserId: userId,
+        targetUserName: userName,
         priority: 'high',
         isRead: false,
         createdAt: now,

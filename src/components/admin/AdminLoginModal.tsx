@@ -58,6 +58,10 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const [twoFaMaskedPhone, setTwoFaMaskedPhone] = useState('');
   const [trustDevice, setTrustDevice] = useState(true);
 
+  const [twoFaRole, setTwoFaRole] = useState<'super_admin' | 'staff'>('super_admin');
+  const [twoFaStaffId, setTwoFaStaffId] = useState('');
+  const [twoFaStaffData, setTwoFaStaffData] = useState<any>(null);
+
   if (!isOpen) return null;
 
   const getOrGenerateFingerprint = () => {
@@ -85,6 +89,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       const cleanPin = pin.trim();
       const res = await authApi.adminLogin({ pin: cleanPin, authType: 'pin' });
       if (res.requires2FA) {
+        setTwoFaRole('super_admin');
         setShow2FAStep(true);
         setTwoFaSessionToken(res.twoFaSessionToken || '');
         setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
@@ -127,6 +132,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       });
 
       if (res.requires2FA) {
+        setTwoFaRole('super_admin');
         setShow2FAStep(true);
         setTwoFaSessionToken(res.twoFaSessionToken || '');
         setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
@@ -164,6 +170,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       const res = await authApi.verifyAdmin2FA({
         otp: cleanOtp,
         twoFaSessionToken,
+        role: twoFaRole,
+        staffId: twoFaStaffId,
         trustDevice,
         deviceFingerprint: fp,
         deviceName: navigator.userAgent.slice(0, 100),
@@ -173,8 +181,17 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         localStorage.setItem('twing_device_fingerprint', res.deviceFingerprint);
       }
 
-      onShowToast(res.message || '✅ 2FA যাচাইকরণ সফল! স্বাগতম সুপার অ্যাডমিন।');
-      onAdminAuthenticated({ role: 'super_admin', email: email.trim().toLowerCase() || ADMIN_EMAIL });
+      if (twoFaRole === 'staff' || res.role === 'staff') {
+        onShowToast(res.message || '✅ 2FA যাচাইকরণ সফল! স্বাগতম স্টাফ প্যানেল।');
+        onAdminAuthenticated({
+          role: 'staff',
+          email: res.staff?.email || staffIdentifier,
+          staffData: res.staff || twoFaStaffData,
+        });
+      } else {
+        onShowToast(res.message || '✅ 2FA যাচাইকরণ সফল! স্বাগতম সুপার অ্যাডমিন।');
+        onAdminAuthenticated({ role: 'super_admin', email: email.trim().toLowerCase() || ADMIN_EMAIL });
+      }
       onClose();
     } catch (err: any) {
       setErrorMsg(err.message || '❌ ভুল অথবা মেয়াদোত্তীর্ণ OTP কোড!');
@@ -197,9 +214,20 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
     setLoading(true);
     try {
-      const res = await authenticateStaff(cleanIdentifier, cleanPass);
-      if (!res.success || !res.staff) {
-        setErrorMsg(res.error || 'স্টাফ লগইন ব্যর্থ হয়েছে');
+      const res = await authApi.staffLogin(cleanIdentifier, cleanPass);
+      if (res.requires2FA) {
+        setTwoFaRole('staff');
+        setTwoFaStaffId(res.staffId || '');
+        setTwoFaStaffData(res.staff);
+        setShow2FAStep(true);
+        setTwoFaSessionToken(res.twoFaSessionToken || '');
+        setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
+        onShowToast(res.message || '🔐 আপনার নিবন্ধিত মোবাইল নম্বরে 2FA OTP কোড পাঠানো হয়েছে!');
+        return;
+      }
+
+      if (!res.staff) {
+        setErrorMsg('স্টাফ লগইন ব্যর্থ হয়েছে');
         setLoading(false);
         return;
       }
@@ -213,7 +241,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error('Staff login modal error:', err);
-      setErrorMsg('স্টাফ লগইনে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
+      setErrorMsg(err.message || 'স্টাফ লগইনে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
     } finally {
       setLoading(false);
     }

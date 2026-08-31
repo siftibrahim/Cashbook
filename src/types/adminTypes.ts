@@ -33,6 +33,7 @@ export interface SubscriptionPlan {
   durationDays: number;
   features: string[];
   isPopular?: boolean;
+  isEnabled?: boolean;
   badge?: string;
 }
 
@@ -68,8 +69,25 @@ export interface PaymentGatewayConfig {
   notes?: string;
 }
 
+export interface FreeTrialConfig {
+  isTrialEnabled: boolean; // Enable/disable free trial on registration
+  trialDays: number; // e.g. 14 days, can be adjusted
+  trialPlanName?: string;
+}
+
+export interface BonusConfig {
+  isBonusEnabled: boolean; // Enable/disable bonus days
+  bonusDays: number; // e.g. 7 days, can be adjusted
+  bonusTitle?: string;
+  bonusDescription?: string;
+}
+
 export interface SystemPaymentSettings {
   id: 'system_payment_settings';
+  // Free Trial Dynamic Settings
+  trialConfig?: FreeTrialConfig;
+  // Bonus Days Dynamic Settings
+  bonusConfig?: BonusConfig;
   // MFS Channels
   bkash: {
     isEnabled: boolean;

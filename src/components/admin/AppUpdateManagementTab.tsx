@@ -68,16 +68,16 @@ export const AppUpdateManagementTab: React.FC<AppUpdateManagementTabProps> = ({
   };
 
   return (
-    <div className="max-w-3xl mx-auto bg-white p-5 sm:p-7 rounded-3xl border border-slate-200 shadow-xs space-y-6">
-      <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-        <div className="w-12 h-12 rounded-2xl bg-teal-50 text-teal-800 flex items-center justify-center font-bold">
+    <div className="max-w-3xl mx-auto bg-[#101A2D] p-5 sm:p-7 rounded-3xl border border-slate-800 shadow-xl space-y-6 font-sans">
+      <div className="flex items-center gap-3 pb-4 border-b border-slate-800">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-teal-600 to-emerald-600 text-white flex items-center justify-center font-bold shadow-md">
           <DownloadCloud className="w-6 h-6" />
         </div>
         <div>
-          <h3 className="text-base font-black text-slate-900">
+          <h3 className="text-base sm:text-lg font-black text-white">
             অ্যাপ ভার্সন কন্ট্রোল ও ফোর্স আপডেট কনফিগ
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-400 mt-0.5">
             নতুন ভার্সন রিলিজ, রিলিজ নোটস এবং ফোর্স আপডেটের মাধ্যমে সকল ইউজারের অ্যাপ আপডেট নিয়ন্ত্রণ করুন।
           </p>
         </div>
@@ -88,8 +88,8 @@ export const AppUpdateManagementTab: React.FC<AppUpdateManagementTabProps> = ({
         <div
           className={`p-4 rounded-2xl border transition ${
             isForceUpdate
-              ? 'bg-rose-50 border-rose-300'
-              : 'bg-slate-50 border-slate-200'
+              ? 'bg-rose-500/10 border-rose-500/40 text-rose-300'
+              : 'bg-slate-900 border-slate-800 text-slate-300'
           }`}
         >
           <label className="flex items-start gap-3 cursor-pointer">
@@ -100,10 +100,10 @@ export const AppUpdateManagementTab: React.FC<AppUpdateManagementTabProps> = ({
               className="w-5 h-5 text-rose-600 rounded-md focus:ring-rose-500 mt-0.5"
             />
             <div>
-              <span className="font-black text-sm text-slate-900 block">
+              <span className="font-black text-sm text-white block">
                 বাধ্যতামূলক আপডেট (Force Update) চালু করুন
               </span>
-              <p className="text-xs text-slate-600 mt-0.5">
+              <p className="text-xs text-slate-400 mt-0.5">
                 যদি এটি সক্রিয় থাকে, তবে পুরাতন ভার্সনের কোনো ইউজার অ্যাপ ব্যবহার করতে পারবে না এবং আপডেট না করা পর্যন্ত স্ক্রিন লক থাকবে।
               </p>
             </div>
@@ -112,8 +112,8 @@ export const AppUpdateManagementTab: React.FC<AppUpdateManagementTabProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="block font-bold text-slate-700 mb-1">
-              লেটেস্ট ভার্সন নাম <span className="text-red-500">*</span>
+            <label className="block font-bold text-slate-300 mb-1">
+              লেটেস্ট ভার্সন নাম <span className="text-rose-400">*</span>
             </label>
             <input
               type="text"
@@ -121,13 +121,13 @@ export const AppUpdateManagementTab: React.FC<AppUpdateManagementTabProps> = ({
               value={versionName}
               onChange={(e) => setVersionName(e.target.value)}
               placeholder="e.g. 2.4.0"
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono focus:ring-2 focus:ring-teal-500 focus:outline-none"
+              className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl font-mono text-white placeholder:text-slate-500 focus:border-teal-500 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1">
-              ভার্সন কোড (Integer) <span className="text-red-500">*</span>
+            <label className="block font-bold text-slate-300 mb-1">
+              ভার্সন কোড (Integer) <span className="text-rose-400">*</span>
             </label>
             <input
               type="number"
@@ -135,12 +135,12 @@ export const AppUpdateManagementTab: React.FC<AppUpdateManagementTabProps> = ({
               value={versionCode}
               onChange={(e) => setVersionCode(Number(e.target.value))}
               placeholder="e.g. 24"
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono focus:ring-2 focus:ring-teal-500 focus:outline-none"
+              className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl font-mono text-white placeholder:text-slate-500 focus:border-teal-500 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1">
+            <label className="block font-bold text-slate-300 mb-1">
               নূন্যতম আবশ্যক ভার্সন
             </label>
             <input
@@ -148,27 +148,27 @@ export const AppUpdateManagementTab: React.FC<AppUpdateManagementTabProps> = ({
               value={minRequiredVersion}
               onChange={(e) => setMinRequiredVersion(e.target.value)}
               placeholder="e.g. 2.0.0"
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono focus:ring-2 focus:ring-teal-500 focus:outline-none"
+              className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl font-mono text-white placeholder:text-slate-500 focus:border-teal-500 focus:outline-none"
             />
           </div>
         </div>
 
         <div>
-          <label className="block font-bold text-slate-700 mb-1">
-            আপডেট ডায়ালগ শিরোনাম <span className="text-red-500">*</span>
+          <label className="block font-bold text-slate-300 mb-1">
+            আপডেট ডায়ালগ শিরোনাম <span className="text-rose-400">*</span>
           </label>
           <input
             type="text"
             required
             value={updateTitle}
             onChange={(e) => setUpdateTitle(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-white placeholder:text-slate-500 focus:border-teal-500 focus:outline-none"
           />
         </div>
 
         <div>
-          <label className="block font-bold text-slate-700 mb-1">
-            নতুন ফিচারের বিবরণ / রিলিজ নোটস <span className="text-red-500">*</span>
+          <label className="block font-bold text-slate-300 mb-1">
+            নতুন ফিচারের বিবরণ / রিলিজ নোটস <span className="text-rose-400">*</span>
           </label>
           <textarea
             rows={4}
@@ -176,13 +176,13 @@ export const AppUpdateManagementTab: React.FC<AppUpdateManagementTabProps> = ({
             value={releaseNotes}
             onChange={(e) => setReleaseNotes(e.target.value)}
             placeholder="• নতুন কী কী ফিচার বা সমাধান যুক্ত হয়েছে..."
-            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-white placeholder:text-slate-500 focus:border-teal-500 focus:outline-none leading-relaxed"
           />
         </div>
 
         <div>
-          <label className="block font-bold text-slate-700 mb-1">
-            আপডেট ডাউনলোড / প্লেস্টোর লিঙ্ক <span className="text-red-500">*</span>
+          <label className="block font-bold text-slate-300 mb-1">
+            আপডেট ডাউনলোড / প্লেস্টোর লিঙ্ক <span className="text-rose-400">*</span>
           </label>
           <input
             type="url"
@@ -190,15 +190,15 @@ export const AppUpdateManagementTab: React.FC<AppUpdateManagementTabProps> = ({
             value={downloadUrl}
             onChange={(e) => setDownloadUrl(e.target.value)}
             placeholder="https://play.google.com/store/apps/..."
-            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:outline-none"
+            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-white placeholder:text-slate-500 focus:border-teal-500 focus:outline-none"
           />
         </div>
 
-        <div className="pt-3 border-t border-slate-100 flex justify-end">
+        <div className="pt-4 border-t border-slate-800 flex justify-end">
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-2.5 bg-[#00695C] hover:bg-[#004D40] text-white font-bold rounded-xl shadow-md transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            className="px-6 py-3 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-black rounded-2xl shadow-lg shadow-teal-600/30 transition flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95"
           >
             <Save className="w-4 h-4" />
             <span>{saving ? 'সংরক্ষণ হচ্ছে...' : 'আপডেট রিলিজ কনফিগ সেভ করুন'}</span>

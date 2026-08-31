@@ -488,6 +488,30 @@ export async function initializeDatabaseSchema() {
       );
       CREATE INDEX IF NOT EXISTS idx_notifications_target_user ON notifications(target_user_id, target);
       ALTER TABLE notifications ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'USER';
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_user_name VARCHAR(255);
+
+      -- Per-user notification read tracking (for broadcast & audience notifications)
+      CREATE TABLE IF NOT EXISTS user_notification_reads (
+        user_id VARCHAR(64) NOT NULL,
+        notification_id VARCHAR(64) NOT NULL,
+        read_at BIGINT NOT NULL,
+        PRIMARY KEY (user_id, notification_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_notif_reads_user ON user_notification_reads(user_id);
+
+      -- Per-user notification dismissal tracking
+      CREATE TABLE IF NOT EXISTS user_notification_dismissed (
+        user_id VARCHAR(64) NOT NULL,
+        notification_id VARCHAR(64) NOT NULL,
+        dismissed_at BIGINT NOT NULL,
+        PRIMARY KEY (user_id, notification_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_notif_dismissed ON user_notification_dismissed(user_id);
+
+      -- Fix any legacy misrouted admin payment notices
+      UPDATE notifications 
+      SET target = 'admin' 
+      WHERE (id LIKE 'notif_admin_%' OR title LIKE '%নতুন পেমেন্ট অনুরোধ%') AND target = 'all';
     `);
 
     // 8.1 Subscriptions Packages Table
@@ -834,7 +858,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
       `, [
         'staff_default_1',
         'অফিসিয়াল স্টাফ ম্যানেজার',
-        '01306908115',
+        '01900000000',
         'staff@twing.com',
         defaultStaffHash,
         'manager',

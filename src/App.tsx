@@ -89,6 +89,7 @@ import {
   subscribeToAppUpdateConfig,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  deleteAdminNotification,
   ADMIN_EMAIL,
 } from './services/adminService';
 import { SupportMessage, Announcement, AppUpdateConfig, AdminSession, AdminNotification } from './types/adminTypes';
@@ -268,7 +269,7 @@ export const App: React.FC = () => {
                 email: currentUser.email,
               });
               setUserRole('প্রধান সুপার অ্যাডমিন');
-              await loadUserAccountData(currentUser.id);
+              setIsAdminPanelOpen(true);
             } else {
               setUserRole('দোকান মালিক');
               await loadUserAccountData(currentUser.id);
@@ -1105,7 +1106,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="w-full h-[100dvh] bg-slate-100 flex flex-col items-center justify-center p-0 sm:p-2 md:p-4 text-slate-800 font-sans antialiased overflow-hidden selection:bg-teal-500 selection:text-white">
+    <div className="w-full h-screen h-[100dvh] min-h-[100dvh] max-h-[100dvh] bg-slate-900 sm:bg-slate-100 flex flex-col items-center justify-start sm:justify-center p-0 sm:p-2 md:p-3 lg:p-4 text-slate-800 font-sans antialiased overflow-hidden selection:bg-teal-500 selection:text-white">
       {/* Toast Notifications */}
       <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none flex flex-col gap-2 no-print">
         {toasts.map((t) => (
@@ -1119,7 +1120,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* Main Container Card */}
-      <div className="w-full max-w-4xl h-full flex flex-col bg-white sm:rounded-3xl shadow-xl sm:border sm:border-slate-200/80 overflow-hidden relative">
+      <div className="w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl h-full sm:h-[98dvh] lg:h-[96dvh] max-h-[100dvh] sm:max-h-[98dvh] flex flex-col bg-white sm:rounded-2xl md:rounded-3xl shadow-2xl sm:border sm:border-slate-200/80 overflow-hidden relative">
         {!isLoggedIn ? (
           <AuthScreen
             store={store}
@@ -1506,6 +1507,10 @@ export const App: React.FC = () => {
           await markAllNotificationsAsRead();
           setUserNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
         }}
+        onDeleteNotification={async (id) => {
+          await deleteAdminNotification(id);
+          setUserNotifications((prev) => prev.filter((n) => n.id !== id));
+        }}
         onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
         onOpenSupport={() => setIsSupportModalOpen(true)}
       />
@@ -1530,10 +1535,14 @@ export const App: React.FC = () => {
               const currentUser = getStoredUser();
               if (
                 adminSession?.role === 'staff' ||
+                adminSession?.role === 'super_admin' ||
                 currentUser?.role === 'staff' ||
-                currentUser?.role === 'manager'
+                currentUser?.role === 'manager' ||
+                currentUser?.role === 'super_admin' ||
+                currentUser?.email === ADMIN_EMAIL ||
+                currentUser?.email === 'siftibrahim@gmail.com'
               ) {
-                // If staff exits the panel, trigger clean logout
+                // If staff or super admin exits the panel, trigger clean logout
                 triggerLogoutConfirm();
               } else {
                 setIsAdminPanelOpen(false);

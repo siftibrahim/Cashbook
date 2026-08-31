@@ -587,18 +587,22 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
                   {/* STEP 1: SELECT PLAN */}
                   {step === 'select_plan' && (
                     <div className="space-y-4">
-                      {/* Free Trial User 7-Day Bonus Banner */}
-                      {(subscriptionServerStatus?.eligibleForEarlyBonus || subscriptionServerStatus?.isTrial) && (
+                      {/* Dynamic Bonus Banner */}
+                      {settings.bonusConfig?.isBonusEnabled !== false && (settings.bonusConfig?.bonusDays ?? 7) > 0 && (
                         <div className="p-3.5 bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-2xl shadow-md flex items-center gap-3">
                           <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
                             <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
                           </div>
                           <div>
                             <span className="text-xs font-black block text-amber-200">
-                              🎁 বিশেষ বোনাস অফার!
+                              🎁 {settings.bonusConfig?.bonusTitle || 'বিশেষ বোনাস অফার!'}
                             </span>
                             <span className="text-[11px] text-white/90">
-                              ফ্রি ট্রায়াল শেষ হওয়ার আগে সাবস্ক্রিপশন করলেই আরও <strong className="text-amber-300">১ সপ্তাহ (+৭ দিন)</strong> অতিরিক্ত ফ্রি বোনাস যুক্ত হবে!
+                              {settings.bonusConfig?.bonusDescription || (
+                                <>
+                                  এখন সাবস্ক্রিপশন করলেই আরও <strong className="text-amber-300">+{settings.bonusConfig?.bonusDays || 7} দিন</strong> অতিরিক্ত ফ্রি বোনাস মেয়াদ যুক্ত হবে!
+                                </>
+                              )}
                             </span>
                           </div>
                         </div>

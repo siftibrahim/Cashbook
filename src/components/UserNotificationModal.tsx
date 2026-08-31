@@ -21,6 +21,7 @@ interface UserNotificationModalProps {
   notifications: AdminNotification[];
   onMarkAsRead: (id: string) => void;
   onMarkAllAsRead: () => void;
+  onDeleteNotification?: (id: string) => void;
   onOpenSubscription?: () => void;
   onOpenSupport?: () => void;
 }
@@ -31,6 +32,7 @@ export const UserNotificationModal: React.FC<UserNotificationModalProps> = ({
   notifications,
   onMarkAsRead,
   onMarkAllAsRead,
+  onDeleteNotification,
   onOpenSubscription,
   onOpenSupport,
 }) => {
@@ -248,6 +250,19 @@ export const UserNotificationModal: React.FC<UserNotificationModalProps> = ({
                           title="অপঠিত বিজ্ঞপ্তি"
                           className="w-2.5 h-2.5 rounded-full bg-teal-600 animate-pulse"
                         />
+                      )}
+                      {onDeleteNotification && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteNotification(notif.id);
+                          }}
+                          title="মুছে ফেলুন"
+                          className="p-1 text-slate-300 hover:text-rose-500 rounded-lg transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       )}
                     </div>
                   </div>

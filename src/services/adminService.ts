@@ -56,6 +56,7 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
       '১৪ দিনের জন্য সম্পূর্ণ ফ্রি',
     ],
     isPopular: false,
+    isEnabled: true,
   },
   {
     id: 'plan_1m',
@@ -71,6 +72,7 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
       '২৪/৭ কাস্টমার হেল্পডেস্ক',
     ],
     isPopular: false,
+    isEnabled: true,
   },
   {
     id: 'plan_2m',
@@ -87,6 +89,7 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
       'সম্পূর্ণ ডাটা সিকিউরিটি',
     ],
     isPopular: true,
+    isEnabled: true,
   },
   {
     id: 'plan_4m',
@@ -102,6 +105,7 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
       'ভিআইপি কাস্টমার সাপোর্ট',
     ],
     isPopular: false,
+    isEnabled: true,
   },
   {
     id: 'plan_1y',
@@ -119,6 +123,7 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
       'ডেডিকেটেড ভিআইপি ফোন সাপোর্ট',
     ],
     isPopular: false,
+    isEnabled: true,
   },
 ];
 
@@ -137,6 +142,19 @@ const STORAGE_KEYS = {
 
 export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
   id: 'system_payment_settings',
+  // Dynamic Free Trial Settings
+  trialConfig: {
+    isTrialEnabled: true,
+    trialDays: 14,
+    trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)',
+  },
+  // Dynamic Bonus Days Settings
+  bonusConfig: {
+    isBonusEnabled: true,
+    bonusDays: 7,
+    bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)',
+    bonusDescription: 'যেকোনো পেইড সাবস্ক্রিপশন প্যাকেজ রিনিউ বা কিনলেই সাথে আরও অতিরিক্ত ৭ দিন সম্পূর্ণ ফ্রি মেয়াদ যুক্ত হবে।',
+  },
   bkash: {
     isEnabled: true,
     personal: {
@@ -218,6 +236,7 @@ export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
       notes: 'ভিসা, মাস্টারকার্ড, এমেক্স ও সকল ব্যাংকিং চ্যানেল সাপোর্ট।',
     },
   ],
+  customPlans: DEFAULT_PLANS,
   updatedAt: Date.now(),
   updatedBy: 'admin@twing.com',
 };
@@ -311,28 +330,7 @@ export const ALL_STAFF_PERMISSION_CATEGORIES: StaffPermissionCategory[] = [
   },
 ];
 
-export const INITIAL_USERS: AppUser[] = [
-  {
-    id: 'usr_super_admin',
-    name: 'ইব্রাহিম (সুপার অ্যাডমিন)',
-    phone: '01306908115',
-    email: 'siftibrahim@gmail.com',
-    shopName: 'TWING হিসাবি',
-    businessType: 'জেনারেল স্টোর',
-    address: 'ঢাকা, বাংলাদেশ',
-    role: 'super_admin',
-    status: 'active',
-    subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
-    subscriptionStatus: 'active',
-    subscriptionExpiresAt: NOW + ONE_DAY_MS * 3650,
-    registeredAt: NOW - ONE_DAY_MS * 30,
-    lastActiveAt: NOW,
-    totalCustomers: 0,
-    totalTransactions: 0,
-    notes: 'প্রধান সিস্টেম মালিক',
-    appVersion: '2.5.0',
-  },
-];
+export const INITIAL_USERS: AppUser[] = [];
 
 export const INITIAL_PAYMENTS: PaymentRecord[] = [
   {
@@ -474,15 +472,26 @@ export function subscribeToAdminUsers(
   onError?: (err: Error) => void
 ) {
   const cached = getCached<AppUser[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
-  onUpdate(cached);
+  const filterSuperAdmin = (list: AppUser[]) =>
+    list.filter(
+      (u) =>
+        u.role !== 'super_admin' &&
+        u.id !== 'usr_super_admin' &&
+        u.email !== 'siftibrahim@gmail.com' &&
+        u.email !== 'admin@twing.com' &&
+        u.shopName !== 'সুপার অ্যাডমিন ড্যাশবোর্ড'
+    );
+
+  onUpdate(filterSuperAdmin(cached));
 
   let isSubscribed = true;
   const fetchUsers = async () => {
     try {
       const users = await adminApi.getUsers();
-      if (isSubscribed && users.length > 0) {
-        setCached(STORAGE_KEYS.USERS, users);
-        onUpdate(users);
+      if (isSubscribed) {
+        const cleanUsers = filterSuperAdmin(users);
+        setCached(STORAGE_KEYS.USERS, cleanUsers);
+        onUpdate(cleanUsers);
       }
     } catch (err: any) {
       if (onError) onError(err);
@@ -698,20 +707,18 @@ export function subscribeToAdminNotifications(
   onUpdate: (notifications: AdminNotification[]) => void,
   onError?: (err: Error) => void
 ) {
-  const cached = getCached<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
-  onUpdate(cached);
+  const cached = getCached<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, []);
+  if (cached.length > 0) {
+    onUpdate(cached);
+  }
 
   let isSubscribed = true;
   const fetchNotifs = async () => {
     try {
-      const notifs = await notificationApi.getNotifications();
+      const notifs = await notificationApi.getAdminNotifications();
       if (isSubscribed) {
-        if (notifs.length > 0) {
-          setCached(STORAGE_KEYS.NOTIFICATIONS, notifs);
-          onUpdate(notifs);
-        } else if (cached.length > 0) {
-          onUpdate(cached);
-        }
+        setCached(STORAGE_KEYS.NOTIFICATIONS, notifs);
+        onUpdate(notifs);
       }
     } catch (err: any) {
       if (onError) onError(err);
@@ -747,6 +754,8 @@ export async function deleteNotification(notifId: string): Promise<void> {
     console.error('Failed to delete notification on backend:', err);
   }
 }
+
+export const deleteAdminNotification = deleteNotification;
 
 export async function markNotificationAsRead(notifId: string): Promise<void> {
   const list = getCached<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);

@@ -160,9 +160,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   return (
     <nav
       id="bottom-navbar"
-      className="w-full bg-white/98 backdrop-blur-md border-t border-slate-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-1 sm:px-2 py-1.5 flex items-center justify-around no-print shrink-0 relative z-30 select-none transition-all"
+      className="w-full bg-white/98 backdrop-blur-md border-t border-slate-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-1 sm:px-2 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] sm:pb-1.5 flex items-center justify-around no-print shrink-0 relative z-30 select-none transition-all"
     >
-      <div className="w-full max-w-5xl mx-auto grid grid-cols-6 items-center gap-0.5 sm:gap-1">
+      <div className="w-full max-w-6xl mx-auto grid grid-cols-6 items-center gap-0.5 sm:gap-1">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;

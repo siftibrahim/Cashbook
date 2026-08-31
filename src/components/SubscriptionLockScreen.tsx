@@ -14,7 +14,9 @@ import {
   FileCheck,
 } from 'lucide-react';
 import { StoreProfile } from '../types';
-import { PaymentRecord } from '../types/adminTypes';
+import { PaymentRecord, SubscriptionPlan, SystemPaymentSettings } from '../types/adminTypes';
+import { DEFAULT_PLANS, subscribeToPaymentSettings } from '../services/adminService';
+import { formatMoney } from '../utils/storage';
 
 interface SubscriptionLockScreenProps {
   store: StoreProfile;
@@ -42,6 +44,20 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({
   const handleSupportOpen = onOpenSupport || onOpenSupportModal || (() => {});
   const [isChecking, setIsChecking] = useState(false);
   const [lastCheckMessage, setLastCheckMessage] = useState<string | null>(null);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>(DEFAULT_PLANS);
+  const [settings, setSettings] = useState<SystemPaymentSettings | null>(null);
+
+  useEffect(() => {
+    const unsub = subscribeToPaymentSettings((data) => {
+      if (data) {
+        setSettings(data);
+        if (data.customPlans && data.customPlans.length > 0) {
+          setPlans(data.customPlans);
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
 
   // Auto-poll every 5 seconds to auto-unlock as soon as Super Admin approves
   useEffect(() => {
@@ -148,22 +164,18 @@ export const SubscriptionLockScreen: React.FC<SubscriptionLockScreenProps> = ({
 
             {/* Packages Summary */}
             <div className="bg-slate-950/80 border border-slate-800 p-3.5 rounded-2xl mb-5 text-left space-y-2 text-xs shadow-inner">
-              <div className="flex items-center justify-between text-slate-300">
-                <span className="font-semibold">১ মাসের স্টার্টার প্যাক:</span>
-                <span className="font-black text-teal-400">৳৫০ / ৩০ দিন</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span className="font-semibold">২ মাসের প্যাক:</span>
-                <span className="font-black text-teal-400">৳১০০ / ৬০ দিন</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span className="font-semibold">৪ মাসের প্যাক:</span>
-                <span className="font-black text-teal-400">৳২০০ / ১২০ দিন</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span className="font-semibold">১ বছরের মেগা প্যাক:</span>
-                <span className="font-black text-emerald-400">৳৫০০ / ৩৬৫ দিন</span>
-              </div>
+              {plans.slice(0, 4).map((p) => (
+                <div key={p.id} className="flex items-center justify-between text-slate-300">
+                  <span className="font-semibold">{p.nameBn}:</span>
+                  <span className="font-black text-teal-400">৳{formatMoney(p.price)} / {p.durationDays} দিন</span>
+                </div>
+              ))}
+              {settings?.bonusConfig?.isBonusEnabled !== false && (settings?.bonusConfig?.bonusDays ?? 7) > 0 && (
+                <div className="pt-1.5 border-t border-slate-800/80 text-[11px] text-amber-300 font-bold flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-amber-400" />
+                  <span>{settings?.bonusConfig?.bonusTitle || 'স্পেশাল অফার'}: সাথে আরও +{settings?.bonusConfig?.bonusDays || 7} দিন ফ্রি বোনাস!</span>
+                </div>
+              )}
             </div>
           </>
         )}
