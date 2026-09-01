@@ -28,6 +28,10 @@ import {
   loadStoreProfile,
   saveStoreProfile,
 } from '../utils/storage';
+import {
+  saveOfflineCredential,
+  verifyOfflinePinLogin,
+} from './offlineAuthService';
 
 const getEnvApiUrl = (): string => {
   try {
@@ -228,6 +232,7 @@ export const authApi = {
       if (res.token) {
         setAuthToken(res.token);
         setStoredUser(res.user);
+        saveOfflineCredential(res.user, params.pin || params.password || '');
       }
       return res;
     } catch (err: any) {
@@ -256,6 +261,7 @@ export const authApi = {
         const offlineUsers = getOfflineUsers();
         offlineUsers.push(newUser);
         saveOfflineUsers(offlineUsers);
+        saveOfflineCredential(newUser, params.password || params.pin || '');
 
         const newProfile: StoreProfile = {
           ...DEFAULT_STORE,
@@ -301,8 +307,12 @@ export const authApi = {
       });
       if (res.token) {
         setAuthToken(res.token);
-        if (res.user) setStoredUser(res.user);
-        else if (res.staff) setStoredUser(res.staff);
+        if (res.user) {
+          setStoredUser(res.user);
+          saveOfflineCredential(res.user, password);
+        } else if (res.staff) {
+          setStoredUser(res.staff);
+        }
       }
       return res;
     } catch (err: any) {
@@ -348,7 +358,20 @@ export const authApi = {
           };
         }
 
-        // 3. User check from offline registered users and local storage
+        // 3. Check offline credentials hash vault
+        const offlineCheck = await verifyOfflinePinLogin(identifier, password);
+        if (offlineCheck.success && offlineCheck.user) {
+          const token = 'offline_user_token_' + Date.now();
+          setAuthToken(token);
+          setStoredUser(offlineCheck.user);
+          return {
+            token,
+            user: offlineCheck.user,
+            message: '✅ দোকানে সফলভাবে প্রবেশ করা হয়েছে! (অফলাইন মোড)',
+          };
+        }
+
+        // 4. User check from offline registered users and local storage
         const offlineUsers = getOfflineUsers();
         const storedUser = getStoredUser();
         const allCandidates = [...offlineUsers];
@@ -377,6 +400,7 @@ export const authApi = {
             const token = 'offline_user_token_' + Date.now();
             setAuthToken(token);
             setStoredUser(matchedUser);
+            saveOfflineCredential(matchedUser, password);
             return {
               token,
               user: matchedUser,

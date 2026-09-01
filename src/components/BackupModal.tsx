@@ -1,6 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Customer, Transaction, StoreProfile } from '../types';
-import { Download, Upload, Copy, Database, X, Check } from 'lucide-react';
+import {
+  Download,
+  Upload,
+  Copy,
+  Database,
+  X,
+  Check,
+  Cloud,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  ShieldCheck,
+} from 'lucide-react';
+import {
+  performFullCloudSync,
+  subscribeSyncStatus,
+  SyncStatus,
+  getCurrentSyncStatus,
+} from '../services/offlineSyncService';
 
 interface BackupModalProps {
   isOpen: boolean;
@@ -23,12 +41,20 @@ export const BackupModal: React.FC<BackupModalProps> = ({
 }) => {
   const [importText, setImportText] = useState('');
   const [copied, setCopied] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(getCurrentSyncStatus());
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const unsub = subscribeSyncStatus((s) => setSyncStatus(s));
+    return () => unsub();
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const exportPayload = {
-    app: 'ibrahim_general_store_khata',
-    version: '2.0',
+    app: 'twing_hisabi_offline_ledger',
+    version: '3.0',
     exportedAt: new Date().toISOString(),
     store,
     customers,
@@ -40,7 +66,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
       'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportPayload, null, 2));
     const a = document.createElement('a');
     a.setAttribute('href', dataStr);
-    a.setAttribute('download', `ibrahim_khata_data_${new Date().toISOString().split('T')[0]}.json`);
+    a.setAttribute('download', `twing_hisabi_backup_${new Date().toISOString().split('T')[0]}.json`);
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -92,6 +118,13 @@ export const BackupModal: React.FC<BackupModalProps> = ({
     }
   };
 
+  const handleTriggerCloudSync = async () => {
+    setIsCloudSyncing(true);
+    const res = await performFullCloudSync();
+    setIsCloudSyncing(false);
+    onShowToast(res.message);
+  };
+
   const handleInputFocus = (e: React.FocusEvent<HTMLTextAreaElement>) => {
     setTimeout(() => {
       e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -107,26 +140,78 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               <Database className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-800">ডাটা ব্যাকআপ ও রিস্টোর</h3>
+              <h3 className="text-base font-bold text-slate-800">ডাটা ব্যাকআপ ও অফলাইন সিঙ্ক</h3>
               <p className="text-[11px] text-slate-500 font-medium">
-                {store.name || 'TWING হিসাবি'} — কাস্টমার বাকি ও লেনদেন ব্যাকআপ
+                {store.name || 'TWING হিসাবি'} — ক্লাউড ও লোকাল ব্যাকআপ
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center font-bold text-xs"
+            className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center font-bold text-xs cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         <div className="space-y-4 mt-4 text-xs text-slate-600">
+          {/* Cloud Auto-Sync Status Card */}
+          <div className="bg-gradient-to-br from-teal-900 to-[#004D40] text-white p-4 rounded-xl shadow-md border border-teal-500/40 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 font-bold text-sm">
+                <Cloud className="w-4.5 h-4.5 text-teal-300" />
+                <span>অফলাইন-ফার্স্ট ক্লাউড সিঙ্ক</span>
+              </div>
+              <div
+                className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  syncStatus.isOnline
+                    ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-400/40'
+                    : 'bg-amber-500/30 text-amber-200 border border-amber-400/40'
+                }`}
+              >
+                {syncStatus.isOnline ? (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>ইন্টারনেট সংযুক্ত</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="w-3 h-3 text-amber-300" />
+                    <span>অফলাইন মোড</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-[11px] bg-black/20 p-2.5 rounded-lg border border-white/10">
+              <div>
+                <span className="text-teal-200/80 block">সিঙ্ক পেন্ডিং ডাটা:</span>
+                <span className="font-bold text-amber-300 text-xs">
+                  {syncStatus.pendingCount > 0 ? `${syncStatus.pendingCount}টি অপারেশন বাকি` : 'সব ডাটা সিঙ্কড ✅'}
+                </span>
+              </div>
+              <div>
+                <span className="text-teal-200/80 block">লোকাল সেভ স্ট্যাটাস:</span>
+                <span className="font-bold text-teal-100 text-xs">সুরক্ষিত ও কার্যকর</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleTriggerCloudSync}
+              disabled={isCloudSyncing || syncStatus.isSyncing}
+              className="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-95 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isCloudSyncing || syncStatus.isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isCloudSyncing || syncStatus.isSyncing ? 'ক্লাউডে সিঙ্ক হচ্ছে...' : 'এখনই ক্লাউডে সিঙ্ক ও ব্যাকআপ করুন'}</span>
+            </button>
+          </div>
+
           {/* Export JSON Data */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2.5">
             <h4 className="font-bold text-slate-800 flex items-center gap-1.5 text-sm">
               <Download className="w-4 h-4 text-[#00695C]" />
-              <span>১. খাতার হিসাব ব্যাকআপ (JSON Backup)</span>
+              <span>১. খাতার হিসাব এক্সপোর্ট ফাইল (.json)</span>
             </h4>
             <p className="text-slate-500">
               আপনার বর্তমান সব কাস্টমার ও বাকি-আদায়ের হিসাব একটি ফাইলে সংরক্ষণ করুন।
@@ -135,7 +220,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               <button
                 type="button"
                 onClick={handleDownloadBackupJSON}
-                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-900 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition"
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-900 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>ডাটা ফাইল ডাউনলোড (.json)</span>
@@ -144,7 +229,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               <button
                 type="button"
                 onClick={handleCopyJSON}
-                className="py-2.5 px-3 bg-slate-200 hover:bg-slate-300 active:scale-95 text-slate-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                className="py-2.5 px-3 bg-slate-200 hover:bg-slate-300 active:scale-95 text-slate-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
               >
                 {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
                 <span>{copied ? 'কপি হয়েছে' : 'কোড কপি'}</span>
@@ -178,7 +263,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
                 <button
                   type="button"
                   onClick={handleTextImport}
-                  className="mt-2 w-full py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-sm transition"
+                  className="mt-2 w-full py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-sm transition cursor-pointer"
                 >
                   রিস্টোর করুন
                 </button>

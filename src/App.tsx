@@ -52,7 +52,7 @@ import {
   deleteExpenseFromCloud,
   saveStoreProfileToCloud,
   syncAllToCloud,
-} from './services/firestoreSync';
+} from './services/syncService';
 import { playPaymentChime, playSaleTone, triggerConfettiCelebration } from './utils/audio';
 
 import { Navbar } from './components/Navbar';

@@ -1,6 +1,23 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { StoreProfile } from '../types';
-import { Phone, LogOut, Settings, Store, Bell, Sparkles } from 'lucide-react';
+import {
+  Phone,
+  LogOut,
+  Settings,
+  Store,
+  Bell,
+  Sparkles,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  CheckCircle2,
+} from 'lucide-react';
+import {
+  subscribeSyncStatus,
+  performFullCloudSync,
+  SyncStatus,
+  getCurrentSyncStatus,
+} from '../services/offlineSyncService';
 
 interface NavbarProps {
   store: StoreProfile;
@@ -19,6 +36,27 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSubscription,
   unreadNotificationsCount = 0,
 }) => {
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(getCurrentSyncStatus());
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = subscribeSyncStatus((status) => {
+      setSyncStatus(status);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleManualSyncClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (syncStatus.isSyncing) return;
+    setSyncMsg('সিঙ্ক চলছে...');
+    const result = await performFullCloudSync();
+    setSyncMsg(result.message);
+    setTimeout(() => {
+      setSyncMsg(null);
+    }, 4000);
+  };
+
   return (
     <header
       id="main-app-header"
@@ -36,17 +74,58 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Store Name & Info */}
         <div className="flex flex-col min-w-0 justify-center">
-          {/* Row 1: Store Name + Online Status (Always Visible, never clipped) */}
+          {/* Row 1: Store Name + Dynamic Online/Offline/Sync Status */}
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <h1 className="text-xs sm:text-base font-black tracking-tight leading-tight text-white truncate drop-shadow-xs max-w-[110px] xs:max-w-[160px] sm:max-w-[320px]">
+            <h1 className="text-xs sm:text-base font-black tracking-tight leading-tight text-white truncate drop-shadow-xs max-w-[105px] xs:max-w-[150px] sm:max-w-[300px]">
               {store.name || 'TWING হিসাবি'}
             </h1>
 
-            {/* Online Status Pill - Guaranteed Shrink-0 */}
-            <div className="inline-flex items-center gap-1 text-[9.5px] sm:text-[10.5px] text-emerald-300 font-bold shrink-0 bg-emerald-950/80 px-1.5 py-0.5 rounded-md border border-emerald-500/40 shadow-xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              <span className="leading-none">অনলাইন</span>
-            </div>
+            {/* Offline-First Dynamic Status Pill */}
+            <button
+              type="button"
+              onClick={handleManualSyncClick}
+              id="nav-online-status-pill"
+              title={
+                syncStatus.isSyncing
+                  ? 'ক্লাউডে সিঙ্ক হচ্ছে...'
+                  : !syncStatus.isOnline
+                  ? '📶 অফলাইন মোড — লোকাল মেমরিতে সুরক্ষিত আছে'
+                  : syncStatus.pendingCount > 0
+                  ? `সিঙ্ক বাকি: ${syncStatus.pendingCount}টি ডাটা (ক্লিক করে এখনই সিঙ্ক করুন)`
+                  : 'অনলাইন ও সুরক্ষিত (ক্লিক করে সিঙ্ক করুন)'
+              }
+              className={`inline-flex items-center gap-1 text-[9.5px] sm:text-[10.5px] font-bold shrink-0 px-1.5 py-0.5 rounded-md border shadow-xs transition cursor-pointer active:scale-95 ${
+                syncStatus.isSyncing
+                  ? 'bg-sky-950/90 text-sky-200 border-sky-400/50'
+                  : !syncStatus.isOnline
+                  ? 'bg-amber-950/90 text-amber-300 border-amber-500/50'
+                  : syncStatus.pendingCount > 0
+                  ? 'bg-orange-950/90 text-orange-300 border-orange-500/50 animate-pulse'
+                  : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
+              }`}
+            >
+              {syncStatus.isSyncing ? (
+                <>
+                  <RefreshCw className="w-2.5 h-2.5 sm:w-3 sm:h-3 animate-spin text-sky-300 shrink-0" />
+                  <span className="leading-none">সিঙ্ক হচ্ছে...</span>
+                </>
+              ) : !syncStatus.isOnline ? (
+                <>
+                  <WifiOff className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-400 shrink-0" />
+                  <span className="leading-none">অফলাইন</span>
+                </>
+              ) : syncStatus.pendingCount > 0 ? (
+                <>
+                  <RefreshCw className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-orange-300 shrink-0" />
+                  <span className="leading-none">সিঙ্ক ({syncStatus.pendingCount})</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                  <span className="leading-none">অনলাইন</span>
+                </>
+              )}
+            </button>
           </div>
 
           {/* Row 2: Phone Number / Subtitle */}
@@ -61,7 +140,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="truncate max-w-[120px] sm:max-w-[200px]">{store.phone}</span>
               </a>
             ) : (
-              <span className="text-teal-200 font-medium">ডিজিটাল খাতা</span>
+              <span className="text-teal-200 font-medium">অফলাইন-ফার্স্ট ডিজিটাল খাতা</span>
             )}
           </div>
         </div>
@@ -126,8 +205,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="hidden md:inline text-[11px]">লগআউট</span>
         </button>
       </div>
+
+      {/* Sync Toast overlay message if user manually triggers sync */}
+      {syncMsg && (
+        <div
+          id="nav-sync-toast"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl border border-teal-500/50 flex items-center gap-2 animate-bounce"
+        >
+          <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+          <span>{syncMsg}</span>
+        </div>
+      )}
     </header>
   );
 };
-
-
