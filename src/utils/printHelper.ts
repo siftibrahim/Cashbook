@@ -25,7 +25,7 @@ export function generateInvoiceHTML(data: InvoicePrintData): string {
   const dueAmount = transaction.dueAmount !== undefined ? transaction.dueAmount : (isSale ? netBill - paidAmount : 0);
   const isFullyPaid = isPayment || (isSale && dueAmount <= 0 && paidAmount >= netBill) || (isSale && customer.balance <= 0 && dueAmount <= 0);
 
-  const qrTarget = store.bkashNumber || store.phone || '01306908115';
+  const qrTarget = store.bkashNumber || store.phone || '01619665875';
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(
     `Payment to ${store.name}, Mobile: ${qrTarget}, Voucher: ${voucherNo}, Amount: ${customer.balance > 0 ? customer.balance : dueAmount}`
   )}`;

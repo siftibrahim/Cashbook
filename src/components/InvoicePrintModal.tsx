@@ -122,7 +122,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
   };
 
   // Generate dynamic QR Code url for store's bKash or phone
-  const qrTarget = store.bkashNumber || store.phone || '01306908115';
+  const qrTarget = store.bkashNumber || store.phone || '01619665875';
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(
     `Payment to ${store.name}, Mobile: ${qrTarget}, Voucher: ${voucherNo}, Amount: ${customer.balance > 0 ? customer.balance : dueAmount}`
   )}`;

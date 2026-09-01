@@ -98,16 +98,10 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       return 0;
     });
 
-  const handleSearchFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-    setTimeout(() => {
-      e.target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 150);
-  };
-
   return (
     <section className="flex-1 bg-white rounded-2xl shadow-xs border border-slate-200/90 flex flex-col no-print relative">
       {/* Persistent Sticky Sub-Header: Search, Actions, & Filter Controls */}
-      <div className="sticky -top-3 sm:-top-4 z-20 bg-slate-50/98 backdrop-blur-md border-b border-slate-200/90 p-3 sm:p-4 space-y-2.5 shrink-0 rounded-t-2xl shadow-xs transition-shadow">
+      <div className="sticky top-0 z-20 bg-slate-50/98 backdrop-blur-md border-b border-slate-200/90 p-3 sm:p-4 space-y-2.5 shrink-0 rounded-t-2xl shadow-xs transition-shadow">
         {/* Search & Actions Row (Row 1) */}
         <div className="flex flex-col sm:flex-row gap-2 justify-between items-stretch sm:items-center">
           {/* Search Bar */}
@@ -116,7 +110,6 @@ export const CustomerList: React.FC<CustomerListProps> = ({
               type="text"
               id="customer-search-input"
               value={searchQuery}
-              onFocus={handleSearchFocus}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder="কাস্টমার খুঁজুন (নাম, মোবাইল নম্বর বা এলাকা)..."
               className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm text-slate-800 shadow-2xs font-medium placeholder:text-slate-400"

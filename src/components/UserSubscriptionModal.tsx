@@ -253,7 +253,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
       return {
         name: 'bKash (বিকাশ)',
         color: 'from-pink-600 to-rose-600',
-        personalNum: settings.bkash?.personal?.number || '01306908115',
+        personalNum: settings.bkash?.personal?.number || '01619665875',
         instructions: settings.bkash?.personal?.instructions || 'বিকাশ অ্যাপ থেকে "Send Money" করুন।',
       };
     }
@@ -261,7 +261,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
       return {
         name: 'Nagad (নগদ)',
         color: 'from-orange-600 to-amber-600',
-        personalNum: settings.nagad?.personal?.number || '01306908115',
+        personalNum: settings.nagad?.personal?.number || '01619665875',
         instructions: settings.nagad?.personal?.instructions || 'নগদ অ্যাপ থেকে "Send Money" করুন।',
       };
     }
@@ -269,7 +269,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
       return {
         name: 'Rocket (রকেট)',
         color: 'from-purple-600 to-indigo-600',
-        personalNum: settings.rocket?.personal?.number || '01306908115-8',
+        personalNum: settings.rocket?.personal?.number || '01619665875-8',
         instructions: settings.rocket?.personal?.instructions || 'রকেট অ্যাপ থেকে "Send Money" করুন।',
       };
     }
@@ -277,7 +277,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
       return {
         name: 'Upay (উপায়)',
         color: 'from-cyan-600 to-blue-600',
-        personalNum: settings.upay?.personal?.number || '01306908115',
+        personalNum: settings.upay?.personal?.number || '01619665875',
         instructions: settings.upay?.personal?.instructions || 'উপায় অ্যাপ থেকে সেন্ড মানি করুন।',
       };
     }

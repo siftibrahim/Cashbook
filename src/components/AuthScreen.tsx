@@ -174,13 +174,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         onLoginSuccess(res.user?.email || cleanIdentifier, 'দোকানদার');
       }, 400);
     } catch (err: any) {
-      console.error('Unified Auth Error:', err);
+      console.warn('Unified Auth Error:', err);
 
       const attempt = recordFailedLoginAttempt(cleanIdentifier.toLowerCase());
       if (attempt.isLockedNow) {
         setErrorMsg('❌ ৫ বার ভুল চেষ্টা করায় অ্যাকাউন্টটি ১৫ মিনিটের জন্য লক করা হয়েছে!');
       } else {
-        setErrorMsg(`❌ ${err.message || 'মোবাইল নম্বর/ইমেইল অথবা পাসওয়ার্ড/পিন সঠিক নয়!'} (বাকি সুযোগ: ${attempt.attemptsLeft} বার)`);
+        let msg = err?.message || '';
+        if (!msg || msg.includes('Failed to fetch') || msg.includes('Network request failed') || msg.includes('NetworkError')) {
+          msg = 'মোবাইল নম্বর/ইমেইল অথবা পাসওয়ার্ড/পিন সঠিক নয়!';
+        }
+        setErrorMsg(`❌ ${msg} (বাকি সুযোগ: ${attempt.attemptsLeft} বার)`);
       }
     } finally {
       setLoading(false);
@@ -1247,14 +1251,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setActiveTab('login');
+                      const finalTarget = resetTarget.trim();
+                      setIdentifier(finalTarget);
                       setPassword(resetNewPass);
+                      setActiveTab('login');
+                      setShow2FA(false);
                       setResetStep('phone');
                       setResetOtp('');
                       setResetNewPass('');
                       setResetConfirmPass('');
                       setErrorMsg('');
-                      setSuccessMsg('✅ নতুন পিন স্বয়ংক্রিয়ভাবে ইনপুটে বসানো হয়েছে। লগইন বাটনে ক্লিক করুন।');
+                      setSuccessMsg('✅ আপনার নতুন পিনটি বসানো হয়েছে। এখন লগইন বাটনে ক্লিক করে দোকানে প্রবেশ করুন।');
                     }}
                     className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-black rounded-2xl shadow-lg text-sm cursor-pointer"
                   >

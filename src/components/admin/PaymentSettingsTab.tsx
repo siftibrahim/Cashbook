@@ -73,7 +73,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
         name: 'bKash Official Direct Gateway (Tokenized API)',
         isEnabled: false,
         isLive: false,
-        merchantNumber: '01306908115',
+        merchantNumber: '01619665875',
         notes: 'অফিসিয়াল বিকাশ মার্চেন্ট এপিআই দিয়ে অটোমেটিক চেকআউট।',
       },
       {
@@ -81,7 +81,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
         name: 'Nagad Direct Checkout API',
         isEnabled: false,
         isLive: false,
-        merchantNumber: '01306908115',
+        merchantNumber: '01619665875',
         notes: 'নগদ পেমেন্ট গেটওয়ে এপিআই।',
       },
       {
@@ -906,7 +906,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       },
                     }))
                   }
-                  placeholder="01306908115"
+                  placeholder="01619665875"
                   className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-pink-500"
                 />
               </div>
@@ -976,7 +976,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       },
                     }))
                   }
-                  placeholder="01306908115"
+                  placeholder="01619665875"
                   className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-orange-500"
                 />
               </div>
@@ -1046,7 +1046,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       },
                     }))
                   }
-                  placeholder="01306908115-8"
+                  placeholder="01619665875-8"
                   className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-purple-500"
                 />
               </div>
@@ -1116,7 +1116,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       },
                     }))
                   }
-                  placeholder="01306908115"
+                  placeholder="01619665875"
                   className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1383,7 +1383,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                       type="text"
                       value={gtw.merchantNumber || ''}
                       onChange={(e) => handleUpdateGateway(idx, 'merchantNumber', e.target.value)}
-                      placeholder="01306908115"
+                      placeholder="01619665875"
                       className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-teal-500"
                     />
                   </div>
@@ -1474,7 +1474,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                   type="text"
                   value={newGatewayMerchantNum}
                   onChange={(e) => setNewGatewayMerchantNum(e.target.value)}
-                  placeholder="01306908115"
+                  placeholder="01619665875"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-teal-500"
                 />
               </div>

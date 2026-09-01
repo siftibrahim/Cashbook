@@ -43,7 +43,7 @@ export const UserSupportModal: React.FC<UserSupportModalProps> = ({
   const currentUser = getStoredUser();
   const userId = store.id || currentUser?.id || 'usr_1';
   const userName = store.name || 'দোকান মালিক';
-  const userPhone = store.phone || '01306908115';
+  const userPhone = store.phone || currentUser?.phone || '01619665875';
   const userEmail = currentUser?.email || undefined;
   const shopName = store.name || 'TWING হিসাবি';
 

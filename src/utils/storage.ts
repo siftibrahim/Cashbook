@@ -3,15 +3,15 @@ import { Customer, Transaction, StoreProfile, DailyExpense, Product } from '../t
 export const DEFAULT_STORE: StoreProfile = {
   name: 'TWING হিসাবি',
   owner: 'প্রোপ্রাইটর',
-  phone: '০১৩০৬৯০৮১১৫',
+  phone: '০১৬১৯৬৬৫৮৭৫',
   address: 'বাজার রোড, দোকান নং ১২',
   footerNote: 'আমাদের সাথে থাকার জন্য ধন্যবাদ! আবার আসবেন।',
   currencySymbol: '৳',
   highDueLimit: 5000,
   tagadaTemplate:
     'আসসালামু আলাইকুম {customer} ভাই, {store}-এ আপনার বর্তমান বকেয়া বাকি {currency} {amount}। সুবিধাজনক সময়ে পরিশোধ করার জন্য অনুরোধ রইল।\n\nধন্যবাদ,\n{store}\nযোগাযোগ: {phone}',
-  bkashNumber: '01306908115',
-  nagadNumber: '01306908115',
+  bkashNumber: '01619665875',
+  nagadNumber: '01619665875',
   rocketNumber: '',
   themeColor: 'teal',
   enableSoundEffects: true,

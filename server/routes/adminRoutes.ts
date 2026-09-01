@@ -692,7 +692,7 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
               id: 'usr_super_admin',
               name: cfg.name || 'সুপার অ্যাডমিন',
               email: cfg.email,
-              phone: cfg.phone || '01306908115',
+              phone: cfg.phone || '01619665875',
               role: 'super_admin',
             };
           }
@@ -705,7 +705,7 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
         id: 'usr_super_admin',
         name: 'সুপার অ্যাডমিন',
         email: req.user?.email || 'admin@twing.com',
-        phone: '01306908115',
+        phone: '01619665875',
         role: 'super_admin',
       };
       if (inMemoryStore.system_config['super_admin_security']?.masterPin) {
@@ -780,7 +780,7 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
         `, [
           'usr_super_admin',
           cleanName || 'সুপার অ্যাডমিন',
-          cleanPhone || '01306908115',
+          cleanPhone || '01619665875',
           cleanEmail || 'admin@twing.com',
           hashToSave,
           now,
@@ -816,7 +816,7 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
         inMemoryStore.users.push({
           id: 'usr_super_admin',
           name: cleanName || 'সুপার অ্যাডমিন',
-          phone: cleanPhone || '01306908115',
+          phone: cleanPhone || '01619665875',
           email: cleanEmail || 'admin@twing.com',
           password_hash: passwordHash || (await bcrypt.hash('admin123', 10)),
           role: 'super_admin',

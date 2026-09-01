@@ -260,9 +260,8 @@ export const App: React.FC = () => {
               setUserRole('স্টাফ অ্যাকাউন্ট');
               setIsAdminPanelOpen(true);
             } else if (
-              currentUser.role === 'super_admin' ||
-              currentUser.email === ADMIN_EMAIL ||
-              currentUser.email === 'siftibrahim@gmail.com'
+              (currentUser.role === 'super_admin' || currentUser.email === ADMIN_EMAIL || currentUser.email === 'siftibrahim@gmail.com') &&
+              (currentUser.email === ADMIN_EMAIL || currentUser.email === 'siftibrahim@gmail.com' || currentUser.phone === '01619665875' || currentUser.phone?.replace(/\D/g, '') === '01619665875' || currentUser.id === 'usr_super_admin')
             ) {
               setAdminSession({
                 role: 'super_admin',
@@ -271,7 +270,11 @@ export const App: React.FC = () => {
               setUserRole('প্রধান সুপার অ্যাডমিন');
               setIsAdminPanelOpen(true);
             } else {
+              currentUser.role = 'user';
+              setStoredUser(currentUser);
               setUserRole('দোকান মালিক');
+              setAdminSession(null);
+              setIsAdminPanelOpen(false);
               await loadUserAccountData(currentUser.id);
             }
           } else {
@@ -431,9 +434,18 @@ export const App: React.FC = () => {
     if (user?.id) {
       await loadUserAccountData(user.id);
     }
-    const isSuper = roleName === 'super_admin' || email === ADMIN_EMAIL || user?.role === 'super_admin';
+    const isSuper = (roleName === 'super_admin' || user?.role === 'super_admin') &&
+      (email === ADMIN_EMAIL || email === 'siftibrahim@gmail.com' || user?.phone === '01619665875' || user?.phone?.replace(/\D/g, '') === '01619665875' || user?.id === 'usr_super_admin');
     const resolvedRole = isSuper ? 'প্রধান সুপার অ্যাডমিন' : 'দোকান মালিক';
+    if (!isSuper && user) {
+      user.role = 'user';
+      setStoredUser(user);
+    }
     setUserRole(resolvedRole);
+    if (!isSuper) {
+      setIsAdminPanelOpen(false);
+      setAdminSession(null);
+    }
     localStorage.setItem('ibrahim_is_logged_in', 'true');
     localStorage.setItem('ibrahim_user_role', resolvedRole);
     showToast('☁️ আপনার দোকানে সফলভাবে লগইন হয়েছে!');
@@ -1106,7 +1118,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="w-full h-screen h-[100dvh] min-h-[100dvh] max-h-[100dvh] bg-slate-900 sm:bg-slate-100 flex flex-col items-center justify-start sm:justify-center p-0 sm:p-2 md:p-3 lg:p-4 text-slate-800 font-sans antialiased overflow-hidden selection:bg-teal-500 selection:text-white">
+    <div className="w-full h-full min-h-full max-h-full bg-slate-900 sm:bg-slate-100 flex flex-col items-center justify-start sm:justify-center p-0 sm:p-2 md:p-3 lg:p-4 text-slate-800 font-sans antialiased overflow-hidden selection:bg-teal-500 selection:text-white">
       {/* Toast Notifications */}
       <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none flex flex-col gap-2 no-print">
         {toasts.map((t) => (
@@ -1120,7 +1132,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* Main Container Card */}
-      <div className="w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl h-full sm:h-[98dvh] lg:h-[96dvh] max-h-[100dvh] sm:max-h-[98dvh] flex flex-col bg-white sm:rounded-2xl md:rounded-3xl shadow-2xl sm:border sm:border-slate-200/80 overflow-hidden relative">
+      <div className="w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl h-full sm:h-[98dvh] lg:h-[96dvh] max-h-full sm:max-h-[98dvh] flex flex-col bg-white sm:rounded-2xl md:rounded-3xl shadow-2xl sm:border sm:border-slate-200/80 overflow-hidden relative">
         {!isLoggedIn ? (
           <AuthScreen
             store={store}

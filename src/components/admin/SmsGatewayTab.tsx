@@ -33,7 +33,7 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
   const [otpTemplate, setOtpTemplate] = useState('আপনার টুইং খাতা পাসওয়ার্ড রিসেট ওটিপি হলো {OTP}। মেয়াদ ১৫ মিনিট।');
 
   // Testing State
-  const [testPhone, setTestPhone] = useState('01306908115');
+  const [testPhone, setTestPhone] = useState('01619665875');
   const [testMessage, setTestMessage] = useState('টুইং খাতা: টেস্ট এসএমএস সফল হয়েছে!');
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
@@ -368,7 +368,7 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
                   type="text"
                   value={testPhone}
                   onChange={(e) => setTestPhone(e.target.value)}
-                  placeholder="01306908115"
+                  placeholder="01619665875"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-teal-500 font-mono"
                 />
               </div>

@@ -723,26 +723,18 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@twing.com';
   const defaultPassHash = await bcrypt.hash('admin123', 10);
   
-  // Seed Super Admin in users table safely if not already present
+  // Seed Super Admin in users table safely and restore correct identity
   try {
-    const existingAdmin = await client.query(
-      'SELECT id FROM users WHERE id = $1 OR LOWER(email) = $2 OR role = $3 LIMIT 1',
-      ['usr_super_admin', adminEmail.toLowerCase(), 'super_admin']
-    );
-
-    if (existingAdmin.rows.length === 0) {
-      await client.query(`
-        INSERT INTO users (
-          id, name, phone, email, password_hash, shop_name, business_type, address, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at, last_active_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
-        ) ON CONFLICT (id) DO NOTHING;
-      `, [
+    // 1. Ensure usr_super_admin exists with genuine super admin credentials
+    await client.query(`
+      INSERT INTO users (
+        id, name, phone, email, password_hash, shop_name, business_type, address, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at, last_active_at
+      ) VALUES (
         'usr_super_admin',
         'ইব্রাহিম (সুপার অ্যাডমিন)',
         '01619665875',
-        adminEmail,
-        defaultPassHash,
+        $1,
+        $2,
         'TWING হিসাবি',
         'জেনারেল স্টোর',
         'ঢাকা, বাংলাদেশ',
@@ -750,13 +742,31 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
         'active',
         'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
         'active',
-        Date.now() + 3650 * 86400000,
-        Date.now(),
-        Date.now(),
-      ]);
-    }
+        $3,
+        $4,
+        $4
+      ) ON CONFLICT (id) DO UPDATE SET
+        role = 'super_admin',
+        email = CASE WHEN users.email LIKE '%admin%' OR users.email LIKE '%siftibrahim%' THEN users.email ELSE $1 END,
+        phone = '01619665875';
+    `, [
+      adminEmail,
+      defaultPassHash,
+      Date.now() + 3650 * 86400000,
+      Date.now(),
+    ]);
+
+    // 2. Data Integrity Clean-up: If any other user account was accidentally marked as super_admin, restore role to 'user'
+    await client.query(`
+      UPDATE users 
+      SET role = 'user' 
+      WHERE id != 'usr_super_admin' 
+        AND phone != '01619665875' 
+        AND LOWER(email) NOT IN ('admin@twing.com', 'siftibrahim@gmail.com') 
+        AND role = 'super_admin'
+    `);
   } catch (seedUserErr) {
-    console.warn('⚠️ Super admin seed check bypassed/already exists:', seedUserErr);
+    console.warn('⚠️ Super admin seed check warning:', seedUserErr);
   }
 
   // Seed default payment config
@@ -764,19 +774,19 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
     id: 'system_payment_settings',
     bkash: {
       isEnabled: true,
-      personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ অ্যাপ বা *247# ডায়াল করে "Send Money" করুন।' },
+      personal: { number: '01619665875', accountType: 'personal', instructions: 'বিকাশ অ্যাপ বা *247# ডায়াল করে "Send Money" করুন।' },
     },
     nagad: {
       isEnabled: true,
-      personal: { number: '01306908115', accountType: 'personal', instructions: 'নগদ অ্যাপ বা *167# ডায়াল করে "Send Money" করুন।' },
+      personal: { number: '01619665875', accountType: 'personal', instructions: 'নগদ অ্যাপ বা *167# ডায়াল করে "Send Money" করুন।' },
     },
     rocket: {
       isEnabled: true,
-      personal: { number: '01306908115-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01619665875-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে "Send Money" করুন।' },
     },
     upay: {
       isEnabled: true,
-      personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01619665875', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে "Send Money" করুন।' },
     },
     bankTransfer: {
       isEnabled: true,
@@ -880,7 +890,7 @@ function seedDefaultDataInMemory() {
     {
       id: 'usr_super_admin',
       name: 'ইব্রাহিম (সুপার অ্যাডমিন)',
-      phone: '01306908115',
+      phone: '01619665875',
       email: 'siftibrahim@gmail.com',
       password_hash: '$2a$10$wN35i7t77b8H5hJ9uW7CGeL7O0Zl9KqXgN0vL3Z3zP8M9.5/cKzG', // admin123
       shopName: 'TWING হিসাবি',
@@ -899,7 +909,7 @@ function seedDefaultDataInMemory() {
     {
       id: 'usr_super_admin_2',
       name: 'ইব্রাহিম (অ্যাডমিন)',
-      phone: '01306908115',
+      phone: '01619665875',
       email: 'admin@twing.com',
       password_hash: '$2a$10$wN35i7t77b8H5hJ9uW7CGeL7O0Zl9KqXgN0vL3Z3zP8M9.5/cKzG', // admin123
       shopName: 'TWING হিসাবি',
@@ -921,19 +931,19 @@ function seedDefaultDataInMemory() {
     id: 'system_payment_settings',
     bkash: {
       isEnabled: true,
-      personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01619665875', accountType: 'personal', instructions: 'বিকাশ অ্যাপ থেকে "Send Money" করুন।' },
     },
     nagad: {
       isEnabled: true,
-      personal: { number: '01306908115', accountType: 'personal', instructions: 'নগদ অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01619665875', accountType: 'personal', instructions: 'নগদ অ্যাপ থেকে "Send Money" করুন।' },
     },
     rocket: {
       isEnabled: true,
-      personal: { number: '01306908115-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01619665875-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে "Send Money" করুন।' },
     },
     upay: {
       isEnabled: true,
-      personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01619665875', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে "Send Money" করুন।' },
     },
     bankTransfer: {
       isEnabled: true,
@@ -978,7 +988,7 @@ function seedDefaultDataInMemory() {
     {
       id: 'staff_default_1',
       name: 'অফিসিয়াল স্টাফ ম্যানেজার',
-      phone: '01306908115',
+      phone: '01619665875',
       email: 'staff@twing.com',
       password_hash: '$2a$10$7z7aMvJdM9QxT2eXoOq9se.r0sN9E07uFv8gE8T4B6gH9tY5u7gHy', // staff123
       password: 'staff123',

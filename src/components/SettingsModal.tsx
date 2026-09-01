@@ -985,7 +985,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* TAB 7: SECURITY & ADMIN */}
           {activeTab === 'security' && (() => {
             const currentUser = getStoredUser();
-            const isSuperAdmin = currentUser?.role === 'super_admin';
+            const isSuperAdmin = Boolean(
+              currentUser?.role === 'super_admin' && (
+                currentUser?.id === 'usr_super_admin' ||
+                currentUser?.email?.toLowerCase() === 'siftibrahim@gmail.com' ||
+                currentUser?.email?.toLowerCase() === 'admin@twing.com' ||
+                currentUser?.phone?.replace(/\D/g, '') === '01619665875'
+              )
+            );
             
             return (
               <div className="space-y-4 animate-in fade-in">
@@ -997,7 +1004,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </h4>
                   </div>
                   <p className="text-xs text-slate-600">
-                    লগইনকৃত ইমেইল: <span className="font-bold text-slate-900">{currentUser?.email || store.phone || 'দোকান একাউন্ট'}</span>
+                    লগইনকৃত মোবাইল/ইমেইল: <span className="font-bold text-slate-900">{currentUser?.phone || currentUser?.email || store.phone || 'দোকান একাউন্ট'}</span>
                   </p>
                   <p className="text-xs text-slate-600 mt-1">
                     রোল:{' '}
@@ -1005,9 +1012,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {isSuperAdmin ? 'প্রধান সুপার অ্যাডমিন' : 'দোকান মালিক (দোকানদার)'}
                     </span>
                   </p>
-                  {currentUser?.shopName && (
+                  {(currentUser?.shopName || store.name) && (
                     <p className="text-xs text-slate-600 mt-1">
-                      দোকান: <span className="font-bold text-slate-800">{currentUser.shopName}</span>
+                      দোকান: <span className="font-bold text-slate-800">{currentUser?.shopName || store.name}</span>
                     </p>
                   )}
                 </div>

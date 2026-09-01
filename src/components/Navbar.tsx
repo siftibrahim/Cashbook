@@ -22,7 +22,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header
       id="main-app-header"
-      className="relative top-0 left-0 right-0 z-40 w-full bg-gradient-to-r from-[#002820] via-[#004D40] to-[#00382E] text-white px-3 sm:px-5 py-2.5 sm:py-3.5 min-h-[60px] sm:min-h-[68px] flex items-center justify-between shadow-md shrink-0 no-print border-b-2 border-teal-500/40 select-none transition-all pt-[max(0.625rem,env(safe-area-inset-top))] sm:pt-3.5"
+      className="sticky top-0 left-0 right-0 z-40 w-full bg-gradient-to-r from-[#002820] via-[#004D40] to-[#00382E] text-white px-3 sm:px-5 py-2 sm:py-3 min-h-[58px] sm:min-h-[64px] flex items-center justify-between shadow-md shrink-0 no-print border-b border-teal-500/40 select-none"
+      style={{
+        paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))',
+      }}
     >
       {/* Left: Store Branding with Icon & Info */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pr-1.5">

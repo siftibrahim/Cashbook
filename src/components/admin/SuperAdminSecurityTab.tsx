@@ -30,7 +30,7 @@ export const SuperAdminSecurityTab: React.FC<SuperAdminSecurityTabProps> = ({
 }) => {
   const [name, setName] = useState('সুপার অ্যাডমিন');
   const [email, setEmail] = useState(currentUserEmail || 'siftibrahim@gmail.com');
-  const [phone, setPhone] = useState('01306908115');
+  const [phone, setPhone] = useState('01619665875');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [masterPin, setMasterPin] = useState('1234');
@@ -184,7 +184,7 @@ export const SuperAdminSecurityTab: React.FC<SuperAdminSecurityTabProps> = ({
               type="text"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="01306908115"
+              placeholder="01619665875"
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
             />
           </div>
