@@ -11,6 +11,7 @@ import {
   WifiOff,
   RefreshCw,
   CheckCircle2,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   subscribeSyncStatus,
@@ -25,6 +26,7 @@ interface NavbarProps {
   onOpenSettings?: () => void;
   onOpenNotifications?: () => void;
   onOpenSubscription?: () => void;
+  onOpenPermissions?: () => void;
   unreadNotificationsCount?: number;
 }
 
@@ -34,6 +36,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSettings,
   onOpenNotifications,
   onOpenSubscription,
+  onOpenPermissions,
   unreadNotificationsCount = 0,
 }) => {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(getCurrentSyncStatus());
@@ -177,6 +180,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
               </span>
             )}
+          </button>
+        )}
+
+        {/* Permissions & Security Shield Button */}
+        {onOpenPermissions && (
+          <button
+            type="button"
+            onClick={onOpenPermissions}
+            id="nav-permissions-btn"
+            title="অ্যাপ পারমিশন ও গুগল প্রাইভেসি পলিসি"
+            className="w-8 h-8 sm:w-9.5 sm:h-9.5 rounded-xl bg-teal-800/40 hover:bg-teal-700/60 active:scale-95 text-teal-200 hover:text-white flex items-center justify-center transition border border-teal-400/30 shadow-xs cursor-pointer"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 sm:w-4.5 sm:h-4.5 text-teal-300" />
           </button>
         )}
 

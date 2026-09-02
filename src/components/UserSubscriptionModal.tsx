@@ -99,6 +99,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
   const effectiveExpiresAt = useMemo(() => {
     return Number(rawExpiresAt) || (Date.now() + 14 * 86400000);
   }, [rawExpiresAt]);
+  const effectivePlanName = subscriptionServerStatus?.subscriptionPlan || (store as any)?.subscriptionPlan || storedUser?.subscriptionPlan || currentPlanName || 'স্ট্যান্ডার্ড এক্সেস';
 
   const [timeLeft, setTimeLeft] = useState<{
     days: number;
@@ -324,10 +325,15 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
               <Timer className="w-4 h-4" />
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">
-                সাবস্ক্রিপশন স্ট্যাটাস
-              </span>
-              <div className="text-xs font-bold flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">
+                  সাবস্ক্রিপশন স্ট্যাটাস
+                </span>
+                <span className="px-2 py-0.2 rounded-md bg-teal-500/20 text-teal-300 text-[10px] font-black border border-teal-500/30">
+                  {effectivePlanName}
+                </span>
+              </div>
+              <div className="text-xs font-bold flex items-center gap-1.5 mt-0.5">
                 {timeLeft.isExpired ? (
                   <span className="text-rose-400 font-black flex items-center gap-1">
                     <AlertTriangle className="w-3.5 h-3.5" /> মেয়াদ শেষ হয়েছে

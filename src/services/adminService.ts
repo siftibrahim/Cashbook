@@ -552,6 +552,26 @@ export async function extendUserSubscription(
   daysToAdd: number,
   planName?: string
 ): Promise<void> {
+  const users = getCached<AppUser[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+  const target = users.find((u) => u.id === userId);
+  if (target) {
+    const curExp = Number(target.subscriptionExpiresAt) || Date.now();
+    const newExp = Math.max(Date.now(), curExp) + (daysToAdd * 86400000);
+    const updatedUsers = users.map((u) => {
+      if (u.id === userId) {
+        return {
+          ...u,
+          subscriptionExpiresAt: newExp,
+          subscriptionPlan: planName || u.subscriptionPlan || 'স্পেশাল প্রিমিয়াম প্যাক',
+          subscriptionStatus: 'active' as const,
+          status: 'active' as const,
+        };
+      }
+      return u;
+    });
+    setCached(STORAGE_KEYS.USERS, updatedUsers);
+  }
+
   try {
     await adminApi.extendSubscription(userId, daysToAdd, planName);
   } catch (err) {

@@ -83,6 +83,7 @@ import { UserSupportModal } from './components/support/UserSupportModal';
 import { UserSubscriptionModal } from './components/UserSubscriptionModal';
 import { SubscriptionLockScreen } from './components/SubscriptionLockScreen';
 import { UserNotificationModal } from './components/UserNotificationModal';
+import { AppPermissionsModal } from './components/AppPermissionsModal';
 import {
   subscribeToUserSupportMessages,
   subscribeToAnnouncements,
@@ -138,6 +139,8 @@ export const App: React.FC = () => {
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
+  const [isFirstInstallPrompt, setIsFirstInstallPrompt] = useState(false);
   const [userNotifications, setUserNotifications] = useState<AdminNotification[]>([]);
   const [userSupportMessages, setUserSupportMessages] = useState<SupportMessage[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -298,6 +301,18 @@ export const App: React.FC = () => {
         setIsAdminPanelOpen(false);
       }
       setIsAuthChecking(false);
+
+      // When user is logged in, check if permissions need to be prompted on dashboard
+      const isAlreadyLogged = Boolean(localStorage.getItem('ibrahim_is_logged_in') === 'true' || getAuthToken());
+      if (isAlreadyLogged) {
+        const hasAcceptedPermissions = localStorage.getItem('twing_permissions_accepted_v2');
+        if (!hasAcceptedPermissions) {
+          setTimeout(() => {
+            setIsFirstInstallPrompt(true);
+            setIsPermissionsModalOpen(true);
+          }, 500);
+        }
+      }
     };
     checkAuth();
   }, []);
@@ -449,6 +464,15 @@ export const App: React.FC = () => {
     localStorage.setItem('ibrahim_is_logged_in', 'true');
     localStorage.setItem('ibrahim_user_role', resolvedRole);
     showToast('☁️ আপনার দোকানে সফলভাবে লগইন হয়েছে!');
+
+    // Show app permissions popup on dashboard if not accepted yet
+    const hasAcceptedPermissions = localStorage.getItem('twing_permissions_accepted_v2');
+    if (!hasAcceptedPermissions) {
+      setTimeout(() => {
+        setIsFirstInstallPrompt(true);
+        setIsPermissionsModalOpen(true);
+      }, 500);
+    }
   };
 
   // Perform Log Out with confirmation and clear state
@@ -1152,6 +1176,7 @@ export const App: React.FC = () => {
               onOpenSettings={() => setIsSettingsModalOpen(true)}
               onOpenNotifications={() => setIsNotificationModalOpen(true)}
               onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+              onOpenPermissions={() => setIsPermissionsModalOpen(true)}
               unreadNotificationsCount={unreadNotificationsCount}
             />
 
@@ -1414,6 +1439,7 @@ export const App: React.FC = () => {
         }}
         onOpenSupport={() => setIsSupportModalOpen(true)}
         onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+        onOpenPermissions={() => setIsPermissionsModalOpen(true)}
       />
 
       {/* Admin Login & PIN Verification Modal */}
@@ -1533,6 +1559,17 @@ export const App: React.FC = () => {
         store={store}
         onClose={() => setIsSubscriptionModalOpen(false)}
         onShowToast={showToast}
+      />
+
+      {/* App Permissions & Google Privacy Policy Modal */}
+      <AppPermissionsModal
+        isOpen={isPermissionsModalOpen}
+        onClose={() => {
+          setIsPermissionsModalOpen(false);
+          setIsFirstInstallPrompt(false);
+        }}
+        onShowToast={showToast}
+        isFirstInstall={isFirstInstallPrompt}
       />
 
       {/* Complete Admin / Staff Management Console */}

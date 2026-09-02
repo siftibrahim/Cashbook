@@ -161,6 +161,17 @@ router.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => {
         WHERE id = $10
       `, [name, phone, shopName, status, role, subscriptionPlan, subscriptionStatus, subscriptionExpiresAt, notes, userId]);
 
+      // Sync store profile if name/shopName/subscription was updated
+      if (shopName || subscriptionPlan || subscriptionExpiresAt) {
+        await pool.query(`
+          UPDATE store_profiles SET
+            name = COALESCE($1, name),
+            subscription_plan = COALESCE($2, subscription_plan),
+            subscription_expires_at = COALESCE($3, subscription_expires_at)
+          WHERE user_id = $4
+        `, [shopName, subscriptionPlan, subscriptionExpiresAt, userId]).catch(() => {});
+      }
+
       // Log admin activity
       await pool.query(`
         INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
@@ -175,6 +186,12 @@ router.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => {
         `ইউজার প্রোফাইল ও স্ট্যাটাস (${status || 'updated'}) পরিবর্তন করা হয়েছে`,
         Date.now(),
       ]);
+
+      try {
+        await SubscriptionEngine.recalculateAndSyncUserSubscription(userId);
+      } catch (syncErr) {
+        console.warn('Subscription sync warning on PUT /users/:id:', syncErr);
+      }
     } else {
       const u = inMemoryStore.users.find(x => x.id === userId);
       if (u) {
@@ -203,27 +220,76 @@ router.post('/users/:id/extend-subscription', async (req: AuthenticatedRequest, 
   try {
     const userId = req.params.id;
     const { days, planName } = req.body;
-    const additionalMs = (parseInt(days, 10) || 30) * 86400000;
+    const parsedDays = parseInt(days, 10) || 30;
+    const additionalMs = parsedDays * 86400000;
     const pool = getDbPool();
+    const now = Date.now();
 
     if (pool) {
-      const uRes = await pool.query('SELECT subscription_expires_at FROM users WHERE id = $1', [userId]);
+      const uRes = await pool.query('SELECT id, name, phone, shop_name, email, subscription_expires_at, subscription_plan FROM users WHERE id = $1', [userId]);
       if (uRes.rows.length === 0) return res.status(404).json({ error: 'ইউজার খুঁজে পাওয়া যায়নি' });
 
-      const currentExpiry = Number(uRes.rows[0].subscription_expires_at);
-      const newExpiry = Math.max(Date.now(), currentExpiry) + additionalMs;
+      const u = uRes.rows[0];
+      const currentExpiry = Number(u.subscription_expires_at) || now;
+      const newExpiry = Math.max(now, currentExpiry) + additionalMs;
+      const effectivePlanName = planName || u.subscription_plan || 'স্পেশাল প্রিমিয়াম প্যাক';
 
+      // 1. Update users table
       await pool.query(`
         UPDATE users SET
           subscription_expires_at = $1,
           subscription_status = 'active',
-          subscription_plan = COALESCE($2, subscription_plan),
+          subscription_plan = $2,
           status = 'active',
           updated_at = NOW()
         WHERE id = $3
-      `, [newExpiry, planName, userId]);
+      `, [newExpiry, effectivePlanName, userId]);
 
-      // Activity Log
+      // 2. Update store_profiles table
+      await pool.query(`
+        UPDATE store_profiles SET
+          subscription_expires_at = $1,
+          subscription_plan = $2
+        WHERE user_id = $3
+      `, [newExpiry, effectivePlanName, userId]).catch(() => {});
+
+      // 3. Insert approved grant record in payments table for strict permanent history & math chaining
+      const paymentId = 'grant_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+      const trxId = 'ADMIN_GRANT_' + Date.now().toString().slice(-6);
+      await pool.query(`
+        INSERT INTO payments (
+          id, user_id, user_name, user_phone, sender_phone, shop_name,
+          plan_id, plan_name, duration_days, bonus_days, amount,
+          payment_method, payment_mode, trx_id, status, approved_at, admin_notes, created_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, $8, $9, $10, $11,
+          $12, $13, $14, $15, $16, $17, $18
+        )
+      `, [
+        paymentId,
+        userId,
+        u.name || 'ইউজার',
+        u.phone || '',
+        u.phone || '',
+        u.shop_name || 'আমার দোকান',
+        'plan_admin_grant',
+        effectivePlanName,
+        parsedDays,
+        0,
+        0,
+        'admin_grant',
+        'manual',
+        trxId,
+        'approved',
+        now,
+        `সুপার অ্যাডমিন (${req.user?.email || 'super_admin'}) কর্তৃক সরাসরি ${parsedDays} দিনের প্যাকেজ প্রদান`,
+        now,
+      ]).catch((pErr) => {
+        console.warn('Could not insert grant payment record in DB:', pErr);
+      });
+
+      // 4. Activity Log
       await pool.query(`
         INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -233,22 +299,51 @@ router.post('/users/:id/extend-subscription', async (req: AuthenticatedRequest, 
         'EXTEND_SUBSCRIPTION',
         'User',
         userId,
-        userId,
-        `সাবস্ক্রিপশনের মেয়াদ ${days} দিন বৃদ্ধি করা হয়েছে। নতুন মেয়াদ: ${new Date(newExpiry).toLocaleDateString('bn-BD')}`,
+        u.name || u.shop_name || userId,
+        `সাবস্ক্রিপশন প্যাকেজ "${effectivePlanName}" (${parsedDays} দিন) যুক্ত করা হয়েছে। নতুন মেয়াদ: ${new Date(newExpiry).toLocaleDateString('bn-BD')}`,
         Date.now(),
       ]);
+
+      // 5. Trigger SubscriptionEngine to sync caches
+      try {
+        await SubscriptionEngine.recalculateAndSyncUserSubscription(userId);
+      } catch (syncErr) {
+        console.warn('Subscription sync warning on extend-subscription:', syncErr);
+      }
     } else {
       const u = inMemoryStore.users.find(x => x.id === userId);
       if (u) {
-        const cur = u.subscriptionExpiresAt || Date.now();
-        u.subscriptionExpiresAt = Math.max(Date.now(), cur) + additionalMs;
+        const cur = u.subscriptionExpiresAt || now;
+        u.subscriptionExpiresAt = Math.max(now, cur) + additionalMs;
         u.subscriptionStatus = 'active';
         u.status = 'active';
         if (planName) u.subscriptionPlan = planName;
+
+        // In-memory payment record
+        inMemoryStore.payments.push({
+          id: 'grant_' + Date.now(),
+          userId: u.id,
+          userName: u.name,
+          userPhone: u.phone,
+          shopName: u.shopName,
+          planId: 'plan_admin_grant',
+          planName: planName || u.subscriptionPlan || 'স্পেশাল প্রিমিয়াম প্যাক',
+          durationDays: parsedDays,
+          bonusDays: 0,
+          amount: 0,
+          paymentMethod: 'admin_grant' as any,
+          paymentMode: 'manual',
+          trxId: 'ADMIN_GRANT_' + Date.now().toString().slice(-6),
+          status: 'approved',
+          approvedAt: now,
+          approvedBy: req.user?.email || 'super_admin',
+          createdAt: now,
+          userNote: `সুপার অ্যাডমিন কর্তৃক সরাসরি ${parsedDays} দিনের প্যাকেজ প্রদান`,
+        });
       }
     }
 
-    return res.json({ message: `✅ সাবস্ক্রিপশনের মেয়াদ সফলভাবে ${days} দিন বাড়ানো হয়েছে!` });
+    return res.json({ message: `✅ সাবস্ক্রিপশনের মেয়াদ সফলভাবে ${parsedDays} দিন বাড়ানো হয়েছে!` });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

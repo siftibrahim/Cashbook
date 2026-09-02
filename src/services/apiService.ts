@@ -475,69 +475,24 @@ export const authApi = {
     deviceFingerprint?: string;
     deviceName?: string;
   }) {
-    try {
-      const res = await apiRequest<{
-        success: boolean;
-        message: string;
-        token: string;
-        role?: string;
-        deviceFingerprint?: string;
-        user?: any;
-        staff?: any;
-      }>('/auth/admin-verify-2fa', {
-        method: 'POST',
-        body: JSON.stringify(params),
-      });
-      if (res.token) {
-        setAuthToken(res.token);
-        if (res.user) setStoredUser(res.user);
-        else if (res.staff) setStoredUser(res.staff);
-      }
-      return res;
-    } catch (err: any) {
-      if (isFallbackEligible(err) || params.otp === '7860' || params.otp.length === 6) {
-        const token = 'admin_2fa_offline_token_' + Date.now();
-        setAuthToken(token);
-        if (params.role === 'staff') {
-          const staffUser = {
-            id: params.staffId || 'staff_1',
-            name: 'অফিসিয়াল স্টাফ ম্যানেজার',
-            email: 'staff@twing.com',
-            phone: '01619665875',
-            role: 'staff',
-            permissions: ['canManageUsers', 'canManageSupport', 'canViewAuditLogs'],
-          };
-          setStoredUser(staffUser);
-          return {
-            success: true,
-            message: '✅ ২FA যাচাই সফল! (অফলাইন মোড)',
-            token,
-            role: 'staff',
-            staff: staffUser,
-          };
-        } else {
-          const adminUser = {
-            id: 'usr_super_admin',
-            name: 'সুপার অ্যাডমিন',
-            email: 'siftibrahim@gmail.com',
-            phone: '01619665875',
-            role: 'super_admin',
-            status: 'active',
-            subscriptionPlan: 'সুপার অ্যাডমিন আজীবন',
-            subscriptionStatus: 'lifetime',
-          };
-          setStoredUser(adminUser);
-          return {
-            success: true,
-            message: '✅ ২FA যাচাই সফল! (অফলাইন মোড)',
-            token,
-            role: 'super_admin',
-            user: adminUser,
-          };
-        }
-      }
-      throw err;
+    const res = await apiRequest<{
+      success: boolean;
+      message: string;
+      token: string;
+      role?: string;
+      deviceFingerprint?: string;
+      user?: any;
+      staff?: any;
+    }>('/auth/admin-verify-2fa', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    if (res.token) {
+      setAuthToken(res.token);
+      if (res.user) setStoredUser(res.user);
+      else if (res.staff) setStoredUser(res.staff);
     }
+    return res;
   },
 
   async staffLogin(identifier: string, password: string) {

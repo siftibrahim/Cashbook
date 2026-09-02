@@ -84,6 +84,8 @@ export interface BonusConfig {
 
 export interface SystemPaymentSettings {
   id: 'system_payment_settings';
+  // Master switch to enable/disable subscription system across the entire application
+  isSubscriptionSystemEnabled?: boolean;
   // Free Trial Dynamic Settings
   trialConfig?: FreeTrialConfig;
   // Bonus Days Dynamic Settings

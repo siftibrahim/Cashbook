@@ -139,10 +139,18 @@ export class SubscriptionEngine {
         }
       }
 
-      const isExpired = currentChainExpiry < now;
+      // Respect admin manual assignment if it set a higher expiry or custom plan
+      const existingUserExpiry = Number(u.subscription_expires_at) || 0;
+      const finalExpiry = Math.max(currentChainExpiry, existingUserExpiry);
+      if (u.subscription_plan && !u.subscription_plan.includes('ট্রায়াল') && (!latestPlanName || latestPlanName === defaultTrialPlanName)) {
+        latestPlanName = u.subscription_plan;
+      }
+
+      const isExpired = finalExpiry < now;
+      const isTrial = totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
       const computedStatus = isExpired
         ? 'expired'
-        : (totalApprovedDays > 0 ? 'active' : (isTrialEnabled ? 'trial' : 'expired'));
+        : (isTrial ? (isTrialEnabled ? 'trial' : 'expired') : 'active');
 
       await pool.query(
         `UPDATE users SET
@@ -150,7 +158,7 @@ export class SubscriptionEngine {
           subscription_plan = $2,
           subscription_status = $3
         WHERE id = $4`,
-        [currentChainExpiry, latestPlanName, computedStatus, userId]
+        [finalExpiry, latestPlanName, computedStatus, userId]
       );
 
       await pool.query(
@@ -158,11 +166,11 @@ export class SubscriptionEngine {
           subscription_expires_at = $1,
           subscription_plan = $2
         WHERE user_id = $3`,
-        [currentChainExpiry, latestPlanName, userId]
+        [finalExpiry, latestPlanName, userId]
       ).catch(() => {});
 
       return {
-        subscriptionExpiresAt: currentChainExpiry,
+        subscriptionExpiresAt: finalExpiry,
         subscriptionPlan: latestPlanName,
         subscriptionStatus: computedStatus,
         totalApprovedDays,
@@ -238,20 +246,28 @@ export class SubscriptionEngine {
         }
       }
 
-      const isExpired = currentChainExpiry < now;
+      const existingUserExpiry = Number(u.subscriptionExpiresAt || u.subscription_expires_at) || 0;
+      const finalExpiry = Math.max(currentChainExpiry, existingUserExpiry);
+      const existingPlan = u.subscriptionPlan || u.subscription_plan;
+      if (existingPlan && !existingPlan.includes('ট্রায়াল') && (!latestPlanName || latestPlanName === defaultTrialPlanName)) {
+        latestPlanName = existingPlan;
+      }
+
+      const isExpired = finalExpiry < now;
+      const isTrial = totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
       const computedStatus = isExpired
         ? 'expired'
-        : (totalApprovedDays > 0 ? 'active' : (isTrialEnabled ? 'trial' : 'expired'));
+        : (isTrial ? (isTrialEnabled ? 'trial' : 'expired') : 'active');
 
-      u.subscriptionExpiresAt = currentChainExpiry;
-      u.subscription_expires_at = currentChainExpiry;
+      u.subscriptionExpiresAt = finalExpiry;
+      u.subscription_expires_at = finalExpiry;
       u.subscriptionPlan = latestPlanName;
       u.subscription_plan = latestPlanName;
       u.subscriptionStatus = computedStatus;
       u.subscription_status = computedStatus;
 
       return {
-        subscriptionExpiresAt: currentChainExpiry,
+        subscriptionExpiresAt: finalExpiry,
         subscriptionPlan: latestPlanName,
         subscriptionStatus: computedStatus,
         totalApprovedDays,

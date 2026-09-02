@@ -470,6 +470,9 @@ export async function initializeDatabaseSchema() {
       CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
       CREATE INDEX IF NOT EXISTS idx_payments_trx_id ON payments(trx_id);
       ALTER TABLE payments ADD COLUMN IF NOT EXISTS bonus_days INT DEFAULT 0;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS approved_by VARCHAR(255);
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS user_note TEXT;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS admin_notes TEXT;
     `);
 
     // 8. Notifications Table

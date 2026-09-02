@@ -46,6 +46,7 @@ interface SettingsModalProps {
   onOpenAdmin?: () => void;
   onOpenSupport?: () => void;
   onOpenSubscription?: () => void;
+  onOpenPermissions?: () => void;
 }
 
 type TabType = 'store' | 'subscription' | 'mfs' | 'tagada' | 'print' | 'limits_sound' | 'backup' | 'security';
@@ -64,6 +65,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenAdmin,
   onOpenSupport,
   onOpenSubscription,
+  onOpenPermissions,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('store');
 
@@ -1165,6 +1167,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <Key className="w-3.5 h-3.5" />
                   <span>{resettingPassword ? 'পাঠানো হচ্ছে...' : 'রিসেট লিংক পাঠান'}</span>
                 </button>
+              </div>
+
+              {/* Google Play Privacy Policy & App Permissions Manager */}
+              <div className="p-4 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-2xl border border-teal-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <h5 className="text-xs font-bold text-teal-950 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-teal-700" />
+                    <span>অ্যাপ পারমিশন ও গুগল প্রাইভেসি পলিসি</span>
+                  </h5>
+                  <p className="text-[11px] text-teal-800/90 mt-0.5">
+                    স্টোরেজ ও বকেয়া নোটিফিকেশন অ্যালার্ট পারমিশন ব্যবস্থাপনা এবং গুগল নীতিমালা।
+                  </p>
+                </div>
+                {onOpenPermissions && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenPermissions();
+                    }}
+                    className="px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-teal-300" />
+                    <span>পারমিশন দেখুন</span>
+                  </button>
+                )}
               </div>
             </div>
             );
