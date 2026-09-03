@@ -73,6 +73,8 @@ export const inMemoryStore: {
   admin_activity_logs: any[];
   password_reset_otps: any[];
   trusted_devices: any[];
+  sms_logs: any[];
+  sms_purchases: any[];
 } = {
   users: [],
   stores: [],
@@ -89,6 +91,8 @@ export const inMemoryStore: {
   admin_activity_logs: [],
   password_reset_otps: [],
   trusted_devices: [],
+  sms_logs: [],
+  sms_purchases: [],
 };
 
 // Helper to create an optimized, resilient pool for Neon serverless
@@ -710,6 +714,43 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE payments ADD COLUMN IF NOT EXISTS refund_reason TEXT;
       ALTER TABLE payments ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(12, 2);
       ALTER TABLE payments ADD COLUMN IF NOT EXISTS refund_processed_at BIGINT;
+
+      -- Schema for SMS Balance, SMS Logs, and SMS Purchases
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_balance INT DEFAULT 20;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS sku VARCHAR(100);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS qr_code TEXT;
+
+      -- SMS Logs Table
+      CREATE TABLE IF NOT EXISTS sms_logs (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        customer_name VARCHAR(255),
+        customer_phone VARCHAR(50),
+        message TEXT,
+        sms_type VARCHAR(50) DEFAULT 'tagada',
+        status VARCHAR(50) DEFAULT 'sent',
+        cost_sms INT DEFAULT 1,
+        created_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_sms_logs_user_id ON sms_logs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_sms_logs_created_at ON sms_logs(created_at DESC);
+
+      -- SMS Purchases Table
+      CREATE TABLE IF NOT EXISTS sms_purchases (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(255),
+        user_phone VARCHAR(50),
+        shop_name VARCHAR(255),
+        sms_count INT NOT NULL,
+        amount NUMERIC(12, 2) NOT NULL,
+        payment_method VARCHAR(50) DEFAULT 'bkash',
+        trx_id VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'approved',
+        created_at BIGINT NOT NULL,
+        approved_at BIGINT
+      );
+      CREATE INDEX IF NOT EXISTS idx_sms_purchases_user_id ON sms_purchases(user_id);
     `);
 
     // Seed default admin and system configs if not present
@@ -775,6 +816,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
   // Seed default payment config
   const initialPaymentSettings = {
     id: 'system_payment_settings',
+    isSubscriptionSystemEnabled: true,
     bkash: {
       isEnabled: true,
       personal: { number: '01619665875', accountType: 'personal', instructions: 'বিকাশ অ্যাপ বা *247# ডায়াল করে "Send Money" করুন।' },
@@ -849,6 +891,38 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
     VALUES ($1, $2, $3, $4)
     ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at;
   `, ['sms_gateway_config', JSON.stringify(defaultSmsConfig), Date.now(), adminEmail]);
+
+  // Seed default Ads & Monetization config
+  const defaultAdSettings = {
+    id: 'system_ad_settings',
+    isAdsEnabled: true,
+    adProvider: 'admob',
+    admobAppId: 'ca-app-pub-3940256099942544~3347511713',
+    admobBannerUnitId: 'ca-app-pub-3940256099942544/6300978111',
+    admobInterstitialUnitId: 'ca-app-pub-3940256099942544/1033173712',
+    bannerAdEnabled: true,
+    dashboardCardAdEnabled: true,
+    footerBannerAdEnabled: true,
+    customAds: [
+      {
+        id: 'ad_scanner_machine',
+        title: '🛍️ সুপার শপ ও ফার্মেসি বারকোড ও কিউআর স্ক্যানার',
+        description: 'দ্রুত ক্যাশ ও পিওএস বিক্রয়ের জন্য হাই-স্পিড বারকোড স্ক্যানার এবং থার্মাল প্রিন্টার অফার।',
+        badge: 'প্রস্তাবিত পার্টনার',
+        targetUrl: 'https://wa.me/8801619665875',
+        ctaText: 'অফার জানুন',
+        isActive: true,
+      },
+    ],
+    updatedAt: Date.now(),
+    updatedBy: adminEmail,
+  };
+
+  await client.query(`
+    INSERT INTO system_config (id, data, updated_at, updated_by)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (id) DO NOTHING;
+  `, ['system_ad_settings', JSON.stringify(defaultAdSettings), Date.now(), adminEmail]);
 
   // Seed default staff member if none exists
   try {
@@ -985,6 +1059,30 @@ function seedDefaultDataInMemory() {
     username: '',
     customUrl: '',
     isEnabled: true,
+  };
+
+  inMemoryStore.system_config['system_ad_settings'] = {
+    id: 'system_ad_settings',
+    isAdsEnabled: true,
+    adProvider: 'admob',
+    admobAppId: 'ca-app-pub-3940256099942544~3347511713',
+    admobBannerUnitId: 'ca-app-pub-3940256099942544/6300978111',
+    admobInterstitialUnitId: 'ca-app-pub-3940256099942544/1033173712',
+    bannerAdEnabled: true,
+    dashboardCardAdEnabled: true,
+    footerBannerAdEnabled: true,
+    customAds: [
+      {
+        id: 'ad_scanner_machine',
+        title: '🛍️ সুপার শপ ও ফার্মেসি বারকোড ও কিউআর স্ক্যানার',
+        description: 'দ্রুত ক্যাশ ও পিওএস বিক্রয়ের জন্য হাই-স্পিড বারকোড স্ক্যানার এবং থার্মাল প্রিন্টার অফার।',
+        badge: 'প্রস্তাবিত পার্টনার',
+        targetUrl: 'https://wa.me/8801619665875',
+        ctaText: 'অফার জানুন',
+        isActive: true,
+      },
+    ],
+    updatedAt: Date.now(),
   };
 
   inMemoryStore.staff = [

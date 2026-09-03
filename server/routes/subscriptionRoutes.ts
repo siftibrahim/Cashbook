@@ -408,4 +408,49 @@ router.post('/webhook/:provider', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/subscription/ad-settings
+ * Returns public ad configuration so client knows whether ads are enabled and which ad formats to display
+ */
+router.get('/ad-settings', async (req, res) => {
+  try {
+    const pool = getDbPool();
+    if (pool) {
+      const result = await pool.query("SELECT data FROM system_config WHERE id = 'system_ad_settings'");
+      if (result.rows.length > 0 && result.rows[0].data) {
+        const data = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
+        return res.json({ settings: data });
+      }
+    } else if (inMemoryStore.system_config['system_ad_settings']) {
+      return res.json({ settings: inMemoryStore.system_config['system_ad_settings'] });
+    }
+
+    const defaultAds = {
+      isAdsEnabled: true,
+      adProvider: 'admob',
+      admobAppId: 'ca-app-pub-3940256099942544~3347511713',
+      admobBannerUnitId: 'ca-app-pub-3940256099942544/6300978111',
+      admobInterstitialUnitId: 'ca-app-pub-3940256099942544/1033173712',
+      bannerAdEnabled: true,
+      dashboardCardAdEnabled: true,
+      footerBannerAdEnabled: true,
+      customAds: [
+        {
+          id: 'ad_scanner_machine',
+          title: '🛍️ সুপার শপ ও ফার্মেসি বারকোড ও কিউআর স্ক্যানার',
+          description: 'দ্রুত ক্যাশ ও পিওএস বিক্রয়ের জন্য হাই-স্পিড বারকোড স্ক্যানার এবং থার্মাল প্রিন্টার অফার।',
+          badge: 'প্রস্তাবিত পার্টনার',
+          targetUrl: 'https://wa.me/8801619665875',
+          ctaText: 'অফার জানুন',
+          isActive: true,
+        },
+      ],
+      updatedAt: Date.now(),
+    };
+    return res.json({ settings: defaultAds });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

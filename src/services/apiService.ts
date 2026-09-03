@@ -1393,4 +1393,148 @@ export const adminApi = {
       body: JSON.stringify({ phone, message }),
     });
   },
+
+  async resetSubscription(
+    userId: string,
+    mode: 'trial' | 'expired' | 'custom',
+    customDays?: number,
+    note?: string,
+    planName?: string
+  ): Promise<{ message: string; subscriptionExpiresAt: number; subscriptionPlan: string; subscriptionStatus: string }> {
+    return await apiRequest(`/admin/users/${userId}/reset-subscription`, {
+      method: 'POST',
+      body: JSON.stringify({ mode, customDays, note, planName }),
+    });
+  },
+
+  async impersonateUser(userId: string): Promise<{ token: string; user: any; store: any; message: string }> {
+    return await apiRequest(`/admin/impersonate/${userId}`, {
+      method: 'POST',
+    });
+  },
+
+  async getAdSettings(): Promise<any> {
+    try {
+      const res = await apiRequest<{ settings: any }>('/admin/ad-settings');
+      return res.settings;
+    } catch {
+      return {
+        isAdsEnabled: true,
+        adProvider: 'admob',
+        bannerAdEnabled: true,
+        dashboardCardAdEnabled: true,
+        footerBannerAdEnabled: true,
+        customAds: [],
+      };
+    }
+  },
+
+  async saveAdSettings(settings: any): Promise<{ message: string }> {
+    return await apiRequest('/admin/ad-settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  async addUserSms(userId: string, amount: number, note?: string): Promise<{ message: string; newBalance: number }> {
+    return await apiRequest(`/admin/users/${userId}/add-sms`, {
+      method: 'POST',
+      body: JSON.stringify({ amount, note }),
+    });
+  },
+
+  async getAdminSmsLogs(): Promise<any[]> {
+    try {
+      const res = await apiRequest<{ logs: any[] }>('/admin/sms-logs');
+      return res.logs || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async getAdminSmsPurchases(): Promise<any[]> {
+    try {
+      const res = await apiRequest<{ purchases: any[] }>('/admin/sms-purchases');
+      return res.purchases || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async approveSmsPurchase(purchaseId: string): Promise<{ message: string }> {
+    return await apiRequest(`/admin/sms-purchases/${purchaseId}/approve`, {
+      method: 'POST',
+    });
+  },
+};
+
+// ---------------- USER SMS API ----------------
+export const userSmsApi = {
+  async getBalance(): Promise<{ balance: number; totalSent: number }> {
+    try {
+      return await apiRequest<{ balance: number; totalSent: number }>('/sms/balance');
+    } catch {
+      return { balance: 20, totalSent: 0 };
+    }
+  },
+
+  async getLogs(): Promise<any[]> {
+    try {
+      const res = await apiRequest<{ logs: any[] }>('/sms/logs');
+      return res.logs || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async getPackages(): Promise<any[]> {
+    try {
+      const res = await apiRequest<{ packages: any[] }>('/sms/packages');
+      return res.packages || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async sendSms(params: { customerName?: string; customerPhone: string; message: string; smsType?: string }): Promise<{
+    success: boolean;
+    message: string;
+    newBalance: number;
+  }> {
+    return await apiRequest('/sms/send', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
+
+  async purchasePackage(params: {
+    packageId: string;
+    paymentMethod: string;
+    trxId: string;
+    senderNumber?: string;
+  }): Promise<{ message: string; purchaseId: string }> {
+    return await apiRequest('/sms/purchase', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
+};
+
+// ---------------- PUBLIC AD API ----------------
+export const publicAdApi = {
+  async getSettings(): Promise<any> {
+    try {
+      const res = await apiRequest<{ settings: any }>('/subscription/ad-settings');
+      return res.settings;
+    } catch {
+      return {
+        isAdsEnabled: true,
+        adProvider: 'admob',
+        bannerAdEnabled: true,
+        dashboardCardAdEnabled: true,
+        footerBannerAdEnabled: true,
+        customAds: [],
+      };
+    }
+  },
 };

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Customer, StoreProfile } from '../types';
 import { formatMoney } from '../utils/storage';
-import { MessageCircle, Copy, Check, Send, X } from 'lucide-react';
+import { MessageCircle, Copy, Check, Send, X, Smartphone } from 'lucide-react';
 
 interface TagadaModalProps {
   isOpen: boolean;
@@ -9,6 +9,7 @@ interface TagadaModalProps {
   store: StoreProfile;
   onClose: () => void;
   onShowToast: (msg: string) => void;
+  onOpenDirectSms?: (phone: string, msg: string, name: string) => void;
 }
 
 export const TagadaModal: React.FC<TagadaModalProps> = ({
@@ -17,6 +18,7 @@ export const TagadaModal: React.FC<TagadaModalProps> = ({
   store,
   onClose,
   onShowToast,
+  onOpenDirectSms,
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -59,6 +61,17 @@ export const TagadaModal: React.FC<TagadaModalProps> = ({
     window.open(`sms:${customer.phone}?body=${encodeURIComponent(defaultMsg)}`, '_blank');
   };
 
+  const handleDirectSms = () => {
+    if (!customer.phone) {
+      onShowToast('এই কাস্টমারের মোবাইল নাম্বার নেই!');
+      return;
+    }
+    onClose();
+    if (onOpenDirectSms) {
+      onOpenDirectSms(customer.phone, defaultMsg, customer.name);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-start sm:justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain no-print animate-in fade-in">
       <div className="bg-white w-full max-w-md rounded-2xl p-4 sm:p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 my-1 sm:my-auto max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] overflow-y-auto overscroll-contain">
@@ -96,24 +109,37 @@ export const TagadaModal: React.FC<TagadaModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2">
-            <button
-              type="button"
-              onClick={handleWhatsApp}
-              className="py-3 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
-            >
-              <Send className="w-4 h-4" />
-              <span>WhatsApp-এ পাঠান</span>
-            </button>
+          <div className="space-y-2 pt-2">
+            {onOpenDirectSms && (
+              <button
+                type="button"
+                onClick={handleDirectSms}
+                className="w-full py-3 px-3 bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 active:scale-95 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+              >
+                <Smartphone className="w-4 h-4 text-teal-200" />
+                <span>সরাসরি গেটওয়ে এসএমএস পাঠান (ব্যালেন্স দিয়ে)</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={handleSMS}
-              className="py-3 px-3 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
-            >
-              <Send className="w-4 h-4" />
-              <span>SMS পাঠান</span>
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={handleWhatsApp}
+                className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                <span>WhatsApp-এ পাঠান</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSMS}
+                className="py-2.5 px-3 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                <span>ডিভাইস SMS অ্যাপ</span>
+              </button>
+            </div>
           </div>
 
           <button

@@ -33,7 +33,11 @@ import {
   Building2,
   Copy,
   ExternalLink,
+  RotateCcw,
+  Smartphone,
+  LogIn,
 } from 'lucide-react';
+import { adminApi } from '../../services/apiService';
 import { formatMoney } from '../../utils/storage';
 
 interface UserManagementTabProps {
@@ -80,6 +84,21 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   const [notifTitle, setNotifTitle] = useState('');
   const [notifMessage, setNotifMessage] = useState('');
   const [sendingNotif, setSendingNotif] = useState(false);
+
+  // Reset Subscription Modal State
+  const [resetModalUser, setResetModalUser] = useState<AppUser | null>(null);
+  const [resetDays, setResetDays] = useState(14);
+  const [resetPlanName, setResetPlanName] = useState('ফ্রি ট্রায়াল (১৪ দিন)');
+  const [resetReason, setResetReason] = useState('সুপার অ্যাডমিন কর্তৃক রিসেট');
+  const [isResetting, setIsResetting] = useState(false);
+
+  // User SMS Modal State
+  const [smsModalUser, setSmsModalUser] = useState<AppUser | null>(null);
+  const [addSmsCount, setAddSmsCount] = useState(50);
+  const [isAddingSms, setIsAddingSms] = useState(false);
+
+  // Impersonating Loading State
+  const [impersonatingUserId, setImpersonatingUserId] = useState<string | null>(null);
 
   // New / Edit User Form State
   const [formData, setFormData] = useState<Partial<AppUser>>({});
@@ -178,6 +197,94 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     onShowToast(`${label} কপি করা হয়েছে!`);
+  };
+
+  const handleImpersonate = async (user: AppUser) => {
+    if (!window.confirm(`আপনি কি নিশ্চিত যে "${user.shopName || user.name}" ইউজারের অ্যাকাউন্টে লগইন করতে চান?`)) {
+      return;
+    }
+    setImpersonatingUserId(user.id);
+    try {
+      const res = await adminApi.impersonateUser(user.id);
+      if (res?.token) {
+        // Backup current admin session
+        const currentToken = localStorage.getItem('twing_auth_token') || '';
+        const currentUser = localStorage.getItem('twing_auth_user') || '';
+        const currentRole = localStorage.getItem('ibrahim_user_role') || '';
+        localStorage.setItem(
+          'admin_impersonator_backup',
+          JSON.stringify({
+            token: currentToken,
+            user: currentUser,
+            role: currentRole,
+          })
+        );
+
+        // Set user session
+        localStorage.setItem('twing_auth_token', res.token);
+        if (res.user) {
+          localStorage.setItem('twing_auth_user', JSON.stringify(res.user));
+        }
+        localStorage.setItem('ibrahim_user_role', 'দোকান মালিক');
+
+        onShowToast(`✅ "${user.shopName || user.name}" হিসেবে লগইন করা হচ্ছে...`);
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
+      } else {
+        onShowToast(`❌ লগইন ব্যর্থ: ${res?.message || 'সমস্যা হয়েছে'}`);
+      }
+    } catch (err: any) {
+      onShowToast(`❌ ব্যর্থ: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setImpersonatingUserId(null);
+    }
+  };
+
+  const handleResetSubscriptionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetModalUser) return;
+    setIsResetting(true);
+    try {
+      const res = await adminApi.resetSubscription(
+        resetModalUser.id,
+        'custom',
+        resetDays,
+        resetReason || 'সুপার অ্যাডমিন কর্তৃক রিসেট',
+        resetPlanName
+      );
+      if (res?.message || res?.subscriptionPlan) {
+        onShowToast(`✅ "${resetModalUser.name}" এর সাবস্ক্রিপশন সফলভাবে রিসেট হয়েছে! (${resetPlanName})`);
+        setResetModalUser(null);
+        if (onRefreshDb) onRefreshDb();
+      } else {
+        onShowToast(`❌ রিসেট ব্যর্থ: ${res?.message || 'ত্রুটি'}`);
+      }
+    } catch (err: any) {
+      onShowToast(`❌ রিসেট ব্যর্থ: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  const handleAddUserSmsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!smsModalUser || addSmsCount <= 0) return;
+    setIsAddingSms(true);
+    try {
+      const res = await adminApi.addUserSms(smsModalUser.id, addSmsCount, 'অ্যাডমিন কর্তৃক ব্যালেন্স প্রদান');
+      if (res?.newBalance !== undefined || res?.message) {
+        onShowToast(`✅ ${addSmsCount} টি SMS ব্যালেন্স সফলভাবে যোগ করা হয়েছে! নতুন ব্যালেন্স: ${res.newBalance ?? ''}`);
+        setSmsModalUser(null);
+        if (onRefreshDb) onRefreshDb();
+      } else {
+        onShowToast(`❌ ব্যালেন্স যোগ করতে ব্যর্থ: ${res?.message || 'ত্রুটি'}`);
+      }
+    } catch (err: any) {
+      onShowToast(`❌ ত্রুটি: ${err.message || 'ব্যর্থ'}`);
+    } finally {
+      setIsAddingSms(false);
+    }
   };
 
   return (
@@ -649,6 +756,52 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                     <span>মেয়াদ বাড়ান</span>
                   </button>
 
+                  {/* Reset Subscription */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetModalUser(user);
+                      setResetDays(14);
+                      setResetPlanName('ফ্রি ট্রায়াল (১৪ দিন)');
+                      setResetReason('সুপার অ্যাডমিন কর্তৃক রিসেট');
+                    }}
+                    title="সাবস্ক্রিপশন মেয়াদ রিসেট করুন"
+                    className="px-2.5 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-sm"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>রিসেট</span>
+                  </button>
+
+                  {/* SMS Balance Topup */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSmsModalUser(user);
+                      setAddSmsCount(50);
+                    }}
+                    title="ইউজারকে SMS ব্যালেন্স প্রদান করুন"
+                    className="px-2.5 py-2 bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-sm"
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>SMS ({user.smsBalance || 0})</span>
+                  </button>
+
+                  {/* Super Admin Impersonate: Login as User */}
+                  <button
+                    type="button"
+                    disabled={impersonatingUserId === user.id}
+                    onClick={() => handleImpersonate(user)}
+                    title="এই ইউজারের দোকানে সরাসরি প্রবেশ করুন (Login as User)"
+                    className="px-3 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-200 border border-indigo-500/30 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+                  >
+                    {impersonatingUserId === user.id ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <LogIn className="w-3.5 h-3.5" />
+                    )}
+                    <span>লগইন</span>
+                  </button>
+
                   {/* Suspend / Unsuspend */}
                   {user.status === 'suspended' ? (
                     <button
@@ -773,6 +926,229 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                 মেয়াদ নিশ্চিত করুন
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6B. RESET SUBSCRIPTION MODAL */}
+      {resetModalUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-[#0F172A] w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-bold text-white">সাবস্ক্রিপশন রিসেট (Reset)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetModalUser(null)}
+                className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-300">
+              ইউজার: <span className="font-bold text-white">{resetModalUser.name}</span> ({resetModalUser.shopName})
+              <br />
+              বর্তমান প্ল্যান: <strong>{resetModalUser.subscriptionPlan || 'নাই'}</strong>
+            </div>
+
+            <form onSubmit={handleResetSubscriptionSubmit} className="space-y-3.5">
+              <div>
+                <label className="text-xs text-slate-300 font-bold block mb-1">রিসেট প্রি-সেট বেছে নিন:</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetPlanName('ফ্রি ট্রায়াল (১৪ দিন)');
+                      setResetDays(14);
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer text-center ${
+                      resetDays === 14 && resetPlanName.includes('ট্রায়াল')
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                        : 'bg-slate-900 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    ১৪ দিনের ট্রায়াল
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetPlanName('মাসিক প্রিমিয়াম প্যাকেজ');
+                      setResetDays(30);
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer text-center ${
+                      resetDays === 30
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                        : 'bg-slate-900 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    ৩০ দিনের প্যাকেজ
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetPlanName('বার্ষিক ভিআইপি প্যাকেজ');
+                      setResetDays(365);
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer text-center ${
+                      resetDays === 365
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                        : 'bg-slate-900 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    ১ বছরের প্যাকেজ
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetPlanName('মেয়াদোত্তীর্ণ (অফ)');
+                      setResetDays(0);
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition cursor-pointer text-center ${
+                      resetDays === 0
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/50'
+                        : 'bg-slate-900 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    অবিলম্বে বাতিল (০ দিন)
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">প্ল্যানের নাম:</label>
+                <input
+                  type="text"
+                  required
+                  value={resetPlanName}
+                  onChange={(e) => setResetPlanName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">মেয়াদ (দিন):</label>
+                <input
+                  type="number"
+                  required
+                  min={0}
+                  value={resetDays}
+                  onChange={(e) => setResetDays(Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">রিসেট করার কারণ / মন্তব্য:</label>
+                <input
+                  type="text"
+                  value={resetReason}
+                  onChange={(e) => setResetReason(e.target.value)}
+                  placeholder="যেমন: সুপার অ্যাডমিন কর্তৃক ফ্রেশ রিসেট"
+                  className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setResetModalUser(null)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={isResetting}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  {isResetting ? 'রিসেট হচ্ছে...' : 'রিসেট নিশ্চিত করুন'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 6C. SMS BALANCE TOPUP MODAL */}
+      {smsModalUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-[#0F172A] w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-teal-400" />
+                <h3 className="text-base font-bold text-white">এসএমএস ব্যালেন্স রিচার্জ</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSmsModalUser(null)}
+                className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 bg-teal-500/10 border border-teal-500/20 rounded-2xl text-xs text-teal-300">
+              গ্রাহক: <span className="font-bold text-white">{smsModalUser.name}</span> ({smsModalUser.phone})
+              <br />
+              বর্তমান ব্যালেন্স: <strong>{smsModalUser.smsBalance || 0} টি SMS</strong>
+            </div>
+
+            <form onSubmit={handleAddUserSmsSubmit} className="space-y-3.5">
+              <div>
+                <label className="text-xs text-slate-300 font-bold block mb-1">দ্রুত যোগ করুন:</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[20, 50, 100, 500].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => setAddSmsCount(count)}
+                      className={`py-2 text-xs font-bold rounded-xl border transition cursor-pointer ${
+                        addSmsCount === count
+                          ? 'bg-teal-500/20 text-teal-300 border-teal-500/50'
+                          : 'bg-slate-900 text-slate-400 border-slate-800'
+                      }`}
+                    >
+                      +{count} টি
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">এসএমএস সংখ্যা লিখুন:</label>
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  value={addSmsCount}
+                  onChange={(e) => setAddSmsCount(Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-xs text-white focus:outline-none focus:border-teal-500 font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setSmsModalUser(null)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingSms}
+                  className="px-5 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  {isAddingSms ? 'ব্যালেন্স যুক্ত হচ্ছে...' : 'ব্যালেন্স যুক্ত করুন'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

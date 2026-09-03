@@ -12,6 +12,8 @@ import {
   RefreshCw,
   CheckCircle2,
   ShieldCheck,
+  MessageSquare,
+  QrCode,
 } from 'lucide-react';
 import {
   subscribeSyncStatus,
@@ -27,6 +29,8 @@ interface NavbarProps {
   onOpenNotifications?: () => void;
   onOpenSubscription?: () => void;
   onOpenPermissions?: () => void;
+  onOpenSms?: () => void;
+  onOpenQrCode?: () => void;
   unreadNotificationsCount?: number;
 }
 
@@ -37,6 +41,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenNotifications,
   onOpenSubscription,
   onOpenPermissions,
+  onOpenSms,
+  onOpenQrCode,
   unreadNotificationsCount = 0,
 }) => {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(getCurrentSyncStatus());
@@ -162,6 +168,34 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300 animate-pulse shrink-0" />
             <span className="hidden xs:inline text-[10.5px] sm:text-[11px]">প্যাকেজ</span>
+          </button>
+        )}
+
+        {/* SMS Recharge / Balance Button */}
+        {onOpenSms && (
+          <button
+            type="button"
+            onClick={onOpenSms}
+            id="nav-sms-btn"
+            title="এসএমএস ব্যালেন্স, কাস্টম এসএমএস ও রিচার্জ প্যাক"
+            className="h-8 sm:h-9.5 px-2 sm:px-2.5 rounded-xl bg-teal-500/20 hover:bg-teal-500/35 active:scale-95 text-teal-200 hover:text-white flex items-center justify-center gap-1 transition border border-teal-400/30 shadow-xs cursor-pointer text-xs font-bold"
+          >
+            <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-300 shrink-0" />
+            <span className="hidden xs:inline text-[10.5px] sm:text-[11px]">এসএমএস</span>
+          </button>
+        )}
+
+        {/* QR Code Generator & Scanner Access */}
+        {onOpenQrCode && (
+          <button
+            type="button"
+            onClick={onOpenQrCode}
+            id="nav-qr-btn"
+            title="কিউআর কোড জেনারেটর (পণ্য, পেমেন্ট, কাস্টমার)"
+            className="h-8 sm:h-9.5 px-2 sm:px-2.5 rounded-xl bg-teal-500/20 hover:bg-teal-500/35 active:scale-95 text-teal-200 hover:text-white flex items-center justify-center gap-1 transition border border-teal-400/30 shadow-xs cursor-pointer text-xs font-bold"
+          >
+            <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-300 shrink-0" />
+            <span className="hidden sm:inline text-[10.5px] sm:text-[11px]">কিউআর</span>
           </button>
         )}
 

@@ -84,6 +84,10 @@ import { UserSubscriptionModal } from './components/UserSubscriptionModal';
 import { SubscriptionLockScreen } from './components/SubscriptionLockScreen';
 import { UserNotificationModal } from './components/UserNotificationModal';
 import { AppPermissionsModal } from './components/AppPermissionsModal';
+import { UserSmsModal } from './components/sms/UserSmsModal';
+import { QrGeneratorModal } from './components/qr/QrGeneratorModal';
+import { ProductScannerModal } from './components/scanner/ProductScannerModal';
+import { AdBanner } from './components/ads/AdBanner';
 import {
   subscribeToUserSupportMessages,
   subscribeToAnnouncements,
@@ -138,9 +142,44 @@ export const App: React.FC = () => {
   const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+  const [isUserSmsModalOpen, setIsUserSmsModalOpen] = useState(false);
+  const [smsPrefillPhone, setSmsPrefillPhone] = useState('');
+  const [smsPrefillMessage, setSmsPrefillMessage] = useState('');
+  const [smsCustomerName, setSmsCustomerName] = useState('');
+  const [smsDueAmount, setSmsDueAmount] = useState<number | undefined>(undefined);
+  const [smsActiveTab, setSmsActiveTab] = useState<'send' | 'packages' | 'history'>('send');
+
+  // QR Generator state
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [qrProduct, setQrProduct] = useState<Product | null>(null);
+  const [qrCustomer, setQrCustomer] = useState<Customer | null>(null);
+  const [qrPaymentAmount, setQrPaymentAmount] = useState<number | undefined>(undefined);
+
+  // Scanner state
+  const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
+  const [scannerMode, setScannerMode] = useState<'pos' | 'inventory' | 'lookup'>('pos');
+
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState(false);
   const [isFirstInstallPrompt, setIsFirstInstallPrompt] = useState(false);
+  const [isImpersonating, setIsImpersonating] = useState<boolean>(() => {
+    return Boolean(localStorage.getItem('twing_impersonator_backup'));
+  });
+
+  const handleExitImpersonation = () => {
+    const backupStr = localStorage.getItem('twing_impersonator_backup');
+    if (backupStr) {
+      try {
+        const backup = JSON.parse(backupStr);
+        if (backup.token) localStorage.setItem('twing_auth_token', backup.token);
+        if (backup.user) localStorage.setItem('twing_auth_user', backup.user);
+      } catch (e) {
+        console.error('Failed to parse admin impersonator backup', e);
+      }
+    }
+    localStorage.removeItem('twing_impersonator_backup');
+    window.location.reload();
+  };
   const [userNotifications, setUserNotifications] = useState<AdminNotification[]>([]);
   const [userSupportMessages, setUserSupportMessages] = useState<SupportMessage[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -183,6 +222,56 @@ export const App: React.FC = () => {
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3200);
+  };
+
+  const handleOpenSms = (params?: {
+    phone?: string;
+    message?: string;
+    customerName?: string;
+    dueAmount?: number;
+    tab?: 'send' | 'packages' | 'history';
+  }) => {
+    setSmsPrefillPhone(params?.phone || '');
+    setSmsPrefillMessage(params?.message || '');
+    setSmsCustomerName(params?.customerName || '');
+    setSmsDueAmount(params?.dueAmount);
+    setSmsActiveTab(params?.tab || 'send');
+    setIsUserSmsModalOpen(true);
+  };
+
+  const handleOpenProductQr = (prod: Product) => {
+    setQrProduct(prod);
+    setQrCustomer(null);
+    setQrPaymentAmount(undefined);
+    setIsQrModalOpen(true);
+  };
+
+  const handleOpenCustomerQr = (cust: Customer) => {
+    setQrCustomer(cust);
+    setQrProduct(null);
+    setQrPaymentAmount(undefined);
+    setIsQrModalOpen(true);
+  };
+
+  const handleOpenPaymentQr = (amount?: number) => {
+    setQrProduct(null);
+    setQrCustomer(null);
+    setQrPaymentAmount(amount);
+    setIsQrModalOpen(true);
+  };
+
+  const handleOpenScanner = (mode: 'pos' | 'inventory' | 'lookup' = 'pos') => {
+    setScannerMode(mode);
+    setIsScannerModalOpen(true);
+  };
+
+  const handleProductScanned = (product: Product) => {
+    showToast(`পণ্য স্ক্যান সম্পন্ন: ${product.name} (৳${product.salePrice})`);
+    if (scannerMode === 'pos') {
+      setActiveTab('pos');
+    } else if (scannerMode === 'inventory') {
+      setActiveTab('inventory');
+    }
   };
 
   // Load current user's specific data from PostgreSQL backend
@@ -1169,6 +1258,23 @@ export const App: React.FC = () => {
           />
         ) : (
           <>
+            {/* Impersonation Mode Active Indicator */}
+            {isImpersonating && (
+              <div className="bg-amber-600 text-white px-3 sm:px-4 py-2 text-xs font-bold flex items-center justify-between shrink-0 shadow-md z-50 border-b border-amber-700">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-200 animate-ping" />
+                  <span>⚠️ আপনি সুপার অ্যাডমিন হিসেবে এই ইউজারের অ্যাকাউন্টে লগইন আছেন ({store.name})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExitImpersonation}
+                  className="px-3 py-1 bg-white text-amber-950 rounded-lg font-black text-xs hover:bg-amber-50 active:scale-95 transition cursor-pointer shadow-xs"
+                >
+                  মূল অ্যাডমিন প্যানেলে ফিরুন
+                </button>
+              </div>
+            )}
+
             {/* Header Navbar: Store Name, Phone, Settings and Logout */}
             <Navbar
               store={store}
@@ -1177,11 +1283,16 @@ export const App: React.FC = () => {
               onOpenNotifications={() => setIsNotificationModalOpen(true)}
               onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
               onOpenPermissions={() => setIsPermissionsModalOpen(true)}
+              onOpenSms={() => handleOpenSms()}
+              onOpenQrCode={() => setIsQrModalOpen(true)}
               unreadNotificationsCount={unreadNotificationsCount}
             />
 
             {/* In-app Announcement Ticker & Popups */}
             <AnnouncementDisplay announcements={announcements} />
+
+            {/* Top Ad Banner (if enabled by Super Admin) */}
+            <AdBanner />
 
             {/* View Switching or Subscription Lock Screen */}
             {isSubscriptionExpired ? (
@@ -1220,6 +1331,15 @@ export const App: React.FC = () => {
                 }}
                 onOpenReport={() => setIsReportModalOpen(true)}
                 onOpenInvoice={handleOpenInvoice}
+                onOpenSms={(c) =>
+                  handleOpenSms({
+                    phone: c.phone,
+                    customerName: c.name,
+                    dueAmount: Number(c.balance || 0),
+                    message: `শ্রদ্ধেয় ${c.name}, ${store.name}-এ আপনার বর্তমান বকেয়া বাকির পরিমাণ ৳${c.balance || 0} টাকা। দ্রুত পরিশোধ করার বিনীত অনুরোধ রইল। ধন্যবাদ!`,
+                  })
+                }
+                onOpenQrCode={(c) => handleOpenCustomerQr(c)}
               />
             ) : (
               <main
@@ -1248,6 +1368,7 @@ export const App: React.FC = () => {
                     onOpenReport={() => setIsReportModalOpen(true)}
                     onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
                     onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+                    onOpenSms={() => handleOpenSms()}
                     pendingPaymentInfo={pendingPaymentInfo}
                     onRefreshSubscriptionStatus={handleRefreshSubscriptionStatus}
                     onSelectCustomer={(id) => setActiveCustomerId(id)}
@@ -1286,6 +1407,11 @@ export const App: React.FC = () => {
                     store={store}
                     onCompleteSale={handleCompletePosSale}
                     onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
+                    onOpenScanner={() => handleOpenScanner('pos')}
+                    onOpenPaymentQr={(amt) => handleOpenPaymentQr(amt)}
+                    onOpenSms={(phone, msg, name) =>
+                      handleOpenSms({ phone, message: msg, customerName: name })
+                    }
                     onOpenInvoiceModal={(data) => {
                       const finalCustomerBal =
                         data.customerBalanceAfter !== undefined
@@ -1335,6 +1461,9 @@ export const App: React.FC = () => {
                     onAddProduct={handleAddProduct}
                     onUpdateProduct={handleUpdateProduct}
                     onDeleteProduct={handleDeleteProduct}
+                    onOpenScanner={() => handleOpenScanner('inventory')}
+                    onOpenQrGenerator={() => setIsQrModalOpen(true)}
+                    onOpenProductQr={(p) => handleOpenProductQr(p)}
                     onShowToast={showToast}
                   />
                 )}
@@ -1558,6 +1687,59 @@ export const App: React.FC = () => {
         isOpen={isSubscriptionModalOpen}
         store={store}
         onClose={() => setIsSubscriptionModalOpen(false)}
+        onShowToast={showToast}
+      />
+
+      {/* User SMS Recharge & Packages Modal */}
+      <UserSmsModal
+        isOpen={isUserSmsModalOpen}
+        initialPhone={smsPrefillPhone}
+        initialMessage={smsPrefillMessage}
+        customerName={smsCustomerName}
+        dueAmount={smsDueAmount}
+        storeName={store.name}
+        currencySymbol={store.currencySymbol || '৳'}
+        initialTab={smsActiveTab}
+        onClose={() => {
+          setIsUserSmsModalOpen(false);
+          setSmsPrefillPhone('');
+          setSmsPrefillMessage('');
+          setSmsCustomerName('');
+          setSmsDueAmount(undefined);
+          setSmsActiveTab('send');
+        }}
+        onShowToast={showToast}
+      />
+
+      {/* QR Code Generator Modal (Products, Payments, Customers) */}
+      <QrGeneratorModal
+        isOpen={isQrModalOpen}
+        onClose={() => {
+          setIsQrModalOpen(false);
+          setQrProduct(null);
+          setQrCustomer(null);
+          setQrPaymentAmount(undefined);
+        }}
+        store={store}
+        products={products}
+        customers={customers}
+        initialProduct={qrProduct}
+        initialCustomer={qrCustomer}
+        onShowToast={showToast}
+      />
+
+      {/* Product Barcode & QR Scanner Modal */}
+      <ProductScannerModal
+        isOpen={isScannerModalOpen}
+        onClose={() => setIsScannerModalOpen(false)}
+        products={products}
+        mode={scannerMode}
+        onProductScanned={handleProductScanned}
+        onAddNewProductWithSku={(sku) => {
+          setActiveTab('inventory');
+          setIsScannerModalOpen(false);
+          showToast(`নতুন পণ্যের জন্য SKU '${sku}' তৈরি হয়েছে। পণ্য তালিকায় যুক্ত করুন।`);
+        }}
         onShowToast={showToast}
       />
 

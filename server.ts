@@ -13,6 +13,7 @@ import subscriptionRoutes from './server/routes/subscriptionRoutes';
 import supportRoutes from './server/routes/supportRoutes';
 import notificationRoutes from './server/routes/notificationRoutes';
 import adminRoutes from './server/routes/adminRoutes';
+import smsRoutes from './server/routes/smsRoutes';
 import { migrateDataToPostgres } from './server/migration';
 import { requireSuperAdmin } from './server/authMiddleware';
 import { SubscriptionEngine } from './server/services/subscriptionEngine';
@@ -66,6 +67,7 @@ async function startServer() {
   app.use('/api/support', supportRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/admin', adminRoutes);
+  app.use('/api/sms', smsRoutes);
 
   // Manual / Batch Migration Trigger
   app.post('/api/admin/migrate-from-backup', requireSuperAdmin, async (req, res) => {

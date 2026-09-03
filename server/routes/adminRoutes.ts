@@ -1189,4 +1189,395 @@ router.post('/sms-test', requireSuperAdmin, async (req: AuthenticatedRequest, re
   }
 });
 
+/**
+ * 13. POST /api/admin/users/:id/reset-subscription
+ * Resets user's subscription:
+ * - 'trial': sets subscription back to 14 days default trial
+ * - 'expired': sets subscription to expired (yesterday)
+ * - 'custom': sets subscription to custom days from now
+ */
+router.post('/users/:id/reset-subscription', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const { mode, customDays, note, planName } = req.body;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    let newExpiry = now + 14 * 86400000;
+    let newPlan = 'ফ্রি ট্রায়াল (১৪ দিন)';
+    let newStatus = 'trial';
+
+    if (mode === 'expired') {
+      newExpiry = now - 86400000; // yesterday
+      newPlan = planName || 'মেয়াদ শেষ (রিনিউ প্রয়োজন)';
+      newStatus = 'expired';
+    } else if (mode === 'custom') {
+      const days = parseInt(customDays, 10);
+      const validDays = isNaN(days) ? 30 : Math.max(0, days);
+      newExpiry = validDays === 0 ? now - 86400000 : now + validDays * 86400000;
+      newPlan = planName || (validDays === 0 ? 'মেয়াদ শেষ (রিনিউ প্রয়োজন)' : `কাস্টম প্ল্যান (${validDays} দিন)`);
+      newStatus = validDays > 0 ? 'active' : 'expired';
+    } else {
+      // default trial
+      newExpiry = now + 14 * 86400000;
+      newPlan = planName || 'ফ্রি ট্রায়াল (১৪ দিন)';
+      newStatus = 'trial';
+    }
+
+    if (pool) {
+      await pool.query(`
+        UPDATE users SET
+          subscription_expires_at = $1,
+          subscription_plan = $2,
+          subscription_status = $3,
+          status = $4,
+          updated_at = NOW()
+        WHERE id = $5
+      `, [newExpiry, newPlan, newStatus, newStatus === 'expired' ? 'expired' : 'active', userId]);
+
+      await pool.query(`
+        UPDATE store_profiles SET
+          subscription_expires_at = $1,
+          subscription_plan = $2
+        WHERE user_id = $3
+      `, [newExpiry, newPlan, userId]).catch(() => {});
+
+      if (mode === 'trial' || mode === 'expired') {
+        await pool.query(`
+          UPDATE payments SET status = 'rejected', rejected_reason = 'এডমিন কর্তৃক সাবস্ক্রিপশন রিসেট করা হয়েছে'
+          WHERE user_id = $1 AND status = 'pending'
+        `, [userId]).catch(() => {});
+      }
+
+      await pool.query(`
+        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        'act_' + now,
+        req.user?.email || 'admin',
+        'RESET_SUBSCRIPTION',
+        'user',
+        userId,
+        userId,
+        `সাবস্ক্রিপশন রিসেট: মোড=${mode}, প্ল্যান=${newPlan}${note ? ', নোট: ' + note : ''}`,
+        now,
+      ]).catch(() => {});
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u) {
+        u.subscriptionExpiresAt = newExpiry;
+        u.subscriptionPlan = newPlan;
+        u.subscriptionStatus = newStatus;
+        u.status = newStatus === 'expired' ? 'expired' : 'active';
+      }
+    }
+
+    return res.json({
+      message: '✅ ইউজারের সাবস্ক্রিপশন সফলভাবে রিসেট করা হয়েছে',
+      subscriptionExpiresAt: newExpiry,
+      subscriptionPlan: newPlan,
+      subscriptionStatus: newStatus,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 14. POST /api/admin/impersonate/:userId
+ * Allow Super Admin & authorized Staff to login as any user
+ */
+router.post('/impersonate/:userId', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const targetUserId = req.params.userId;
+    const pool = getDbPool();
+
+    let targetUser: any = null;
+    let targetStore: any = null;
+
+    if (pool) {
+      const uRes = await pool.query('SELECT * FROM users WHERE id = $1', [targetUserId]);
+      if (uRes.rows.length === 0) {
+        return res.status(404).json({ error: 'টার্গেট ইউজার খুঁজে পাওয়া যায়নি' });
+      }
+      const row = uRes.rows[0];
+      targetUser = {
+        id: row.id,
+        name: row.name,
+        phone: row.phone,
+        email: row.email,
+        shopName: row.shop_name,
+        businessType: row.business_type,
+        address: row.address,
+        role: row.role,
+        status: row.status,
+        subscriptionPlan: row.subscription_plan,
+        subscriptionStatus: row.subscription_status,
+        subscriptionExpiresAt: Number(row.subscription_expires_at),
+        registeredAt: Number(row.registered_at),
+        lastActiveAt: Number(row.last_active_at),
+        smsBalance: row.sms_balance || 20,
+      };
+
+      const sRes = await pool.query('SELECT * FROM store_profiles WHERE user_id = $1', [targetUserId]);
+      if (sRes.rows.length > 0) {
+        const s = sRes.rows[0];
+        targetStore = {
+          id: s.id,
+          name: s.name,
+          phone: s.phone,
+          email: s.email,
+          address: s.address,
+          currency: s.currency,
+          taxRate: parseFloat(s.tax_rate) || 0,
+          invoiceFooter: s.invoice_footer,
+          logoUrl: s.logo_url,
+          enableSmsAlerts: s.enable_sms_alerts,
+          isOnlineStoreActive: s.is_online_store_active,
+          subscriptionPlan: s.subscription_plan,
+          subscriptionExpiresAt: Number(s.subscription_expires_at),
+          qrCodeImage: s.qr_code_image,
+        };
+      }
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === targetUserId);
+      if (!u) return res.status(404).json({ error: 'টার্গেট ইউজার খুঁজে পাওয়া যায়নি' });
+      targetUser = { ...u };
+      const s = inMemoryStore.stores.find(x => x.userId === targetUserId);
+      if (s) targetStore = { ...s };
+    }
+
+    // Generate JWT token for target user with impersonation metadata
+    const jwt = await import('jsonwebtoken');
+    const token = jwt.default.sign(
+      {
+        userId: targetUser.id,
+        email: targetUser.email,
+        role: targetUser.role || 'user',
+        isImpersonated: true,
+        impersonatedBy: req.user?.email || 'admin',
+      },
+      process.env.JWT_SECRET || 'twing_jwt_secret_key_2025_pos_cloud',
+      { expiresIn: '12h' }
+    );
+
+    return res.json({
+      message: `✅ আপনি সফলভাবে ${targetUser.name || targetUser.shopName}-এর অ্যাকাউন্টে প্রবেশ করছেন`,
+      token,
+      user: targetUser,
+      store: targetStore,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 15. AdMob & Ads Monetization Settings (Admin)
+ */
+router.get('/ad-settings', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const pool = getDbPool();
+    if (pool) {
+      const result = await pool.query("SELECT data FROM system_config WHERE id = 'system_ad_settings'");
+      if (result.rows.length > 0) {
+        const data = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
+        return res.json({ settings: data });
+      }
+    } else if (inMemoryStore.system_config['system_ad_settings']) {
+      return res.json({ settings: inMemoryStore.system_config['system_ad_settings'] });
+    }
+
+    const defaultAds = {
+      isAdsEnabled: true,
+      adProvider: 'admob',
+      admobAppId: 'ca-app-pub-3940256099942544~3347511713',
+      admobBannerUnitId: 'ca-app-pub-3940256099942544/6300978111',
+      admobInterstitialUnitId: 'ca-app-pub-3940256099942544/1033173712',
+      bannerAdEnabled: true,
+      dashboardCardAdEnabled: true,
+      footerBannerAdEnabled: true,
+      customAds: [
+        {
+          id: 'ad_scanner_machine',
+          title: '🛍️ সুপার শপ ও ফার্মেসি বারকোড ও কিউআর স্ক্যানার',
+          description: 'দ্রুত ক্যাশ ও পিওএস বিক্রয়ের জন্য হাই-স্পিড বারকোড স্ক্যানার এবং থার্মাল প্রিন্টার অফার।',
+          badge: 'প্রস্তাবিত পার্টনার',
+          targetUrl: 'https://wa.me/8801619665875',
+          ctaText: 'অফার জানুন',
+          isActive: true,
+        },
+      ],
+      updatedAt: Date.now(),
+    };
+    return res.json({ settings: defaultAds });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/ad-settings', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const settings = req.body;
+    const now = Date.now();
+    const pool = getDbPool();
+
+    if (pool) {
+      await pool.query(`
+        INSERT INTO system_config (id, data, updated_at, updated_by)
+        VALUES ('system_ad_settings', $1, $2, $3)
+        ON CONFLICT (id) DO UPDATE SET
+          data = EXCLUDED.data,
+          updated_at = EXCLUDED.updated_at,
+          updated_by = EXCLUDED.updated_by
+      `, [JSON.stringify(settings), now, req.user?.email || 'admin']);
+    } else {
+      inMemoryStore.system_config['system_ad_settings'] = settings;
+    }
+
+    return res.json({ message: '✅ বিজ্ঞাপন ও মনিটাইজেশন সেটিংস সংরক্ষিত হয়েছে!' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 16. SMS Management (Admin)
+ */
+router.post('/users/:id/add-sms', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const { amount, note } = req.body;
+    const smsCount = parseInt(amount, 10) || 0;
+    const pool = getDbPool();
+
+    if (pool) {
+      const uRes = await pool.query('SELECT sms_balance, name FROM users WHERE id = $1', [userId]);
+      if (uRes.rows.length === 0) return res.status(404).json({ error: 'ইউজার পাওয়া যায়নি' });
+      const currentBalance = uRes.rows[0].sms_balance || 0;
+      const newBalance = Math.max(0, currentBalance + smsCount);
+
+      await pool.query('UPDATE users SET sms_balance = $1 WHERE id = $2', [newBalance, userId]);
+
+      await pool.query(`
+        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        'act_' + Date.now(),
+        req.user?.email || 'admin',
+        'ADD_SMS_BALANCE',
+        'user',
+        userId,
+        uRes.rows[0].name || userId,
+        `${smsCount > 0 ? '+' : ''}${smsCount} এসএমএস ব্যালেন্স যোগ করা হয়েছে। নতুন ব্যালেন্স: ${newBalance}টি${note ? ', নোট: ' + note : ''}`,
+        Date.now(),
+      ]).catch(() => {});
+
+      return res.json({ message: `✅ ইউজারের এসএমএস ব্যালেন্স আপডেট হয়েছে (${newBalance}টি)`, newBalance });
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u) {
+        u.smsBalance = Math.max(0, (u.smsBalance || 20) + smsCount);
+        return res.json({ message: `✅ এসএমএস ব্যালেন্স আপডেট হয়েছে (${u.smsBalance}টি)`, newBalance: u.smsBalance });
+      }
+      return res.status(404).json({ error: 'ইউজার পাওয়া যায়নি' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/sms-logs', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const pool = getDbPool();
+    if (pool) {
+      const result = await pool.query(`
+        SELECT l.*, u.name as user_name, u.shop_name
+        FROM sms_logs l
+        LEFT JOIN users u ON l.user_id = u.id
+        ORDER BY l.created_at DESC
+        LIMIT 100
+      `);
+      const logs = result.rows.map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        userName: row.user_name || 'ইউজার',
+        shopName: row.shop_name || 'দোকান',
+        customerName: row.customer_name,
+        customerPhone: row.customer_phone,
+        message: row.message,
+        smsType: row.sms_type,
+        status: row.status,
+        costSms: row.cost_sms,
+        createdAt: Number(row.created_at),
+      }));
+      return res.json({ logs });
+    } else {
+      return res.json({ logs: inMemoryStore.sms_logs || [] });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/sms-purchases', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const pool = getDbPool();
+    if (pool) {
+      const result = await pool.query('SELECT * FROM sms_purchases ORDER BY created_at DESC LIMIT 100');
+      const purchases = result.rows.map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        userName: row.user_name,
+        userPhone: row.user_phone,
+        shopName: row.shop_name,
+        smsCount: row.sms_count,
+        amount: parseFloat(row.amount),
+        paymentMethod: row.payment_method,
+        trxId: row.trx_id,
+        status: row.status,
+        createdAt: Number(row.created_at),
+        approvedAt: row.approved_at ? Number(row.approved_at) : null,
+      }));
+      return res.json({ purchases });
+    } else {
+      return res.json({ purchases: inMemoryStore.sms_purchases || [] });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/sms-purchases/:id/approve', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const purchaseId = req.params.id;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      const pRes = await pool.query('SELECT * FROM sms_purchases WHERE id = $1', [purchaseId]);
+      if (pRes.rows.length === 0) return res.status(404).json({ error: 'অনুরোধ পাওয়া যায়নি' });
+      const p = pRes.rows[0];
+      if (p.status === 'approved') return res.json({ message: 'ইতিমধ্যেই অনুমোদিত হয়েছে' });
+
+      await pool.query('UPDATE sms_purchases SET status = $1, approved_at = $2 WHERE id = $3', ['approved', now, purchaseId]);
+      await pool.query('UPDATE users SET sms_balance = COALESCE(sms_balance, 0) + $1 WHERE id = $2', [p.sms_count, p.user_id]);
+
+      return res.json({ message: `✅ এসএমএস প্যাকেজ অনুমোদন করা হয়েছে এবং ইউজারের একাউন্টে ${p.sms_count}টি এসএমএস যোগ হয়েছে!` });
+    } else {
+      const p = (inMemoryStore.sms_purchases || []).find(x => x.id === purchaseId);
+      if (p) {
+        p.status = 'approved';
+        p.approvedAt = now;
+        const u = inMemoryStore.users.find(x => x.id === p.userId);
+        if (u) u.smsBalance = (u.smsBalance || 0) + p.smsCount;
+        return res.json({ message: `✅ এসএমএস প্যাকেজ অনুমোদন করা হয়েছে` });
+      }
+      return res.status(404).json({ error: 'অনুরোধ পাওয়া যায়নি' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

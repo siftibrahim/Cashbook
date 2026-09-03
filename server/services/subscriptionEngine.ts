@@ -14,6 +14,7 @@ export interface SubscriptionStatusResult {
   hasPendingPayment: boolean;
   pendingPayment: any | null;
   status: 'FREE' | 'PENDING_VERIFICATION' | 'ACTIVE' | 'EXPIRING_SOON' | 'EXPIRED' | 'CANCELLED' | 'SUSPENDED';
+  isSubscriptionSystemEnabled?: boolean;
 }
 
 export class SubscriptionEngine {
@@ -280,14 +281,54 @@ export class SubscriptionEngine {
    */
   public static async getUserStatus(userId: string): Promise<SubscriptionStatusResult> {
     const now = Date.now();
+    const pool = getDbPool();
+
+    // Check if subscription system is globally enabled or disabled
+    let isSubscriptionSystemEnabled = true;
+    if (pool) {
+      try {
+        const cfgRes = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings' LIMIT 1");
+        if (cfgRes.rows.length > 0 && cfgRes.rows[0].data) {
+          const cfg = typeof cfgRes.rows[0].data === 'string' ? JSON.parse(cfgRes.rows[0].data) : cfgRes.rows[0].data;
+          if (cfg && typeof cfg.isSubscriptionSystemEnabled === 'boolean') {
+            isSubscriptionSystemEnabled = cfg.isSubscriptionSystemEnabled;
+          }
+        }
+      } catch (e) {
+        // Fallback default
+      }
+    } else {
+      const cfg = inMemoryStore.system_config?.['system_payment_settings'];
+      if (cfg && typeof cfg.isSubscriptionSystemEnabled === 'boolean') {
+        isSubscriptionSystemEnabled = cfg.isSubscriptionSystemEnabled;
+      }
+    }
+
+    // When subscription system is completely disabled by Super Admin, all user restrictions and lockscreens are lifted
+    if (!isSubscriptionSystemEnabled) {
+      return {
+        subscriptionExpiresAt: now + 3650 * 86400000,
+        subscriptionPlan: 'সক্রিয় (আনলিমিটেড)',
+        subscriptionStatus: 'ACTIVE',
+        isExpired: false,
+        daysRemaining: 3650,
+        hoursRemaining: 3650 * 24,
+        msRemaining: 3650 * 86400000,
+        canRenew: false,
+        isTrial: false,
+        eligibleForEarlyBonus: false,
+        hasPendingPayment: false,
+        pendingPayment: null,
+        status: 'ACTIVE',
+        isSubscriptionSystemEnabled: false,
+      };
+    }
 
     // 1. Recalculate & synchronize subscription based on legitimate registration trial & approved payments
     const synced = await this.recalculateAndSyncUserSubscription(userId);
     const subscriptionExpiresAt = synced.subscriptionExpiresAt;
     const subscriptionPlan = synced.subscriptionPlan;
     const rawStatus = synced.subscriptionStatus.toUpperCase();
-
-    const pool = getDbPool();
     let pendingPayment: any = null;
     let hasPendingPayment = false;
 
@@ -377,6 +418,7 @@ export class SubscriptionEngine {
       hasPendingPayment,
       pendingPayment,
       status: computedStatus,
+      isSubscriptionSystemEnabled: true,
     };
   }
 

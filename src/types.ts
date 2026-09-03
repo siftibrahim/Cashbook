@@ -122,5 +122,7 @@ export interface Product {
   stock: number;
   minStock?: number;
   minStockAlert?: number;
+  sku?: string; // Product code / Barcode / QR Code identifier (e.g. PRD-101)
+  qrCode?: string; // Base64 data or QR payload
   updatedAt: number;
 }

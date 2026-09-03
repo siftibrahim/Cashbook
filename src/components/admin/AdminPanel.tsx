@@ -62,6 +62,7 @@ import { ActivityLogTab } from './ActivityLogTab';
 import { StaffManagementTab } from './StaffManagementTab';
 import { PaymentSettingsTab } from './PaymentSettingsTab';
 import { SmsGatewayTab } from './SmsGatewayTab';
+import { AdsManagementTab } from './AdsManagementTab';
 import { SuperAdminSecurityTab } from './SuperAdminSecurityTab';
 import {
   LayoutDashboard,
@@ -263,6 +264,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       id: 'sms_gateway',
       label: 'এসএমএস ও ওটিপি গেটওয়ে',
       icon: Smartphone,
+      isAllowed: isSuperAdmin,
+      isSuperOnly: true,
+    },
+    {
+      id: 'ads_management',
+      label: 'বিজ্ঞাপন ও অ্যাড সেটিংস',
+      icon: Megaphone,
       isAllowed: isSuperAdmin,
       isSuperOnly: true,
     },
@@ -669,6 +677,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {activeTab === 'sms_gateway' && isSuperAdmin && (
             <SmsGatewayTab onShowToast={showToast} />
+          )}
+
+          {activeTab === 'ads_management' && isSuperAdmin && (
+            <AdsManagementTab onShowToast={showToast} />
           )}
 
           {activeTab === 'super_admin_security' && isSuperAdmin && (

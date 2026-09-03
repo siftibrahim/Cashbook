@@ -55,6 +55,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<'trial_bonus' | 'packages' | 'mfs' | 'bank' | 'gateway'>('trial_bonus');
   const [formData, setFormData] = useState<SystemPaymentSettings>({
     ...settings,
+    isSubscriptionSystemEnabled: settings.isSubscriptionSystemEnabled !== false,
     trialConfig: settings.trialConfig || {
       isTrialEnabled: true,
       trialDays: 14,
@@ -332,6 +333,87 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
             </>
           )}
         </button>
+      </div>
+
+      {/* Global Subscription System Master Switch */}
+      <div className={`p-5 rounded-3xl border transition-all duration-300 shadow-xl ${
+        formData.isSubscriptionSystemEnabled !== false
+          ? 'bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border-emerald-500/40 shadow-emerald-950/20'
+          : 'bg-gradient-to-r from-rose-950/40 via-slate-900 to-slate-900 border-rose-500/40 shadow-rose-950/20'
+      }`}>
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
+          <div className="flex items-start sm:items-center gap-4">
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-lg ${
+              formData.isSubscriptionSystemEnabled !== false
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+            }`}>
+              {formData.isSubscriptionSystemEnabled !== false ? (
+                <CheckCircle2 className="w-7 h-7" />
+              ) : (
+                <Lock className="w-7 h-7" />
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h3 className="text-base font-black text-white">
+                  সাবস্ক্রিপশন সিস্টেম এনাবল / ডিজেবল সুইচ (Master Switch)
+                </h3>
+                <span className={`px-3 py-1 rounded-full text-xs font-black tracking-wide border shadow-sm ${
+                  formData.isSubscriptionSystemEnabled !== false
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                }`}>
+                  {formData.isSubscriptionSystemEnabled !== false ? '🟢 বর্তমানে চালু (ENABLED)' : '🔴 বর্তমানে বন্ধ (DISABLED)'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-1.5 leading-relaxed max-w-3xl">
+                {formData.isSubscriptionSystemEnabled !== false ? (
+                  <span>
+                    <strong className="text-emerald-400">চালু অবস্থা:</strong> ইউজার প্যানেল ও মেনুতে সাবস্ক্রিপশন প্ল্যান, মেয়াদ, রিনিউ ও পেমেন্ট হিস্ট্রি অপশন সক্রিয় থাকবে।
+                  </span>
+                ) : (
+                  <span>
+                    <strong className="text-rose-400">ডিজেবল অবস্থা:</strong> ইউজার ড্যাশবোর্ড ও মেনু থেকে সাবস্ক্রিপশন অপশন <strong className="underline text-white">সম্পূর্ণ ভ্যানিশ (অদৃশ্য)</strong> হয়ে যাবে। কোন মেয়াদ শেষ হবে না, সমস্ত ইউজার যেকোনো বাধা ছাড়াই সম্পূর্ণ বিনামূল্যে আজীবন অ্যাক্সেস পাবে।
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 w-full md:w-auto shrink-0 justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                const nextVal = formData.isSubscriptionSystemEnabled === false ? true : false;
+                setFormData(prev => ({ ...prev, isSubscriptionSystemEnabled: nextVal }));
+                onShowToast(
+                  nextVal
+                    ? '🟢 সাবস্ক্রিপশন সিস্টেম সক্রিয় করা হয়েছে! মনে করে উপরের "সকল পরিবর্তন সেভ করুন" বাটনে ক্লিক করুন।'
+                    : '🔴 সাবস্ক্রিপশন সিস্টেম নিষ্ক্রিয় করা হয়েছে! ইউজার প্যানেল থেকে সাবস্ক্রিপশন ভ্যানিশ থাকবে।'
+                );
+              }}
+              className={`w-full md:w-auto px-6 py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-lg active:scale-95 ${
+                formData.isSubscriptionSystemEnabled !== false
+                  ? 'bg-rose-600/90 hover:bg-rose-500 text-white shadow-rose-950/40 border border-rose-400/30'
+                  : 'bg-emerald-600/90 hover:bg-emerald-500 text-white shadow-emerald-950/40 border border-emerald-400/30'
+              }`}
+            >
+              {formData.isSubscriptionSystemEnabled !== false ? (
+                <>
+                  <RotateCcw className="w-4 h-4" />
+                  <span>সিস্টেম ডিজেবল করুন (Disable)</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>সিস্টেম চালু করুন (Enable)</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Sub Tab Navigation */}

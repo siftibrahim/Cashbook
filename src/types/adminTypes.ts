@@ -19,6 +19,7 @@ export interface AppUser {
   lastActiveAt: number;
   totalCustomers: number;
   totalTransactions: number;
+  smsBalance?: number;
   notes?: string;
   deviceInfo?: string;
   appVersion?: string;
@@ -366,9 +367,58 @@ export interface SmsGatewayConfig {
   hasApiKey?: boolean;
 }
 
+export interface CustomAdItem {
+  id: string;
+  title: string;
+  description: string;
+  badge?: string;
+  imageUrl?: string;
+  targetUrl: string;
+  ctaText: string;
+  isActive?: boolean;
+}
+
+export interface SystemAdSettings {
+  id?: 'system_ad_settings';
+  isAdsEnabled: boolean; // Master switch: বিজ্ঞাপন চালু / বন্ধ
+  adProvider: 'admob' | 'custom' | 'google_adsense';
+  admobAppId?: string;
+  admobBannerUnitId?: string;
+  admobInterstitialUnitId?: string;
+  bannerAdEnabled: boolean; // Switch: বটম ব্যানার বিজ্ঞাপন
+  dashboardCardAdEnabled: boolean; // Switch: ড্যাশবোর্ড স্পন্সরড কার্ড বিজ্ঞাপন
+  footerBannerAdEnabled: boolean; // Switch: ফুটার নন-ইনট্রুসিভ স্লিম ব্যানার
+  customAds: CustomAdItem[];
+  updatedAt: number;
+  updatedBy?: string;
+}
+
+export interface UserSmsLog {
+  id: string;
+  userId: string;
+  customerName?: string;
+  customerPhone: string;
+  message: string;
+  smsType: 'tagada' | 'deposit' | 'custom';
+  status: 'sent' | 'delivered' | 'failed';
+  costSms: number;
+  createdAt: number;
+}
+
+export interface SmsPackageItem {
+  id: string;
+  name: string;
+  smsCount: number;
+  price: number;
+  badge?: string;
+  isPopular?: boolean;
+  ratePerSms: string;
+}
+
 export type AdminTab =
   | 'dashboard'
   | 'payment_settings'
+  | 'ads_management'
   | 'sms_gateway'
   | 'super_admin_security'
   | 'staff_management'

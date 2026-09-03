@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Customer, Transaction, StoreProfile } from '../types';
 import { DashboardSummary } from './DashboardSummary';
 import { formatMoney, formatBanglaDate } from '../utils/storage';
+import { AdCard } from './ads/AdCard';
 import {
   UserPlus,
   ArrowDownLeft,
@@ -18,6 +19,7 @@ import {
   CreditCard,
   RotateCcw,
   AlertTriangle,
+  MessageSquare,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -31,6 +33,7 @@ interface DashboardViewProps {
   onOpenReport: () => void;
   onOpenSalesHistory?: () => void;
   onOpenSubscription?: () => void;
+  onOpenSms?: () => void;
   pendingPaymentInfo?: { hasPending: boolean; record?: any };
   onRefreshSubscriptionStatus?: () => void | Promise<any>;
   onSelectCustomer: (customerId: string) => void;
@@ -47,6 +50,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenReport,
   onOpenSalesHistory,
   onOpenSubscription,
+  onOpenSms,
   pendingPaymentInfo,
   onRefreshSubscriptionStatus,
   onSelectCustomer,
@@ -243,12 +247,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button
               type="button"
               onClick={onOpenSubscription}
-              className="p-3 rounded-xl bg-purple-50/80 hover:bg-purple-100/80 border border-purple-200/90 flex flex-col items-center justify-center gap-1.5 text-center transition active:scale-95 cursor-pointer shadow-2xs group col-span-2 sm:col-span-1"
+              className="p-3 rounded-xl bg-purple-50/80 hover:bg-purple-100/80 border border-purple-200/90 flex flex-col items-center justify-center gap-1.5 text-center transition active:scale-95 cursor-pointer shadow-2xs group"
             >
               <div className="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition">
                 <Sparkles className="w-4 h-4 text-amber-200" />
               </div>
               <span className="text-xs font-bold text-purple-900">প্যাকেজ ও সাবস্ক্রিপশন</span>
+            </button>
+          )}
+
+          {onOpenSms && (
+            <button
+              type="button"
+              onClick={onOpenSms}
+              className="p-3 rounded-xl bg-teal-50/80 hover:bg-teal-100/80 border border-teal-200/90 flex flex-col items-center justify-center gap-1.5 text-center transition active:scale-95 cursor-pointer shadow-2xs group"
+            >
+              <div className="w-8 h-8 rounded-lg bg-teal-700 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition">
+                <MessageSquare className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-bold text-teal-900">এসএমএস প্যাক</span>
             </button>
           )}
         </div>
@@ -294,6 +311,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <p className="text-[10px] text-amber-600 font-bold mt-0.5">স্টক লিস্ট খুলুন</p>
         </div>
       </section>
+
+      {/* Sponsored Ad Card */}
+      <AdCard />
 
       {/* Recent Activity List */}
       <section className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">

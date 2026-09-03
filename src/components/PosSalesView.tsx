@@ -32,6 +32,9 @@ import {
   AlertCircle,
   UserPlus,
   ShieldAlert,
+  Camera,
+  QrCode,
+  Smartphone,
 } from 'lucide-react';
 
 interface PosSalesViewProps {
@@ -71,6 +74,9 @@ interface PosSalesViewProps {
   }) => void;
   onOpenSalesHistory?: () => void;
   onShowToast: (msg: string) => void;
+  onOpenScanner?: () => void;
+  onOpenPaymentQr?: (amount?: number) => void;
+  onOpenSms?: (phone?: string, msg?: string, name?: string) => void;
 }
 
 export const PosSalesView: React.FC<PosSalesViewProps> = ({
@@ -81,6 +87,9 @@ export const PosSalesView: React.FC<PosSalesViewProps> = ({
   onOpenInvoiceModal,
   onOpenSalesHistory,
   onShowToast,
+  onOpenScanner,
+  onOpenPaymentQr,
+  onOpenSms,
 }) => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
@@ -316,16 +325,42 @@ export const PosSalesView: React.FC<PosSalesViewProps> = ({
           </div>
         </div>
 
-        {onOpenSalesHistory && (
-          <button
-            type="button"
-            onClick={onOpenSalesHistory}
-            className="px-3 sm:px-4 py-2 bg-white/10 hover:bg-white/20 active:scale-95 text-teal-100 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition border border-white/10 cursor-pointer shadow-xs"
-          >
-            <History className="w-4 h-4 text-teal-300" />
-            <span>বিক্রয় হিস্ট্রি</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {onOpenScanner && (
+            <button
+              type="button"
+              onClick={onOpenScanner}
+              title="ক্যামেরা বারকোড বা কিউআর স্ক্যানার চালু করুন"
+              className="px-3 sm:px-3.5 py-2 bg-white text-teal-900 hover:bg-teal-50 active:scale-95 rounded-xl text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+            >
+              <Camera className="w-4 h-4 text-teal-700" />
+              <span>স্ক্যানার</span>
+            </button>
+          )}
+
+          {onOpenPaymentQr && (
+            <button
+              type="button"
+              onClick={() => onOpenPaymentQr(netAmount)}
+              title="কাউন্টার পেমেন্ট কিউআর কোড প্রদর্শন করুন"
+              className="px-3 py-2 bg-white/10 hover:bg-white/20 active:scale-95 text-teal-100 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition border border-white/10 cursor-pointer shadow-xs"
+            >
+              <QrCode className="w-4 h-4 text-teal-300" />
+              <span className="hidden sm:inline">পেমেন্ট কিউআর</span>
+            </button>
+          )}
+
+          {onOpenSalesHistory && (
+            <button
+              type="button"
+              onClick={onOpenSalesHistory}
+              className="px-3 sm:px-4 py-2 bg-white/10 hover:bg-white/20 active:scale-95 text-teal-100 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition border border-white/10 cursor-pointer shadow-xs"
+            >
+              <History className="w-4 h-4 text-teal-300" />
+              <span className="hidden md:inline">বিক্রয় হিস্ট্রি</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -333,10 +368,22 @@ export const PosSalesView: React.FC<PosSalesViewProps> = ({
         <div className="lg:col-span-7 flex flex-col gap-3">
           {/* Quick Product Chips */}
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-xs">
-            <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Package className="w-3.5 h-3.5 text-teal-700" />
-              <span>জনপ্রিয় পণ্য তালিকা (ট্যাপ করে কার্টে নিন)</span>
-            </h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Package className="w-3.5 h-3.5 text-teal-700" />
+                <span>জনপ্রিয় পণ্য তালিকা (ট্যাপ করে কার্টে নিন)</span>
+              </h3>
+              {onOpenScanner && (
+                <button
+                  type="button"
+                  onClick={onOpenScanner}
+                  className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1 cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>ক্যামেরা স্ক্যান</span>
+                </button>
+              )}
+            </div>
             <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-0.5">
               {products.map((prod) => (
                 <button
@@ -781,6 +828,18 @@ export const PosSalesView: React.FC<PosSalesViewProps> = ({
                   </button>
                 ))}
               </div>
+
+              {/* Show QR code button if bkash or nagad is selected */}
+              {(paymentMethod === 'bkash' || paymentMethod === 'nagad') && onOpenPaymentQr && (
+                <button
+                  type="button"
+                  onClick={() => onOpenPaymentQr(paidAmount || netAmount)}
+                  className="mt-2 w-full py-2 px-3 bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                  <span>গ্রাহককে {paymentMethod === 'bkash' ? 'বিকাশ' : 'নগদ'} কিউআর কোড দেখান (QR Pay)</span>
+                </button>
+              )}
             </div>
 
             {/* Checkout Action Button */}

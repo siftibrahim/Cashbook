@@ -12,6 +12,9 @@ import {
   Tag,
   ArrowUpDown,
   Boxes,
+  QrCode,
+  Camera,
+  Barcode,
 } from 'lucide-react';
 
 interface InventoryViewProps {
@@ -21,6 +24,9 @@ interface InventoryViewProps {
   onUpdateProduct: (product: Product) => void;
   onDeleteProduct: (id: string) => void;
   onShowToast: (msg: string) => void;
+  onOpenProductQr?: (product: Product) => void;
+  onOpenScanner?: () => void;
+  onOpenQrGenerator?: () => void;
 }
 
 export const InventoryView: React.FC<InventoryViewProps> = ({
@@ -30,6 +36,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   onUpdateProduct,
   onDeleteProduct,
   onShowToast,
+  onOpenProductQr,
+  onOpenScanner,
+  onOpenQrGenerator,
 }) => {
   const [search, setSearch] = useState('');
   const [selectedCat, setSelectedCat] = useState('all');
@@ -38,6 +47,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Form states
   const [name, setName] = useState('');
+  const [sku, setSku] = useState('');
   const [category, setCategory] = useState('চাল ও ডাল');
   const [unit, setUnit] = useState('কেজি');
   const [buyPrice, setBuyPrice] = useState('');
@@ -53,6 +63,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     return products.filter((p) => {
       const matchSearch =
         p.name.toLowerCase().includes(search.toLowerCase()) ||
+        (p.sku && p.sku.toLowerCase().includes(search.toLowerCase())) ||
         p.category.toLowerCase().includes(search.toLowerCase());
       const matchCat = selectedCat === 'all' || p.category === selectedCat;
       return matchSearch && matchCat;
@@ -70,6 +81,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const handleOpenAdd = () => {
     setEditingProduct(null);
     setName('');
+    setSku(`PRD-${Math.floor(1000 + Math.random() * 9000)}`);
     setCategory('চাল ও ডাল');
     setUnit('কেজি');
     setBuyPrice('');
@@ -82,6 +94,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const handleOpenEdit = (p: Product) => {
     setEditingProduct(p);
     setName(p.name);
+    setSku(p.sku || p.id);
     setCategory(p.category);
     setUnit(p.unit);
     setBuyPrice(p.buyPrice.toString());
@@ -103,10 +116,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       return;
     }
 
+    const assignedSku = sku.trim() || `PRD-${Date.now().toString().slice(-6)}`;
+
     if (editingProduct) {
       onUpdateProduct({
         ...editingProduct,
         name: name.trim(),
+        sku: assignedSku,
         category,
         unit,
         buyPrice: Number(buyPrice || 0),
@@ -120,6 +136,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       const newProd: Product = {
         id: `prod_${Date.now()}`,
         name: name.trim(),
+        sku: assignedSku,
         category,
         unit,
         buyPrice: Number(buyPrice || 0),
@@ -206,15 +223,42 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             )}
           </div>
 
-          {/* Add Product Button */}
-          <button
-            type="button"
-            onClick={handleOpenAdd}
-            className="px-3.5 py-2 bg-[#00695C] hover:bg-[#004D40] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ নতুন পণ্য যোগ</span>
-          </button>
+          {/* Action Buttons: Scan, QR Generator, and Add Product */}
+          <div className="flex items-center gap-2">
+            {onOpenScanner && (
+              <button
+                type="button"
+                onClick={onOpenScanner}
+                title="ক্যামেরা দিয়ে পণ্য বারকোড বা কিউআর কোড স্ক্যান করুন"
+                className="px-3 py-2 bg-slate-100 hover:bg-teal-50 hover:text-teal-800 text-slate-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 border border-slate-200 transition active:scale-95 cursor-pointer whitespace-nowrap"
+              >
+                <Camera className="w-4 h-4 text-teal-700" />
+                <span className="hidden sm:inline">স্ক্যান পণ্য</span>
+              </button>
+            )}
+
+            {onOpenQrGenerator && (
+              <button
+                type="button"
+                onClick={onOpenQrGenerator}
+                title="পণ্যের কিউআর কোড স্টিকার প্রিন্ট করুন"
+                className="px-3 py-2 bg-slate-100 hover:bg-teal-50 hover:text-teal-800 text-slate-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 border border-slate-200 transition active:scale-95 cursor-pointer whitespace-nowrap"
+              >
+                <QrCode className="w-4 h-4 text-teal-700" />
+                <span className="hidden sm:inline">কিউআর জেনারেটর</span>
+              </button>
+            )}
+
+            {/* Add Product Button */}
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              className="px-3.5 py-2 bg-[#00695C] hover:bg-[#004D40] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ নতুন পণ্য</span>
+            </button>
+          </div>
         </div>
 
         {/* Category Pills */}
@@ -318,6 +362,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1">
+                    {onOpenProductQr && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenProductQr(p)}
+                        className="p-1.5 text-slate-400 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition cursor-pointer"
+                        title="কিউআর স্টিকার ও বারকোড জেনারেট"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleOpenEdit(p)}
@@ -362,6 +416,29 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   placeholder="যেমন: মিনিকেট চাল"
                   className="w-full px-3 py-2 text-xs font-medium border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
                 />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">বারকোড / SKU কোড (কিউআর আইডি)</label>
+                  <button
+                    type="button"
+                    onClick={() => setSku(`PRD-${Math.floor(1000 + Math.random() * 9000)}`)}
+                    className="text-[10px] font-bold text-teal-700 hover:underline cursor-pointer"
+                  >
+                    স্বয়ংক্রিয় কোড দিন
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={sku}
+                    onChange={(e) => setSku(e.target.value)}
+                    placeholder="PRD-101 বা প্যাকেজিং বারকোড..."
+                    className="w-full pl-8 pr-3 py-2 text-xs font-mono font-bold border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                  />
+                  <Barcode className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
