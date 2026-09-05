@@ -20,6 +20,8 @@ import {
   RotateCcw,
   AlertTriangle,
   MessageSquare,
+  CheckCircle2,
+  Send,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -34,6 +36,10 @@ interface DashboardViewProps {
   onOpenSalesHistory?: () => void;
   onOpenSubscription?: () => void;
   onOpenSms?: () => void;
+  smsBalance?: number;
+  pendingSmsPurchaseInfo?: { hasPending: boolean; record?: any; latestConfirmed?: any };
+  onRefreshSmsStatus?: () => void | Promise<any>;
+  isSubscriptionSystemEnabled?: boolean;
   pendingPaymentInfo?: { hasPending: boolean; record?: any };
   onRefreshSubscriptionStatus?: () => void | Promise<any>;
   onSelectCustomer: (customerId: string) => void;
@@ -51,6 +57,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenSalesHistory,
   onOpenSubscription,
   onOpenSms,
+  smsBalance = 0,
+  pendingSmsPurchaseInfo,
+  onRefreshSmsStatus,
+  isSubscriptionSystemEnabled = true,
   pendingPaymentInfo,
   onRefreshSubscriptionStatus,
   onSelectCustomer,
@@ -91,8 +101,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         transactions={transactions}
       />
 
-      {/* Subscription Plan & Status Banner */}
-      {onOpenSubscription && (
+      {/* Subscription Plan & Status Banner (Only when Subscription System is Enabled) */}
+      {isSubscriptionSystemEnabled && onOpenSubscription && (
         <>
           {pendingPaymentInfo?.hasPending ? (
             /* CASE A: PENDING PAYMENT VERIFICATION BANNER */
@@ -189,6 +199,94 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </section>
           )}
         </>
+      )}
+
+      {/* SMS Purchase & Balance Status Banner */}
+      {pendingSmsPurchaseInfo?.hasPending ? (
+        /* CASE A: SMS PURCHASE PENDING */
+        <section className="bg-gradient-to-r from-teal-500/15 via-emerald-500/10 to-teal-500/15 border-2 border-teal-500/50 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-teal-500/20 text-teal-700 flex items-center justify-center font-bold shrink-0 border border-teal-400/40">
+              <Clock className="w-5 h-5 text-teal-600 animate-spin" style={{ animationDuration: '4s' }} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-teal-200 text-teal-900 text-[10px] font-black uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-teal-600 animate-ping" />
+                  <span>এসএমএস প্যাক পেন্ডিং (অনুমোদনের অপেক্ষায়)...</span>
+                </span>
+                {pendingSmsPurchaseInfo.record?.trxId && (
+                  <span className="text-[11px] font-mono font-bold text-teal-900 bg-teal-100/90 px-2 py-0.5 rounded border border-teal-300">
+                    TrxID: {pendingSmsPurchaseInfo.record.trxId}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-teal-950 font-semibold leading-relaxed">
+                {pendingSmsPurchaseInfo.record?.smsCount || 0}টি SMS (৳{formatMoney(pendingSmsPurchaseInfo.record?.amount || 0)}) - সুপার এডমিন পেমেন্ট এক্সেপ্ট করলেই ইউজারের প্রোফাইলে এসএমএস সাকসেসফুল দেখাবে এবং ব্যালেন্স যুক্ত হবে।
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+            {onRefreshSmsStatus && (
+              <button
+                type="button"
+                onClick={() => onRefreshSmsStatus()}
+                title="স্ট্যাটাস রিফ্রেশ করুন"
+                className="p-2 sm:px-3 sm:py-2 rounded-xl bg-teal-200/80 hover:bg-teal-300 text-teal-900 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">রিফ্রেশ</span>
+              </button>
+            )}
+            {onOpenSms && (
+              <button
+                type="button"
+                onClick={onOpenSms}
+                className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>এসএমএস বক্স</span>
+              </button>
+            )}
+          </div>
+        </section>
+      ) : (
+        /* CASE B: SMS SERVICE READY & COUNTING */
+        <section className="bg-gradient-to-r from-sky-500/10 via-teal-500/10 to-indigo-500/10 border border-teal-200/60 rounded-2xl p-3 sm:p-3.5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-teal-500/20 text-teal-700 flex items-center justify-center font-bold shrink-0 border border-teal-300">
+              <MessageSquare className="w-5 h-5 text-teal-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-black text-slate-800">
+                  তাগাদা এসএমএস ব্যালেন্স: <span className="text-sm font-black text-teal-700">{smsBalance}টি SMS</span>
+                </span>
+                {pendingSmsPurchaseInfo?.latestConfirmed && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    সাকসেসফুল প্যাকেজ ({pendingSmsPurchaseInfo.latestConfirmed.smsCount}টি ক্রয়কৃত)
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                কাস্টমারদের বাকি তাগাদা এসএমএস পাঠালে এখান থেকে অটো কাউন্ট হয়ে প্রতি এসএমএসে ১টি করে ব্যালেন্স কমবে।
+              </p>
+            </div>
+          </div>
+
+          {onOpenSms && (
+            <button
+              type="button"
+              onClick={onOpenSms}
+              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>এসএমএস পাঠান / রিচার্জ</span>
+            </button>
+          )}
+        </section>
       )}
 
       {/* Quick Action Hub */}

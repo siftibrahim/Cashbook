@@ -15,6 +15,7 @@ import {
   SmsGatewaySettings,
 } from '../services/smsService';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
+import { DEFAULT_SMS_PACKAGES, getDynamicSmsPackages } from './smsRoutes';
 
 const router = Router();
 
@@ -63,9 +64,10 @@ router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
         status: row.status || 'active',
         subscriptionPlan: row.subscription_plan || 'ফ্রি ট্রায়াল (১৪ দিন)',
         subscriptionStatus: row.subscription_status || 'active',
-        subscriptionExpiresAt: Number(row.subscription_expires_at) || (Date.now() + 14 * 86400000),
+        subscriptionExpiresAt: row.subscription_expires_at !== null && row.subscription_expires_at !== undefined ? Number(row.subscription_expires_at) : 0,
         registeredAt: Number(row.registered_at) || Date.now(),
         lastActiveAt: Number(row.last_active_at) || Date.now(),
+        smsBalance: row.sms_balance !== null && row.sms_balance !== undefined ? Number(row.sms_balance) : 0,
         totalCustomers: parseInt(row.total_customers || '0', 10),
         totalTransactions: parseInt(row.total_transactions || '0', 10),
         notes: row.notes || '',
@@ -1558,22 +1560,378 @@ router.post('/sms-purchases/:id/approve', async (req: AuthenticatedRequest, res:
       const pRes = await pool.query('SELECT * FROM sms_purchases WHERE id = $1', [purchaseId]);
       if (pRes.rows.length === 0) return res.status(404).json({ error: 'অনুরোধ পাওয়া যায়নি' });
       const p = pRes.rows[0];
-      if (p.status === 'approved') return res.json({ message: 'ইতিমধ্যেই অনুমোদিত হয়েছে' });
+      if (p.status === 'approved' || p.status === 'confirmed') {
+        return res.json({ message: 'ইতিমধ্যেই অনুমোদিত হয়েছে' });
+      }
 
-      await pool.query('UPDATE sms_purchases SET status = $1, approved_at = $2 WHERE id = $3', ['approved', now, purchaseId]);
-      await pool.query('UPDATE users SET sms_balance = COALESCE(sms_balance, 0) + $1 WHERE id = $2', [p.sms_count, p.user_id]);
+      await pool.query('UPDATE sms_purchases SET status = $1, approved_at = $2 WHERE id = $3', ['confirmed', now, purchaseId]);
+      const updUser = await pool.query(
+        'UPDATE users SET sms_balance = COALESCE(sms_balance, 0) + $1 WHERE id = $2 RETURNING sms_balance, name',
+        [p.sms_count, p.user_id]
+      );
+      const newBal = updUser.rows[0]?.sms_balance || p.sms_count;
 
-      return res.json({ message: `✅ এসএমএস প্যাকেজ অনুমোদন করা হয়েছে এবং ইউজারের একাউন্টে ${p.sms_count}টি এসএমএস যোগ হয়েছে!` });
+      // Send User Notification as specified in Requirement 6
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [
+        'notif_sms_' + now,
+        '✅ এসএমএস পেমেন্ট সফল হয়েছে',
+        `আপনার পেমেন্ট কনফার্ম হয়েছে। একাউন্টে ${p.sms_count}টি SMS যোগ হয়েছে। বর্তমান SMS Balance: ${newBal}টি।`,
+        'success',
+        'specific',
+        p.user_id,
+        p.user_name || p.shop_name,
+        'high',
+        false,
+        now,
+      ]);
+
+      await pool.query(`
+        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        'act_' + now,
+        req.user?.email || 'admin',
+        'APPROVE_SMS_PURCHASE',
+        'sms_purchase',
+        purchaseId,
+        p.user_name || p.shop_name,
+        `৳${p.amount} মূল্যের ${p.sms_count}টি এসএমএস অনুমোদন করা হয়েছে (TrxID: ${p.trx_id})`,
+        now,
+      ]).catch(() => {});
+
+      return res.json({
+        message: `✅ এসএমএস পেমেন্ট কনফার্ম করা হয়েছে এবং ইউজারের ব্যালেন্সে ${p.sms_count}টি SMS যোগ হয়েছে! বর্তমান ব্যালেন্স: ${newBal}টি`,
+        newBalance: newBal,
+      });
     } else {
       const p = (inMemoryStore.sms_purchases || []).find(x => x.id === purchaseId);
       if (p) {
-        p.status = 'approved';
+        p.status = 'confirmed';
         p.approvedAt = now;
         const u = inMemoryStore.users.find(x => x.id === p.userId);
-        if (u) u.smsBalance = (u.smsBalance || 0) + p.smsCount;
-        return res.json({ message: `✅ এসএমএস প্যাকেজ অনুমোদন করা হয়েছে` });
+        const newBal = ((u?.smsBalance ?? 10) + p.smsCount);
+        if (u) u.smsBalance = newBal;
+
+        if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+        inMemoryStore.notifications.unshift({
+          id: 'notif_sms_' + now,
+          title: '✅ এসএমএস পেমেন্ট সফল হয়েছে',
+          message: `আপনার পেমেন্ট কনফার্ম হয়েছে। একাউন্টে ${p.smsCount}টি SMS যোগ হয়েছে। বর্তমান SMS Balance: ${newBal}টি।`,
+          type: 'success',
+          target: 'specific',
+          targetUserId: p.userId,
+          priority: 'high',
+          isRead: false,
+          createdAt: now,
+        });
+
+        return res.json({
+          message: `✅ এসএমএস পেমেন্ট কনফার্ম করা হয়েছে এবং ${p.smsCount}টি SMS যোগ হয়েছে`,
+          newBalance: newBal,
+        });
       }
       return res.status(404).json({ error: 'অনুরোধ পাওয়া যায়নি' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/sms-purchases/:id/reject', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const purchaseId = req.params.id;
+    const { reason } = req.body;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      const pRes = await pool.query('SELECT * FROM sms_purchases WHERE id = $1', [purchaseId]);
+      if (pRes.rows.length === 0) return res.status(404).json({ error: 'অনুরোধ পাওয়া যায়নি' });
+      const p = pRes.rows[0];
+
+      await pool.query('UPDATE sms_purchases SET status = $1 WHERE id = $2', ['rejected', purchaseId]);
+
+      // Send User Notification for rejection
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [
+        'notif_sms_rej_' + now,
+        '❌ এসএমএস পেমেন্ট বাতিল হয়েছে',
+        `আপনার TrxID: ${p.trx_id} এর ${p.sms_count}টি এসএমএস পেমেন্ট বাতিল করা হয়েছে। ${reason ? 'কারণ: ' + reason : 'ভুল ট্রানজেকশন আইডি বা অর্থ প্রাপ্তি নিশ্চিত না হওয়ার কারণে এমনটি হয়েছে। প্রয়োজনে সাপোর্টে যোগাযোগ করুন।'}`,
+        'warning',
+        'specific',
+        p.user_id,
+        p.user_name || p.shop_name,
+        'high',
+        false,
+        now,
+      ]);
+
+      await pool.query(`
+        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        'act_' + now,
+        req.user?.email || 'admin',
+        'REJECT_SMS_PURCHASE',
+        'sms_purchase',
+        purchaseId,
+        p.user_name || p.shop_name,
+        `এসএমএস রিকোয়েস্ট বাতিল করা হয়েছে (TrxID: ${p.trx_id})${reason ? ', কারণ: ' + reason : ''}`,
+        now,
+      ]).catch(() => {});
+
+      return res.json({ message: '❌ এসএমএস পেমেন্ট বাতিল করা হয়েছে এবং গ্রাহককে নোটিফিকেশন পাঠানো হয়েছে' });
+    } else {
+      const p = (inMemoryStore.sms_purchases || []).find(x => x.id === purchaseId);
+      if (p) {
+        p.status = 'rejected';
+        if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+        inMemoryStore.notifications.unshift({
+          id: 'notif_sms_rej_' + now,
+          title: '❌ এসএমএস পেমেন্ট বাতিল হয়েছে',
+          message: `আপনার TrxID: ${p.trxId} এর ${p.smsCount}টি এসএমএস পেমেন্ট বাতিল করা হয়েছে। ${reason ? 'কারণ: ' + reason : 'ভুল তথ্য বা ট্রানজেকশন।' }`,
+          type: 'warning',
+          target: 'specific',
+          targetUserId: p.userId,
+          priority: 'high',
+          isRead: false,
+          createdAt: now,
+        });
+        return res.json({ message: '❌ এসএমএস পেমেন্ট বাতিল করা হয়েছে' });
+      }
+      return res.status(404).json({ error: 'অনুরোধ পাওয়া যায়নি' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/users/:userId/set-sms-balance', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { balance, note } = req.body;
+    const exactBalance = Math.max(0, parseInt(balance, 10) || 0);
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      const uRes = await pool.query('SELECT name, shop_name FROM users WHERE id = $1', [userId]);
+      if (uRes.rows.length === 0) return res.status(404).json({ error: 'ইউজার পাওয়া যায়নি' });
+
+      await pool.query('UPDATE users SET sms_balance = $1 WHERE id = $2', [exactBalance, userId]);
+
+      await pool.query(`
+        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        'act_' + now,
+        req.user?.email || 'admin',
+        'SET_EXACT_SMS_BALANCE',
+        'user',
+        userId,
+        uRes.rows[0].name || userId,
+        `এসএমএস ব্যালেন্স সরাসরি সংশোধন করে ${exactBalance}টি করা হয়েছে${note ? ', নোট: ' + note : ''}`,
+        now,
+      ]).catch(() => {});
+
+      return res.json({
+        message: `✅ ইউজারের এসএমএস ব্যালেন্স সংশোধন করা হয়েছে (${exactBalance}টি)`,
+        balance: exactBalance,
+      });
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u) {
+        u.smsBalance = exactBalance;
+        return res.json({ message: `✅ ব্যালেন্স সংশোধন করা হয়েছে (${exactBalance}টি)`, balance: exactBalance });
+      }
+      return res.status(404).json({ error: 'ইউজার পাওয়া যায়নি' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/admin/sms-packages
+ * Get all configured SMS packages
+ */
+router.get('/sms-packages', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const pool = getDbPool();
+    const packages = await getDynamicSmsPackages(pool);
+    return res.json({ packages });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/admin/sms-packages
+ * Super Admin updates SMS packages (add, remove, change count, change price)
+ */
+router.put('/sms-packages', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { packages } = req.body;
+    if (!Array.isArray(packages)) {
+      return res.status(400).json({ error: 'প্যাকেজ তালিকা অ্যারে হতে হবে' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+    const adminEmail = req.user?.email || 'admin@twing.com';
+
+    if (pool) {
+      await pool.query(`
+        INSERT INTO system_config (id, data, updated_at, updated_by)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (id) DO UPDATE
+        SET data = $2, updated_at = $3, updated_by = $4
+      `, [
+        'system_sms_packages',
+        JSON.stringify(packages),
+        now,
+        adminEmail,
+      ]);
+
+      await pool.query(`
+        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        'act_' + now,
+        adminEmail,
+        'UPDATE_SMS_PACKAGES',
+        'system_sms_packages',
+        'system_sms_packages',
+        'এসএমএস প্যাকেজ সেটিংস',
+        `সুপার অ্যাডমিন এসএমএস প্যাকেজ তালিকা আপডেট করেছেন (${packages.length}টি প্যাকেজ)`,
+        now,
+      ]).catch(() => {});
+    } else {
+      if (!inMemoryStore.system_config) inMemoryStore.system_config = {};
+      inMemoryStore.system_config['system_sms_packages'] = packages;
+    }
+
+    return res.json({
+      success: true,
+      message: '✅ এসএমএস প্যাকেজ সেটিংস সফলভাবে সংরক্ষিত হয়েছে!',
+      packages,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/users/:userId/reset-sms
+ * Reset a user's SMS balance to 0 (প্যাকেজ রিসেট)
+ */
+router.post('/users/:userId/reset-sms', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+    const pool = getDbPool();
+    const now = Date.now();
+    const adminEmail = req.user?.email || 'admin';
+
+    if (pool) {
+      const uRes = await pool.query('SELECT name, shop_name FROM users WHERE id = $1', [userId]);
+      if (uRes.rows.length === 0) return res.status(404).json({ error: 'ইউজার পাওয়া যায়নি' });
+
+      await pool.query('UPDATE users SET sms_balance = 0 WHERE id = $1', [userId]);
+
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [
+        'notif_reset_' + now,
+        '⚠️ এসএমএস প্যাকেজ রিসেট হয়েছে',
+        `সুপার অ্যাডমিন আপনার এসএমএস প্যাকেজ ব্যালেন্স রিসেট করেছেন। নতুন প্যাকেজ ক্রয় করতে পারেন।${reason ? ' কারণ: ' + reason : ''}`,
+        'warning',
+        'specific',
+        userId,
+        uRes.rows[0].name || userId,
+        'high',
+        false,
+        now,
+      ]);
+
+      await pool.query(`
+        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        'act_' + now,
+        adminEmail,
+        'RESET_USER_SMS',
+        'user',
+        userId,
+        uRes.rows[0].name || userId,
+        `ইউজারের এসএমএস ব্যালেন্স রিসেট (০) করা হয়েছে${reason ? '. কারণ: ' + reason : ''}`,
+        now,
+      ]).catch(() => {});
+
+      return res.json({ message: '✅ ইউজারের এসএমএস প্যাকেজ ও ব্যালেন্স সম্পূর্ণ রিসেট (০) করা হয়েছে', balance: 0 });
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u) {
+        u.smsBalance = 0;
+        return res.json({ message: '✅ ইউজারের এসএমএস প্যাকেজ রিসেট (০) করা হয়েছে', balance: 0 });
+      }
+      return res.status(404).json({ error: 'ইউজার পাওয়া যায়নি' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/users/:userId/reset-subscription
+ * Reset/remove a user's subscription package
+ */
+router.post('/users/:userId/reset-subscription', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const pool = getDbPool();
+    const now = Date.now();
+    const adminEmail = req.user?.email || 'admin';
+
+    if (pool) {
+      await pool.query(
+        "UPDATE subscriptions SET status = 'EXPIRED', end_date = $1, auto_renew = false WHERE user_id = $2 AND status = 'ACTIVE'",
+        [now - 1000, userId]
+      );
+      await pool.query(
+        "UPDATE users SET subscription_status = 'expired', subscription_plan = 'Free', subscription_expiry = $1 WHERE id = $2",
+        [now - 1000, userId]
+      );
+
+      await pool.query(`
+        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        'act_' + now,
+        adminEmail,
+        'RESET_USER_SUBSCRIPTION',
+        'subscription',
+        userId,
+        userId,
+        'ইউজারের সাবস্ক্রিপশন প্যাকেজ রিসেট/রিমুভ করা হয়েছে',
+        now,
+      ]).catch(() => {});
+
+      return res.json({ message: '✅ ইউজারের সাবস্ক্রিপশন প্যাকেজ সম্পূর্ণ রিসেট/রিমুভ করা হয়েছে' });
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u) {
+        u.subscriptionStatus = 'expired';
+        u.subscriptionPlan = 'Free';
+        u.subscriptionExpiry = now - 1000;
+      }
+      return res.json({ message: '✅ ইউজারের সাবস্ক্রিপশন প্যাকেজ সম্পূর্ণ রিসেট/রিমুভ করা হয়েছে' });
     }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

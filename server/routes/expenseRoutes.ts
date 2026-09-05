@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore } from '../db';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 
 const router = Router();
@@ -54,6 +54,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
 
     const pool = getDbPool();
     if (pool) {
+      const validUserId = await ensureUserExistsInPostgres(pool, userId, req.user);
       await pool.query(`
         INSERT INTO expenses (id, user_id, type, category, amount, description, date, time, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -64,7 +65,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
           description = EXCLUDED.description,
           date = EXCLUDED.date,
           time = EXCLUDED.time
-      `, [expId, userId, type, category, cleanAmount, description || '', date, time, now]);
+      `, [expId, validUserId, type, category, cleanAmount, description || '', date, time, now]);
     } else {
       const newExp = {
         id: expId,

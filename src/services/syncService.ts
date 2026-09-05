@@ -3,8 +3,8 @@
  * Seamlessly manages offline queue and PostgreSQL Backend APIs
  */
 
-import { Customer, Transaction, StoreProfile, DailyExpense } from '../types';
-import { customerApi, transactionApi, expenseApi, storeApi } from './apiService';
+import { Customer, Transaction, StoreProfile, DailyExpense, Product } from '../types';
+import { customerApi, transactionApi, expenseApi, storeApi, productApi } from './apiService';
 import {
   enqueueAction,
   getPendingQueueCount,
@@ -246,18 +246,84 @@ export async function deleteExpenseFromCloud(expenseId: string): Promise<void> {
 }
 
 /**
+ * Save single product to cloud
+ */
+export async function saveProductToCloud(product: Product): Promise<void> {
+  enqueueAction('SAVE_PRODUCT', product);
+  try {
+    if (navigator.onLine) {
+      await productApi.save(product);
+    }
+  } catch (err) {
+    console.warn('Backend save product queued for offline sync:', err);
+  }
+}
+
+/**
+ * Delete single product from cloud
+ */
+export async function deleteProductFromCloud(productId: string): Promise<void> {
+  enqueueAction('DELETE_PRODUCT', { productId, id: productId });
+  try {
+    if (navigator.onLine) {
+      await productApi.delete(productId);
+    }
+  } catch (err) {
+    console.warn('Backend delete product queued for offline sync:', err);
+  }
+}
+
+/**
+ * Real-time / Polling listener for products
+ */
+export function subscribeToProducts(
+  onUpdate: (products: Product[]) => void,
+  onError?: (err: Error) => void
+) {
+  let isSubscribed = true;
+
+  const fetchProd = async () => {
+    if (!navigator.onLine) {
+      if (onError) onError(new Error('Offline'));
+      return;
+    }
+    try {
+      if (getPendingQueueCount() > 0) return;
+      const list = await productApi.getAll();
+      if (isSubscribed && Array.isArray(list)) {
+        onUpdate(list);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchProd();
+  const interval = setInterval(fetchProd, 15000); // 15s refresh
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
+}
+
+/**
  * Bulk upload / restore / seed entire ledger to backend
  */
 export async function syncAllToCloud(
   store: StoreProfile,
   customers: Customer[],
   transactions: Record<string, Transaction[]>,
-  expenses: DailyExpense[] = []
+  expenses: DailyExpense[] = [],
+  products: Product[] = []
 ): Promise<void> {
-  enqueueAction('SYNC_ALL', { store, customers, transactions, expenses });
+  enqueueAction('SYNC_ALL', { store, customers, transactions, expenses, products });
   try {
     if (navigator.onLine) {
       await storeApi.syncAll(store, customers, transactions, expenses);
+      if (products.length > 0) {
+        await productApi.batchSync(products);
+      }
     }
   } catch (err) {
     console.warn('Backend sync-all queued for offline sync:', err);

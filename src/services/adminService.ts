@@ -1181,3 +1181,62 @@ export async function authenticateStaff(
     return { success: false, error: err.message || 'স্টাফ ভেরিফিকেশন ব্যর্থ হয়েছে' };
   }
 }
+
+// ---------------- SMS PURCHASES & BALANCE MANAGEMENT ----------------
+
+export function subscribeToSmsPurchases(
+  onUpdate: (purchases: any[]) => void,
+  onError?: (err: Error) => void
+) {
+  let isSubscribed = true;
+  const fetchPurchases = async () => {
+    try {
+      const list = await adminApi.getAdminSmsPurchases();
+      if (isSubscribed && Array.isArray(list)) {
+        onUpdate(list);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchPurchases();
+  const interval = setInterval(fetchPurchases, 8000); // 8s polling
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
+}
+
+export async function approveAdminSmsPurchase(purchaseId: string): Promise<{ message: string; newBalance?: number }> {
+  return await adminApi.approveSmsPurchase(purchaseId);
+}
+
+export async function rejectAdminSmsPurchase(purchaseId: string, reason?: string): Promise<{ message: string }> {
+  return await adminApi.rejectSmsPurchase(purchaseId, reason);
+}
+
+export async function setUserSmsBalance(userId: string, balance: number, note?: string): Promise<{ message: string; balance: number }> {
+  return await adminApi.setSmsBalance(userId, balance, note);
+}
+
+export async function addUserSmsBalance(userId: string, amount: number, note?: string): Promise<{ message: string; newBalance: number }> {
+  return await adminApi.addSmsBalance(userId, amount, note);
+}
+
+export async function getAdminSmsPackages(): Promise<any[]> {
+  return await adminApi.getSmsPackages();
+}
+
+export async function saveAdminSmsPackages(packages: any[]): Promise<{ success: boolean; message: string; packages: any[] }> {
+  return await adminApi.saveSmsPackages(packages);
+}
+
+export async function resetUserSmsPackage(userId: string, reason?: string): Promise<{ message: string; balance: number }> {
+  return await adminApi.resetUserSms(userId, reason);
+}
+
+export async function resetUserSubscriptionPackage(userId: string): Promise<{ message: string }> {
+  return await adminApi.resetUserSubscription(userId);
+}

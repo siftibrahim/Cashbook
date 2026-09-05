@@ -415,11 +415,27 @@ export interface SmsPackageItem {
   ratePerSms: string;
 }
 
+export interface SmsPurchaseRecord {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhone: string;
+  shopName: string;
+  smsCount: number;
+  amount: number;
+  paymentMethod: string;
+  trxId: string;
+  status: 'pending' | 'confirmed' | 'approved' | 'rejected';
+  createdAt: number;
+  approvedAt?: number | null;
+}
+
 export type AdminTab =
   | 'dashboard'
   | 'payment_settings'
   | 'ads_management'
   | 'sms_gateway'
+  | 'sms_purchases'
   | 'super_admin_security'
   | 'staff_management'
   | 'users'

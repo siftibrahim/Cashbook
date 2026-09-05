@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore } from '../db';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 
@@ -115,7 +115,8 @@ router.put('/profile', async (req: AuthenticatedRequest, res: Response) => {
     } = req.body;
 
     const pool = getDbPool();
-    const storeId = 'store_' + userId;
+    const validUserId = pool ? await ensureUserExistsInPostgres(pool, userId, req.user) : userId;
+    const storeId = 'store_' + validUserId;
 
     if (pool) {
       await pool.query(`
@@ -146,7 +147,7 @@ router.put('/profile', async (req: AuthenticatedRequest, res: Response) => {
           default_credit_limit = EXCLUDED.default_credit_limit,
           updated_at = NOW()
       `, [
-        storeId, userId, name, owner || name, phone, address || '', footerNote || '',
+        storeId, validUserId, name, owner || name, phone, address || '', footerNote || '',
         currencySymbol || '৳', highDueLimit || 5000, tagadaTemplate || '',
         bkashNumber || '', nagadNumber || '', rocketNumber || '', themeColor || 'teal',
         enableSoundEffects !== false, printPaperSize || 'thermal_80',
@@ -155,13 +156,13 @@ router.put('/profile', async (req: AuthenticatedRequest, res: Response) => {
 
       // Update shop_name on users table too
       if (name) {
-        await pool.query('UPDATE users SET shop_name = $1 WHERE id = $2', [name, userId]);
+        await pool.query('UPDATE users SET shop_name = $1 WHERE id = $2', [name, validUserId]);
       }
     } else {
-      const idx = inMemoryStore.stores.findIndex(s => s.userId === userId || s.id === storeId);
+      const idx = inMemoryStore.stores.findIndex(s => s.userId === validUserId || s.id === storeId);
       const profileData = {
         id: storeId,
-        userId,
+        userId: validUserId,
         name,
         owner,
         phone,
@@ -195,7 +196,7 @@ router.put('/profile', async (req: AuthenticatedRequest, res: Response) => {
 router.post('/sync-all', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
-    const { store, customers, transactions, expenses } = req.body;
+    const { store, customers, transactions, expenses, products } = req.body;
     const pool = getDbPool();
 
     if (pool) {
@@ -356,6 +357,44 @@ router.post('/sync-all', async (req: AuthenticatedRequest, res: Response) => {
               exp.date || new Date().toISOString().split('T')[0],
               exp.time || new Date().toLocaleTimeString(),
               exp.createdAt || Date.now()
+            ]);
+          }
+        }
+
+        // 6. Products
+        if (Array.isArray(products)) {
+          for (const p of products) {
+            if (!p || !p.name) continue;
+            const prodId = p.id || 'prod_' + Math.random().toString(36).substring(2, 8);
+            const assignedSku = p.sku ? p.sku.trim() : `PRD-${Date.now().toString().slice(-6)}`;
+            await client.query(`
+              INSERT INTO products (
+                id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, sku, qr_code, updated_at
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+              ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                category = EXCLUDED.category,
+                unit = EXCLUDED.unit,
+                buy_price = EXCLUDED.buy_price,
+                sale_price = EXCLUDED.sale_price,
+                stock = EXCLUDED.stock,
+                min_stock_alert = EXCLUDED.min_stock_alert,
+                sku = EXCLUDED.sku,
+                qr_code = EXCLUDED.qr_code,
+                updated_at = EXCLUDED.updated_at
+            `, [
+              prodId,
+              userId,
+              p.name.trim(),
+              p.category || 'সাধারণ',
+              p.unit || 'পিস',
+              parseFloat(p.buyPrice) || 0,
+              parseFloat(p.salePrice) || 0,
+              parseFloat(p.stock) || 0,
+              parseFloat(p.minStockAlert) || 5,
+              assignedSku,
+              p.qrCode || '',
+              p.updatedAt || Date.now()
             ]);
           }
         }

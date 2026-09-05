@@ -9,7 +9,9 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+      return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
+        console.warn('SW cache.addAll non-fatal warning:', err);
+      });
     })
   );
   self.skipWaiting();
@@ -27,8 +29,17 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Pass through non-GET and API requests directly
-  if (event.request.method !== 'GET' || event.request.url.includes('/api/')) {
+  // Pass through non-GET, API requests, and Vite development paths directly
+  const url = event.request.url;
+  if (
+    event.request.method !== 'GET' ||
+    url.includes('/api/') ||
+    url.includes('/@vite') ||
+    url.includes('/@fs') ||
+    url.includes('/@id') ||
+    url.includes('/src/') ||
+    url.includes('node_modules')
+  ) {
     return;
   }
 

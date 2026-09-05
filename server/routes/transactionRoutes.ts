@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore } from '../db';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 
 const router = Router();
@@ -120,11 +120,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         await client.query('BEGIN');
 
         // Ensure user exists
-        await client.query(`
-          INSERT INTO users (id, name, phone, email, password_hash, shop_name, subscription_expires_at, registered_at, last_active_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-          ON CONFLICT (id) DO NOTHING
-        `, [userId, req.user?.name || 'ইউজার', '01700000000', req.user?.email || `${userId}@app.com`, 'auto_hash', req.user?.shopName || 'দোকান', Date.now() + 3650 * 86400000, Date.now(), Date.now()]);
+        const validUserId = await ensureUserExistsInPostgres(client, userId, req.user);
 
         // Ensure customer exists if customerId is specified
         if (customerId) {
@@ -134,7 +130,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
               INSERT INTO customers (id, user_id, name, phone, address, balance, created_at, updated_at)
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
               ON CONFLICT (id) DO NOTHING
-            `, [customerId, userId, 'কাস্টমার', '', '', cleanBalanceAfter, now, now]);
+            `, [customerId, validUserId, 'কাস্টমার', '', '', cleanBalanceAfter, now, now]);
           }
         }
 
@@ -162,7 +158,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
             due_amount = EXCLUDED.due_amount,
             prev_balance = EXCLUDED.prev_balance
         `, [
-          txId, userId, customerId, type, cleanAmount, description || '',
+          txId, validUserId, customerId, type, cleanAmount, description || '',
           date || new Date().toISOString().split('T')[0],
           time || new Date().toLocaleTimeString(),
           cleanBalanceAfter, paymentMethod || 'cash',
@@ -177,14 +173,14 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
           await client.query(`
             UPDATE customers
             SET balance = $1, updated_at = $2
-            WHERE id = $3 AND user_id = $4
-          `, [cleanBalanceAfter, now, customerId, userId]);
+            WHERE id = $3 AND (user_id = $4 OR user_id = $5)
+          `, [cleanBalanceAfter, now, customerId, validUserId, userId]);
         }
 
         // Update user total transactions count
-        const txCountRes = await client.query('SELECT COUNT(*) FROM transactions WHERE user_id = $1', [userId]);
+        const txCountRes = await client.query('SELECT COUNT(*) FROM transactions WHERE user_id = $1', [validUserId]);
         const totalTx = parseInt(txCountRes.rows[0].count, 10);
-        await client.query('UPDATE users SET total_transactions = $1 WHERE id = $2', [totalTx, userId]);
+        await client.query('UPDATE users SET total_transactions = $1 WHERE id = $2', [totalTx, validUserId]);
 
         await client.query('COMMIT');
       } catch (e) {

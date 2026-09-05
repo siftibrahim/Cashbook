@@ -385,14 +385,20 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
           <div className="flex items-center gap-3 w-full md:w-auto shrink-0 justify-end">
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
                 const nextVal = formData.isSubscriptionSystemEnabled === false ? true : false;
-                setFormData(prev => ({ ...prev, isSubscriptionSystemEnabled: nextVal }));
-                onShowToast(
-                  nextVal
-                    ? '🟢 সাবস্ক্রিপশন সিস্টেম সক্রিয় করা হয়েছে! মনে করে উপরের "সকল পরিবর্তন সেভ করুন" বাটনে ক্লিক করুন।'
-                    : '🔴 সাবস্ক্রিপশন সিস্টেম নিষ্ক্রিয় করা হয়েছে! ইউজার প্যানেল থেকে সাবস্ক্রিপশন ভ্যানিশ থাকবে।'
-                );
+                const updated = { ...formData, isSubscriptionSystemEnabled: nextVal };
+                setFormData(updated);
+                try {
+                  await onSaveSettings(updated);
+                  onShowToast(
+                    nextVal
+                      ? '🟢 সাবস্ক্রিপশন সিস্টেম সফলভাবে চালু (ENABLED) করা হয়েছে!'
+                      : '🔴 সাবস্ক্রিপশন সিস্টেম সম্পূর্ণ বন্ধ (DISABLED) করা হয়েছে! ইউজার ড্যাশবোর্ড থেকে সাবস্ক্রিপশন উধাও হয়ে গেছে।'
+                  );
+                } catch (err: any) {
+                  onShowToast('❌ সেটিংস সেভ করতে সমস্যা হয়েছে: ' + (err.message || 'ত্রুটি'));
+                }
               }}
               className={`w-full md:w-auto px-6 py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2.5 transition-all cursor-pointer shadow-lg active:scale-95 ${
                 formData.isSubscriptionSystemEnabled !== false

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { userSmsApi } from '../../services/apiService';
-import { SmsPackageItem, UserSmsLog } from '../../types/adminTypes';
+import { userSmsApi, subscriptionApi } from '../../services/apiService';
+import { SmsPackageItem, UserSmsLog, SystemPaymentSettings } from '../../types/adminTypes';
 import { formatMoney } from '../../utils/storage';
 import {
   Smartphone,
@@ -19,6 +19,9 @@ import {
   DollarSign,
   ShieldCheck,
   Check,
+  Copy,
+  Building,
+  RotateCcw,
 } from 'lucide-react';
 
 interface UserSmsModalProps {
@@ -32,6 +35,7 @@ interface UserSmsModalProps {
   storeName?: string;
   dueAmount?: number;
   currencySymbol?: string;
+  onBalanceChanged?: () => void;
 }
 
 export const UserSmsModal: React.FC<UserSmsModalProps> = ({
@@ -45,9 +49,14 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
   storeName = '',
   dueAmount,
   currencySymbol = '৳',
+  onBalanceChanged,
 }) => {
   const [activeTab, setActiveTab] = useState<'send' | 'packages' | 'history'>(initialTab);
   const [balance, setBalance] = useState<number>(0);
+  const [pendingPurchase, setPendingPurchase] = useState<any>(null);
+  const [hasPendingPurchase, setHasPendingPurchase] = useState<boolean>(false);
+  const [latestConfirmed, setLatestConfirmed] = useState<any>(null);
+  const [paymentSettings, setPaymentSettings] = useState<SystemPaymentSettings | null>(null);
   const [packages, setPackages] = useState<SmsPackageItem[]>([]);
   const [logs, setLogs] = useState<UserSmsLog[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -83,12 +92,18 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [balRes, pkgRes, logsRes] = await Promise.all([
-        userSmsApi.getBalance().catch(() => ({ balance: 0 })),
+      const [balRes, pkgRes, logsRes, paySettingsRes] = await Promise.all([
+        userSmsApi.getBalance().catch(() => ({ balance: 0, hasPendingPurchase: false })),
         userSmsApi.getPackages().catch(() => []),
         userSmsApi.getLogs().catch(() => []),
+        subscriptionApi.getPaymentSettings().catch(() => null),
       ]);
-      setBalance(balRes?.balance || 0);
+      const balData = balRes as any;
+      setBalance(balData?.balance || 0);
+      setHasPendingPurchase(!!balData?.hasPendingPurchase);
+      setPendingPurchase(balData?.pendingPurchase || null);
+      setLatestConfirmed(balData?.latestConfirmed || null);
+      if (paySettingsRes) setPaymentSettings(paySettingsRes);
       setPackages(Array.isArray(pkgRes) ? pkgRes : (pkgRes as any)?.packages || []);
       setLogs(Array.isArray(logsRes) ? logsRes : (logsRes as any)?.logs || []);
     } catch (err) {
@@ -128,9 +143,11 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
       });
 
       if (res.success) {
-        setBalance(res.newBalance !== undefined ? res.newBalance : balance - smsCount);
-        onShowToast(`✅ এসএমএস সফলভাবে পাঠানো হয়েছে! অবশিষ্ট ব্যালেন্স: ${res.newBalance}`);
+        const nextBal = res.newBalance !== undefined ? res.newBalance : balance - smsCount;
+        setBalance(nextBal);
+        onShowToast(`✅ এসএমএস সফলভাবে পাঠানো হয়েছে! অবশিষ্ট ব্যালেন্স: ${nextBal}টি`);
         setMessage('');
+        onBalanceChanged?.();
         loadData();
       } else {
         onShowToast(`❌ ব্যর্থ: ${res.message || 'এসএমএস পাঠানো যায়নি'}`);
@@ -145,6 +162,14 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
   const handlePurchasePackage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPkg) return;
+    if (balance > 0) {
+      onShowToast(`⚠️ আপনার বর্তমান প্যাকেজে এখনও ${balance}টি SMS অবশিষ্ট আছে! বর্তমান প্যাকেজ শেষ হওয়ার পরই নতুন প্যাকেজ নেওয়া যাবে।`);
+      return;
+    }
+    if (hasPendingPurchase) {
+      onShowToast(`⚠️ আপনার একটি পূর্ববর্তী রিকোয়েস্ট (TrxID: ${pendingPurchase?.trxId || ''}) ইতিমধ্যে পেন্ডিং রয়েছে! অ্যাডমিনের অনুমোদনের অপেক্ষা করুন।`);
+      return;
+    }
     if (!trxId.trim() || !senderNumber.trim()) {
       onShowToast('অনুগ্রহ করে ট্রানজেকশন আইডি (TrxID) ও প্রেরক নম্বর দিন');
       return;
@@ -160,10 +185,12 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
       });
 
       if (res?.purchaseId || res?.message) {
-        onShowToast('✅ এসএমএস প্যাকেজ কেনার অনুরোধ সফলভাবে জমা হয়েছে! অ্যাডমিন অনুমোদন করলেই ব্যালেন্স যুক্ত হবে।');
+        onShowToast('✅ এসএমএস প্যাকেজ কেনার অনুরোধ সফলভাবে জমা হয়েছে! সুপার অ্যাডমিন অনুমোদন করলেই ব্যালেন্সে SMS যোগ হবে।');
         setSelectedPkg(null);
         setTrxId('');
         setSenderNumber('');
+        onBalanceChanged?.();
+        loadData();
         setActiveTab('history');
       } else {
         onShowToast(`❌ রিকোয়েস্ট ব্যর্থ: ${res?.message || 'ত্রুটি'}`);
@@ -192,6 +219,18 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
                 <span className="px-2.5 py-0.5 rounded-full bg-teal-500/20 text-teal-300 text-[11px] font-black border border-teal-500/30">
                   ব্যালেন্স: {balance} টি SMS
                 </span>
+                {hasPendingPurchase && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-black border border-amber-500/40 flex items-center gap-1">
+                    <Clock className="w-3 h-3 animate-spin" />
+                    প্যাকেজ পেন্ডিং
+                  </span>
+                )}
+                {!hasPendingPurchase && latestConfirmed && (
+                  <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    সাকসেসফুল ({latestConfirmed.smsCount}টি ক্রয়কৃত)
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
                 কাস্টমারদের বাকি তাগাদা, জমার রশিদ ও কাস্টম এসএমএস সরাসরি পাঠান
@@ -367,45 +406,119 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
           {/* TAB 2: SMS PACKAGES */}
           {activeTab === 'packages' && (
             <div className="space-y-4">
+              {/* Case 1: Pending SMS Purchase Banner */}
+              {hasPendingPurchase && pendingPurchase && (
+                <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-500/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-400 animate-spin" style={{ animationDuration: '4s' }} />
+                      <span className="text-xs font-black text-amber-300">
+                        এসএমএস প্যাকেজ রিকোয়েস্ট পেন্ডিং রয়েছে
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                      TrxID: {pendingPurchase.trxId}
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-100/90 leading-relaxed">
+                    আপনি <strong>{pendingPurchase.smsCount}টি SMS</strong> (৳{formatMoney(pendingPurchase.amount)}) ক্রয়ের অনুরোধ পাঠিয়েছেন। সুপার অ্যাডমিন পেমেন্ট ভেরিফাই করে এক্সেপ্ট করলেই স্বয়ংক্রিয়ভাবে আপনার ব্যালেন্সে যুক্ত হয়ে যাবে।
+                  </p>
+                  <div className="pt-1 flex items-center justify-between text-[11px] text-amber-300">
+                    <span>স্ট্যাটাস: পেন্ডিং (অ্যাডমিন অনুমোদনের অপেক্ষায়)</span>
+                    <button
+                      type="button"
+                      onClick={() => loadData()}
+                      className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-bold flex items-center gap-1 cursor-pointer transition"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>স্ট্যাটাস রিফ্রেশ</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Case 2: Exclusivity - Balance still remaining */}
+              {!hasPendingPurchase && balance > 0 && (
+                <div className="p-3.5 rounded-2xl bg-teal-500/10 border border-teal-500/30 flex items-start gap-3">
+                  <ShieldCheck className="w-5 h-5 text-teal-400 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-1">
+                    <p className="font-black text-teal-300">
+                      আপনার বর্তমান প্যাকেজে এখনও {balance}টি SMS অবশিষ্ট রয়েছে!
+                    </p>
+                    <p className="text-slate-400 leading-relaxed">
+                      হুবহু সাবস্ক্রিপশন নিয়মানুযায়ী একটি প্যাকেজ চলাকালীন অন্য প্যাকেজ নেওয়া যায় না। বর্তমান প্যাকেজের সকল SMS শেষ (০ টি) হওয়ার পরই কেবল পরবর্তী নতুন প্যাকেজ কিনতে পারবেন।
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {!selectedPkg ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {packages.map((pkg) => (
-                    <div
-                      key={pkg.id}
-                      className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 hover:border-amber-500/50 transition-all flex flex-col justify-between gap-3 relative group"
-                    >
-                      {pkg.isPopular && (
-                        <span className="absolute -top-2.5 right-3 px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-wide">
-                          জনপ্রিয়
-                        </span>
-                      )}
-
-                      <div>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
-                          {pkg.badge || 'সাশ্রয়ী'}
-                        </span>
-                        <h4 className="text-sm font-black text-white mt-2">{pkg.name}</h4>
-                        <div className="flex items-baseline gap-2 mt-1">
-                          <span className="text-xl font-black text-amber-400">৳{pkg.price}</span>
-                          <span className="text-xs text-slate-400 font-semibold">
-                            ({pkg.smsCount} টি SMS - প্রতি SMS {pkg.ratePerSms})
-                          </span>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setSelectedPkg(pkg)}
-                        className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                  {packages.map((pkg) => {
+                    const isBlocked = balance > 0 || hasPendingPurchase;
+                    return (
+                      <div
+                        key={pkg.id}
+                        className={`p-4 rounded-2xl border transition-all flex flex-col justify-between gap-3 relative group ${
+                          isBlocked
+                            ? 'bg-slate-950/40 border-slate-800/80 opacity-75'
+                            : 'bg-slate-950/70 border-slate-800 hover:border-amber-500/50'
+                        }`}
                       >
-                        <ShoppingBag className="w-3.5 h-3.5" />
-                        <span>এই প্যাকেজটি কিনুন</span>
-                      </button>
-                    </div>
-                  ))}
+                        {pkg.isPopular && (
+                          <span className="absolute -top-2.5 right-3 px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-wide">
+                            জনপ্রিয়
+                          </span>
+                        )}
+
+                        <div>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                            {pkg.badge || 'সাশ্রয়ী'}
+                          </span>
+                          <h4 className="text-sm font-black text-white mt-2">{pkg.name}</h4>
+                          <div className="flex items-baseline gap-2 mt-1">
+                            <span className="text-xl font-black text-amber-400">৳{pkg.price}</span>
+                            <span className="text-xs text-slate-400 font-semibold">
+                              ({pkg.smsCount} টি SMS - প্রতি SMS {pkg.ratePerSms})
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={isBlocked}
+                          onClick={() => {
+                            if (isBlocked) {
+                              if (hasPendingPurchase) {
+                                onShowToast('⚠️ পূর্বের অনুরোধ ইতিমধ্যে পেন্ডিং রয়েছে!');
+                              } else {
+                                onShowToast(`⚠️ ব্যালেন্স অবশিষ্ট (${balance}টি)! শূন্য (০) হওয়ার পর নতুন প্যাক নেওয়া যাবে।`);
+                              }
+                              return;
+                            }
+                            setSelectedPkg(pkg);
+                          }}
+                          className={`w-full py-2.5 rounded-xl font-black text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
+                            isBlocked
+                              ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                              : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                          }`}
+                        >
+                          <ShoppingBag className="w-3.5 h-3.5" />
+                          <span>
+                            {hasPendingPurchase
+                              ? 'অনুরোধ পেন্ডিং আছে'
+                              : balance > 0
+                              ? `ব্যালেন্স অবশিষ্ট (${balance}টি)`
+                              : 'এই প্যাকেজটি কিনুন'}
+                          </span>
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                /* Checkout for Selected Package */
+                /* Checkout for Selected Package with dynamic Shared Payment Gateway */
                 <form onSubmit={handlePurchasePackage} className="space-y-4">
                   <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between">
                     <div>
@@ -428,18 +541,18 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
 
                   <div>
                     <label className="text-xs font-bold text-slate-300 block mb-1.5">
-                      পেমেন্ট মাধ্যম বেছে নিন:
+                      পেমেন্ট মাধ্যম বেছে নিন (সাবস্ক্রিপশনের একই গেটওয়ে):
                     </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(['bkash', 'nagad', 'rocket'] as const).map((m) => (
+                    <div className="grid grid-cols-4 gap-2">
+                      {(['bkash', 'nagad', 'rocket', 'bank'] as const).map((m) => (
                         <button
                           key={m}
                           type="button"
                           onClick={() => setPaymentMethod(m)}
                           className={`p-2.5 rounded-xl border text-xs font-black uppercase transition cursor-pointer text-center ${
                             paymentMethod === m
-                              ? 'bg-teal-500/20 text-teal-300 border-teal-500/60'
-                              : 'bg-slate-950/60 text-slate-400 border-slate-800'
+                              ? 'bg-teal-500/20 text-teal-300 border-teal-500/60 shadow-xs'
+                              : 'bg-slate-950/60 text-slate-400 border-slate-800 hover:bg-slate-800'
                           }`}
                         >
                           {m}
@@ -448,16 +561,130 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 space-y-1">
-                    <p className="font-bold text-amber-300">পেমেন্ট করার নিয়ম:</p>
-                    <p>
-                      আমাদের অফিসিয়াল নম্বরে <strong>Send Money</strong> করুন: <strong>01619665875</strong>
+                  {/* Payment Instructions Based on super admin system payment settings */}
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-slate-300 space-y-2">
+                    <p className="font-bold text-amber-300 flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>পেমেন্ট করার নিয়ম:</span>
+                    </p>
+
+                    {(() => {
+                      const bkashNum = paymentSettings?.bkash?.merchant?.number || paymentSettings?.bkash?.personal?.number || '01619665875';
+                      const bkashAccType = paymentSettings?.bkash?.merchant?.number ? 'Merchant' : (paymentSettings?.bkash?.personal?.accountType || 'Personal');
+
+                      const nagadNum = paymentSettings?.nagad?.merchant?.number || paymentSettings?.nagad?.personal?.number || '01619665875';
+                      const nagadAccType = paymentSettings?.nagad?.merchant?.number ? 'Merchant' : (paymentSettings?.nagad?.personal?.accountType || 'Personal');
+
+                      const rocketNum = paymentSettings?.rocket?.personal?.number || '01619665875';
+                      const rocketAccType = paymentSettings?.rocket?.personal?.accountType || 'Personal';
+
+                      const firstBankAcc = paymentSettings?.bankTransfer?.accounts?.[0];
+                      const bName = firstBankAcc?.bankName || 'ব্যাংক ট্রান্সফার';
+                      const bAccName = firstBankAcc?.accountName || 'দোকানদার';
+                      const bAccNum = firstBankAcc?.accountNumber || '১২৩৪৫৬৭৮৯০';
+                      const bBranch = firstBankAcc?.branchName;
+
+                      return (
+                        <>
+                          {paymentMethod === 'bkash' && (
+                            <div className="flex items-center justify-between bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                              <div>
+                                <span className="text-slate-400 text-[11px] block">
+                                  বিকাশ নম্বর ({bkashAccType}):
+                                </span>
+                                <strong className="text-sm font-mono text-pink-400">
+                                  {bkashNum}
+                                </strong>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(bkashNum);
+                                  onShowToast('📋 বিকাশ নম্বর কপি হয়েছে');
+                                }}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1 cursor-pointer"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>কপি</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {paymentMethod === 'nagad' && (
+                            <div className="flex items-center justify-between bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                              <div>
+                                <span className="text-slate-400 text-[11px] block">
+                                  নগদ নম্বর ({nagadAccType}):
+                                </span>
+                                <strong className="text-sm font-mono text-orange-400">
+                                  {nagadNum}
+                                </strong>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(nagadNum);
+                                  onShowToast('📋 নগদ নম্বর কপি হয়েছে');
+                                }}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1 cursor-pointer"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>কপি</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {paymentMethod === 'rocket' && (
+                            <div className="flex items-center justify-between bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                              <div>
+                                <span className="text-slate-400 text-[11px] block">
+                                  রকেট নম্বর ({rocketAccType}):
+                                </span>
+                                <strong className="text-sm font-mono text-purple-400">
+                                  {rocketNum}
+                                </strong>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(rocketNum);
+                                  onShowToast('📋 রকেট নম্বর কপি হয়েছে');
+                                }}
+                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1 cursor-pointer"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>কপি</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {paymentMethod === 'bank' && (
+                            <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <Building className="w-4 h-4 text-emerald-400" />
+                                <span className="font-bold text-white text-xs">
+                                  {bName}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-300 space-y-0.5">
+                                <p>অ্যাকাউন্ট নাম: <strong>{bAccName}</strong></p>
+                                <p>অ্যাকাউন্ট নম্বর: <strong className="font-mono text-emerald-400">{bAccNum}</strong></p>
+                                {bBranch && <p>ব্রাঞ্চ: {bBranch}</p>}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+
+                    <p className="text-[11px] text-slate-400">
+                      উপরের নম্বরে <strong>৳{selectedPkg.price}</strong> পাঠিয়ে নিচের বক্সে আপনার পাঠানো নম্বর ও TrxID লিখে সাবমিট করুন।
                     </p>
                   </div>
 
                   <div>
                     <label className="text-xs font-bold text-slate-300 block mb-1">
-                      আপনার বিকাশ/নগদ নম্বর (যেখান থেকে পাঠিয়েছেন):
+                      আপনার প্রেরক মোবাইল/অ্যাকাউন্ট নম্বর:
                     </label>
                     <input
                       type="tel"

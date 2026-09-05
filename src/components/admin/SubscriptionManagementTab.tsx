@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AppUser, SubscriptionPlan } from '../../types/adminTypes';
-import { DEFAULT_PLANS } from '../../services/adminService';
+import { DEFAULT_PLANS, resetUserSubscriptionPackage } from '../../services/adminService';
 import {
   CreditCard,
   CheckCircle2,
@@ -13,6 +13,10 @@ import {
   Zap,
   Search,
   UserCheck,
+  RotateCcw,
+  Trash2,
+  Sliders,
+  AlertTriangle,
 } from 'lucide-react';
 import { formatMoney } from '../../utils/storage';
 
@@ -20,12 +24,14 @@ interface SubscriptionManagementTabProps {
   users: AppUser[];
   onExtendSubscription: (userId: string, days: number, planName?: string) => Promise<void>;
   onShowToast: (msg: string) => void;
+  onRefreshUsers?: () => void;
 }
 
 export const SubscriptionManagementTab: React.FC<SubscriptionManagementTabProps> = ({
   users,
   onExtendSubscription,
   onShowToast,
+  onRefreshUsers,
 }) => {
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [assignUserModal, setAssignUserModal] = useState<SubscriptionPlan | null>(null);
@@ -48,6 +54,9 @@ export const SubscriptionManagementTab: React.FC<SubscriptionManagementTabProps>
     );
   });
 
+  const [isResettingSub, setIsResettingSub] = useState<string | null>(null);
+  const [tableSearch, setTableSearch] = useState<string>('');
+
   const handleAssignPlan = async () => {
     if (!assignUserModal || !selectedUserId) {
       onShowToast('অনুগ্রহ করে একজন ইউজার নির্বাচন করুন');
@@ -61,7 +70,40 @@ export const SubscriptionManagementTab: React.FC<SubscriptionManagementTabProps>
     setAssignUserModal(null);
     setSelectedUserId('');
     setUserSearch('');
+    if (onRefreshUsers) onRefreshUsers();
   };
+
+  const handleResetSubscription = async (u: AppUser) => {
+    if (
+      !window.confirm(
+        `আপনি কি নিশ্চিত যে ${u.name} (${u.shopName || ''})-এর বর্তমান সাবস্ক্রিপশন প্যাকেজ সম্পূর্ণ রিমুভ ও রিসেট করতে চান? এতে ইউজারের সাবস্ক্রিপশন বাতিল ও মেয়াদ শেষ হবে।`
+      )
+    ) {
+      return;
+    }
+
+    setIsResettingSub(u.id);
+    try {
+      const res = await resetUserSubscriptionPackage(u.id);
+      onShowToast(res.message || `✅ ${u.name}-এর সাবস্ক্রিপশন প্যাকেজ রিমুভ/রিসেট সফল হয়েছে!`);
+      if (onRefreshUsers) onRefreshUsers();
+    } catch (err: any) {
+      onShowToast(`❌ প্যাকেজ রিমুভ ব্যর্থ: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsResettingSub(null);
+    }
+  };
+
+  const tableFilteredUsers = users.filter((u) => {
+    const q = tableSearch.toLowerCase();
+    return (
+      !q ||
+      u.name.toLowerCase().includes(q) ||
+      (u.shopName || '').toLowerCase().includes(q) ||
+      (u.phone || '').includes(q) ||
+      (u.subscriptionPlan || '').toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="space-y-6 font-sans">
@@ -179,6 +221,97 @@ export const SubscriptionManagementTab: React.FC<SubscriptionManagementTabProps>
             </div>
           );
         })}
+      </div>
+
+      {/* USER SUBSCRIPTION MANAGEMENT & RESET SECTION */}
+      <div className="bg-slate-900/80 rounded-3xl border border-slate-800 p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div>
+            <h3 className="text-sm font-black text-white flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-teal-400" />
+              <span>ইউজার সাবস্ক্রিপশন প্যাকেজ নিয়ন্ত্রণ ও রিমুভ</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              যেকোনো ইউজারের সাবস্ক্রিপশন প্যাকেজ সরাসরি পরিবর্তন করুন অথবা সম্পূর্ণ রিমুভ/রিসেট করুন
+            </p>
+          </div>
+
+          <div className="relative min-w-[240px]">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={tableSearch}
+              onChange={(e) => setTableSearch(e.target.value)}
+              placeholder="ইউজার বা দোকানের নাম খুঁজুন..."
+              className="w-full pl-9 pr-3 py-1.5 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-teal-500"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {tableFilteredUsers.map((u) => {
+            const isSubActive = u.subscriptionExpiresAt > now;
+            const daysLeft = Math.max(0, Math.ceil((u.subscriptionExpiresAt - now) / (1000 * 60 * 60 * 24)));
+            const isResettingThis = isResettingSub === u.id;
+
+            return (
+              <div
+                key={u.id}
+                className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700 transition flex flex-col justify-between gap-3"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-xs text-white truncate">{u.name}</h4>
+                      <p className="text-[11px] text-slate-400 truncate mt-0.5">{u.shopName || 'দোকান'} • {u.phone}</p>
+                    </div>
+                    <span
+                      className={`text-[9px] font-black px-2 py-0.5 rounded-full shrink-0 ${
+                        isSubActive
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      }`}
+                    >
+                      {isSubActive ? `সক্রিয় (${daysLeft} দিন)` : 'মেয়াদোত্তীর্ণ'}
+                    </span>
+                  </div>
+
+                  <div className="mt-2.5 p-2 rounded-xl bg-slate-900 border border-slate-800 text-[11px] flex items-center justify-between">
+                    <span className="text-slate-400">বর্তমান প্যাকেজ:</span>
+                    <span className="font-black text-teal-300 truncate max-w-[140px]">
+                      {u.subscriptionPlan || 'ফ্রি ট্রায়াল'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-800/70">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedUserId(u.id);
+                      setAssignUserModal(DEFAULT_PLANS[0]);
+                    }}
+                    className="flex-1 py-1.5 rounded-xl bg-teal-500/20 hover:bg-teal-500 text-teal-300 hover:text-slate-950 text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Sliders className="w-3 h-3" />
+                    <span>প্যাকেজ বদলান</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isResettingThis}
+                    onClick={() => handleResetSubscription(u)}
+                    className="px-2.5 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-600 text-rose-300 hover:text-white text-[11px] font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    title="সাবস্ক্রিপশন প্যাকেজ সম্পূর্ণ রিমুভ ও রিসেট করুন"
+                  >
+                    <Trash2 className={`w-3 h-3 ${isResettingThis ? 'animate-spin' : ''}`} />
+                    <span>প্যাকেজ রিমুভ</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* MANUAL PACKAGE ASSIGNMENT MODAL */}

@@ -10,6 +10,7 @@ import {
   transactionApi,
   expenseApi,
   storeApi,
+  productApi,
   getStoredUser,
   getAuthToken,
 } from './apiService';
@@ -34,6 +35,8 @@ export type SyncActionType =
   | 'SAVE_EXPENSE'
   | 'DELETE_EXPENSE'
   | 'SAVE_STORE_PROFILE'
+  | 'SAVE_PRODUCT'
+  | 'DELETE_PRODUCT'
   | 'SYNC_ALL';
 
 export interface QueueItem {
@@ -278,6 +281,12 @@ export async function processSyncQueue(userId?: string): Promise<{
         case 'SAVE_STORE_PROFILE':
           await storeApi.saveProfile(item.payload);
           break;
+        case 'SAVE_PRODUCT':
+          await productApi.save(item.payload);
+          break;
+        case 'DELETE_PRODUCT':
+          await productApi.delete(item.payload.productId || item.payload.id);
+          break;
         case 'SYNC_ALL':
           await storeApi.syncAll(
             item.payload.store,
@@ -285,15 +294,26 @@ export async function processSyncQueue(userId?: string): Promise<{
             item.payload.transactions,
             item.payload.expenses
           );
+          if (Array.isArray(item.payload.products) && item.payload.products.length > 0) {
+            await productApi.batchSync(item.payload.products);
+          }
           break;
       }
       syncedCount++;
     } catch (err: any) {
       console.warn(`Sync item failed for action ${item.action}:`, err);
-      item.error = err?.message || 'Network error';
+      const rawError = (err?.message || '').trim();
+      item.error = rawError || 'অপ্রত্যাশিত নেটওয়ার্ক বা সার্ভার ত্রুটি';
 
-      // Keep item in queue if network error or transient failure
-      remainingQueue.push(item);
+      const isFatalClientError = err?.status === 400 || err?.status === 404 || err?.status === 422;
+      const hasExceededRetries = (item.attempts || 0) >= 5;
+
+      // Keep item in queue only if transient failure and hasn't exceeded 5 retries
+      if (!isFatalClientError && !hasExceededRetries) {
+        remainingQueue.push(item);
+      } else {
+        console.warn(`Discarding non-recoverable sync item (${item.action}) after ${item.attempts} attempts:`, item.error);
+      }
 
       // If network is completely dead, break and save remaining
       if (!navigator.onLine || err?.status === 0 || err?.message?.includes('Failed to fetch')) {

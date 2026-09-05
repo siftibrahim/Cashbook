@@ -306,18 +306,35 @@ router.post('/register', async (req, res) => {
         return res.status(400).json({ error: 'এই মোবাইল নম্বর দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। দয়া করে লগইন করুন।' });
       }
 
-      // Insert User
+      // Insert User with 10 Free SMS
       await pool.query(`
         INSERT INTO users (
           id, name, phone, email, password_hash, shop_name, business_type, address,
           role, status, subscription_plan, subscription_status, subscription_expires_at,
-          registered_at, last_active_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+          registered_at, last_active_at, sms_balance
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       `, [
         userId, cleanName, cleanPhone, cleanEmail, passwordHash, cleanShop,
         businessType || 'জেনারেল স্টোর', address || 'বাংলাদেশ', 'user', 'active',
-        initialPlanName, initialStatus, subscriptionExpiresAt, now, now
+        initialPlanName, initialStatus, subscriptionExpiresAt, now, now, 10
       ]);
+
+      // Welcome Notification with 10 Free SMS
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [
+        'notif_reg_' + now,
+        '🎉 স্বাগতম ও ১০টি ফ্রি এসএমএস',
+        `স্বাগতম ${cleanName}! TWING হিসাবি অ্যাপে আপনার একাউন্টে ১০টি ফ্রি বাকি তাগাদার SMS যুক্ত করা হয়েছে। এখনই গ্রাহকদের বাকি তাগাদা পাঠান।`,
+        'success',
+        'specific',
+        userId,
+        cleanName,
+        'normal',
+        false,
+        now,
+      ]).catch(() => {});
 
       // Insert initial Store Profile
       await pool.query(`
@@ -358,6 +375,7 @@ router.post('/register', async (req, res) => {
         lastActiveAt: now,
         totalCustomers: 0,
         totalTransactions: 0,
+        smsBalance: 10,
       };
       inMemoryStore.users.push(newUser);
 
@@ -400,6 +418,7 @@ router.post('/register', async (req, res) => {
         subscriptionPlan: initialPlanName,
         subscriptionStatus: initialStatus,
         subscriptionExpiresAt,
+        smsBalance: 10,
       },
     });
   } catch (err: any) {

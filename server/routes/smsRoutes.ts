@@ -5,8 +5,8 @@ import { sendSmsNotification } from '../services/smsService';
 
 const router = Router();
 
-// SMS Packages available for purchase
-export const SMS_PACKAGES = [
+// Default SMS Packages available for purchase
+export const DEFAULT_SMS_PACKAGES = [
   {
     id: 'pack_100',
     name: '১০০ এসএমএস স্টার্টার প্যাক',
@@ -14,6 +14,10 @@ export const SMS_PACKAGES = [
     price: 50,
     badge: 'স্টার্টার',
     ratePerSms: '৳০.৫০/এসএমএস',
+    description: 'ছোট দোকানের জন্য সেরা বাকি তাগাদা প্যাক। মেয়াদ আজীবন।',
+    isPopular: false,
+    isEnabled: true,
+    features: ['১০০টি সরাসরি গেটওয়ে এসএমএস', 'আজীবন মেয়াদ', 'ইনস্ট্যান্ট ডেলিভারি রিপোর্ট'],
   },
   {
     id: 'pack_300',
@@ -22,7 +26,10 @@ export const SMS_PACKAGES = [
     price: 135,
     badge: 'জনপ্রিয় অফার',
     isPopular: true,
+    isEnabled: true,
     ratePerSms: '৳০.৪৫/এসএমএস',
+    description: 'মাঝারি দোকানের নিয়মিত বকেয়া আদায়ের জন্য সবচেয়ে জনপ্রিয়।',
+    features: ['৩০০টি সরাসরি গেটওয়ে এসএমএস', '১০% অতিরিক্ত সাশ্রয়ী', 'আজীবন মেয়াদ', 'ইনস্ট্যান্ট ডেলিভারি রিপোর্ট'],
   },
   {
     id: 'pack_500',
@@ -31,6 +38,10 @@ export const SMS_PACKAGES = [
     price: 200,
     badge: 'সেরা ভ্যালু',
     ratePerSms: '৳০.৪০/এসএমএস',
+    description: 'দ্রুত বাকি আদায়ের জন্য সেরা ভ্যালু বিজনেস প্যাকেজ।',
+    isPopular: false,
+    isEnabled: true,
+    features: ['৫০০টি সরাসরি গেটওয়ে এসএমএস', '২০% বেশি সাশ্রয়', 'আজীবন মেয়াদ', 'ইনস্ট্যান্ট ডেলিভারি রিপোর্ট'],
   },
   {
     id: 'pack_1000',
@@ -39,15 +50,42 @@ export const SMS_PACKAGES = [
     price: 350,
     badge: 'সুপার সেভার',
     ratePerSms: '৳০.৩৫/এসএমএস',
+    description: 'বড় পাইকারি ও খুচরা দোকানের জন্য সবচেয়ে লাভজনক সুপার সেভার প্যাক।',
+    isPopular: false,
+    isEnabled: true,
+    features: ['১০০০টি সরাসরি গেটওয়ে এসএমএস', '৩০% সর্বোচ্চ সাশ্রয়', 'আজীবন মেয়াদ', 'ভিআইপি ডেলিভারি চ্যানেল'],
   },
 ];
+
+export const SMS_PACKAGES = DEFAULT_SMS_PACKAGES;
+
+/**
+ * Fetch dynamic SMS packages configured by Super Admin
+ */
+export async function getDynamicSmsPackages(pool: any = getDbPool()): Promise<any[]> {
+  try {
+    if (pool) {
+      const res = await pool.query("SELECT data FROM system_config WHERE id = 'system_sms_packages'");
+      if (res.rows.length > 0 && res.rows[0].data) {
+        const pkgs = typeof res.rows[0].data === 'string' ? JSON.parse(res.rows[0].data) : res.rows[0].data;
+        if (Array.isArray(pkgs) && pkgs.length > 0) return pkgs;
+      }
+    } else if (inMemoryStore.system_config?.['system_sms_packages']) {
+      const pkgs = inMemoryStore.system_config['system_sms_packages'];
+      if (Array.isArray(pkgs) && pkgs.length > 0) return pkgs;
+    }
+  } catch (e) {
+    console.warn('Error reading dynamic SMS packages:', e);
+  }
+  return DEFAULT_SMS_PACKAGES;
+}
 
 // All routes require user authentication
 router.use(authenticateUser);
 
 /**
  * GET /api/sms/balance
- * Returns current user's SMS balance and total sent count
+ * Returns current user's SMS balance, total sent count, pending purchase, and latest confirmed purchase
  */
 router.get('/balance', async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -55,20 +93,91 @@ router.get('/balance', async (req: AuthenticatedRequest, res: Response) => {
     if (!userId) return res.status(401).json({ error: 'লগইন করুন' });
 
     const pool = getDbPool();
+    let balance = 0;
+    let totalSent = 0;
+    let pendingPurchase: any = null;
+    let latestConfirmed: any = null;
+
     if (pool) {
       const uRes = await pool.query('SELECT sms_balance FROM users WHERE id = $1', [userId]);
-      const balance = uRes.rows.length > 0 ? (uRes.rows[0].sms_balance ?? 20) : 20;
+      balance = uRes.rows.length > 0 ? (uRes.rows[0].sms_balance ?? 0) : 0;
 
       const logRes = await pool.query('SELECT COUNT(*) as total_sent FROM sms_logs WHERE user_id = $1', [userId]);
-      const totalSent = parseInt(logRes.rows[0]?.total_sent || '0', 10);
+      totalSent = parseInt(logRes.rows[0]?.total_sent || '0', 10);
 
-      return res.json({ balance, totalSent });
+      const pRes = await pool.query(
+        "SELECT id, sms_count, amount, payment_method, trx_id, created_at, status FROM sms_purchases WHERE user_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+        [userId]
+      );
+      if (pRes.rows.length > 0) {
+        const row = pRes.rows[0];
+        pendingPurchase = {
+          id: row.id,
+          smsCount: row.sms_count,
+          amount: parseFloat(row.amount),
+          paymentMethod: row.payment_method,
+          trxId: row.trx_id,
+          createdAt: Number(row.created_at),
+          status: row.status,
+        };
+      }
+
+      const confRes = await pool.query(
+        "SELECT id, sms_count, amount, payment_method, trx_id, approved_at, status FROM sms_purchases WHERE user_id = $1 AND (status = 'confirmed' OR status = 'approved') ORDER BY approved_at DESC LIMIT 1",
+        [userId]
+      );
+      if (confRes.rows.length > 0) {
+        const crow = confRes.rows[0];
+        latestConfirmed = {
+          id: crow.id,
+          smsCount: crow.sms_count,
+          amount: parseFloat(crow.amount),
+          paymentMethod: crow.payment_method,
+          trxId: crow.trx_id,
+          approvedAt: crow.approved_at ? Number(crow.approved_at) : null,
+          status: crow.status,
+        };
+      }
     } else {
       const u = inMemoryStore.users.find(x => x.id === userId);
-      const balance = u ? (u.smsBalance ?? 20) : 20;
-      const totalSent = (inMemoryStore.sms_logs || []).filter(x => x.userId === userId).length;
-      return res.json({ balance, totalSent });
+      balance = u ? (u.smsBalance ?? 0) : 0;
+      totalSent = (inMemoryStore.sms_logs || []).filter(x => x.userId === userId).length;
+
+      const userPurchases = (inMemoryStore.sms_purchases || []).filter(x => x.userId === userId);
+      const pending = userPurchases.find(x => x.status === 'pending');
+      if (pending) {
+        pendingPurchase = {
+          id: pending.id,
+          smsCount: pending.smsCount,
+          amount: pending.amount,
+          paymentMethod: pending.paymentMethod,
+          trxId: pending.trxId,
+          createdAt: pending.createdAt,
+          status: pending.status,
+        };
+      }
+
+      const confirmed = userPurchases.find(x => x.status === 'confirmed' || x.status === 'approved');
+      if (confirmed) {
+        latestConfirmed = {
+          id: confirmed.id,
+          smsCount: confirmed.smsCount,
+          amount: confirmed.amount,
+          paymentMethod: confirmed.paymentMethod,
+          trxId: confirmed.trxId,
+          approvedAt: confirmed.approvedAt,
+          status: confirmed.status,
+        };
+      }
     }
+
+    return res.json({
+      balance,
+      totalSent,
+      hasPendingPurchase: Boolean(pendingPurchase),
+      pendingPurchase,
+      latestConfirmed,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -202,8 +311,13 @@ router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
 /**
  * GET /api/sms/packages
  */
-router.get('/packages', (req, res) => {
-  return res.json({ packages: SMS_PACKAGES });
+router.get('/packages', async (req, res) => {
+  try {
+    const pkgs = await getDynamicSmsPackages();
+    return res.json({ packages: pkgs });
+  } catch (err: any) {
+    return res.json({ packages: DEFAULT_SMS_PACKAGES });
+  }
 });
 
 /**
@@ -216,7 +330,9 @@ router.post('/purchase', async (req: AuthenticatedRequest, res: Response) => {
     if (!userId) return res.status(401).json({ error: 'লগইন করুন' });
 
     const { packageId, paymentMethod, trxId, senderNumber } = req.body;
-    const pack = SMS_PACKAGES.find(p => p.id === packageId);
+    const pool = getDbPool();
+    const dynamicPackages = await getDynamicSmsPackages(pool);
+    const pack = dynamicPackages.find((p: any) => p.id === packageId);
     if (!pack) {
       return res.status(400).json({ error: 'অবৈধ এসএমএস প্যাকেজ' });
     }
@@ -224,7 +340,44 @@ router.post('/purchase', async (req: AuthenticatedRequest, res: Response) => {
       return res.status(400).json({ error: 'পেমেন্ট মাধ্যম এবং TrxID প্রদান করুন' });
     }
 
-    const pool = getDbPool();
+    // 1. Check if user already has a pending SMS purchase
+    if (pool) {
+      const pendRes = await pool.query(
+        "SELECT id, trx_id FROM sms_purchases WHERE user_id = $1 AND status = 'pending' LIMIT 1",
+        [userId]
+      );
+      if (pendRes.rows.length > 0) {
+        return res.status(400).json({
+          error: 'আপনার ইতিমধ্যে একটি এসএমএস প্যাকেজ ক্রয়ের অনুরোধ পেন্ডিং আছে (TrxID: ' + pendRes.rows[0].trx_id + ')। সুপার অ্যাডমিন অনুমোদন করার পর অথবা বাতিল হওয়ার পর পুনরায় চেষ্টা করুন।',
+        });
+      }
+
+      // 2. Check exclusivity: User cannot purchase a new SMS package until current SMS balance is finished (0)
+      const uBalRes = await pool.query('SELECT sms_balance FROM users WHERE id = $1', [userId]);
+      const curBal = uBalRes.rows.length > 0 ? (uBalRes.rows[0].sms_balance ?? 0) : 0;
+      if (curBal > 0) {
+        return res.status(400).json({
+          error: `আপনার বর্তমান প্যাকেজে এখনও ${curBal}টি SMS অবশিষ্ট রয়েছে। নিয়ম অনুযায়ী বর্তমান প্যাকেজের সকল SMS শেষ (০ টি) হওয়ার পরই কেবল নতুন প্যাকেজ কেনা যাবে।`,
+        });
+      }
+    } else {
+      const userPurchases = (inMemoryStore.sms_purchases || []).filter(x => x.userId === userId);
+      const pend = userPurchases.find(x => x.status === 'pending');
+      if (pend) {
+        return res.status(400).json({
+          error: 'আপনার ইতিমধ্যে একটি এসএমএস প্যাকেজ ক্রয়ের অনুরোধ পেন্ডিং আছে (TrxID: ' + pend.trxId + ')। সুপার অ্যাডমিন অনুমোদন করার পর অথবা বাতিল হওয়ার পর পুনরায় চেষ্টা করুন।',
+        });
+      }
+
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      const curBal = u ? (u.smsBalance ?? 0) : 0;
+      if (curBal > 0) {
+        return res.status(400).json({
+          error: `আপনার বর্তমান প্যাকেজে এখনও ${curBal}টি SMS অবশিষ্ট রয়েছে। নিয়ম অনুযায়ী বর্তমান প্যাকেজের সকল SMS শেষ (০ টি) হওয়ার পরই কেবল নতুন প্যাকেজ কেনা যাবে।`,
+        });
+      }
+    }
+
     const purchaseId = 'smspay_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
     const now = Date.now();
 
@@ -284,6 +437,47 @@ router.post('/purchase', async (req: AuthenticatedRequest, res: Response) => {
       message: '✅ আপনার এসএমএস প্যাকেজ ক্রয়ের অনুরোধ গ্রহণ করা হয়েছে! অ্যাডমিন দ্রুত যাচাই করে ব্যালেন্স যুক্ত করবেন।',
       purchaseId,
     });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/sms/my-purchases
+ * Returns user's SMS purchase orders with real-time status (pending, confirmed, rejected)
+ */
+router.get('/my-purchases', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'লগইন করুন' });
+
+    const pool = getDbPool();
+    if (pool) {
+      const result = await pool.query(
+        'SELECT * FROM sms_purchases WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50',
+        [userId]
+      );
+      const purchases = result.rows.map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        userName: row.user_name,
+        userPhone: row.user_phone,
+        shopName: row.shop_name,
+        smsCount: row.sms_count,
+        amount: parseFloat(row.amount),
+        paymentMethod: row.payment_method,
+        trxId: row.trx_id,
+        status: row.status, // 'pending' | 'confirmed' | 'approved' | 'rejected'
+        createdAt: Number(row.created_at),
+        approvedAt: row.approved_at ? Number(row.approved_at) : null,
+      }));
+      return res.json({ purchases });
+    } else {
+      const list = (inMemoryStore.sms_purchases || [])
+        .filter(x => x.userId === userId)
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      return res.json({ purchases: list });
+    }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

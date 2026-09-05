@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore } from '../db';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 
 const router = Router();
@@ -64,6 +64,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
 
     const pool = getDbPool();
     if (pool) {
+      const validUserId = await ensureUserExistsInPostgres(pool, userId, req.user);
       await pool.query(`
         INSERT INTO customers (
           id, user_id, name, phone, address, balance, category, credit_limit, notes, created_at, updated_at
@@ -78,15 +79,15 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
           notes = EXCLUDED.notes,
           updated_at = EXCLUDED.updated_at
       `, [
-        customerId, userId, name.trim(), phone || '', address || '',
+        customerId, validUserId, name.trim(), phone || '', address || '',
         cleanBalance, category || 'regular', cleanCreditLimit, notes || '',
         now, now
       ]);
 
       // Update total customers count on user
-      const countRes = await pool.query('SELECT COUNT(*) FROM customers WHERE user_id = $1', [userId]);
+      const countRes = await pool.query('SELECT COUNT(*) FROM customers WHERE user_id = $1', [validUserId]);
       const totalCust = parseInt(countRes.rows[0].count, 10);
-      await pool.query('UPDATE users SET total_customers = $1 WHERE id = $2', [totalCust, userId]);
+      await pool.query('UPDATE users SET total_customers = $1 WHERE id = $2', [totalCust, validUserId]);
     } else {
       const idx = inMemoryStore.customers.findIndex(c => c.id === customerId);
       const custObj = {

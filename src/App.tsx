@@ -50,6 +50,8 @@ import {
   deleteTransactionFromCloud,
   saveExpenseToCloud,
   deleteExpenseFromCloud,
+  saveProductToCloud,
+  deleteProductFromCloud,
   saveStoreProfileToCloud,
   syncAllToCloud,
 } from './services/syncService';
@@ -1036,16 +1038,18 @@ export const App: React.FC = () => {
   };
 
   // Product Management Handlers
-  const handleAddProduct = (prod: Product) => {
+  const handleAddProduct = async (prod: Product) => {
     const updated = [prod, ...products];
     setProducts(updated);
-    saveProducts(updated);
+    saveProducts(updated, currentUser?.id);
+    await saveProductToCloud(prod);
   };
 
-  const handleUpdateProduct = (prod: Product) => {
+  const handleUpdateProduct = async (prod: Product) => {
     const updated = products.map((p) => (p.id === prod.id ? prod : p));
     setProducts(updated);
-    saveProducts(updated);
+    saveProducts(updated, currentUser?.id);
+    await saveProductToCloud(prod);
   };
 
   const handleDeleteProduct = (id: string) => {
@@ -1055,10 +1059,11 @@ export const App: React.FC = () => {
       message: 'এই পণ্যটি তালিকা থেকে স্থায়ীভাবে মুছে ফেলা হবে।',
       confirmText: 'হ্যাঁ, মুছুন',
       type: 'danger',
-      action: () => {
+      action: async () => {
         const updated = products.filter((p) => p.id !== id);
         setProducts(updated);
-        saveProducts(updated);
+        saveProducts(updated, currentUser?.id);
+        await deleteProductFromCloud(id);
         showToast('পণ্য মুছে ফেলা হয়েছে!');
         setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
       },

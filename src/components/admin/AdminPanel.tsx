@@ -45,6 +45,7 @@ import {
   updateStaffPermissions,
   deleteStaffMember,
   hasStaffPermission,
+  subscribeToSmsPurchases,
   ADMIN_EMAIL,
   INITIAL_PAYMENT_SETTINGS,
 } from '../../services/adminService';
@@ -53,6 +54,7 @@ import { AdminDashboardOverview } from './AdminDashboardOverview';
 import { UserManagementTab } from './UserManagementTab';
 import { SubscriptionManagementTab } from './SubscriptionManagementTab';
 import { PaymentManagementTab } from './PaymentManagementTab';
+import { SmsPurchasesTab } from './SmsPurchasesTab';
 import { ExpiredUsersTab } from './ExpiredUsersTab';
 import { SupportManagementTab } from './SupportManagementTab';
 import { NotificationManagementTab } from './NotificationManagementTab';
@@ -98,6 +100,7 @@ import {
   ExternalLink,
   Link2,
   Lock,
+  MessageSquare,
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -136,6 +139,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Real-time State
   const [users, setUsers] = useState<AppUser[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [smsPurchases, setSmsPurchases] = useState<any[]>([]);
   const [paymentSettings, setPaymentSettings] = useState<SystemPaymentSettings>(INITIAL_PAYMENT_SETTINGS);
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -211,10 +215,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const unsubLogs = subscribeToActivityLogs(setLogs);
     const unsubSupport = subscribeToAllSupportThreads(setSupportThreads);
     const unsubStaff = isSuperAdmin ? subscribeToStaffMembers(setStaffList) : () => {};
+    const unsubSmsPurchases = subscribeToSmsPurchases(setSmsPurchases);
 
     return () => {
       unsubUsers();
       unsubPayments();
+      unsubSmsPurchases();
       unsubPaymentSettings();
       unsubNotifs();
       unsubAnn();
@@ -242,6 +248,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   );
 
   const pendingPaymentsCount = payments.filter((p) => p.status === 'pending').length;
+  const pendingSmsPurchasesCount = smsPurchases.filter((p) => p.status === 'pending').length;
   const expiredCount = clientUsers.filter((u) => u.subscriptionExpiresAt <= Date.now() || u.status === 'expired').length;
   const unreadSupportCount = supportThreads.reduce((acc, t) => acc + (t.unreadAdminCount || 0), 0);
 
@@ -304,6 +311,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       icon: Receipt,
       badge: pendingPaymentsCount > 0 ? pendingPaymentsCount : undefined,
       badgeColor: 'bg-amber-500 text-slate-950 font-black animate-pulse',
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'payments_view'),
+    },
+    {
+      id: 'sms_purchases',
+      label: 'SMS পেমেন্ট রিকোয়েস্ট',
+      icon: MessageSquare,
+      badge: pendingSmsPurchasesCount > 0 ? pendingSmsPurchasesCount : undefined,
+      badgeColor: 'bg-teal-500 text-slate-950 font-black animate-pulse',
       isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'payments_view'),
     },
     {
@@ -556,6 +571,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               users={clientUsers}
               onExtendSubscription={extendUserSubscription}
               onShowToast={showToast}
+              onRefreshUsers={checkDbAndRefresh}
             />
           )}
 
@@ -606,6 +622,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 }
                 await savePaymentSettingsToCloud(newSettings, effectiveSession.email || currentUserEmail);
               }}
+              onShowToast={showToast}
+            />
+          )}
+
+          {activeTab === 'sms_purchases' && (
+            <SmsPurchasesTab
+              users={clientUsers}
+              onRefreshUsers={checkDbAndRefresh}
               onShowToast={showToast}
             />
           )}

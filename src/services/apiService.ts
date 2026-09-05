@@ -144,9 +144,13 @@ async function apiRequest<T = any>(
   }
 
   if (!response.ok) {
-    const errorMsg = data.error || data.message || `Request failed with status ${response.status}`;
+    const rawMsg = data.error || data.message;
+    const errorMsg = (rawMsg && typeof rawMsg === 'string' && rawMsg.trim())
+      ? rawMsg.trim()
+      : (typeof rawMsg === 'object' ? JSON.stringify(rawMsg) : `সার্ভার অনুরোধ ব্যর্থ হয়েছে (${response.status})`);
     const err = new Error(errorMsg);
     (err as any).status = response.status;
+    (err as any).data = data;
     throw err;
   }
 
@@ -879,6 +883,35 @@ export const productApi = {
       return [];
     }
   },
+
+  async getByCode(code: string): Promise<any | null> {
+    try {
+      const res = await apiRequest<{ product: any }>(`/products/by-code/${encodeURIComponent(code)}`);
+      return res?.product || null;
+    } catch {
+      return null;
+    }
+  },
+
+  async save(product: any): Promise<{ message: string; product: any }> {
+    return await apiRequest<{ message: string; product: any }>('/products', {
+      method: 'POST',
+      body: JSON.stringify(product),
+    });
+  },
+
+  async delete(productId: string): Promise<{ message: string }> {
+    return await apiRequest<{ message: string }>(`/products/${productId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async batchSync(products: any[]): Promise<{ message: string }> {
+    return await apiRequest<{ message: string }>('/products/batch', {
+      method: 'POST',
+      body: JSON.stringify({ products }),
+    });
+  },
 };
 
 // ---------------- SUBSCRIPTIONS & USER PAYMENTS API ----------------
@@ -1461,20 +1494,83 @@ export const adminApi = {
     }
   },
 
-  async approveSmsPurchase(purchaseId: string): Promise<{ message: string }> {
+  async approveSmsPurchase(purchaseId: string): Promise<{ message: string; newBalance?: number }> {
     return await apiRequest(`/admin/sms-purchases/${purchaseId}/approve`, {
       method: 'POST',
+    });
+  },
+
+  async rejectSmsPurchase(purchaseId: string, reason?: string): Promise<{ message: string }> {
+    return await apiRequest(`/admin/sms-purchases/${purchaseId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async setSmsBalance(userId: string, balance: number, note?: string): Promise<{ message: string; balance: number }> {
+    return await apiRequest(`/admin/users/${userId}/set-sms-balance`, {
+      method: 'POST',
+      body: JSON.stringify({ balance, note }),
+    });
+  },
+
+  async addSmsBalance(userId: string, amount: number, note?: string): Promise<{ message: string; newBalance: number }> {
+    return await apiRequest(`/admin/users/${userId}/add-sms`, {
+      method: 'POST',
+      body: JSON.stringify({ amount, note }),
+    });
+  },
+
+  async getSmsPackages(): Promise<any[]> {
+    try {
+      const res = await apiRequest<{ packages: any[] }>('/admin/sms-packages');
+      return res.packages || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async saveSmsPackages(packages: any[]): Promise<{ success: boolean; message: string; packages: any[] }> {
+    return await apiRequest('/admin/sms-packages', {
+      method: 'PUT',
+      body: JSON.stringify({ packages }),
+    });
+  },
+
+  async resetUserSms(userId: string, reason?: string): Promise<{ message: string; balance: number }> {
+    return await apiRequest(`/admin/users/${userId}/reset-sms`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async resetUserSubscription(userId: string): Promise<{ message: string }> {
+    return await apiRequest(`/admin/users/${userId}/reset-subscription`, {
+      method: 'POST',
+      body: JSON.stringify({}),
     });
   },
 };
 
 // ---------------- USER SMS API ----------------
 export const userSmsApi = {
-  async getBalance(): Promise<{ balance: number; totalSent: number }> {
+  async getBalance(): Promise<{
+    balance: number;
+    totalSent: number;
+    hasPendingPurchase?: boolean;
+    pendingPurchase?: any;
+    latestConfirmed?: any;
+  }> {
     try {
-      return await apiRequest<{ balance: number; totalSent: number }>('/sms/balance');
+      return await apiRequest<{
+        balance: number;
+        totalSent: number;
+        hasPendingPurchase?: boolean;
+        pendingPurchase?: any;
+        latestConfirmed?: any;
+      }>('/sms/balance');
     } catch {
-      return { balance: 20, totalSent: 0 };
+      return { balance: 0, totalSent: 0, hasPendingPurchase: false };
     }
   },
 
@@ -1482,6 +1578,15 @@ export const userSmsApi = {
     try {
       const res = await apiRequest<{ logs: any[] }>('/sms/logs');
       return res.logs || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async getMyPurchases(): Promise<any[]> {
+    try {
+      const res = await apiRequest<{ purchases: any[] }>('/sms/my-purchases');
+      return res.purchases || [];
     } catch {
       return [];
     }
