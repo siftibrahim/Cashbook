@@ -1012,6 +1012,32 @@ export const subscriptionApi = {
       return [];
     }
   },
+
+  async createPaymentlyCheckout(planId: string): Promise<{
+    success: boolean;
+    paymentUrl: string;
+    paymentId: string;
+    isSandbox?: boolean;
+  }> {
+    return await apiRequest('/subscription/paymently/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ planId }),
+    });
+  },
+
+  async verifyPaymentlyPayment(invoiceId: string, paymentId?: string): Promise<{
+    success: boolean;
+    status: 'approved' | 'pending' | 'failed' | 'cancelled' | 'error';
+    message: string;
+    trxId?: string;
+    amount?: number;
+    planName?: string;
+  }> {
+    return await apiRequest('/subscription/paymently/verify', {
+      method: 'POST',
+      body: JSON.stringify({ invoiceId, paymentId }),
+    });
+  },
 };
 
 // ---------------- SUPPORT API ----------------

@@ -27,6 +27,10 @@ interface InventoryViewProps {
   onOpenProductQr?: (product: Product) => void;
   onOpenScanner?: () => void;
   onOpenQrGenerator?: () => void;
+  initialSku?: string | null;
+  highlightedProductId?: string | null;
+  onClearInitialSku?: () => void;
+  onClearHighlightedProduct?: () => void;
 }
 
 export const InventoryView: React.FC<InventoryViewProps> = ({
@@ -39,6 +43,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   onOpenProductQr,
   onOpenScanner,
   onOpenQrGenerator,
+  initialSku,
+  highlightedProductId,
+  onClearInitialSku,
+  onClearHighlightedProduct,
 }) => {
   const [search, setSearch] = useState('');
   const [selectedCat, setSelectedCat] = useState('all');
@@ -54,6 +62,43 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [salePrice, setSalePrice] = useState('');
   const [stock, setStock] = useState('');
   const [minAlert, setMinAlert] = useState('10');
+
+  // React to incoming initial SKU from scanner
+  React.useEffect(() => {
+    if (initialSku) {
+      setEditingProduct(null);
+      setName('');
+      setSku(initialSku);
+      setCategory('চাল ও ডাল');
+      setUnit('কেজি');
+      setBuyPrice('');
+      setSalePrice('');
+      setStock('10');
+      setMinAlert('5');
+      setIsModalOpen(true);
+      if (onClearInitialSku) onClearInitialSku();
+    }
+  }, [initialSku]);
+
+  // React to highlighted product from barcode scan
+  React.useEffect(() => {
+    if (highlightedProductId) {
+      const found = products.find((p) => p.id === highlightedProductId);
+      if (found) {
+        setEditingProduct(found);
+        setName(found.name);
+        setSku(found.sku || found.id);
+        setCategory(found.category);
+        setUnit(found.unit);
+        setBuyPrice(found.buyPrice.toString());
+        setSalePrice(found.salePrice.toString());
+        setStock(found.stock.toString());
+        setMinAlert((found.minStockAlert || 10).toString());
+        setIsModalOpen(true);
+      }
+      if (onClearHighlightedProduct) onClearHighlightedProduct();
+    }
+  }, [highlightedProductId, products]);
 
   const currency = store.currencySymbol || '৳';
 

@@ -478,6 +478,8 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE payments ADD COLUMN IF NOT EXISTS approved_by VARCHAR(255);
       ALTER TABLE payments ADD COLUMN IF NOT EXISTS user_note TEXT;
       ALTER TABLE payments ADD COLUMN IF NOT EXISTS admin_notes TEXT;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS paymently_invoice_id VARCHAR(255);
+      CREATE INDEX IF NOT EXISTS idx_payments_paymently_invoice_id ON payments(paymently_invoice_id);
     `);
 
     // 8. Notifications Table

@@ -81,6 +81,19 @@
         }
       }
     </style>
+    <script>
+      // Gracefully prevent ResizeObserver benign notifications and empty error events
+      window.addEventListener('error', function (e) {
+        if (!e || !e.message || e.message === 'Script error.' || (typeof e.message === 'string' && e.message.includes('ResizeObserver'))) {
+          e.stopImmediatePropagation();
+        }
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        if (!e || !e.reason) {
+          e.stopImmediatePropagation();
+        }
+      });
+    </script>
   </head>
   <body class="bg-slate-100 text-slate-800 antialiased">
     <div id="root"></div>

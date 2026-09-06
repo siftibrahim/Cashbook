@@ -580,15 +580,33 @@ router.post('/payments/:id/reject', async (req: AuthenticatedRequest, res: Respo
 router.get('/payment-settings', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const pool = getDbPool();
+    let settings: any = {};
     if (pool) {
       const result = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings'");
       if (result.rows.length > 0) {
-        return res.json({ settings: result.rows[0].data });
+        settings = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
       }
     } else if (inMemoryStore.system_config['system_payment_settings']) {
-      return res.json({ settings: inMemoryStore.system_config['system_payment_settings'] });
+      settings = inMemoryStore.system_config['system_payment_settings'];
     }
-    return res.json({ settings: {} });
+
+    const envApiKey = process.env.PAYMENTLY_API_KEY || process.env.PAYMENTLY_KEY || '';
+    const envBaseUrl = process.env.PAYMENTLY_BASE_URL || 'https://twinghisabi.paymently.io/api';
+
+    const mergedPaymently = {
+      isEnabled: settings.paymently?.isEnabled !== undefined ? !!settings.paymently.isEnabled : true,
+      baseUrl: settings.paymently?.baseUrl || envBaseUrl,
+      apiKey: settings.paymently?.apiKey || envApiKey,
+      isSandbox: !!settings.paymently?.isSandbox,
+      isConfigured: !!(settings.paymently?.apiKey || envApiKey),
+    };
+
+    return res.json({
+      settings: {
+        ...settings,
+        paymently: mergedPaymently,
+      },
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -1318,7 +1336,7 @@ router.post('/impersonate/:userId', async (req: AuthenticatedRequest, res: Respo
         subscriptionExpiresAt: Number(row.subscription_expires_at),
         registeredAt: Number(row.registered_at),
         lastActiveAt: Number(row.last_active_at),
-        smsBalance: row.sms_balance || 20,
+        smsBalance: row.sms_balance !== null && row.sms_balance !== undefined ? Number(row.sms_balance) : 0,
       };
 
       const sRes = await pool.query('SELECT * FROM store_profiles WHERE user_id = $1', [targetUserId]);
@@ -1479,7 +1497,7 @@ router.post('/users/:id/add-sms', async (req: AuthenticatedRequest, res: Respons
     } else {
       const u = inMemoryStore.users.find(x => x.id === userId);
       if (u) {
-        u.smsBalance = Math.max(0, (u.smsBalance || 20) + smsCount);
+        u.smsBalance = Math.max(0, (u.smsBalance ?? 0) + smsCount);
         return res.json({ message: `✅ এসএমএস ব্যালেন্স আপডেট হয়েছে (${u.smsBalance}টি)`, newBalance: u.smsBalance });
       }
       return res.status(404).json({ error: 'ইউজার পাওয়া যায়নি' });
@@ -1843,6 +1861,7 @@ router.post('/users/:userId/reset-sms', async (req: AuthenticatedRequest, res: R
       if (uRes.rows.length === 0) return res.status(404).json({ error: 'ইউজার পাওয়া যায়নি' });
 
       await pool.query('UPDATE users SET sms_balance = 0 WHERE id = $1', [userId]);
+      await pool.query("UPDATE sms_purchases SET status = 'cancelled' WHERE user_id = $1 AND status = 'pending'", [userId]).catch(() => {});
 
       await pool.query(`
         INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
@@ -1879,6 +1898,11 @@ router.post('/users/:userId/reset-sms', async (req: AuthenticatedRequest, res: R
       const u = inMemoryStore.users.find(x => x.id === userId);
       if (u) {
         u.smsBalance = 0;
+        (inMemoryStore.sms_purchases || []).forEach(p => {
+          if (p.userId === userId && p.status === 'pending') {
+            p.status = 'cancelled';
+          }
+        });
         return res.json({ message: '✅ ইউজারের এসএমএস প্যাকেজ রিসেট (০) করা হয়েছে', balance: 0 });
       }
       return res.status(404).json({ error: 'ইউজার পাওয়া যায়নি' });
@@ -1903,9 +1927,16 @@ router.post('/users/:userId/reset-subscription', async (req: AuthenticatedReques
       await pool.query(
         "UPDATE subscriptions SET status = 'EXPIRED', end_date = $1, auto_renew = false WHERE user_id = $2 AND status = 'ACTIVE'",
         [now - 1000, userId]
-      );
+      ).catch(() => {});
+
+      // Invalidate all past payments so subscriptionEngine does not re-add trial/bonus days
       await pool.query(
-        "UPDATE users SET subscription_status = 'expired', subscription_plan = 'Free', subscription_expiry = $1 WHERE id = $2",
+        "UPDATE payments SET status = 'reset' WHERE user_id = $1",
+        [userId]
+      ).catch(() => {});
+
+      await pool.query(
+        "UPDATE users SET subscription_status = 'expired', subscription_plan = 'Free', subscription_expires_at = $1 WHERE id = $2",
         [now - 1000, userId]
       );
 
@@ -1928,9 +1959,17 @@ router.post('/users/:userId/reset-subscription', async (req: AuthenticatedReques
       const u = inMemoryStore.users.find(x => x.id === userId);
       if (u) {
         u.subscriptionStatus = 'expired';
+        u.subscription_status = 'expired';
         u.subscriptionPlan = 'Free';
-        u.subscriptionExpiry = now - 1000;
+        u.subscription_plan = 'Free';
+        u.subscriptionExpiresAt = now - 1000;
+        u.subscription_expires_at = now - 1000;
       }
+      (inMemoryStore.payments || []).forEach(p => {
+        if (p.userId === userId) {
+          p.status = 'reset';
+        }
+      });
       return res.json({ message: '✅ ইউজারের সাবস্ক্রিপশন প্যাকেজ সম্পূর্ণ রিসেট/রিমুভ করা হয়েছে' });
     }
   } catch (err: any) {

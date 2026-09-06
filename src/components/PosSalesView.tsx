@@ -77,6 +77,8 @@ interface PosSalesViewProps {
   onOpenScanner?: () => void;
   onOpenPaymentQr?: (amount?: number) => void;
   onOpenSms?: (phone?: string, msg?: string, name?: string) => void;
+  scannedProductToAdd?: Product | null;
+  onClearScannedProduct?: () => void;
 }
 
 export const PosSalesView: React.FC<PosSalesViewProps> = ({
@@ -90,6 +92,8 @@ export const PosSalesView: React.FC<PosSalesViewProps> = ({
   onOpenScanner,
   onOpenPaymentQr,
   onOpenSms,
+  scannedProductToAdd,
+  onClearScannedProduct,
 }) => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
@@ -118,6 +122,44 @@ export const PosSalesView: React.FC<PosSalesViewProps> = ({
       total: 890,
     },
   ]);
+
+  // Automatically add scanned product into cart
+  React.useEffect(() => {
+    if (scannedProductToAdd) {
+      setItems((prevItems) => {
+        const existingIndex = prevItems.findIndex(
+          (it) =>
+            it.id === scannedProductToAdd.id ||
+            it.name.trim().toLowerCase() === scannedProductToAdd.name.trim().toLowerCase()
+        );
+        if (existingIndex >= 0) {
+          const updated = [...prevItems];
+          const cur = updated[existingIndex];
+          const newQty = Number(cur.quantity || 1) + 1;
+          updated[existingIndex] = {
+            ...cur,
+            quantity: newQty,
+            total: newQty * Number(cur.price || 0),
+          };
+          return updated;
+        } else {
+          const price = Number(scannedProductToAdd.salePrice || 0);
+          return [
+            ...prevItems,
+            {
+              id: scannedProductToAdd.id || `pos_${Date.now()}`,
+              name: scannedProductToAdd.name,
+              quantity: 1,
+              unit: scannedProductToAdd.unit || 'পিস',
+              price: price,
+              total: price,
+            },
+          ];
+        }
+      });
+      if (onClearScannedProduct) onClearScannedProduct();
+    }
+  }, [scannedProductToAdd]);
 
   // Discount & Payment
   const [discount, setDiscount] = useState<number>(0);

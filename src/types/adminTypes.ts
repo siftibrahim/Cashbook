@@ -38,7 +38,7 @@ export interface SubscriptionPlan {
   badge?: string;
 }
 
-export type AdminPaymentMethod = 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank' | 'sslcommerz' | 'card' | 'cash' | 'other';
+export type AdminPaymentMethod = 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank' | 'sslcommerz' | 'card' | 'cash' | 'paymently' | 'other';
 export type PaymentStatus = 'pending' | 'approved' | 'rejected' | 'failed' | 'refunded';
 export type RefundStatus = 'none' | 'refund_pending' | 'refunded' | 'refund_rejected';
 export type PaymentMode = 'manual_mfs' | 'bank_transfer' | 'automated_gateway' | 'cash_offline';
@@ -117,6 +117,15 @@ export interface SystemPaymentSettings {
   };
   // Gateways (Future-ready)
   gateways: PaymentGatewayConfig[];
+  // Paymently Gateway Integration
+  paymently?: {
+    isEnabled: boolean;
+    baseUrl?: string;
+    apiKeyMasked?: string;
+    apiKey?: string;
+    isConfigured?: boolean;
+    isSandbox?: boolean;
+  };
   // Dynamic Pricing Packages
   customPlans?: SubscriptionPlan[];
   updatedAt: number;

@@ -21,10 +21,12 @@ import {
   loadTransactions,
   loadDailyExpenses,
   loadStoreProfile,
+  loadProducts,
   saveCustomers,
   saveTransactions,
   saveDailyExpenses,
   saveStoreProfile,
+  saveProducts,
 } from '../utils/storage';
 
 export type SyncActionType =
@@ -193,6 +195,25 @@ export function enqueueAction(action: SyncActionType, payload: any, userId?: str
   } else if (action === 'SAVE_STORE_PROFILE') {
     // Only keep latest profile save
     updatedQueue = updatedQueue.filter((item) => item.action !== 'SAVE_STORE_PROFILE');
+  } else if (action === 'SAVE_PRODUCT' && payload?.id) {
+    const existingIdx = updatedQueue.findIndex(
+      (item) => item.action === 'SAVE_PRODUCT' && item.payload?.id === payload.id
+    );
+    if (existingIdx >= 0) {
+      updatedQueue[existingIdx] = {
+        ...updatedQueue[existingIdx],
+        payload,
+        createdAt: Date.now(),
+      };
+      savePendingQueue(updatedQueue, uid);
+      triggerBackgroundSync(uid);
+      return;
+    }
+  } else if (action === 'DELETE_PRODUCT' && (payload?.productId || payload?.id)) {
+    const pId = payload.productId || payload.id;
+    updatedQueue = updatedQueue.filter(
+      (item) => !(item.action === 'SAVE_PRODUCT' && item.payload?.id === pId)
+    );
   }
 
   updatedQueue.push({
@@ -378,8 +399,14 @@ export async function performFullCloudSync(userId?: string): Promise<{
     const custs = loadCustomers(uid);
     const txs = loadTransactions(uid);
     const exps = loadDailyExpenses(uid);
+    const prods = loadProducts(uid);
 
     await storeApi.syncAll(store, custs, txs, exps);
+
+    // Sync products if any exist locally
+    if (Array.isArray(prods) && prods.length > 0) {
+      await productApi.batchSync(prods).catch((e) => console.warn('Product batch sync warning:', e));
+    }
 
     currentStatus.isSyncing = false;
     currentStatus.isOnline = true;
@@ -411,6 +438,12 @@ if (typeof window !== 'undefined') {
     currentStatus.isOnline = true;
     notifyListeners();
     triggerBackgroundSync();
+    // Schedule full reconciliation cloud sync after reconnect
+    setTimeout(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        performFullCloudSync().catch((e) => console.warn('Offline recovery sync error:', e));
+      }
+    }, 2500);
   });
 
   window.addEventListener('offline', () => {

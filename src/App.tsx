@@ -38,6 +38,7 @@ import {
   productApi,
   notificationApi,
   subscriptionApi,
+  userSmsApi,
 } from './services/apiService';
 import {
   subscribeToStoreProfile,
@@ -268,11 +269,15 @@ export const App: React.FC = () => {
   };
 
   const handleProductScanned = (product: Product) => {
-    showToast(`পণ্য স্ক্যান সম্পন্ন: ${product.name} (৳${product.salePrice})`);
+    setIsScannerModalOpen(false);
     if (scannerMode === 'pos') {
+      setScannedProductForPos(product);
       setActiveTab('pos');
-    } else if (scannerMode === 'inventory') {
+      showToast(`✅ বিক্রয় কার্টে যোগ হয়েছে: ${product.name} (৳${product.salePrice})`);
+    } else {
+      setHighlightedProductId(product.id);
       setActiveTab('inventory');
+      showToast(`📦 পণ্য ইনভেন্টরিতে চিহ্নিত হয়েছে: ${product.name}`);
     }
   };
 
@@ -281,13 +286,34 @@ export const App: React.FC = () => {
     const user = getStoredUser();
     const userId = uid || user?.id || 'guest';
     try {
-      const [storeData, custList, txMap, expList, prodList] = await Promise.all([
+      const [storeData, custList, txMap, expList, prodList, subStatus, smsData] = await Promise.all([
         storeApi.getProfile().catch(() => null),
         customerApi.getAll().catch(() => []),
         transactionApi.getAll().catch(() => ({ map: {} })),
         expenseApi.getAll().catch(() => []),
         productApi.getAll().catch(() => []),
+        subscriptionApi.getMyStatus().catch(() => null),
+        userSmsApi.getBalance().catch(() => ({ balance: 0, totalSent: 0, hasPendingPurchase: false, pendingPurchase: null, latestConfirmed: null })),
       ]);
+
+      if (smsData) {
+        setUserSmsBalance(smsData.balance || 0);
+        setPendingSmsPurchaseInfo({
+          hasPending: Boolean(smsData.hasPendingPurchase),
+          record: smsData.pendingPurchase || null,
+          latestConfirmed: smsData.latestConfirmed || null,
+        });
+      }
+
+      if (subStatus) {
+        if (typeof subStatus.isSubscriptionSystemEnabled === 'boolean') {
+          setIsSubscriptionSystemEnabled(subStatus.isSubscriptionSystemEnabled);
+        }
+        setPendingPaymentInfo({
+          hasPending: Boolean(subStatus.hasPendingPayment),
+          record: subStatus.pendingPayment || null,
+        });
+      }
 
       if (storeData && storeData.name) {
         setStore(storeData);
@@ -618,17 +644,48 @@ export const App: React.FC = () => {
   const isSuperAdmin = userRole === 'প্রধান সুপার অ্যাডমিন' || currentUser?.role === 'super_admin' || currentUser?.email === ADMIN_EMAIL;
   const isStaffMember = userRole === 'স্টাফ অ্যাকাউন্ট' || currentUser?.role === 'staff' || currentUser?.role === 'manager';
   const userSubExpiry = (store as any)?.subscriptionExpiresAt || (currentUser as any)?.subscriptionExpiresAt;
-  const isSubscriptionExpired = !isSuperAdmin && !isStaffMember && userSubExpiry && Number(userSubExpiry) < Date.now();
+
+  const [userSmsBalance, setUserSmsBalance] = useState<number>(0);
+  const [pendingSmsPurchaseInfo, setPendingSmsPurchaseInfo] = useState<{
+    hasPending: boolean;
+    record?: any;
+    latestConfirmed?: any;
+  }>({ hasPending: false });
+  const [isSubscriptionSystemEnabled, setIsSubscriptionSystemEnabled] = useState<boolean>(true);
+  const [scannedProductForPos, setScannedProductForPos] = useState<Product | null>(null);
+  const [initialSkuForInventory, setInitialSkuForInventory] = useState<string | null>(null);
+  const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
+
+  const isSubscriptionExpired = isSubscriptionSystemEnabled && !isSuperAdmin && !isStaffMember && userSubExpiry && Number(userSubExpiry) < Date.now();
 
   const [pendingPaymentInfo, setPendingPaymentInfo] = useState<{
     hasPending: boolean;
     record: any;
   }>({ hasPending: false, record: null });
 
+  const handleRefreshSmsStatus = async () => {
+    try {
+      const data = await userSmsApi.getBalance();
+      if (data) {
+        setUserSmsBalance(data.balance || 0);
+        setPendingSmsPurchaseInfo({
+          hasPending: Boolean(data.hasPendingPurchase),
+          record: data.pendingPurchase || null,
+          latestConfirmed: data.latestConfirmed || null,
+        });
+      }
+    } catch (e) {
+      console.warn('SMS status refresh error:', e);
+    }
+  };
+
   const handleRefreshSubscriptionStatus = async () => {
     try {
       const statusData: any = await subscriptionApi.getMyStatus();
       if (statusData) {
+        if (typeof statusData.isSubscriptionSystemEnabled === 'boolean') {
+          setIsSubscriptionSystemEnabled(statusData.isSubscriptionSystemEnabled);
+        }
         if (statusData.subscriptionExpiresAt) {
           setStore((prev) => ({
             ...prev,
@@ -652,6 +709,7 @@ export const App: React.FC = () => {
           record: statusData.pendingPayment || null,
         });
       }
+      await handleRefreshSmsStatus();
     } catch (err) {
       console.warn('Status refresh error:', err);
     }
@@ -1291,208 +1349,223 @@ export const App: React.FC = () => {
               onOpenSms={() => handleOpenSms()}
               onOpenQrCode={() => setIsQrModalOpen(true)}
               unreadNotificationsCount={unreadNotificationsCount}
+              isSubscriptionSystemEnabled={isSubscriptionSystemEnabled}
+              smsBalance={userSmsBalance}
             />
 
-            {/* In-app Announcement Ticker & Popups */}
-            <AnnouncementDisplay announcements={announcements} />
+            {/* Everything below Header is zoomed slightly for clear, modern legibility */}
+            <div className="flex-1 flex flex-col min-h-0 app-content-zoomed overflow-hidden">
+              {/* In-app Announcement Ticker & Popups */}
+              <AnnouncementDisplay announcements={announcements} />
 
-            {/* Top Ad Banner (if enabled by Super Admin) */}
-            <AdBanner />
+              {/* Top Ad Banner (if enabled by Super Admin) */}
+              <AdBanner />
 
-            {/* View Switching or Subscription Lock Screen */}
-            {isSubscriptionExpired ? (
-              <SubscriptionLockScreen
-                store={store}
-                hasPendingPayment={pendingPaymentInfo.hasPending}
-                pendingPayment={pendingPaymentInfo.record}
-                onOpenRenewModal={() => setIsSubscriptionModalOpen(true)}
-                onRefreshStatus={handleRefreshSubscriptionStatus}
-                onLogout={triggerLogoutConfirm}
+              {/* View Switching or Subscription Lock Screen */}
+              {isSubscriptionExpired ? (
+                <SubscriptionLockScreen
+                  store={store}
+                  hasPendingPayment={pendingPaymentInfo.hasPending}
+                  pendingPayment={pendingPaymentInfo.record}
+                  onOpenRenewModal={() => setIsSubscriptionModalOpen(true)}
+                  onRefreshStatus={handleRefreshSubscriptionStatus}
+                  onLogout={triggerLogoutConfirm}
+                  onOpenSupport={() => setIsSupportModalOpen(true)}
+                />
+              ) : activeCustomerId && activeCustomer ? (
+                <CustomerDetail
+                  customer={activeCustomer}
+                  transactions={activeTxList}
+                  onBack={() => setActiveCustomerId(null)}
+                  onOpenTransaction={(type) => {
+                    setTxType(type);
+                    setIsTxModalOpen(true);
+                  }}
+                  onOpenEditCustomer={() => {
+                    setEditingCustomer(activeCustomer);
+                    setIsCustomerModalOpen(true);
+                  }}
+                  onOpenNewCustomer={() => {
+                    setEditingCustomer(null);
+                    setIsCustomerModalOpen(true);
+                  }}
+                  onDeleteCustomer={triggerDeleteCustomerConfirm}
+                  onDeleteTransaction={triggerDeleteTransactionConfirm}
+                  onEditTransaction={(tx) => handleOpenEditTransaction(tx, activeCustomer)}
+                  onOpenTagada={() => {
+                    setTagadaCustomer(activeCustomer);
+                    setIsTagadaModalOpen(true);
+                  }}
+                  onOpenReport={() => setIsReportModalOpen(true)}
+                  onOpenInvoice={handleOpenInvoice}
+                  onOpenSms={(c) =>
+                    handleOpenSms({
+                      phone: c.phone,
+                      customerName: c.name,
+                      dueAmount: Number(c.balance || 0),
+                      message: `শ্রদ্ধেয় ${c.name}, ${store.name}-এ আপনার বর্তমান বকেয়া বাকির পরিমাণ ৳${c.balance || 0} টাকা। দ্রুত পরিশোধ করার বিনীত অনুরোধ রইল। ধন্যবাদ!`,
+                    })
+                  }
+                  onOpenQrCode={(c) => handleOpenCustomerQr(c)}
+                />
+              ) : (
+                <main
+                  id="main-scroll-container"
+                  className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-50/70 p-3 sm:p-4 flex flex-col gap-3 sm:gap-4 smooth-scroll-container pb-3 sm:pb-4"
+                >
+                  {activeTab === 'dashboard' && (
+                    <DashboardView
+                      customers={customers}
+                      transactions={transactions}
+                      store={store}
+                      onOpenNewCustomer={() => {
+                        setEditingCustomer(null);
+                        setIsCustomerModalOpen(true);
+                      }}
+                      onNavigateToTab={(tab) => {
+                        setActiveCustomerId(null);
+                        if (tab === 'cashbook') {
+                          setIsCashbookModalOpen(true);
+                        } else {
+                          setActiveTab(tab);
+                        }
+                      }}
+                      onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
+                      onOpenCashbook={() => setIsCashbookModalOpen(true)}
+                      onOpenReport={() => setIsReportModalOpen(true)}
+                      onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
+                      onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+                      onOpenSms={() => handleOpenSms()}
+                      smsBalance={userSmsBalance}
+                      pendingSmsPurchaseInfo={pendingSmsPurchaseInfo}
+                      onRefreshSmsStatus={handleRefreshSmsStatus}
+                      isSubscriptionSystemEnabled={isSubscriptionSystemEnabled}
+                      pendingPaymentInfo={pendingPaymentInfo}
+                      onRefreshSubscriptionStatus={handleRefreshSubscriptionStatus}
+                      onSelectCustomer={(id) => setActiveCustomerId(id)}
+                    />
+                  )}
+
+                  {activeTab === 'customers' && (
+                    <CustomerList
+                      customers={customers}
+                      searchQuery={searchQuery}
+                      onSearchChange={setSearchQuery}
+                      filter={filter}
+                      onFilterChange={setFilter}
+                      onSelectCustomer={(id) => setActiveCustomerId(id)}
+                      onOpenNewCustomer={() => {
+                        setEditingCustomer(null);
+                        setIsCustomerModalOpen(true);
+                      }}
+                      onOpenSettings={() => setIsSettingsModalOpen(true)}
+                      onOpenReport={() => setIsReportModalOpen(true)}
+                      onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
+                      onOpenCashbook={() => setIsCashbookModalOpen(true)}
+                      highDueLimit={store.highDueLimit}
+                      onQuickTagada={(e, c) => {
+                        e.stopPropagation();
+                        setTagadaCustomer(c);
+                        setIsTagadaModalOpen(true);
+                      }}
+                    />
+                  )}
+
+                  {activeTab === 'pos' && (
+                    <PosSalesView
+                      customers={customers}
+                      products={products}
+                      store={store}
+                      scannedProductToAdd={scannedProductForPos}
+                      onClearScannedProduct={() => setScannedProductForPos(null)}
+                      onCompleteSale={handleCompletePosSale}
+                      onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
+                      onOpenScanner={() => handleOpenScanner('pos')}
+                      onOpenPaymentQr={(amt) => handleOpenPaymentQr(amt)}
+                      onOpenSms={(phone, msg, name) =>
+                        handleOpenSms({ phone, message: msg, customerName: name })
+                      }
+                      onOpenInvoiceModal={(data) => {
+                        const finalCustomerBal =
+                          data.customerBalanceAfter !== undefined
+                            ? data.customerBalanceAfter
+                            : (data.prevBalance || 0) + data.dueAmount;
+
+                        setInvoiceTx({
+                          id: `tx_${Date.now()}`,
+                          customerId: data.customerId || 'pos_instant',
+                          type: 'sale',
+                          amount: data.netAmount,
+                          description: 'পিওএস বিক্রয়',
+                          subtotal: data.totalAmount,
+                          discount: data.discount,
+                          netAmount: data.netAmount,
+                          paidAmount: data.paidAmount,
+                          dueAmount: data.dueAmount,
+                          prevBalance: data.prevBalance || 0,
+                          date: data.date,
+                          time: data.time,
+                          balanceAfter: finalCustomerBal,
+                          createdAt: Date.now(),
+                          items: data.items,
+                          receiptNo: data.receiptNo,
+                          paymentMethod: data.paymentMethod,
+                        });
+                        setInvoiceCustomer({
+                          id: data.customerId || 'pos_instant',
+                          name: data.customerName,
+                          phone: data.customerPhone,
+                          address: data.customerAddress,
+                          balance: finalCustomerBal,
+                          category: 'retail',
+                          createdAt: Date.now(),
+                          updatedAt: Date.now(),
+                        });
+                        setIsInvoiceModalOpen(true);
+                      }}
+                      onShowToast={showToast}
+                    />
+                  )}
+
+                  {activeTab === 'inventory' && (
+                    <InventoryView
+                      products={products}
+                      store={store}
+                      onAddProduct={handleAddProduct}
+                      onUpdateProduct={handleUpdateProduct}
+                      onDeleteProduct={handleDeleteProduct}
+                      initialSku={initialSkuForInventory}
+                      highlightedProductId={highlightedProductId}
+                      onClearInitialSku={() => setInitialSkuForInventory(null)}
+                      onClearHighlightedProduct={() => setHighlightedProductId(null)}
+                      onOpenScanner={() => handleOpenScanner('inventory')}
+                      onOpenQrGenerator={() => setIsQrModalOpen(true)}
+                      onOpenProductQr={(p) => handleOpenProductQr(p)}
+                      onShowToast={showToast}
+                    />
+                  )}
+                </main>
+              )}
+
+              {/* Bottom Navigation Bar */}
+              <BottomNav
+                activeTab={activeTab}
+                onTabChange={(tab) => {
+                  setActiveCustomerId(null);
+                  if (tab === 'support') {
+                    setIsSupportModalOpen(true);
+                  } else if (tab === 'cashbook') {
+                    setIsCashbookModalOpen(true);
+                  } else {
+                    setActiveTab(tab);
+                  }
+                }}
+                customerDueCount={customers.filter((c) => Number(c.balance || 0) > 0).length}
+                lowStockCount={products.filter((p) => Number(p.stock || 0) <= Number(p.minStock || 5)).length}
+                unreadSupportCount={unreadSupportRepliesCount}
                 onOpenSupport={() => setIsSupportModalOpen(true)}
               />
-            ) : activeCustomerId && activeCustomer ? (
-              <CustomerDetail
-                customer={activeCustomer}
-                transactions={activeTxList}
-                onBack={() => setActiveCustomerId(null)}
-                onOpenTransaction={(type) => {
-                  setTxType(type);
-                  setIsTxModalOpen(true);
-                }}
-                onOpenEditCustomer={() => {
-                  setEditingCustomer(activeCustomer);
-                  setIsCustomerModalOpen(true);
-                }}
-                onOpenNewCustomer={() => {
-                  setEditingCustomer(null);
-                  setIsCustomerModalOpen(true);
-                }}
-                onDeleteCustomer={triggerDeleteCustomerConfirm}
-                onDeleteTransaction={triggerDeleteTransactionConfirm}
-                onEditTransaction={(tx) => handleOpenEditTransaction(tx, activeCustomer)}
-                onOpenTagada={() => {
-                  setTagadaCustomer(activeCustomer);
-                  setIsTagadaModalOpen(true);
-                }}
-                onOpenReport={() => setIsReportModalOpen(true)}
-                onOpenInvoice={handleOpenInvoice}
-                onOpenSms={(c) =>
-                  handleOpenSms({
-                    phone: c.phone,
-                    customerName: c.name,
-                    dueAmount: Number(c.balance || 0),
-                    message: `শ্রদ্ধেয় ${c.name}, ${store.name}-এ আপনার বর্তমান বকেয়া বাকির পরিমাণ ৳${c.balance || 0} টাকা। দ্রুত পরিশোধ করার বিনীত অনুরোধ রইল। ধন্যবাদ!`,
-                  })
-                }
-                onOpenQrCode={(c) => handleOpenCustomerQr(c)}
-              />
-            ) : (
-              <main
-                id="main-scroll-container"
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-50/70 p-3 sm:p-4 flex flex-col gap-3 sm:gap-4 smooth-scroll-container pb-3 sm:pb-4"
-              >
-                {activeTab === 'dashboard' && (
-                  <DashboardView
-                    customers={customers}
-                    transactions={transactions}
-                    store={store}
-                    onOpenNewCustomer={() => {
-                      setEditingCustomer(null);
-                      setIsCustomerModalOpen(true);
-                    }}
-                    onNavigateToTab={(tab) => {
-                      setActiveCustomerId(null);
-                      if (tab === 'cashbook') {
-                        setIsCashbookModalOpen(true);
-                      } else {
-                        setActiveTab(tab);
-                      }
-                    }}
-                    onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
-                    onOpenCashbook={() => setIsCashbookModalOpen(true)}
-                    onOpenReport={() => setIsReportModalOpen(true)}
-                    onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
-                    onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
-                    onOpenSms={() => handleOpenSms()}
-                    pendingPaymentInfo={pendingPaymentInfo}
-                    onRefreshSubscriptionStatus={handleRefreshSubscriptionStatus}
-                    onSelectCustomer={(id) => setActiveCustomerId(id)}
-                  />
-                )}
-
-                {activeTab === 'customers' && (
-                  <CustomerList
-                    customers={customers}
-                    searchQuery={searchQuery}
-                    onSearchChange={setSearchQuery}
-                    filter={filter}
-                    onFilterChange={setFilter}
-                    onSelectCustomer={(id) => setActiveCustomerId(id)}
-                    onOpenNewCustomer={() => {
-                      setEditingCustomer(null);
-                      setIsCustomerModalOpen(true);
-                    }}
-                    onOpenSettings={() => setIsSettingsModalOpen(true)}
-                    onOpenReport={() => setIsReportModalOpen(true)}
-                    onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
-                    onOpenCashbook={() => setIsCashbookModalOpen(true)}
-                    highDueLimit={store.highDueLimit}
-                    onQuickTagada={(e, c) => {
-                      e.stopPropagation();
-                      setTagadaCustomer(c);
-                      setIsTagadaModalOpen(true);
-                    }}
-                  />
-                )}
-
-                {activeTab === 'pos' && (
-                  <PosSalesView
-                    customers={customers}
-                    products={products}
-                    store={store}
-                    onCompleteSale={handleCompletePosSale}
-                    onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
-                    onOpenScanner={() => handleOpenScanner('pos')}
-                    onOpenPaymentQr={(amt) => handleOpenPaymentQr(amt)}
-                    onOpenSms={(phone, msg, name) =>
-                      handleOpenSms({ phone, message: msg, customerName: name })
-                    }
-                    onOpenInvoiceModal={(data) => {
-                      const finalCustomerBal =
-                        data.customerBalanceAfter !== undefined
-                          ? data.customerBalanceAfter
-                          : (data.prevBalance || 0) + data.dueAmount;
-
-                      setInvoiceTx({
-                        id: `tx_${Date.now()}`,
-                        customerId: data.customerId || 'pos_instant',
-                        type: 'sale',
-                        amount: data.netAmount,
-                        description: 'পিওএস বিক্রয়',
-                        subtotal: data.totalAmount,
-                        discount: data.discount,
-                        netAmount: data.netAmount,
-                        paidAmount: data.paidAmount,
-                        dueAmount: data.dueAmount,
-                        prevBalance: data.prevBalance || 0,
-                        date: data.date,
-                        time: data.time,
-                        balanceAfter: finalCustomerBal,
-                        createdAt: Date.now(),
-                        items: data.items,
-                        receiptNo: data.receiptNo,
-                        paymentMethod: data.paymentMethod,
-                      });
-                      setInvoiceCustomer({
-                        id: data.customerId || 'pos_instant',
-                        name: data.customerName,
-                        phone: data.customerPhone,
-                        address: data.customerAddress,
-                        balance: finalCustomerBal,
-                        category: 'retail',
-                        createdAt: Date.now(),
-                        updatedAt: Date.now(),
-                      });
-                      setIsInvoiceModalOpen(true);
-                    }}
-                    onShowToast={showToast}
-                  />
-                )}
-
-                {activeTab === 'inventory' && (
-                  <InventoryView
-                    products={products}
-                    store={store}
-                    onAddProduct={handleAddProduct}
-                    onUpdateProduct={handleUpdateProduct}
-                    onDeleteProduct={handleDeleteProduct}
-                    onOpenScanner={() => handleOpenScanner('inventory')}
-                    onOpenQrGenerator={() => setIsQrModalOpen(true)}
-                    onOpenProductQr={(p) => handleOpenProductQr(p)}
-                    onShowToast={showToast}
-                  />
-                )}
-              </main>
-            )}
-
-            {/* Bottom Navigation Bar */}
-            <BottomNav
-              activeTab={activeTab}
-              onTabChange={(tab) => {
-                setActiveCustomerId(null);
-                if (tab === 'support') {
-                  setIsSupportModalOpen(true);
-                } else if (tab === 'cashbook') {
-                  setIsCashbookModalOpen(true);
-                } else {
-                  setActiveTab(tab);
-                }
-              }}
-              customerDueCount={customers.filter((c) => Number(c.balance || 0) > 0).length}
-              lowStockCount={products.filter((p) => Number(p.stock || 0) <= Number(p.minStock || 5)).length}
-              unreadSupportCount={unreadSupportRepliesCount}
-              onOpenSupport={() => setIsSupportModalOpen(true)}
-            />
+            </div>
           </>
         )}
       </div>
@@ -1741,9 +1814,10 @@ export const App: React.FC = () => {
         mode={scannerMode}
         onProductScanned={handleProductScanned}
         onAddNewProductWithSku={(sku) => {
+          setInitialSkuForInventory(sku);
           setActiveTab('inventory');
           setIsScannerModalOpen(false);
-          showToast(`নতুন পণ্যের জন্য SKU '${sku}' তৈরি হয়েছে। পণ্য তালিকায় যুক্ত করুন।`);
+          showToast(`নতুন পণ্যের জন্য SKU '${sku}' সেট করা হয়েছে। বিবরণ লিখে সেভ করুন।`);
         }}
         onShowToast={showToast}
       />

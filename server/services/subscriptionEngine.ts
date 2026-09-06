@@ -45,12 +45,14 @@ export class SubscriptionEngine {
     subscriptionPlan: string;
     subscriptionStatus: string;
     totalApprovedDays: number;
+    isSubscriptionSystemEnabled?: boolean;
   }> {
     const pool = getDbPool();
     const now = Date.now();
 
     // Fetch dynamic trial configuration
     let isTrialEnabled = true;
+    let isSubscriptionSystemEnabled = true;
     let trialDays = 14;
     let defaultTrialPlanName = 'ফ্রি ট্রায়াল (১৪ দিন)';
 
@@ -59,12 +61,15 @@ export class SubscriptionEngine {
         const cfgRes = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings' LIMIT 1");
         if (cfgRes.rows.length > 0 && cfgRes.rows[0].data) {
           const cfg = typeof cfgRes.rows[0].data === 'string' ? JSON.parse(cfgRes.rows[0].data) : cfgRes.rows[0].data;
-          if (cfg?.trialConfig) {
-            isTrialEnabled = cfg.trialConfig.isTrialEnabled !== false;
-            trialDays = isTrialEnabled ? (parseInt(cfg.trialConfig.trialDays, 10) || 14) : 0;
-            defaultTrialPlanName = isTrialEnabled
-              ? (cfg.trialConfig.trialPlanName || `ফ্রি ট্রায়াল (${trialDays} দিন)`)
-              : 'ফ্রি একাউন্ট (সাবস্ক্রিপশন প্রয়োজন)';
+          if (cfg) {
+            isSubscriptionSystemEnabled = cfg.isSubscriptionSystemEnabled !== false;
+            if (cfg.trialConfig) {
+              isTrialEnabled = cfg.trialConfig.isTrialEnabled !== false;
+              trialDays = isTrialEnabled ? (parseInt(cfg.trialConfig.trialDays, 10) || 14) : 0;
+              defaultTrialPlanName = isTrialEnabled
+                ? (cfg.trialConfig.trialPlanName || `ফ্রি ট্রায়াল (${trialDays} দিন)`)
+                : 'ফ্রি একাউন্ট (সাবস্ক্রিপশন প্রয়োজন)';
+            }
           }
         }
       } catch (e) {
@@ -77,20 +82,22 @@ export class SubscriptionEngine {
       );
       if (uRes.rows.length === 0) {
         return {
-          subscriptionExpiresAt: isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000),
-          subscriptionPlan: defaultTrialPlanName,
-          subscriptionStatus: isTrialEnabled ? 'trial' : 'expired',
-          totalApprovedDays: 0,
+          subscriptionExpiresAt: isSubscriptionSystemEnabled ? (isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000)) : (now + 3650 * 86400000),
+          subscriptionPlan: isSubscriptionSystemEnabled ? defaultTrialPlanName : 'সম্পূর্ণ ফ্রি ও উন্মুক্ত',
+          subscriptionStatus: isSubscriptionSystemEnabled ? (isTrialEnabled ? 'trial' : 'expired') : 'active',
+          totalApprovedDays: isSubscriptionSystemEnabled ? 0 : 3650,
+          isSubscriptionSystemEnabled,
         };
       }
 
       const u = uRes.rows[0];
-      if (u.role === 'super_admin') {
+      if (u.role === 'super_admin' || !isSubscriptionSystemEnabled) {
         return {
           subscriptionExpiresAt: now + 3650 * 86400000,
-          subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
+          subscriptionPlan: u.role === 'super_admin' ? 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)' : 'সম্পূর্ণ ফ্রি ও উন্মুক্ত',
           subscriptionStatus: 'active',
           totalApprovedDays: 3650,
+          isSubscriptionSystemEnabled,
         };
       }
 
@@ -142,13 +149,18 @@ export class SubscriptionEngine {
 
       // Respect admin manual assignment if it set a higher expiry or custom plan
       const existingUserExpiry = Number(u.subscription_expires_at) || 0;
-      const finalExpiry = Math.max(currentChainExpiry, existingUserExpiry);
-      if (u.subscription_plan && !u.subscription_plan.includes('ট্রায়াল') && (!latestPlanName || latestPlanName === defaultTrialPlanName)) {
+      const isExplicitlyResetOrExpired = (u.subscription_status === 'expired' || u.subscription_plan === 'Free' || u.subscription_plan === 'রিসেট / বন্ধ');
+      
+      let finalExpiry = Math.max(currentChainExpiry, existingUserExpiry);
+      if (isExplicitlyResetOrExpired && totalApprovedDays === 0) {
+        finalExpiry = existingUserExpiry > 0 && existingUserExpiry < now ? existingUserExpiry : (now - 1000);
+        latestPlanName = 'ফ্রি (সাবস্ক্রিপশন প্রয়োজন)';
+      } else if (u.subscription_plan && !u.subscription_plan.includes('ট্রায়াল') && (!latestPlanName || latestPlanName === defaultTrialPlanName)) {
         latestPlanName = u.subscription_plan;
       }
 
       const isExpired = finalExpiry < now;
-      const isTrial = totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
+      const isTrial = !isExplicitlyResetOrExpired && totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
       const computedStatus = isExpired
         ? 'expired'
         : (isTrial ? (isTrialEnabled ? 'trial' : 'expired') : 'active');
@@ -175,34 +187,41 @@ export class SubscriptionEngine {
         subscriptionPlan: latestPlanName,
         subscriptionStatus: computedStatus,
         totalApprovedDays,
+        isSubscriptionSystemEnabled,
       };
     } else {
       // In-memory fallback
-      if (inMemoryStore.system_config['system_payment_settings']?.trialConfig) {
-        const cfg = inMemoryStore.system_config['system_payment_settings'].trialConfig;
-        isTrialEnabled = cfg.isTrialEnabled !== false;
-        trialDays = isTrialEnabled ? (parseInt(cfg.trialDays, 10) || 14) : 0;
-        defaultTrialPlanName = isTrialEnabled
-          ? (cfg.trialPlanName || `ফ্রি ট্রায়াল (${trialDays} দিন)`)
-          : 'ফ্রি একাউন্ট (সাবস্ক্রিপশন প্রয়োজন)';
+      if (inMemoryStore.system_config['system_payment_settings']) {
+        const sysCfg = inMemoryStore.system_config['system_payment_settings'];
+        isSubscriptionSystemEnabled = sysCfg.isSubscriptionSystemEnabled !== false;
+        if (sysCfg.trialConfig) {
+          const cfg = sysCfg.trialConfig;
+          isTrialEnabled = cfg.isTrialEnabled !== false;
+          trialDays = isTrialEnabled ? (parseInt(cfg.trialDays, 10) || 14) : 0;
+          defaultTrialPlanName = isTrialEnabled
+            ? (cfg.trialPlanName || `ফ্রি ট্রায়াল (${trialDays} দিন)`)
+            : 'ফ্রি একাউন্ট (সাবস্ক্রিপশন প্রয়োজন)';
+        }
       }
 
       const u = inMemoryStore.users.find(x => x.id === userId);
       if (!u) {
         return {
-          subscriptionExpiresAt: isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000),
-          subscriptionPlan: defaultTrialPlanName,
-          subscriptionStatus: isTrialEnabled ? 'trial' : 'expired',
-          totalApprovedDays: 0,
+          subscriptionExpiresAt: isSubscriptionSystemEnabled ? (isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000)) : (now + 3650 * 86400000),
+          subscriptionPlan: isSubscriptionSystemEnabled ? defaultTrialPlanName : 'সম্পূর্ণ ফ্রি ও উন্মুক্ত',
+          subscriptionStatus: isSubscriptionSystemEnabled ? (isTrialEnabled ? 'trial' : 'expired') : 'active',
+          totalApprovedDays: isSubscriptionSystemEnabled ? 0 : 3650,
+          isSubscriptionSystemEnabled,
         };
       }
 
-      if (u.role === 'super_admin') {
+      if (u.role === 'super_admin' || !isSubscriptionSystemEnabled) {
         return {
           subscriptionExpiresAt: now + 3650 * 86400000,
-          subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
+          subscriptionPlan: u.role === 'super_admin' ? 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)' : 'সম্পূর্ণ ফ্রি ও উন্মুক্ত',
           subscriptionStatus: 'active',
           totalApprovedDays: 3650,
+          isSubscriptionSystemEnabled,
         };
       }
 
@@ -248,14 +267,21 @@ export class SubscriptionEngine {
       }
 
       const existingUserExpiry = Number(u.subscriptionExpiresAt || u.subscription_expires_at) || 0;
-      const finalExpiry = Math.max(currentChainExpiry, existingUserExpiry);
-      const existingPlan = u.subscriptionPlan || u.subscription_plan;
-      if (existingPlan && !existingPlan.includes('ট্রায়াল') && (!latestPlanName || latestPlanName === defaultTrialPlanName)) {
-        latestPlanName = existingPlan;
+      const isExplicitlyResetOrExpired = (u.subscriptionStatus === 'expired' || u.subscription_status === 'expired' || u.subscriptionPlan === 'Free' || u.subscription_plan === 'Free' || u.subscriptionPlan === 'রিসেট / বন্ধ' || u.subscription_plan === 'রিসেট / বন্ধ');
+      
+      let finalExpiry = Math.max(currentChainExpiry, existingUserExpiry);
+      if (isExplicitlyResetOrExpired && totalApprovedDays === 0) {
+        finalExpiry = existingUserExpiry > 0 && existingUserExpiry < now ? existingUserExpiry : (now - 1000);
+        latestPlanName = 'ফ্রি (সাবস্ক্রিপশন প্রয়োজন)';
+      } else {
+        const existingPlan = u.subscriptionPlan || u.subscription_plan;
+        if (existingPlan && !existingPlan.includes('ট্রায়াল') && (!latestPlanName || latestPlanName === defaultTrialPlanName)) {
+          latestPlanName = existingPlan;
+        }
       }
 
       const isExpired = finalExpiry < now;
-      const isTrial = totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
+      const isTrial = !isExplicitlyResetOrExpired && totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
       const computedStatus = isExpired
         ? 'expired'
         : (isTrial ? (isTrialEnabled ? 'trial' : 'expired') : 'active');
@@ -272,6 +298,7 @@ export class SubscriptionEngine {
         subscriptionPlan: latestPlanName,
         subscriptionStatus: computedStatus,
         totalApprovedDays,
+        isSubscriptionSystemEnabled,
       };
     }
   }

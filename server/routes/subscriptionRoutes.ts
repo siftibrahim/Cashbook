@@ -4,6 +4,7 @@ import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { DEFAULT_PLANS } from '../../src/services/adminService';
 import { PaymentGatewayManager } from '../services/paymentProviders';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
+import { PaymentlyService } from '../services/paymentlyService';
 
 const router = Router();
 
@@ -45,18 +46,19 @@ router.get('/plans', async (req, res) => {
 router.get('/payment-settings', async (req, res) => {
   try {
     const pool = getDbPool();
+    let rawSettings: any = null;
+
     if (pool) {
       const result = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings'");
       if (result.rows.length > 0 && result.rows[0].data) {
-        const settings = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
-        return res.json({ settings });
+        rawSettings = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
       }
     } else if (inMemoryStore.system_config['system_payment_settings']) {
-      return res.json({ settings: inMemoryStore.system_config['system_payment_settings'] });
+      rawSettings = inMemoryStore.system_config['system_payment_settings'];
     }
 
-    return res.json({
-      settings: {
+    if (!rawSettings) {
+      rawSettings = {
         id: 'system_payment_settings',
         trialConfig: { isTrialEnabled: true, trialDays: 14, trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)' },
         bonusConfig: { isBonusEnabled: true, bonusDays: 7, bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)', bonusDescription: 'যেকোনো প্যাকেজ রিনিউ বা সাবস্ক্রিপশন নিলে সাথে আরও ৭ দিন বোনাস মেয়াদ যুক্ত হবে।' },
@@ -67,8 +69,25 @@ router.get('/payment-settings', async (req, res) => {
         bankTransfer: { isEnabled: true, accounts: [] },
         gateways: [],
         customPlans: DEFAULT_PLANS,
+      };
+    }
+
+    const plConfig = await PaymentlyService.getConfig();
+
+    const sanitizedSettings = {
+      ...rawSettings,
+      paymently: {
+        isEnabled: plConfig.isEnabled,
+        baseUrl: plConfig.baseUrl,
+        isConfigured: !!plConfig.apiKey,
+        isSandbox: plConfig.isSandbox,
+        apiKeyMasked: plConfig.apiKey
+          ? `${plConfig.apiKey.substring(0, 4)}••••••••${plConfig.apiKey.substring(plConfig.apiKey.length - 4)}`
+          : undefined,
       },
-    });
+    };
+
+    return res.json({ settings: sanitizedSettings });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -383,6 +402,200 @@ router.get('/my-payments', authenticateUser, async (req: AuthenticatedRequest, r
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+/**
+ * ---------------- PAYMENTLY PAYMENT GATEWAY ROUTES ----------------
+ */
+
+/**
+ * 1. POST /api/subscription/paymently/checkout (Authenticated)
+ * Initiates Paymently Checkout session for chosen subscription package
+ */
+router.post('/paymently/checkout', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'ব্যবহারকারী অনুমোদিত নয়' });
+    }
+
+    const { planId } = req.body;
+    if (!planId) {
+      return res.status(400).json({ error: 'সাবস্ক্রিপশন প্ল্যান আইডি প্রদান করুন' });
+    }
+
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
+    const appBaseUrl = `${protocol}://${host}`;
+
+    const checkout = await PaymentlyService.createCheckout({
+      planId,
+      userId,
+      userEmail: req.user?.email,
+      userName: req.user?.name,
+      userPhone: req.user?.phone,
+      shopName: req.user?.shopName,
+      appBaseUrl,
+    });
+
+    return res.json(checkout);
+  } catch (err: any) {
+    console.error('Paymently Checkout Error:', err);
+    return res.status(400).json({ error: err.message || 'পেমেন্ট সেশন তৈরিতে ত্রুটি হয়েছে' });
+  }
+});
+
+/**
+ * 2. GET & POST /api/subscription/paymently/callback
+ * Redirect handler after customer finishes payment on Paymently checkout
+ */
+const handlePaymentlyCallback = async (req: any, res: Response) => {
+  try {
+    const invoiceId = (req.query.invoice_id || req.query.invoiceId || req.body?.invoice_id || '') as string;
+    const paymentId = (req.query.payment_id || req.query.paymentId || req.body?.payment_id || '') as string;
+    const statusParam = (req.query.status || req.body?.status || '') as string;
+
+    if (statusParam.toLowerCase() === 'cancelled') {
+      return res.redirect(`/?payment_status=cancelled&payment_id=${encodeURIComponent(paymentId)}`);
+    }
+
+    if (!invoiceId) {
+      return res.redirect(`/?payment_status=failed&message=${encodeURIComponent('পেমেন্ট ইনভয়েস আইডি পাওয়া যায়নি')}`);
+    }
+
+    // Step 7 & 8: Verify with Paymently Verify API before activating subscription!
+    const verifyResult = await PaymentlyService.verifyAndActivatePayment(invoiceId, {
+      expectedPaymentId: paymentId,
+    });
+
+    if (verifyResult.success && verifyResult.status === 'approved') {
+      const trx = verifyResult.trxId || invoiceId;
+      const amount = verifyResult.amount || '';
+      const plan = encodeURIComponent(verifyResult.planName || 'প্রো প্যাকেজ');
+      return res.redirect(
+        `/?payment_status=success&invoice_id=${encodeURIComponent(invoiceId)}&trx_id=${encodeURIComponent(trx)}&amount=${amount}&plan=${plan}`
+      );
+    } else if (verifyResult.status === 'pending') {
+      return res.redirect(
+        `/?payment_status=pending&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}`
+      );
+    } else {
+      return res.redirect(
+        `/?payment_status=failed&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}`
+      );
+    }
+  } catch (err: any) {
+    console.error('Paymently Callback Processing Error:', err);
+    return res.redirect(
+      `/?payment_status=failed&message=${encodeURIComponent(err.message || 'পেমেন্ট যাচাইকরণে ত্রুটি হয়েছে')}`
+    );
+  }
+};
+
+router.get('/paymently/callback', handlePaymentlyCallback);
+router.post('/paymently/callback', handlePaymentlyCallback);
+
+/**
+ * 3. POST /api/subscription/paymently/verify (Authenticated)
+ * Manual or programmatic verify endpoint
+ */
+router.post('/paymently/verify', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { invoiceId, paymentId } = req.body;
+    if (!invoiceId) {
+      return res.status(400).json({ error: 'Invoice ID প্রদান করুন' });
+    }
+
+    const result = await PaymentlyService.verifyAndActivatePayment(invoiceId, {
+      expectedPaymentId: paymentId,
+      expectedUserId: req.user?.userId,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'যাচাইকরণে সমস্যা হয়েছে' });
+  }
+});
+
+/**
+ * 4. POST /api/subscription/paymently/webhook
+ * Automated background instant IPN / Webhook from Paymently
+ */
+router.post('/paymently/webhook', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    console.log('[PAYMENTLY WEBHOOK] Incoming IPN notification:', payload);
+
+    const invoiceId = payload.invoice_id || payload.invoiceId || payload.order_id;
+    if (!invoiceId) {
+      return res.status(400).json({ error: 'Missing invoice_id in webhook' });
+    }
+
+    const result = await PaymentlyService.verifyAndActivatePayment(invoiceId, {
+      expectedPaymentId: payload.metadata?.payment_id,
+      expectedUserId: payload.metadata?.user_id,
+    });
+
+    return res.json({ success: true, result });
+  } catch (err: any) {
+    console.error('[PAYMENTLY WEBHOOK ERROR]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 5. GET /api/subscription/paymently/sandbox-checkout
+ * Developer & Sandbox simulation UI for testing Paymently integration
+ */
+router.get('/paymently/sandbox-checkout', (req, res) => {
+  const { payment_id, amount, plan_name } = req.query;
+  const simInvoiceId = 'SIM_INV_' + Date.now();
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
+  const appBaseUrl = `${protocol}://${host}`;
+
+  const successUrl = `${appBaseUrl}/api/subscription/paymently/callback?invoice_id=${simInvoiceId}&payment_id=${encodeURIComponent(String(payment_id || ''))}`;
+  const cancelUrl = `${appBaseUrl}/api/subscription/paymently/callback?status=cancelled&payment_id=${encodeURIComponent(String(payment_id || ''))}`;
+
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="bn">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Paymently Sandbox Gateway - TWING Hisabi</title>
+      <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
+        .card { background: #1e293b; border: 1px solid #334155; border-radius: 24px; padding: 32px; max-width: 440px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); text-align: center; }
+        .badge { display: inline-block; background: #0d9488; color: white; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+        h2 { margin: 0 0 8px; font-size: 22px; color: #fff; }
+        p { color: #94a3b8; font-size: 14px; margin: 0 0 24px; line-height: 1.5; }
+        .details { background: #0f172a; border-radius: 16px; padding: 16px; margin-bottom: 24px; text-align: left; font-size: 13px; }
+        .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #1e293b; }
+        .row:last-child { border: none; font-weight: bold; font-size: 15px; color: #38bdf8; }
+        .btn-success { display: block; width: 100%; background: #0d9488; color: white; border: none; padding: 14px; border-radius: 14px; font-size: 14px; font-weight: bold; cursor: pointer; text-decoration: none; margin-bottom: 10px; box-sizing: border-box; }
+        .btn-cancel { display: block; width: 100%; background: #334155; color: #cbd5e1; border: none; padding: 12px; border-radius: 14px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; box-sizing: border-box; }
+        .btn-success:hover { background: #0f766e; }
+        .btn-cancel:hover { background: #475569; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <span class="badge">Paymently Gateway Sandbox</span>
+        <h2>পেমেন্ট সম্পন্ন করুন</h2>
+        <p>এটি একটি নিরাপদ টেস্ট স্যান্ডবক্স পরিবেশ। এখানে কোনো আসল অর্থ চার্জ হবে না।</p>
+        <div class="details">
+          <div class="row"><span>প্যাকেজ:</span> <span>${plan_name || 'সাবস্ক্রিপশন'}</span></div>
+          <div class="row"><span>রেফারেন্স:</span> <span>${payment_id || 'pay_test'}</span></div>
+          <div class="row"><span>সিমুলেটেড ইনভয়েস:</span> <span style="font-family:monospace;font-size:11px;">${simInvoiceId}</span></div>
+          <div class="row"><span>মোট পরিশোধযোগ্য:</span> <span>৳${amount || 99}</span></div>
+        </div>
+        <a href="${successUrl}" class="btn-success">✅ সফল পেমেন্ট সম্পন্ন করুন (Simulate Success)</a>
+        <a href="${cancelUrl}" class="btn-cancel">❌ পেমেন্ট বাতিল করুন (Simulate Cancel)</a>
+      </div>
+    </body>
+    </html>
+  `);
 });
 
 /**

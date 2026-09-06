@@ -236,6 +236,12 @@ export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
       notes: 'ভিসা, মাস্টারকার্ড, এমেক্স ও সকল ব্যাংকিং চ্যানেল সাপোর্ট।',
     },
   ],
+  paymently: {
+    isEnabled: true,
+    baseUrl: 'https://twinghisabi.paymently.io/api',
+    isConfigured: true,
+    isSandbox: false,
+  },
   customPlans: DEFAULT_PLANS,
   updatedAt: Date.now(),
   updatedBy: 'admin@twing.com',
