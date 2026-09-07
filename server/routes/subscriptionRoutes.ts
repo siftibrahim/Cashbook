@@ -456,11 +456,34 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
     const statusParam = (req.query.status || req.body?.status || '') as string;
 
     if (statusParam.toLowerCase() === 'cancelled') {
+      if (paymentId) {
+        const pool = getDbPool();
+        if (pool) {
+          await pool.query(
+            "UPDATE payments SET status = 'cancelled', admin_notes = 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন' WHERE id = $1 AND status IN ('initiated', 'pending')",
+            [paymentId]
+          );
+        } else {
+          const p = inMemoryStore.payments.find((x) => x.id === paymentId);
+          if (p && (p.status === 'initiated' || p.status === 'pending')) {
+            p.status = 'cancelled';
+          }
+        }
+      }
       return res.redirect(`/?payment_status=cancelled&payment_id=${encodeURIComponent(paymentId)}`);
     }
 
     if (!invoiceId) {
-      return res.redirect(`/?payment_status=failed&message=${encodeURIComponent('পেমেন্ট ইনভয়েস আইডি পাওয়া যায়নি')}`);
+      if (paymentId) {
+        const pool = getDbPool();
+        if (pool) {
+          await pool.query(
+            "UPDATE payments SET status = 'cancelled', admin_notes = 'পেমেন্ট ইনভয়েস ছাড়া সেশন সমাপ্ত / বাতিল' WHERE id = $1 AND status IN ('initiated', 'pending')",
+            [paymentId]
+          );
+        }
+      }
+      return res.redirect(`/?payment_status=cancelled&message=${encodeURIComponent('পেমেন্ট সেশন সম্পন্ন করা হয়নি')}`);
     }
 
     // Step 7 & 8: Verify with Paymently Verify API before activating subscription!
@@ -518,6 +541,93 @@ router.post('/paymently/verify', authenticateUser, async (req: AuthenticatedRequ
 });
 
 /**
+ * 3b. GET /api/subscription/paymently/status/:paymentId (Authenticated)
+ * Poll status of an initiated payment
+ */
+router.get('/paymently/status/:paymentId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const paymentId = req.params.paymentId;
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+
+    let payment: any = null;
+    if (pool) {
+      const q = await pool.query('SELECT * FROM payments WHERE id = $1', [paymentId]);
+      if (q.rows.length > 0) {
+        payment = q.rows[0];
+      }
+    } else {
+      payment = inMemoryStore.payments.find((p) => p.id === paymentId);
+    }
+
+    if (!payment) {
+      return res.status(404).json({ error: 'পেমেন্ট রেকর্ড পাওয়া যায়নি' });
+    }
+
+    const userStatus = await SubscriptionEngine.getUserStatus(userId!);
+
+    return res.json({
+      success: true,
+      paymentId: payment.id,
+      status: payment.status,
+      planName: payment.plan_name || payment.planName,
+      amount: payment.amount,
+      trxId: payment.trx_id || payment.trxId,
+      isSubscribed: !userStatus.isExpired,
+      subscriptionStatus: userStatus.subscriptionStatus,
+      subscriptionExpiresAt: userStatus.subscriptionExpiresAt,
+      daysRemaining: userStatus.daysRemaining,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 3c. POST /api/subscription/paymently/cancel (Authenticated)
+ * User actively cancels or closes an uncompleted gateway checkout session
+ */
+router.post('/paymently/cancel', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { paymentId } = req.body || {};
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'অননুমোদিত অ্যাক্সেস' });
+    }
+
+    const pool = getDbPool();
+    if (pool) {
+      if (paymentId) {
+        await pool.query(
+          "UPDATE payments SET status = 'cancelled', admin_notes = 'গ্রাহক পেমেন্ট সেশন বাতিল করেছেন' WHERE id = $1 AND user_id = $2 AND status IN ('initiated', 'pending')",
+          [paymentId, userId]
+        );
+      } else {
+        await pool.query(
+          "UPDATE payments SET status = 'cancelled', admin_notes = 'গ্রাহক পেমেন্ট সেশন বাতিল করেছেন' WHERE user_id = $1 AND (status = 'initiated' OR (status = 'pending' AND (payment_mode = 'automated_gateway' OR trx_id LIKE 'PL_INIT_%')))",
+          [userId]
+        );
+      }
+    } else {
+      (inMemoryStore.payments || []).forEach((p) => {
+        if (
+          p.userId === userId &&
+          (p.id === paymentId || p.status === 'initiated' || (p.status === 'pending' && (p.paymentMode === 'automated_gateway' || String(p.trxId || '').startsWith('PL_INIT_'))))
+        ) {
+          p.status = 'cancelled';
+        }
+      });
+    }
+
+    // Return fresh user status
+    const status = await SubscriptionEngine.getUserStatus(userId);
+    return res.json({ success: true, message: 'পেমেন্ট সেশন সফলভাবে বাতিল করা হয়েছে', status });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'পেমেন্ট সেশন বাতিল করা যায়নি' });
+  }
+});
+
+/**
  * 4. POST /api/subscription/paymently/webhook
  * Automated background instant IPN / Webhook from Paymently
  */
@@ -544,15 +654,31 @@ router.post('/paymently/webhook', async (req, res) => {
 });
 
 /**
- * 5. GET /api/subscription/paymently/sandbox-checkout
+ * 5. POST /api/subscription/paymently/test-connection (Authenticated)
+ * Admin connection tester for Paymently gateway
+ */
+router.post('/paymently/test-connection', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { baseUrl, apiKey } = req.body || {};
+    const result = await PaymentlyService.testConnection({ baseUrl, apiKey });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * 6. GET /api/subscription/paymently/sandbox-checkout
  * Developer & Sandbox simulation UI for testing Paymently integration
  */
 router.get('/paymently/sandbox-checkout', (req, res) => {
-  const { payment_id, amount, plan_name } = req.query;
+  const { payment_id, amount, plan_name, notice, warning } = req.query;
   const simInvoiceId = 'SIM_INV_' + Date.now();
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
   const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
   const appBaseUrl = `${protocol}://${host}`;
+
+  const hasKeyWarning = notice === 'invalid_api_key' || warning === 'invalid_key';
 
   const successUrl = `${appBaseUrl}/api/subscription/paymently/callback?invoice_id=${simInvoiceId}&payment_id=${encodeURIComponent(String(payment_id || ''))}`;
   const cancelUrl = `${appBaseUrl}/api/subscription/paymently/callback?status=cancelled&payment_id=${encodeURIComponent(String(payment_id || ''))}`;
@@ -568,6 +694,7 @@ router.get('/paymently/sandbox-checkout', (req, res) => {
         body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
         .card { background: #1e293b; border: 1px solid #334155; border-radius: 24px; padding: 32px; max-width: 440px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); text-align: center; }
         .badge { display: inline-block; background: #0d9488; color: white; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+        .warn-banner { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: 12px; font-size: 12px; color: #fbbf24; text-align: left; margin-bottom: 18px; line-height: 1.5; }
         h2 { margin: 0 0 8px; font-size: 22px; color: #fff; }
         p { color: #94a3b8; font-size: 14px; margin: 0 0 24px; line-height: 1.5; }
         .details { background: #0f172a; border-radius: 16px; padding: 16px; margin-bottom: 24px; text-align: left; font-size: 13px; }
@@ -582,6 +709,13 @@ router.get('/paymently/sandbox-checkout', (req, res) => {
     <body>
       <div class="card">
         <span class="badge">Paymently Gateway Sandbox</span>
+        ${
+          hasKeyWarning
+            ? `<div class="warn-banner">
+                ⚠️ <strong>দৃষ্টি আকর্ষণ:</strong> লাইভ Paymently API Key অকার্যকর (Invalid/expired) বা সেট করা নেই। ইউজার ফ্লো সচল রাখতে এটি টেস্ট স্যান্ডবক্স মোডে ওপেন হয়েছে। লাইভ করতে সুপার অ্যাডমিন প্যানেল থেকে সঠিক API Key দিন।
+               </div>`
+            : ''
+        }
         <h2>পেমেন্ট সম্পন্ন করুন</h2>
         <p>এটি একটি নিরাপদ টেস্ট স্যান্ডবক্স পরিবেশ। এখানে কোনো আসল অর্থ চার্জ হবে না।</p>
         <div class="details">
@@ -590,7 +724,7 @@ router.get('/paymently/sandbox-checkout', (req, res) => {
           <div class="row"><span>সিমুলেটেড ইনভয়েস:</span> <span style="font-family:monospace;font-size:11px;">${simInvoiceId}</span></div>
           <div class="row"><span>মোট পরিশোধযোগ্য:</span> <span>৳${amount || 99}</span></div>
         </div>
-        <a href="${successUrl}" class="btn-success">✅ সফল পেমেন্ট সম্পন্ন করুন (Simulate Success)</a>
+        <a href="${successUrl}" class="btn-success">✅ সফল টেস্ট পেমেন্ট সম্পন্ন করুন (Simulate Success)</a>
         <a href="${cancelUrl}" class="btn-cancel">❌ পেমেন্ট বাতিল করুন (Simulate Cancel)</a>
       </div>
     </body>

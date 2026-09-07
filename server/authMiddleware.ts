@@ -7,6 +7,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'twing_pos_super_secure_jwt_secret_
 export interface AuthUserPayload {
   userId: string;
   email: string;
+  phone?: string;
   name?: string;
   role: 'super_admin' | 'admin' | 'manager' | 'user' | 'staff';
   shopName?: string;

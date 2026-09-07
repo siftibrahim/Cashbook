@@ -8,6 +8,7 @@ import {
   BonusConfig,
 } from '../../types/adminTypes';
 import { DEFAULT_PLANS } from '../../services/adminService';
+import { subscriptionApi } from '../../services/apiService';
 import {
   Smartphone,
   Building2,
@@ -39,6 +40,9 @@ import {
   ArrowRight,
   Info,
   Tag,
+  Copy,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface PaymentSettingsTabProps {
@@ -107,8 +111,62 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
         notes: 'সহজ মার্চেন্ট ইন্টিগ্রেশন ও ইনস্ট্যান্ট নোটিফিকেশন।',
       },
     ],
+    paymently: settings.paymently || {
+      isEnabled: true,
+      baseUrl: 'https://twinghisabi.paymently.io/api',
+      apiKey: '',
+      isConfigured: false,
+      isSandbox: false,
+    },
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [showPaymentlyKey, setShowPaymentlyKey] = useState(false);
+
+  const handleUpdatePaymently = (field: string, value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      paymently: {
+        ...(prev.paymently || {
+          isEnabled: true,
+          baseUrl: 'https://twinghisabi.paymently.io/api',
+          apiKey: '',
+          isConfigured: false,
+          isSandbox: false,
+        }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const [isTestingPaymently, setIsTestingPaymently] = useState(false);
+  const [paymentlyTestResult, setPaymentlyTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleTestPaymentlyConnection = async () => {
+    setIsTestingPaymently(true);
+    setPaymentlyTestResult(null);
+    try {
+      const res = await subscriptionApi.testPaymentlyConnection({
+        baseUrl: formData.paymently?.baseUrl,
+        apiKey: formData.paymently?.apiKey,
+      });
+      setPaymentlyTestResult({
+        success: res.success,
+        message: res.message,
+      });
+      if (res.success) {
+        onShowToast('✅ Paymently কানেকশন সফল!');
+      } else {
+        onShowToast(res.message);
+      }
+    } catch (err: any) {
+      setPaymentlyTestResult({
+        success: false,
+        message: err.message || 'কানেকশন পরীক্ষা করার সময় সমস্যা হয়েছে',
+      });
+    } finally {
+      setIsTestingPaymently(false);
+    }
+  };
 
   // New Custom Gateway State
   const [showAddGatewayModal, setShowAddGatewayModal] = useState(false);
@@ -1385,6 +1443,198 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
               <Plus className="w-3.5 h-3.5" />
               <span>নতুন কাস্টম গেটওয়ে যোগ করুন</span>
             </button>
+          </div>
+
+          {/* OFFICIAL PAYMENTLY GATEWAY INTEGRATION CARD */}
+          <div className="p-6 rounded-3xl bg-gradient-to-br from-[#0B1528] via-[#0E1A33] to-[#0A1120] border-2 border-teal-500/50 shadow-2xl shadow-teal-950/30 space-y-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-teal-500/20 text-teal-400 border border-teal-500/40 flex items-center justify-center font-black shadow-lg">
+                  <Zap className="w-6 h-6 text-teal-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h3 className="text-base font-black text-white">
+                      UddoktaPay / Paymently Gateway (অফিসিয়াল অনলাইন পেমেন্ট গেটওয়ে)
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-teal-500 text-slate-950">
+                      Primary Gateway
+                    </span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                      formData.paymently?.isEnabled !== false
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                    }`}>
+                      {formData.paymently?.isEnabled !== false ? '🟢 সক্রিয় (Active)' : '🔴 নিষ্ক্রিয় (Inactive)'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-1">
+                    বিকাশ, নগদ, রকেট, ভিসা/মাস্টারকার্ড ও ইন্টারনেট ব্যাংকিং দিয়ে স্বয়ংক্রিয় অনলাইন পেমেন্ট ও ইনস্ট্যান্ট সাবস্ক্রিপশন অ্যাক্টিভেশন
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                <label className="flex items-center gap-2 cursor-pointer bg-slate-900 px-3.5 py-2 rounded-xl border border-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={formData.paymently?.isEnabled !== false}
+                    onChange={(e) => handleUpdatePaymently('isEnabled', e.target.checked)}
+                    className="w-4 h-4 accent-teal-500 rounded cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-slate-300">গেটওয়ে চালু রাখুন</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">
+                  Paymently Base URL
+                </label>
+                <input
+                  type="text"
+                  value={formData.paymently?.baseUrl || 'https://twinghisabi.paymently.io/api'}
+                  onChange={(e) => handleUpdatePaymently('baseUrl', e.target.value)}
+                  placeholder="https://twinghisabi.paymently.io/api"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-teal-500 font-mono"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  আপনার Paymently পোর্টালের API Endpoint URL
+                </span>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-300">
+                    Paymently API Key
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowPaymentlyKey(!showPaymentlyKey)}
+                    className="text-[11px] font-bold text-teal-400 hover:text-teal-300 flex items-center gap-1 cursor-pointer"
+                  >
+                    {showPaymentlyKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    <span>{showPaymentlyKey ? 'লুকান' : 'দেখুন'}</span>
+                  </button>
+                </div>
+                <input
+                  type={showPaymentlyKey ? 'text' : 'password'}
+                  value={formData.paymently?.apiKey || ''}
+                  onChange={(e) => handleUpdatePaymently('apiKey', e.target.value)}
+                  placeholder={formData.paymently?.apiKeyMasked || 'Paymently API Key লিখুন...'}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-teal-500 font-mono"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Paymently ড্যাশবোর্ড থেকে প্রাপ্ত API Key (অথবা PAYMENTLY_API_KEY env ভেরিয়েবল)
+                </span>
+
+                {/* Connection Test Action */}
+                <button
+                  type="button"
+                  onClick={handleTestPaymentlyConnection}
+                  disabled={isTestingPaymently}
+                  className="mt-2.5 w-full py-2 px-3 rounded-xl bg-teal-950/80 hover:bg-teal-900 border border-teal-500/40 text-teal-300 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
+                >
+                  {isTestingPaymently ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+                      <span>API Key যাচাই হচ্ছে...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5 text-teal-400" />
+                      <span>API Key কানেকশন টেস্ট করুন</span>
+                    </>
+                  )}
+                </button>
+
+                {paymentlyTestResult && (
+                  <div
+                    className={`mt-2 p-2.5 rounded-xl text-xs flex items-start gap-2 ${
+                      paymentlyTestResult.success
+                        ? 'bg-emerald-950/70 border border-emerald-500/50 text-emerald-300'
+                        : 'bg-rose-950/70 border border-rose-500/50 text-rose-300'
+                    }`}
+                  >
+                    {paymentlyTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                    )}
+                    <span className="leading-snug">{paymentlyTestResult.message}</span>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">
+                  পরিবেশ (Environment)
+                </label>
+                <select
+                  value={formData.paymently?.isSandbox ? 'sandbox' : 'live'}
+                  onChange={(e) => handleUpdatePaymently('isSandbox', e.target.value === 'sandbox')}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-teal-500 cursor-pointer"
+                >
+                  <option value="live">🟢 Live Production Mode (আসল পেমেন্ট)</option>
+                  <option value="sandbox">🧪 Sandbox Test Mode (টেস্ট মোড)</option>
+                </select>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  স্যান্ডবক্স মোডে টেস্ট পেমেন্ট দিয়ে পুরো ফ্লো পরীক্ষা করতে পারবেন
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                <div>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[11px] font-bold text-slate-300">Webhook / IPN URL</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `${window.location.origin}/api/subscription/paymently/webhook`;
+                        navigator.clipboard.writeText(url);
+                        onShowToast('📋 Webhook URL কপি করা হয়েছে!');
+                      }}
+                      className="text-[10px] font-bold text-teal-400 hover:text-teal-300 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>কপি করুন</span>
+                    </button>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-[11px] font-mono text-slate-400 truncate">
+                    {typeof window !== 'undefined' ? `${window.location.origin}/api/subscription/paymently/webhook` : '/api/subscription/paymently/webhook'}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[11px] font-bold text-slate-300">Callback / Redirect URL</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `${window.location.origin}/api/subscription/paymently/callback`;
+                        navigator.clipboard.writeText(url);
+                        onShowToast('📋 Callback URL কপি করা হয়েছে!');
+                      }}
+                      className="text-[10px] font-bold text-teal-400 hover:text-teal-300 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>কপি করুন</span>
+                    </button>
+                  </div>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-[11px] font-mono text-slate-400 truncate">
+                    {typeof window !== 'undefined' ? `${window.location.origin}/api/subscription/paymently/callback` : '/api/subscription/paymently/callback'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-teal-950/40 border border-teal-500/20 rounded-2xl text-xs text-teal-200/90 flex items-center gap-2.5">
+              <Info className="w-4 h-4 text-teal-400 shrink-0" />
+              <span>
+                পেমেন্ট সম্পন্ন হওয়ার পর গ্রাহক স্বয়ংক্রিয়ভাবে Callback URL এ ফিরে আসবে এবং ব্যাকগ্রাউন্ডে Paymently Verify API দিয়ে স্ট্যাটাস নিশ্চিত হয়ে তাৎক্ষণিক সাবস্ক্রিপশন সক্রিয় হবে।
+              </span>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

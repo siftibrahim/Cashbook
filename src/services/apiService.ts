@@ -1038,6 +1038,45 @@ export const subscriptionApi = {
       body: JSON.stringify({ invoiceId, paymentId }),
     });
   },
+
+  async checkPaymentStatus(paymentId: string): Promise<{
+    success: boolean;
+    paymentId: string;
+    status: 'approved' | 'pending' | 'failed' | 'cancelled';
+    planName?: string;
+    amount?: number;
+    trxId?: string;
+    isSubscribed?: boolean;
+    subscriptionExpiresAt?: number;
+    daysRemaining?: number;
+  }> {
+    return await apiRequest(`/subscription/paymently/status/${encodeURIComponent(paymentId)}`, {
+      method: 'GET',
+    });
+  },
+
+  async cancelPaymentlySession(paymentId?: string): Promise<{
+    success: boolean;
+    message?: string;
+    status?: any;
+  }> {
+    return await apiRequest('/subscription/paymently/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ paymentId }),
+    });
+  },
+
+  async testPaymentlyConnection(payload?: { baseUrl?: string; apiKey?: string }): Promise<{
+    success: boolean;
+    statusCode?: number;
+    message: string;
+    details?: any;
+  }> {
+    return await apiRequest('/subscription/paymently/test-connection', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    });
+  },
 };
 
 // ---------------- SUPPORT API ----------------

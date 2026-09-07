@@ -68,11 +68,17 @@ self.addEventListener('fetch', (event) => {
           });
           return networkResponse;
         })
-        .catch(() => {
+        .catch(async () => {
           // If offline and requesting navigation, fallback to root
           if (event.request.mode === 'navigate') {
-            return caches.match('/index.html') || caches.match('/');
+            const fallback = await caches.match('/index.html') || await caches.match('/');
+            if (fallback) return fallback;
           }
+          return new Response('Network unavailable', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: new Headers({ 'Content-Type': 'text/plain' })
+          });
         });
     })
   );

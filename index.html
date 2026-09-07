@@ -3,12 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
-    <title>TWING হিসাবি — কাস্টমার খাতা ও হিসাব</title>
-    <meta name="description" content="TWING হিসাবি - আধুনিক ডিজিটাল কাস্টমার বাকি, দেনা-পাওনা ও দোকান হিসাব খাতা" />
+    <title>TWING হিসাবি</title>
+    <meta name="description" content="TWING হিসাবি - আধুনিক কাস্টমার বাকি, দেনা-পাওনা ও পিওএস দোকান হিসাব খাতা সফটওয়্যার।" />
+    <meta property="og:title" content="TWING হিসাবি" />
+    <meta property="og:description" content="TWING হিসাবি - আধুনিক কাস্টমার বাকি, দেনা-পাওনা ও পিওএস দোকান হিসাব খাতা সফটওয়্যার।" />
     <meta name="theme-color" content="#004D40" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="application-name" content="TWING হিসাবি" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="alternate icon" href="/favicon.ico" />
     <link rel="manifest" href="/manifest.json" />
 
     <!-- Google Fonts: Hind Siliguri for Bengali -->
@@ -82,15 +86,18 @@
       }
     </style>
     <script>
-      // Gracefully prevent ResizeObserver benign notifications and empty error events
+      // Gracefully prevent ResizeObserver benign notifications and empty/null error events
       window.addEventListener('error', function (e) {
-        if (!e || !e.message || e.message === 'Script error.' || (typeof e.message === 'string' && e.message.includes('ResizeObserver'))) {
-          e.stopImmediatePropagation();
+        if (!e || !e.message || e.message === '' || e.message === 'Script error.' || (typeof e.message === 'string' && (e.message.includes('ResizeObserver') || e.message.includes('Refused to display')))) {
+          if (e.preventDefault) e.preventDefault();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          return true;
         }
-      });
+      }, true);
       window.addEventListener('unhandledrejection', function (e) {
-        if (!e || !e.reason) {
-          e.stopImmediatePropagation();
+        if (!e || !e.reason || !e.reason.message) {
+          if (e.preventDefault) e.preventDefault();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
         }
       });
     </script>

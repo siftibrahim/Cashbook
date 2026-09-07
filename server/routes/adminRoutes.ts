@@ -16,6 +16,7 @@ import {
 } from '../services/smsService';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { DEFAULT_SMS_PACKAGES, getDynamicSmsPackages } from './smsRoutes';
+import { DEFAULT_PAYMENTLY_CONFIG, normalizePaymentlyKey } from '../services/paymentlyService';
 
 const router = Router();
 
@@ -591,14 +592,17 @@ router.get('/payment-settings', async (req: AuthenticatedRequest, res: Response)
     }
 
     const envApiKey = process.env.PAYMENTLY_API_KEY || process.env.PAYMENTLY_KEY || '';
-    const envBaseUrl = process.env.PAYMENTLY_BASE_URL || 'https://twinghisabi.paymently.io/api';
+    const envBaseUrl = process.env.PAYMENTLY_BASE_URL || DEFAULT_PAYMENTLY_CONFIG.baseUrl;
+
+    const rawKey = settings.paymently?.apiKey || envApiKey || DEFAULT_PAYMENTLY_CONFIG.apiKey;
+    const finalApiKey = normalizePaymentlyKey(rawKey);
 
     const mergedPaymently = {
       isEnabled: settings.paymently?.isEnabled !== undefined ? !!settings.paymently.isEnabled : true,
       baseUrl: settings.paymently?.baseUrl || envBaseUrl,
-      apiKey: settings.paymently?.apiKey || envApiKey,
-      isSandbox: !!settings.paymently?.isSandbox,
-      isConfigured: !!(settings.paymently?.apiKey || envApiKey),
+      apiKey: finalApiKey,
+      isSandbox: settings.paymently?.isSandbox !== undefined ? !!settings.paymently.isSandbox : false,
+      isConfigured: true,
     };
 
     return res.json({
@@ -615,6 +619,14 @@ router.get('/payment-settings', async (req: AuthenticatedRequest, res: Response)
 router.put('/payment-settings', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const settings = req.body;
+    if (settings.paymently) {
+      if (settings.paymently.apiKey) {
+        settings.paymently.apiKey = normalizePaymentlyKey(settings.paymently.apiKey);
+      }
+      if (!settings.paymently.baseUrl) {
+        settings.paymently.baseUrl = DEFAULT_PAYMENTLY_CONFIG.baseUrl;
+      }
+    }
     const now = Date.now();
     const pool = getDbPool();
 

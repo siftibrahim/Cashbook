@@ -33,6 +33,9 @@ import {
   RotateCcw,
   Timer,
   AlertTriangle,
+  Zap,
+  ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 import { formatMoney } from '../utils/storage';
 import { StoreProfile } from '../types';
@@ -79,6 +82,17 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
 
   // Real-time payment settings synced from Admin
   const [settings, setSettings] = useState<SystemPaymentSettings>(INITIAL_PAYMENT_SETTINGS);
+  const [isInitiatingPaymently, setIsInitiatingPaymently] = useState<boolean>(false);
+  const [activePaymentlySession, setActivePaymentlySession] = useState<{
+    paymentUrl: string;
+    paymentId: string;
+    planId: string;
+    planName: string;
+    amount: number;
+  } | null>(null);
+  const [isCheckingPaymentStatus, setIsCheckingPaymentStatus] = useState<boolean>(false);
+  const [manualInvoiceInput, setManualInvoiceInput] = useState<string>('');
+  const [isVerifyingInvoiceInput, setIsVerifyingInvoiceInput] = useState<boolean>(false);
   
   // My Payment History
   const [myPayments, setMyPayments] = useState<PaymentRecord[]>([]);
@@ -181,6 +195,31 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
     }
   }, [isOpen]);
 
+  // Auto-polling for active Paymently session
+  useEffect(() => {
+    if (!activePaymentlySession?.paymentId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await subscriptionApi.checkPaymentStatus(activePaymentlySession.paymentId);
+        if (res.status === 'approved' || res.isSubscribed) {
+          clearInterval(interval);
+          onShowToast('🎉 পেমেন্ট সফল হয়েছে! আপনার সাবস্ক্রিপশন সফলভাবে সক্রিয় করা হয়েছে।');
+          setActivePaymentlySession(null);
+          setStep('success');
+          loadHistory();
+          setTimeout(() => {
+            window.location.reload();
+          }, 1500);
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [activePaymentlySession]);
+
   if (!isOpen) return null;
 
   const handleCopy = (text: string, label: string) => {
@@ -246,6 +285,102 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
       onShowToast(`❌ ${err.message || 'পেমেন্ট জমাদানে সমস্যা হয়েছে'}`);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleInitiatePaymently = async () => {
+    setIsInitiatingPaymently(true);
+    try {
+      const res = await subscriptionApi.createPaymentlyCheckout(selectedPlan.id);
+      if (res.success && res.paymentUrl) {
+        const session = {
+          paymentUrl: res.paymentUrl,
+          paymentId: res.paymentId,
+          planId: selectedPlan.id,
+          planName: selectedPlan.nameBn || selectedPlan.name,
+          amount: selectedPlan.price,
+        };
+        setActivePaymentlySession(session);
+
+        // Attempt to open in new tab/window safely (avoids iframe blocking)
+        try {
+          const opened = window.open(res.paymentUrl, '_blank', 'noopener,noreferrer');
+          if (opened) {
+            onShowToast('🚀 নতুন উইন্ডোতে UddoktaPay পেমেন্ট পেজ খোলা হয়েছে...');
+          } else {
+            onShowToast('👉 পেমেন্ট উইন্ডো প্রস্তুত। নিচে "পেমেন্ট পেজে যান" বাটনে ট্যাপ করুন।');
+          }
+        } catch {
+          onShowToast('👉 পেমেন্ট উইন্ডো প্রস্তুত। নিচে "পেমেন্ট পেজে যান" বাটনে ট্যাপ করুন।');
+        }
+      } else {
+        throw new Error('পেমেন্ট লিংক পাওয়া যায়নি');
+      }
+    } catch (err: any) {
+      console.error(err);
+      onShowToast(`❌ ${err.message || 'অনলাইন পেমেন্ট সেশন তৈরিতে সমস্যা হয়েছে'}`);
+    } finally {
+      setIsInitiatingPaymently(false);
+    }
+  };
+
+  const handleCancelPaymentlySession = async () => {
+    if (activePaymentlySession?.paymentId) {
+      try {
+        await subscriptionApi.cancelPaymentlySession(activePaymentlySession.paymentId);
+      } catch (err) {
+        console.warn('Failed to cancel payment session:', err);
+      }
+    }
+    setActivePaymentlySession(null);
+    onShowToast('ℹ️ অনলাইন পেমেন্ট সেশন বাতিল করা হয়েছে');
+    fetchMySubscriptionStatus();
+  };
+
+  const handleManualStatusCheck = async (paymentId: string) => {
+    setIsCheckingPaymentStatus(true);
+    try {
+      const res = await subscriptionApi.checkPaymentStatus(paymentId);
+      if (res.status === 'approved' || res.isSubscribed) {
+        onShowToast('🎉 পেমেন্ট সফলভাবে ভেরিফাইড হয়েছে! সাবস্ক্রিপশন সক্রিয় করা হয়েছে।');
+        setActivePaymentlySession(null);
+        setStep('success');
+        loadHistory();
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else if (res.status === 'pending') {
+        onShowToast('⏳ পেমেন্ট এখনো প্রসেসিং আছে। বিকাশ/নগদে পেমেন্ট সম্পন্ন করলে কয়েক সেকেন্ড অপেক্ষা করুন।');
+      } else if (res.status === 'failed') {
+        onShowToast('❌ গেটওয়েতে পেমেন্ট সম্পন্ন হয়নি বা বাতিল হয়েছে।');
+      }
+    } catch (err: any) {
+      onShowToast(`❌ ${err.message || 'স্ট্যাটাস যাচাইয়ে সমস্যা হয়েছে'}`);
+    } finally {
+      setIsCheckingPaymentStatus(false);
+    }
+  };
+
+  const handleManualInvoiceVerify = async () => {
+    if (!manualInvoiceInput.trim() || !activePaymentlySession) return;
+    setIsVerifyingInvoiceInput(true);
+    try {
+      const res = await subscriptionApi.verifyPaymentlyPayment(manualInvoiceInput.trim(), activePaymentlySession.paymentId);
+      if (res.success && res.status === 'approved') {
+        onShowToast(`🎉 ভেরিফিকেশন সফল! ${res.planName || ''} সাবস্ক্রিপশন সক্রিয় হয়েছে।`);
+        setActivePaymentlySession(null);
+        setStep('success');
+        loadHistory();
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        onShowToast(`⚠️ ${res.message || 'ইনভয়েস ভেরিফাই করা যায়নি।'}`);
+      }
+    } catch (err: any) {
+      onShowToast(`❌ ${err.message || 'ভেরিফিকেশনে ত্রুটি হয়েছে'}`);
+    } finally {
+      setIsVerifyingInvoiceInput(false);
     }
   };
 
@@ -724,8 +859,156 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
                     </button>
                   </div>
 
+                  {/* Option 1: Automated Paymently Gateway (Instant Activation) */}
+                  {settings.paymently?.isEnabled !== false && (
+                    <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-teal-900 via-slate-900 to-slate-950 text-white border-2 border-teal-500/40 shadow-xl space-y-3.5">
+                      {activePaymentlySession ? (
+                        <div className="space-y-3.5">
+                          <div className="flex items-center justify-between border-b border-teal-500/20 pb-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-xl bg-teal-400 text-slate-950 flex items-center justify-center font-black">
+                                <Zap className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <h5 className="text-sm font-black text-white">UddoktaPay নিরাপদ পেমেন্ট সেশন সক্রিয়</h5>
+                                <p className="text-[11px] text-teal-300">প্যাকেজ: {activePaymentlySession.planName} (৳{formatMoney(activePaymentlySession.amount)})</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={handleCancelPaymentlySession}
+                                className="text-[11px] text-rose-300 hover:text-rose-100 px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 cursor-pointer transition font-medium"
+                              >
+                                বাতিল করুন
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleCancelPaymentlySession}
+                                className="text-[11px] text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer transition"
+                              >
+                                পরিবর্তন
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Direct Action Link (100% immune to iframe restriction) */}
+                          <div className="space-y-2">
+                            <a
+                              href={activePaymentlySession.paymentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => onShowToast('🚀 নতুন উইন্ডোতে UddoktaPay পেমেন্ট পেজ খোলা হচ্ছে...')}
+                              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-teal-400 via-teal-500 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-teal-500/25 flex items-center justify-center gap-2 cursor-pointer transition transform active:scale-98"
+                            >
+                              <ExternalLink className="w-4 h-4 shrink-0" />
+                              <span>👉 বিকাশ / নগদ / রকেট দিয়ে পেমেন্ট করুন</span>
+                            </a>
+                            <p className="text-[11px] text-teal-200/80 text-center leading-relaxed">
+                              (নিরাপত্তার স্বার্থে গেটওয়ে নতুন ট্যাবে খোলে। বিকাশ বা নগদে পেমেন্ট সম্পন্ন করলে এই পেজটি স্বয়ংক্রিয়ভাবে একটিভ হয়ে যাবে)
+                            </p>
+                          </div>
+
+                          {/* Status Polling Indicator */}
+                          <div className="p-3 bg-teal-500/10 border border-teal-500/30 rounded-2xl flex items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2 text-teal-300">
+                              <div className="w-2.5 h-2.5 rounded-full bg-teal-400 animate-ping" />
+                              <span className="font-semibold text-[11px]">পেমেন্ট স্ট্যাটাস স্বয়ংক্রিয় চেক হচ্ছে...</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleManualStatusCheck(activePaymentlySession.paymentId)}
+                              disabled={isCheckingPaymentStatus}
+                              className="px-3 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${isCheckingPaymentStatus ? 'animate-spin' : ''}`} />
+                              <span>{isCheckingPaymentStatus ? 'চেক হচ্ছে...' : 'যাচাই করুন'}</span>
+                            </button>
+                          </div>
+
+                          {/* Optional Invoice Verification */}
+                          <div className="pt-1 border-t border-teal-500/10">
+                            <div className="text-[11px] text-slate-400 mb-1.5">
+                              পেমেন্ট করার পর কোনো Invoice ID পেলে তা লিখে যাচাই করতে পারেন (ঐচ্ছিক):
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={manualInvoiceInput}
+                                onChange={(e) => setManualInvoiceInput(e.target.value)}
+                                placeholder="যেমন: 2iuWqvd... বা ইনভয়েস নম্বর"
+                                className="flex-1 bg-slate-950/80 border border-teal-500/30 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-teal-400"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleManualInvoiceVerify}
+                                disabled={!manualInvoiceInput.trim() || isVerifyingInvoiceInput}
+                                className="px-3.5 py-2 rounded-xl bg-teal-600/30 hover:bg-teal-600/50 text-teal-200 border border-teal-500/40 font-bold text-xs transition cursor-pointer disabled:opacity-50"
+                              >
+                                {isVerifyingInvoiceInput ? 'যাচাই হচ্ছে...' : 'ইনভয়েস ভেরিফাই'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center font-black">
+                                <Zap className="w-5 h-5 text-teal-400" />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h5 className="text-sm font-black text-white">UddoktaPay / Paymently অনলাইন গেটওয়ে</h5>
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-teal-500 text-slate-950">
+                                    তাৎক্ষণিক সক্রিয় (Instant)
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-teal-200/80">
+                                  বিকাশ, নগদ, রকেট, ডেবিট/ক্রেডিট কার্ড ও ইন্টারনেট ব্যাংকিং দিয়ে সাথে সাথে পেমেন্ট
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] text-slate-300">
+                            <span className="bg-white/10 px-2 py-0.5 rounded-md font-semibold">⚡ স্বয়ংক্রিয় অ্যাক্টিভেশন</span>
+                            <span className="bg-white/10 px-2 py-0.5 rounded-md font-semibold">🔒 নিরাপদ ও এনক্রিপ্টেড</span>
+                            <span className="bg-white/10 px-2 py-0.5 rounded-md font-semibold">❌ ম্যানুয়াল ভেরিফিকেশনের অপেক্ষা নেই</span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleInitiatePaymently}
+                            disabled={isInitiatingPaymently}
+                            className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-black text-xs sm:text-sm shadow-lg shadow-teal-500/25 flex items-center justify-center gap-2 cursor-pointer transition active:scale-98 disabled:opacity-50"
+                          >
+                            {isInitiatingPaymently ? (
+                              <>
+                                <div className="w-4 h-4 border-2 border-slate-950/40 border-t-slate-950 rounded-full animate-spin" />
+                                <span>অনলাইন গেটওয়ে লোড হচ্ছে...</span>
+                              </>
+                            ) : (
+                              <>
+                                <span>অনলাইনে এখনই পরিশোধ করুন (বিকাশ / নগদ / কার্ড) - ৳{formatMoney(selectedPlan.price)}</span>
+                                <ArrowRight className="w-4 h-4" />
+                              </>
+                            )}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="relative flex items-center justify-center my-2">
+                    <div className="border-t border-slate-200 w-full" />
+                    <span className="bg-white px-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
+                      অথবা ম্যানুয়াল ট্রানজেকশন (MFS / ব্যাংক)
+                    </span>
+                  </div>
+
                   <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    পেমেন্ট মেথড বেছে নিন:
+                    ম্যানুয়াল পেমেন্ট মেথড বেছে নিন:
                   </h4>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

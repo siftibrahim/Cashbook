@@ -239,6 +239,7 @@ export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
   paymently: {
     isEnabled: true,
     baseUrl: 'https://twinghisabi.paymently.io/api',
+    apiKey: 'r5y3NpBqR9NOlVf8qUmaQm3VaO6GtzkvpQlrr0iC',
     isConfigured: true,
     isSandbox: false,
   },

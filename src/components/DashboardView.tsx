@@ -26,7 +26,9 @@ import {
   Calendar,
   AlertCircle,
   Zap,
+  X,
 } from 'lucide-react';
+import { subscriptionApi } from '../services/apiService';
 
 interface DashboardViewProps {
   customers: Customer[];
@@ -173,7 +175,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Subscription Plan & Status Banner (Only when Subscription System is Enabled) */}
       {isSubscriptionSystemEnabled && onOpenSubscription && (
         <>
-          {pendingPaymentInfo?.hasPending ? (
+          {pendingPaymentInfo?.hasPending &&
+          pendingPaymentInfo.record?.paymentMode !== 'automated_gateway' &&
+          !pendingPaymentInfo.record?.trxId?.startsWith('PL_INIT_') ? (
             /* CASE A: PENDING PAYMENT VERIFICATION BANNER */
             <section className="bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 border-2 border-amber-400/70 rounded-3xl p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-start sm:items-center gap-3.5">
@@ -199,7 +203,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
+              <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0 flex-wrap">
                 {onRefreshSubscriptionStatus && (
                   <button
                     type="button"
@@ -211,6 +215,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <span className="hidden sm:inline">রিফ্রেশ</span>
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await subscriptionApi.cancelPaymentlySession(pendingPaymentInfo.record?.id);
+                      if (onRefreshSubscriptionStatus) onRefreshSubscriptionStatus();
+                    } catch (e) {
+                      console.warn('Failed to cancel pending request', e);
+                    }
+                  }}
+                  title="এই পেমেন্ট রিকোয়েস্ট বাতিল করুন"
+                  className="px-3.5 py-2.5 rounded-2xl bg-rose-100 hover:bg-rose-200 text-rose-800 text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4 text-rose-700" />
+                  <span>বাতিল করুন</span>
+                </button>
                 <button
                   type="button"
                   onClick={onOpenSubscription}

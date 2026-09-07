@@ -249,6 +249,7 @@ export const PaymentManagementTab: React.FC<PaymentManagementTabProps> = ({
             <option value="upay">উপায় (Upay)</option>
             <option value="bank">ব্যাংক (Bank)</option>
             <option value="cash">নগদ ক্যাশ (Cash)</option>
+            <option value="paymently">পেমেন্টলি (Paymently)</option>
           </select>
 
           {/* Payment Settings Button */}
@@ -348,8 +349,20 @@ export const PaymentManagementTab: React.FC<PaymentManagementTabProps> = ({
                       TrxID: <span className="font-bold">{payment.trxId}</span>
                     </span>
                     <span className="capitalize font-semibold text-slate-300">
-                      মেথড: <span className="text-white uppercase">{payment.paymentMethod}</span>
+                      মেথড:{' '}
+                      {payment.paymentMethod === 'paymently' ? (
+                        <span className="px-1.5 py-0.5 rounded-md bg-teal-500/20 text-teal-300 font-bold border border-teal-500/30 text-[10px] tracking-wide">
+                          ⚡ PAYMENTLY ONLINE
+                        </span>
+                      ) : (
+                        <span className="text-white uppercase">{payment.paymentMethod}</span>
+                      )}
                     </span>
+                    {payment.invoiceId && (
+                      <span className="font-mono bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-800 text-teal-300 text-[11px]">
+                        Invoice: <span className="font-bold">{payment.invoiceId}</span>
+                      </span>
+                    )}
                     <span className="text-slate-400 font-mono">
                       প্রেরক: {payment.senderPhone || payment.senderNumber}
                     </span>

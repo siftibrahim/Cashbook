@@ -360,9 +360,16 @@ export class SubscriptionEngine {
     let hasPendingPayment = false;
 
     if (pool) {
-      // Check for pending payments strictly for this user
+      // Check for pending manual payments strictly for this user (Super Admin verification queue)
+      // NOTE: Automated gateway checkouts (Paymently/UddoktaPay) are verified automatically via API/Webhook.
+      // Uncompleted or initiated automated sessions must NEVER be displayed as pending manual submissions.
       const pRes = await pool.query(
-        "SELECT * FROM payments WHERE user_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+        `SELECT * FROM payments 
+         WHERE user_id = $1 
+           AND status = 'pending' 
+           AND (payment_mode IS NULL OR payment_mode != 'automated_gateway') 
+           AND (trx_id IS NULL OR trx_id NOT LIKE 'PL_INIT_%')
+         ORDER BY created_at DESC LIMIT 1`,
         [userId]
       );
       if (pRes.rows.length > 0) {
@@ -385,7 +392,13 @@ export class SubscriptionEngine {
         };
       }
     } else {
-      const p = (inMemoryStore.payments || []).find(x => x.userId === userId && x.status === 'pending');
+      const p = (inMemoryStore.payments || []).find(
+        (x) =>
+          x.userId === userId &&
+          x.status === 'pending' &&
+          x.paymentMode !== 'automated_gateway' &&
+          !String(x.trxId || '').startsWith('PL_INIT_')
+      );
       if (p) {
         hasPendingPayment = true;
         pendingPayment = p;

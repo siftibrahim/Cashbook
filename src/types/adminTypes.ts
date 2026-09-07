@@ -147,6 +147,7 @@ export interface PaymentRecord {
   paymentMethod: AdminPaymentMethod;
   paymentMode?: PaymentMode;
   trxId: string;
+  invoiceId?: string;
   senderNumber: string;
   bankDetails?: {
     bankName?: string;

@@ -434,6 +434,41 @@ export const App: React.FC = () => {
     checkAuth();
   }, []);
 
+  // Listen for Paymently callback URL parameters on return
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const paymentStatus = params.get('payment_status');
+      if (paymentStatus) {
+        const invoiceId = params.get('invoice_id');
+        const trxId = params.get('trx_id');
+        const amount = params.get('amount');
+        const plan = params.get('plan');
+        const message = params.get('message');
+
+        if (paymentStatus === 'success') {
+          showToast(
+            `🎉 পেমেন্ট সফল হয়েছে! আপনার ${plan || 'সাবস্ক্রিপশন'} প্যাকেজ (৳${amount || ''}) সফলভাবে সক্রিয় করা হয়েছে। TrxID: ${trxId || invoiceId}`
+          );
+          const currentUser = getStoredUser();
+          if (currentUser?.id) {
+            loadUserAccountData(currentUser.id);
+          }
+        } else if (paymentStatus === 'pending') {
+          showToast(`⏳ ${message || 'পেমেন্ট প্রসেসিং হচ্ছে। অনুমোদিত হলে স্বয়ংক্রিয়ভাবে সক্রিয় হবে।'}`);
+        } else if (paymentStatus === 'cancelled') {
+          showToast('⚠️ পেমেন্ট বাতিল করা হয়েছে। আপনি যেকোনো সময় পুনরায় চেষ্টা করতে পারেন।');
+        } else if (paymentStatus === 'failed') {
+          showToast(`❌ ${message || 'পেমেন্ট সম্পন্ন হয়নি বা ব্যর্থ হয়েছে।'}`);
+        }
+
+        // Clean query parameters from address bar without reloading
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    }
+  }, []);
+
   // Save to LocalStorage as instant local cache
   useEffect(() => {
     saveCustomers(customers);
