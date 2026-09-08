@@ -30,6 +30,7 @@ import {
   recordFailedLoginAttempt,
   clearLoginAttempts,
 } from '../services/securityService';
+import { PWAInstallButton } from './pwa/PWAInstallButton';
 
 interface AuthScreenProps {
   store: StoreProfile;
@@ -1289,6 +1290,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               )}
             </div>
           )}
+
+          {/* PWA Install Button for Home Screen */}
+          <div className="mt-5 pt-4 border-t border-slate-800/80">
+            <PWAInstallButton variant="auth" />
+          </div>
         </div>
       </div>
     </div>

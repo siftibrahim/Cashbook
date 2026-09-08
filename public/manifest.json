@@ -1,31 +1,63 @@
 {
-  "name": "TWING হিসাবি — কাস্টমার খাতা ও হিসাব",
+  "id": "/",
+  "name": "TWING হিসাবি — ডিজিটাল ক্যাশ ও বাকির খাতা",
   "short_name": "TWING হিসাবি",
-  "description": "TWING হিসাবি - আধুনিক অফলাইন-ফার্স্ট কাস্টমার বাকি, দেনা-পাওনা ও পিওএস খাতা সফটওয়্যার",
+  "description": "TWING হিসাবি - আধুনিক অফলাইন-ফার্স্ট কাস্টমার বাকি, দেনা-পাওনা ও পিওএস খাতা সফটওয়্যার।",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#002820",
-  "theme_color": "#004D40",
+  "theme_color": "#033b31",
   "lang": "bn",
+  "dir": "ltr",
+  "categories": ["business", "finance", "productivity"],
   "icons": [
-    {
-      "src": "/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "কাস্টমার খাতা",
+      "short_name": "খাতা",
+      "description": "কাস্টমারদের বাকি ও জমা হিসাব দেখুন",
+      "url": "/?tab=customers",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "ক্যাশ হিসাব",
+      "short_name": "ক্যাশ",
+      "description": "দৈনিক ক্যাশ ও দোকান খরচ হিসাব",
+      "url": "/?tab=dashboard",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

@@ -111,13 +111,13 @@ export const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>(loadProducts);
 
   // Active Bottom Tab State
-  const [activeTab, setActiveTab] = useState<NavTab>('customers');
+  const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
 
   // Authentication State: Mandatory Auth Gatekeeper
-  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(false);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
   const [userRole, setUserRole] = useState<string>(() => {
-    return localStorage.getItem('ibrahim_user_role') || 'প্রধান অ্যাডমিন: ইব্রাহিম';
+    return localStorage.getItem('ibrahim_user_role') || 'দোকান মালিক: ইব্রাহিম';
   });
   const [adminSession, setAdminSession] = useState<AdminSession | null>(null);
 
@@ -411,25 +411,22 @@ export const App: React.FC = () => {
           setIsAdminPanelOpen(false);
         }
       } else {
-        setIsLoggedIn(false);
-        localStorage.removeItem('ibrahim_is_logged_in');
-        localStorage.removeItem('ibrahim_user_role');
+        // Fallback default store session so the app always opens immediately to the dashboard
+        const defaultOwnerUser = {
+          id: 'usr_ibrahim_owner',
+          name: 'Md Ibrahim',
+          shopName: 'Ibrahim store',
+          phone: '01306908115',
+          role: 'user',
+        };
+        setStoredUser(defaultOwnerUser);
+        setIsLoggedIn(true);
+        localStorage.setItem('ibrahim_is_logged_in', 'true');
+        setUserRole('দোকান মালিক: ইব্রাহিম');
         setAdminSession(null);
         setIsAdminPanelOpen(false);
       }
       setIsAuthChecking(false);
-
-      // When user is logged in, check if permissions need to be prompted on dashboard
-      const isAlreadyLogged = Boolean(localStorage.getItem('ibrahim_is_logged_in') === 'true' || getAuthToken());
-      if (isAlreadyLogged) {
-        const hasAcceptedPermissions = localStorage.getItem('twing_permissions_accepted_v2');
-        if (!hasAcceptedPermissions) {
-          setTimeout(() => {
-            setIsFirstInstallPrompt(true);
-            setIsPermissionsModalOpen(true);
-          }, 500);
-        }
-      }
     };
     checkAuth();
   }, []);
@@ -1446,7 +1443,7 @@ export const App: React.FC = () => {
               ) : (
                 <main
                   id="main-scroll-container"
-                  className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-50/70 p-3 sm:p-4 flex flex-col gap-3 sm:gap-4 smooth-scroll-container pb-3 sm:pb-4"
+                  className="flex-1 min-h-0 bg-[#eef8f5] flex flex-col smooth-scroll-container overflow-y-auto overscroll-contain p-2.5 sm:p-3.5 gap-2.5 sm:gap-3.5 pb-2.5 sm:pb-3.5"
                 >
                   {activeTab === 'dashboard' && (
                     <DashboardView
@@ -1470,6 +1467,9 @@ export const App: React.FC = () => {
                       onOpenReport={() => setIsReportModalOpen(true)}
                       onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
                       onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+                      onOpenSettings={() => setIsSettingsModalOpen(true)}
+                      expenses={expenses}
+                      products={products}
                       onOpenSms={() => handleOpenSms()}
                       smsBalance={userSmsBalance}
                       pendingSmsPurchaseInfo={pendingSmsPurchaseInfo}

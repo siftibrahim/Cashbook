@@ -102,6 +102,7 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(() => {
+          // If offline and request is an image, fallback to icon if available
           if (event.request.destination === 'image') {
             return caches.match('/icon-192.png');
           }

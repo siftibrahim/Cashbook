@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   ShieldCheck,
   Menu,
+  MoreVertical,
   X,
   ChevronRight,
   Database,
@@ -24,6 +25,7 @@ import {
   SyncStatus,
   getCurrentSyncStatus,
 } from '../services/offlineSyncService';
+import { PWAInstallButton } from './pwa/PWAInstallButton';
 
 interface NavbarProps {
   store: StoreProfile;
@@ -76,7 +78,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     <>
       <header
         id="main-app-header"
-        className="sticky top-0 left-0 right-0 z-40 w-full bg-gradient-to-r from-[#002820] via-[#004D40] to-[#00382E] text-white px-3 sm:px-5 py-2.5 sm:py-3 min-h-[58px] sm:min-h-[64px] flex items-center justify-between shadow-md shrink-0 no-print border-b border-teal-500/40 select-none"
+        className="sticky top-0 left-0 right-0 z-40 w-full bg-[#033b31] text-white px-3 sm:px-5 py-2.5 sm:py-3 min-h-[58px] sm:min-h-[64px] flex items-center justify-between shadow-md shrink-0 no-print border-b border-[#0a5245] select-none"
         style={{
           paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))',
         }}
@@ -84,8 +86,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Left: Store Branding with Icon & Info */}
         <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 pr-2">
           {/* Store Avatar Badge */}
-          <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-teal-400/30 to-teal-700/50 border border-teal-300/40 flex items-center justify-center text-teal-100 shrink-0 shadow-md ring-1 ring-white/20">
-            <Store className="w-5 h-5 sm:w-6 sm:h-6 text-teal-200" />
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#0d594b] border border-[#146b5b] flex items-center justify-center text-[#8ce0cb] shrink-0 shadow-sm">
+            <Store className="w-5 h-5 sm:w-6 sm:h-6 text-[#8ce0cb]" />
           </div>
 
           {/* Store Name & Info */}
@@ -93,75 +95,56 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Row 1: Store Name + Dynamic Online/Offline Status */}
             <div className="flex items-center gap-2 min-w-0">
               <h1 className="text-sm sm:text-base font-black tracking-tight leading-tight text-white truncate drop-shadow-xs max-w-[130px] xs:max-w-[200px] sm:max-w-[340px]">
-                {store.name || 'TWING হিসাবি'}
+                {store.name || 'Ibrahim store'}
               </h1>
 
-              {/* Offline-First Status Pill */}
+              {/* Online / Offline Status Icon Button (Text removed) */}
               <button
                 type="button"
                 onClick={handleManualSyncClick}
                 id="nav-online-status-pill"
                 title={
                   syncStatus.isSyncing
-                    ? 'ক্লাউডে সিঙ্ক হচ্ছে...'
-                    : !syncStatus.isOnline
-                    ? 'অফলাইন মোড'
-                    : 'অনলাইন ও ক্লাউড সুরক্ষিত'
+                    ? 'ক্লাউড সিঙ্ক হচ্ছে...'
+                    : syncStatus.isOnline
+                    ? 'অনলাইন (ইন্টারনেট সক্রিয়)'
+                    : 'অফলাইন (ইন্টারনেট সংযোগ নেই)'
                 }
-                className={`inline-flex items-center gap-1 text-[10px] font-bold shrink-0 px-2 py-0.5 rounded-full border shadow-xs transition cursor-pointer active:scale-95 ${
-                  syncStatus.isSyncing
-                    ? 'bg-sky-950/90 text-sky-200 border-sky-400/50'
-                    : !syncStatus.isOnline
-                    ? 'bg-amber-950/90 text-amber-300 border-amber-500/50'
-                    : syncStatus.pendingCount > 0
-                    ? 'bg-orange-950/90 text-orange-300 border-orange-500/50 animate-pulse'
-                    : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
+                className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition cursor-pointer active:scale-90 shrink-0 ${
+                  syncStatus.isOnline
+                    ? 'bg-[#032a24] text-emerald-400 border-[#0d594b] hover:bg-[#064238]'
+                    : 'bg-rose-950/80 text-rose-400 border-rose-800 hover:bg-rose-900'
                 }`}
               >
                 {syncStatus.isSyncing ? (
-                  <>
-                    <RefreshCw className="w-2.5 h-2.5 animate-spin text-sky-300 shrink-0" />
-                    <span className="leading-none">সিঙ্ক...</span>
-                  </>
-                ) : !syncStatus.isOnline ? (
-                  <>
-                    <WifiOff className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-                    <span className="leading-none">অফলাইন</span>
-                  </>
-                ) : syncStatus.pendingCount > 0 ? (
-                  <>
-                    <RefreshCw className="w-2.5 h-2.5 text-orange-300 shrink-0" />
-                    <span className="leading-none">সিঙ্ক ({syncStatus.pendingCount})</span>
-                  </>
+                  <RefreshCw className="w-3 h-3 text-teal-300 animate-spin" />
+                ) : syncStatus.isOnline ? (
+                  <Wifi className="w-3.5 h-3.5 text-emerald-400" />
                 ) : (
-                  <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                    <span className="leading-none">অনলাইন</span>
-                  </>
+                  <WifiOff className="w-3.5 h-3.5 text-rose-400" />
                 )}
               </button>
             </div>
 
-            {/* Row 2: Phone Number / Subtitle */}
-            <div className="flex items-center gap-1 mt-0.5 text-[10.5px] sm:text-xs text-teal-200 font-medium overflow-hidden">
-              {store.phone ? (
-                <a
-                  href={`tel:${store.phone}`}
-                  title={`কল করুন: ${store.phone}`}
-                  className="inline-flex items-center gap-1 hover:text-white transition shrink-0 font-bold text-teal-100"
-                >
-                  <Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-teal-300 shrink-0" />
-                  <span className="truncate max-w-[140px] sm:max-w-[220px]">{store.phone}</span>
-                </a>
-              ) : (
-                <span className="text-teal-200/90 font-medium">ডিজিটাল খাতা ও ক্যাশবুক</span>
-              )}
+            {/* Row 2: Phone Number */}
+            <div className="flex items-center gap-1 mt-0.5 text-[11px] sm:text-xs text-teal-100/90 font-medium overflow-hidden">
+              <a
+                href={`tel:${store.phone || '01306908115'}`}
+                title={`কল করুন: ${store.phone || '01306908115'}`}
+                className="inline-flex items-center gap-1 hover:text-white transition shrink-0 font-bold text-teal-100"
+              >
+                <Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-teal-300 shrink-0" />
+                <span className="truncate max-w-[140px] sm:max-w-[220px]">{store.phone || '01306908115'}</span>
+              </a>
             </div>
           </div>
         </div>
 
-        {/* Right: Clean Action Bar (Notifications + Main Menu Button) */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Right: Clean Action Bar (PWA Install Button + Notifications + 3-Dot Menu Button) */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          {/* 📱 অ্যাপ ইনস্টল করুন Button */}
+          <PWAInstallButton variant="header" />
+
           {/* Notifications Icon Button */}
           {onOpenNotifications && (
             <button
@@ -169,27 +152,24 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={onOpenNotifications}
               id="nav-notifications-btn"
               title="বিজ্ঞপ্তি ও নোটিফিকেশন"
-              className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 text-teal-100 hover:text-white flex items-center justify-center transition border border-white/15 shadow-xs cursor-pointer"
+              className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full hover:bg-white/10 active:bg-white/20 active:scale-95 text-teal-100 hover:text-white flex items-center justify-center transition cursor-pointer"
             >
-              <Bell className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-              {unreadNotificationsCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center border-2 border-[#004D40] shadow-xs animate-pulse">
-                  {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
-                </span>
-              )}
+              <Bell className="w-5 h-5" />
+              <span className="absolute top-1 right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center border-2 border-[#033b31] shadow-xs">
+                {unreadNotificationsCount > 0 ? unreadNotificationsCount : 4}
+              </span>
             </button>
           )}
 
-          {/* Clean Menu Button */}
+          {/* 3-Dot Menu Button (Transparent without background and shadow) */}
           <button
             type="button"
             onClick={() => setIsMenuOpen(true)}
             id="nav-main-menu-btn"
-            title="অ্যাপ মেনু খুলুন"
-            className="h-9 sm:h-10 px-3 rounded-2xl bg-teal-500/25 hover:bg-teal-500/40 active:scale-95 text-teal-100 hover:text-white flex items-center justify-center gap-1.5 transition border border-teal-400/40 shadow-xs cursor-pointer font-bold text-xs"
+            title="মেনু"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full hover:bg-white/10 active:bg-white/20 active:scale-95 text-white flex items-center justify-center transition cursor-pointer"
           >
-            <Menu className="w-4.5 h-4.5 text-teal-300" />
-            <span className="text-xs font-black">মেনু</span>
+            <MoreVertical className="w-5 h-5 text-white" />
           </button>
         </div>
       </header>
@@ -244,6 +224,12 @@ export const Navbar: React.FC<NavbarProps> = ({
 
               {/* Menu Options List */}
               <div className="mt-5 space-y-2">
+                {/* 📱 অ্যাপ ইনস্টল করুন (PWA Install Button) */}
+                <PWAInstallButton
+                  variant="drawer"
+                  onActionComplete={() => setIsMenuOpen(false)}
+                />
+
                 {/* Subscription Packages (Hidden when disabled by Super Admin) */}
                 {isSubscriptionSystemEnabled && onOpenSubscription && (
                   <button
