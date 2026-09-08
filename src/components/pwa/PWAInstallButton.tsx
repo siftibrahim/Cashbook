@@ -47,60 +47,46 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   const handleClick = async () => {
     if (isInstallable) {
       const res = await triggerInstallPrompt();
-      if (res.outcome === 'unavailable' || res.outcome === 'dismissed') {
+      if (res.outcome === 'accepted') {
+        if (onActionComplete) {
+          onActionComplete();
+        }
+      } else if (res.outcome === 'unavailable') {
         setShowGuideModal(true);
       }
     } else {
       setShowGuideModal(true);
     }
-    if (onActionComplete) {
-      onActionComplete();
-    }
   };
 
   return (
     <>
-      {variant === 'header' && (
-        <button
-          type="button"
-          onClick={handleClick}
-          id="pwa-header-install-btn"
-          title="TWING হিসাবি অ্যাপ আপনার ফোনে ইনস্টল করুন"
-          className={`relative inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 active:scale-95 text-[#033b31] font-black text-xs shadow-sm hover:shadow transition cursor-pointer shrink-0 select-none ${className}`}
-        >
-          <span className="text-sm leading-none">📱</span>
-          <span className="hidden xs:inline font-black tracking-tight">অ্যাপ ইনস্টল করুন</span>
-          <span className="xs:hidden font-black">ইনস্টল</span>
-          <span className="w-1.5 h-1.5 rounded-full bg-[#033b31] animate-ping" />
-        </button>
-      )}
-
       {variant === 'drawer' && (
         <button
           type="button"
           onClick={handleClick}
           id="pwa-drawer-install-btn"
-          className={`w-full p-3 rounded-2xl bg-gradient-to-r from-emerald-600/30 via-teal-600/20 to-transparent hover:bg-emerald-600/40 border-2 border-emerald-400/40 text-left flex items-center justify-between transition cursor-pointer group shadow-sm ${className}`}
+          className={`w-full p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/25 via-teal-500/20 to-emerald-500/10 hover:from-emerald-500/35 hover:to-teal-500/20 border-2 border-emerald-400/50 text-left flex items-center justify-between transition cursor-pointer group shadow-lg ${className}`}
         >
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-emerald-500/30 text-emerald-300 shadow-inner group-hover:scale-105 transition-transform">
-              <Smartphone className="w-4 h-4 text-emerald-200" />
+            <div className="p-2.5 rounded-xl bg-emerald-500/30 text-emerald-300 shadow-inner group-hover:scale-110 transition-transform">
+              <Download className="w-5 h-5 text-emerald-200 animate-bounce" />
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-black text-white block">
-                  📱 অ্যাপ ইনস্টল করুন
+                <span className="text-xs sm:text-sm font-black text-white block">
+                  📱 অ্যাপ ডাউনলোড ও ইনস্টল
                 </span>
-                <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-400 text-[#033b31] font-black">
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-400 text-[#033b31] font-black">
                   PWA
                 </span>
               </div>
-              <span className="text-[10px] text-emerald-200/90 block mt-0.5">
-                হোম স্ক্রিনে ইনস্টল করে ফুল স্ক্রিনে চালান
+              <span className="text-[10.5px] text-emerald-200/90 block mt-0.5 font-medium">
+                ক্লিক করলেই সরাসরি ফোনে ডাউনলোড হবে
               </span>
             </div>
           </div>
-          <ChevronRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-1 transition-transform" />
+          <ChevronRight className="w-4 h-4 text-emerald-300 group-hover:translate-x-1 transition-transform" />
         </button>
       )}
 

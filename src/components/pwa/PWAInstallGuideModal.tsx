@@ -38,7 +38,7 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
   return (
     <div
       id="pwa-install-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-sm animate-in fade-in"
       onClick={onClose}
     >
       <div

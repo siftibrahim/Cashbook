@@ -140,11 +140,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Right: Clean Action Bar (PWA Install Button + Notifications + 3-Dot Menu Button) */}
+        {/* Right: Clean Action Bar (Notifications + 3-Dot Menu Button) */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-          {/* 📱 অ্যাপ ইনস্টল করুন Button */}
-          <PWAInstallButton variant="header" />
-
           {/* Notifications Icon Button */}
           {onOpenNotifications && (
             <button
