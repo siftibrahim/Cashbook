@@ -42,7 +42,7 @@ const DEFAULT_AD_SETTINGS: SystemAdSettings = {
       description: 'দোকানের ক্যাশ মেমো দ্রুত প্রিন্ট করতে ৮৮মিমি ওয়াইফাই ও ব্লুটুথ থার্মাল প্রিন্টার নিন বিশেষ ছাড়ে।',
       badge: 'স্পন্সরড অফার',
       ctaText: 'অর্ডার করতে ক্লিক করুন',
-      targetUrl: 'tel:01619665875',
+      targetUrl: 'tel:01306908115',
       isActive: true,
     },
     {
@@ -51,7 +51,7 @@ const DEFAULT_AD_SETTINGS: SystemAdSettings = {
       description: 'প্রিমিয়াম কোয়ালিটি রিসিট পেপার রোল সরাসরি সারা বাংলাদেশে হোম ডেলিভারি।',
       badge: 'সুপার ডিল',
       ctaText: 'বিস্তারিত জানুন',
-      targetUrl: 'tel:01619665875',
+      targetUrl: 'tel:01306908115',
       isActive: true,
     },
   ],
@@ -71,7 +71,7 @@ export const AdsManagementTab: React.FC<AdsManagementTabProps> = ({ onShowToast 
   const [adDescription, setAdDescription] = useState('');
   const [adBadge, setAdBadge] = useState('স্পন্সরড');
   const [adCta, setAdCta] = useState('বিস্তারিত দেখুন');
-  const [adUrl, setAdUrl] = useState('tel:01619665875');
+  const [adUrl, setAdUrl] = useState('tel:01306908115');
   const [adActive, setAdActive] = useState(true);
 
   useEffect(() => {
@@ -118,7 +118,7 @@ export const AdsManagementTab: React.FC<AdsManagementTabProps> = ({ onShowToast 
     setAdDescription('');
     setAdBadge('স্পন্সরড অফার');
     setAdCta('যোগাযোগ করুন');
-    setAdUrl('tel:01619665875');
+    setAdUrl('tel:01306908115');
     setAdActive(true);
     setIsCustomAdModalOpen(true);
   };
@@ -799,7 +799,7 @@ export const AdsManagementTab: React.FC<AdsManagementTabProps> = ({ onShowToast 
                   type="text"
                   value={adUrl}
                   onChange={(e) => setAdUrl(e.target.value)}
-                  placeholder="https://... অথবা tel:01619665875"
+                  placeholder="https://... অথবা tel:01306908115"
                   className="w-full px-3.5 py-2.5 bg-slate-950 rounded-xl border border-slate-800 text-white text-xs font-mono focus:border-indigo-500 focus:outline-none"
                 />
               </div>

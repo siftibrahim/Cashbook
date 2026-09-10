@@ -819,7 +819,7 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
               id: 'usr_super_admin',
               name: cfg.name || 'সুপার অ্যাডমিন',
               email: cfg.email,
-              phone: cfg.phone || '01619665875',
+              phone: cfg.phone || '01306908115',
               role: 'super_admin',
             };
           }
@@ -832,7 +832,7 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
         id: 'usr_super_admin',
         name: 'সুপার অ্যাডমিন',
         email: req.user?.email || 'admin@twing.com',
-        phone: '01619665875',
+        phone: '01306908115',
         role: 'super_admin',
       };
       if (inMemoryStore.system_config['super_admin_security']?.masterPin) {
@@ -907,7 +907,7 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
         `, [
           'usr_super_admin',
           cleanName || 'সুপার অ্যাডমিন',
-          cleanPhone || '01619665875',
+          cleanPhone || '01306908115',
           cleanEmail || 'admin@twing.com',
           hashToSave,
           now,
@@ -943,7 +943,7 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
         inMemoryStore.users.push({
           id: 'usr_super_admin',
           name: cleanName || 'সুপার অ্যাডমিন',
-          phone: cleanPhone || '01619665875',
+          phone: cleanPhone || '01306908115',
           email: cleanEmail || 'admin@twing.com',
           password_hash: passwordHash || (await bcrypt.hash('admin123', 10)),
           role: 'super_admin',
@@ -1435,7 +1435,7 @@ router.get('/ad-settings', async (req: AuthenticatedRequest, res: Response) => {
           title: '🛍️ সুপার শপ ও ফার্মেসি বারকোড ও কিউআর স্ক্যানার',
           description: 'দ্রুত ক্যাশ ও পিওএস বিক্রয়ের জন্য হাই-স্পিড বারকোড স্ক্যানার এবং থার্মাল প্রিন্টার অফার।',
           badge: 'প্রস্তাবিত পার্টনার',
-          targetUrl: 'https://wa.me/8801619665875',
+          targetUrl: 'https://wa.me/8801306908115',
           ctaText: 'অফার জানুন',
           isActive: true,
         },

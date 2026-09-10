@@ -362,8 +362,8 @@ export interface AdminSession {
 
 export const SUPPORT_CONTACT = {
   email: 'twinginfobd@mail.com',
-  phone: '01619665875',
-  photoHelpNote: 'স্ক্রিনশট বা কোনো ছবি পাঠানোর প্রয়োজন হলে আমাদের অফিসিয়াল ইমেইল (twinginfobd@mail.com) অথবা ফোনে (01619665875) যোগাযোগ করুন।',
+  phone: '01306908115',
+  photoHelpNote: 'স্ক্রিনশট বা কোনো ছবি পাঠানোর প্রয়োজন হলে আমাদের অফিসিয়াল ইমেইল (twinginfobd@mail.com) অথবা ফোনে (01306908115) যোগাযোগ করুন।',
 };
 
 export interface SmsGatewayConfig {

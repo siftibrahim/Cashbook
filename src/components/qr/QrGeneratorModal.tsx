@@ -94,7 +94,7 @@ export const QrGeneratorModal: React.FC<QrGeneratorModalProps> = ({
 
       // Initialize payment phone number from store
       const initialStorePayNum =
-        store.bkashNumber || store.nagadNumber || store.rocketNumber || store.phone || '01619665875';
+        store.bkashNumber || store.nagadNumber || store.rocketNumber || store.phone || '01306908115';
       setPayNumber(initialStorePayNum);
     }
   }, [isOpen, initialProduct, initialCustomer, products, customers, store]);

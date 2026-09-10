@@ -158,12 +158,12 @@ export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
   bkash: {
     isEnabled: true,
     personal: {
-      number: '01619665875',
+      number: '01306908115',
       accountType: 'personal',
       instructions: 'বিকাশ অ্যাপ বা *247# থেকে "Send Money" (সেন্ড মানি) করুন।',
     },
     merchant: {
-      number: '01619665875',
+      number: '01306908115',
       accountType: 'merchant',
       instructions: 'বিকাশ অ্যাপ থেকে "Make Payment" (পেমেন্ট) করুন। কাউন্টার নম্বর: 1',
     },
@@ -171,7 +171,7 @@ export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
   nagad: {
     isEnabled: true,
     personal: {
-      number: '01619665875',
+      number: '01306908115',
       accountType: 'personal',
       instructions: 'নগদ অ্যাপ বা *167# থেকে "Send Money" করুন।',
     },
@@ -179,7 +179,7 @@ export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
   rocket: {
     isEnabled: true,
     personal: {
-      number: '01619665875-8',
+      number: '01306908115-8',
       accountType: 'personal',
       instructions: 'রকেট অ্যাপ বা *322# থেকে সেন্ড মানি করুন।',
     },
@@ -187,7 +187,7 @@ export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
   upay: {
     isEnabled: true,
     personal: {
-      number: '01619665875',
+      number: '01306908115',
       accountType: 'personal',
       instructions: 'উপায় (Upay) অ্যাপ থেকে সেন্ড মানি করুন।',
     },

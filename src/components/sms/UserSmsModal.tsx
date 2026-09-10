@@ -22,6 +22,7 @@ import {
   Copy,
   Building,
   RotateCcw,
+  Zap,
 } from 'lucide-react';
 
 interface UserSmsModalProps {
@@ -69,10 +70,12 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
 
   // Purchase Package State
   const [selectedPkg, setSelectedPkg] = useState<SmsPackageItem | null>(null);
+  const [checkoutMode, setCheckoutMode] = useState<'online' | 'manual'>('online');
   const [paymentMethod, setPaymentMethod] = useState<'bkash' | 'nagad' | 'rocket' | 'bank'>('bkash');
   const [trxId, setTrxId] = useState('');
   const [senderNumber, setSenderNumber] = useState('');
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [isGatewayLoading, setIsGatewayLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -199,6 +202,32 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
       onShowToast(`❌ রিকোয়েস্ট ব্যর্থ: ${err.message || 'ত্রুটি'}`);
     } finally {
       setIsPurchasing(false);
+    }
+  };
+
+  const handleOnlineCheckout = async () => {
+    if (!selectedPkg) return;
+    if (balance > 0) {
+      onShowToast(`⚠️ আপনার বর্তমান প্যাকেজে এখনও ${balance}টি SMS অবশিষ্ট আছে! বর্তমান প্যাকেজ শেষ হওয়ার পরই নতুন প্যাকেজ নেওয়া যাবে।`);
+      return;
+    }
+    if (hasPendingPurchase) {
+      onShowToast(`⚠️ আপনার পূর্ববর্তী অনুরোধ (TrxID: ${pendingPurchase?.trxId || ''}) ইতিমধ্যে পেন্ডিং রয়েছে! অ্যাডমিনের অনুমোদনের অপেক্ষা করুন।`);
+      return;
+    }
+
+    setIsGatewayLoading(true);
+    try {
+      const res = await userSmsApi.checkout(selectedPkg.id);
+      if (res.paymentUrl) {
+        onShowToast('🚀 পেমেন্ট গেটওয়েতে রিডাইরেক্ট করা হচ্ছে...');
+        window.location.href = res.paymentUrl;
+      } else {
+        throw new Error('পেমেন্ট লিংক পাওয়া যায়নি');
+      }
+    } catch (err: any) {
+      onShowToast(`❌ গেটওয়ে ত্রুটি: ${err.message || 'অনলাইন পেমেন্ট চালু করা যায়নি'}`);
+      setIsGatewayLoading(false);
     }
   };
 
@@ -519,7 +548,7 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
                 </div>
               ) : (
                 /* Checkout for Selected Package with dynamic Shared Payment Gateway */
-                <form onSubmit={handlePurchasePackage} className="space-y-4">
+                <div className="space-y-4">
                   <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between">
                     <div>
                       <h4 className="text-xs font-bold text-amber-300">নির্বাচিত প্যাকেজ:</h4>
@@ -538,6 +567,87 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
                       </button>
                     </div>
                   </div>
+
+                  {/* Payment Mode Selector */}
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950/90 rounded-2xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setCheckoutMode('online')}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        checkoutMode === 'online'
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md font-black shadow-emerald-900/40'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <Zap className="w-3.5 h-3.5 text-amber-300" />
+                      <span>অনলাইন পেমেন্ট (তাৎক্ষণিক)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCheckoutMode('manual')}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        checkoutMode === 'manual'
+                          ? 'bg-slate-800 text-white shadow-md font-black border border-slate-700'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>ম্যানুয়াল পেমেন্ট (TrxID)</span>
+                    </button>
+                  </div>
+
+                  {/* OPTION A: AUTOMATED ONLINE GATEWAY */}
+                  {checkoutMode === 'online' && (
+                    <div className="space-y-4">
+                      <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-950/40 to-slate-900 border border-emerald-500/30 space-y-2.5">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-emerald-400" />
+                          <span className="text-xs font-black text-emerald-300">
+                            স্বয়ংক্রিয় গেটওয়েতে তাৎক্ষণিক রিচার্জ
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          বিকাশ, নগদ, রকেট, উপায় অথবা যেকোনো ব্যাংক কার্ড দিয়ে সরাসরি পেমেন্ট করুন। পেমেন্ট সম্পন্ন হওয়া মাত্রই আপনার একাউন্টে <strong>{selectedPkg.smsCount}টি SMS</strong> স্বয়ংক্রিয়ভাবে যোগ হবে (অ্যাডমিন ভেরিফিকেশনের জন্য অপেক্ষা করতে হবে না)।
+                        </p>
+                        <div className="flex flex-wrap gap-2 pt-1 text-[11px] text-emerald-300">
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 font-bold">⚡ ইনস্ট্যান্ট অ্যাক্টিভেশন</span>
+                          <span className="px-2 py-0.5 rounded bg-teal-500/10 border border-teal-500/20 font-bold">🔒 সুরক্ষিত পেমেন্ট গেটওয়ে</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPkg(null)}
+                          className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold cursor-pointer"
+                        >
+                          ফিরে যান
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isGatewayLoading}
+                          onClick={handleOnlineCheckout}
+                          className="flex-1 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-black transition cursor-pointer shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5"
+                        >
+                          {isGatewayLoading ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>গেটওয়ে লোড হচ্ছে...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-3.5 h-3.5 text-amber-300" />
+                              <span>অনলাইনে ৳{selectedPkg.price} পেমেন্ট করুন</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* OPTION B: MANUAL PAYMENT FORM */}
+                  {checkoutMode === 'manual' && (
+                    <form onSubmit={handlePurchasePackage} className="space-y-4">
 
                   <div>
                     <label className="text-xs font-bold text-slate-300 block mb-1.5">
@@ -569,13 +679,13 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
                     </p>
 
                     {(() => {
-                      const bkashNum = paymentSettings?.bkash?.merchant?.number || paymentSettings?.bkash?.personal?.number || '01619665875';
+                      const bkashNum = paymentSettings?.bkash?.merchant?.number || paymentSettings?.bkash?.personal?.number || '01306908115';
                       const bkashAccType = paymentSettings?.bkash?.merchant?.number ? 'Merchant' : (paymentSettings?.bkash?.personal?.accountType || 'Personal');
 
-                      const nagadNum = paymentSettings?.nagad?.merchant?.number || paymentSettings?.nagad?.personal?.number || '01619665875';
+                      const nagadNum = paymentSettings?.nagad?.merchant?.number || paymentSettings?.nagad?.personal?.number || '01306908115';
                       const nagadAccType = paymentSettings?.nagad?.merchant?.number ? 'Merchant' : (paymentSettings?.nagad?.personal?.accountType || 'Personal');
 
-                      const rocketNum = paymentSettings?.rocket?.personal?.number || '01619665875';
+                      const rocketNum = paymentSettings?.rocket?.personal?.number || '01306908115-8';
                       const rocketAccType = paymentSettings?.rocket?.personal?.accountType || 'Personal';
 
                       const firstBankAcc = paymentSettings?.bankTransfer?.accounts?.[0];
@@ -727,6 +837,8 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
                     </button>
                   </div>
                 </form>
+              )}
+                </div>
               )}
             </div>
           )}

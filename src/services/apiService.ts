@@ -329,6 +329,7 @@ export const authApi = {
         const isSuperAdminIdent =
           cleanIdent === 'admin@twing.com' ||
           cleanIdent === 'siftibrahim@gmail.com' ||
+          cleanPhone === '01306908115' ||
           cleanPhone === '01619665875' ||
           cleanIdent === 'admin';
 
@@ -337,11 +338,11 @@ export const authApi = {
             return {
               requires2FA: true,
               role: 'super_admin' as const,
-              phone: '01619665875',
-              maskedPhone: '016****5875',
+              phone: '01306908115',
+              maskedPhone: '013****8115',
               twoFaSessionToken: 'offline_2fa_' + Date.now(),
               superAdminEmail: 'siftibrahim@gmail.com',
-              message: '🔐 সুপার অ্যাডমিন সিকিউরিটি 2FA: আপনার নিবন্ধিত মোবাইল নম্বরে (016****5875) ওটিপি কোড পাঠানো হয়েছে।',
+              message: '🔐 সুপার অ্যাডমিন সিকিউরিটি 2FA: আপনার নিবন্ধিত মোবাইল নম্বরে (013****8115) ওটিপি কোড পাঠানো হয়েছে।',
             };
           }
           throw new Error('ভুল ইমেইল/মোবাইল নম্বর অথবা পাসওয়ার্ড/পিন!');
@@ -600,7 +601,7 @@ export const authApi = {
       });
     } catch (err: any) {
       if (isFallbackEligible(err)) {
-        const ph = params.phone || '01619665875';
+        const ph = params.phone || '01306908115';
         return {
           success: true,
           message: `✅ ৬ ডিজিটের ওটিপি পাঠানো হয়েছে (${ph.slice(0, 3)}***${ph.slice(-2)})।`,
@@ -957,10 +958,10 @@ export const subscriptionApi = {
     } catch {
       return {
         id: 'system_payment_settings',
-        bkash: { isEnabled: true, personal: { number: '01619665875', accountType: 'personal', instructions: 'বিকাশ সেন্ড মানি করুন' } },
-        nagad: { isEnabled: true, personal: { number: '01619665875', accountType: 'personal', instructions: 'নগদ সেন্ড মানি করুন' } },
-        rocket: { isEnabled: true, personal: { number: '01619665875-8', accountType: 'personal', instructions: 'রকেট সেন্ড মানি করুন' } },
-        upay: { isEnabled: true, personal: { number: '01619665875', accountType: 'personal', instructions: 'উপায় সেন্ড মানি করুন' } },
+        bkash: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ সেন্ড মানি করুন' } },
+        nagad: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'নগদ সেন্ড মানি করুন' } },
+        rocket: { isEnabled: true, personal: { number: '01306908115-8', accountType: 'personal', instructions: 'রকেট সেন্ড মানি করুন' } },
+        upay: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় সেন্ড মানি করুন' } },
         bankTransfer: { isEnabled: true, accounts: [] },
         gateways: [],
         customPlans: [],
@@ -1309,10 +1310,10 @@ export const adminApi = {
     } catch {
       return {
         id: 'system_payment_settings',
-        bkash: { isEnabled: true, personal: { number: '01619665875', accountType: 'personal', instructions: 'বিকাশ সেন্ড মানি করুন' } },
-        nagad: { isEnabled: true, personal: { number: '01619665875', accountType: 'personal', instructions: 'নগদ সেন্ড মানি করুন' } },
-        rocket: { isEnabled: true, personal: { number: '01619665875-8', accountType: 'personal', instructions: 'রকেট সেন্ড মানি করুন' } },
-        upay: { isEnabled: true, personal: { number: '01619665875', accountType: 'personal', instructions: 'উপায় সেন্ড মানি করুন' } },
+        bkash: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ সেন্ড মানি করুন' } },
+        nagad: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'নগদ সেন্ড মানি করুন' } },
+        rocket: { isEnabled: true, personal: { number: '01306908115-8', accountType: 'personal', instructions: 'রকেট সেন্ড মানি করুন' } },
+        upay: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় সেন্ড মানি করুন' } },
         bankTransfer: { isEnabled: true, accounts: [] },
         gateways: [],
         customPlans: [],
@@ -1426,7 +1427,7 @@ export const adminApi = {
         id: 'usr_super_admin',
         name: 'সুপার অ্যাডমিন',
         email: 'siftibrahim@gmail.com',
-        phone: '01619665875',
+        phone: '01306908115',
         role: 'super_admin',
       };
     }
@@ -1686,6 +1687,19 @@ export const userSmsApi = {
     return await apiRequest('/sms/purchase', {
       method: 'POST',
       body: JSON.stringify(params),
+    });
+  },
+
+  async checkout(packageId: string, gatewayId?: string): Promise<{
+    success: boolean;
+    paymentUrl?: string;
+    paymentId?: string;
+    isSandbox?: boolean;
+    warning?: string;
+  }> {
+    return await apiRequest('/sms/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ packageId, gatewayId }),
     });
   },
 };

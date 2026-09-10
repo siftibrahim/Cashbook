@@ -62,10 +62,10 @@ router.get('/payment-settings', async (req, res) => {
         id: 'system_payment_settings',
         trialConfig: { isTrialEnabled: true, trialDays: 14, trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)' },
         bonusConfig: { isBonusEnabled: true, bonusDays: 7, bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)', bonusDescription: 'যেকোনো প্যাকেজ রিনিউ বা সাবস্ক্রিপশন নিলে সাথে আরও ৭ দিন বোনাস মেয়াদ যুক্ত হবে।' },
-        bkash: { isEnabled: true, personal: { number: '01619665875', accountType: 'personal', instructions: 'বিকাশ অ্যাপ থেকে Send Money করুন' } },
-        nagad: { isEnabled: true, personal: { number: '01619665875', accountType: 'personal', instructions: 'নগদ অ্যাপ থেকে Send Money করুন' } },
-        rocket: { isEnabled: true, personal: { number: '01619665875-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে Send Money করুন' } },
-        upay: { isEnabled: true, personal: { number: '01619665875', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে Send Money করুন' } },
+        bkash: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ অ্যাপ থেকে Send Money করুন' } },
+        nagad: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'নগদ অ্যাপ থেকে Send Money করুন' } },
+        rocket: { isEnabled: true, personal: { number: '01306908115-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে Send Money করুন' } },
+        upay: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে Send Money করুন' } },
         bankTransfer: { isEnabled: true, accounts: [] },
         gateways: [],
         customPlans: DEFAULT_PLANS,
@@ -454,39 +454,61 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
     const invoiceId = (req.query.invoice_id || req.query.invoiceId || req.body?.invoice_id || '') as string;
     const paymentId = (req.query.payment_id || req.query.paymentId || req.body?.payment_id || '') as string;
     const statusParam = (req.query.status || req.body?.status || '') as string;
+    const isSmsType = req.query.type === 'sms' || paymentId.startsWith('pay_sms_') || paymentId.startsWith('sms_');
 
     if (statusParam.toLowerCase() === 'cancelled') {
       if (paymentId) {
         const pool = getDbPool();
-        if (pool) {
-          await pool.query(
-            "UPDATE payments SET status = 'cancelled', admin_notes = 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন' WHERE id = $1 AND status IN ('initiated', 'pending')",
-            [paymentId]
-          );
+        if (isSmsType) {
+          if (pool) {
+            await pool.query(
+              "UPDATE sms_purchases SET status = 'cancelled', admin_note = 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন' WHERE id = $1 AND status IN ('initiated', 'pending')",
+              [paymentId]
+            ).catch(() => {});
+          } else {
+            const sp = (inMemoryStore.sms_purchases || []).find((x: any) => x.id === paymentId);
+            if (sp && (sp.status === 'initiated' || sp.status === 'pending')) sp.status = 'cancelled';
+          }
         } else {
-          const p = inMemoryStore.payments.find((x) => x.id === paymentId);
-          if (p && (p.status === 'initiated' || p.status === 'pending')) {
-            p.status = 'cancelled';
+          if (pool) {
+            await pool.query(
+              "UPDATE payments SET status = 'cancelled', admin_notes = 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন' WHERE id = $1 AND status IN ('initiated', 'pending')",
+              [paymentId]
+            );
+          } else {
+            const p = inMemoryStore.payments.find((x) => x.id === paymentId);
+            if (p && (p.status === 'initiated' || p.status === 'pending')) {
+              p.status = 'cancelled';
+            }
           }
         }
       }
-      return res.redirect(`/?payment_status=cancelled&payment_id=${encodeURIComponent(paymentId)}`);
+      return res.redirect(`/?payment_status=cancelled&payment_id=${encodeURIComponent(paymentId)}${isSmsType ? '&type=sms' : ''}`);
     }
 
     if (!invoiceId) {
       if (paymentId) {
         const pool = getDbPool();
-        if (pool) {
-          await pool.query(
-            "UPDATE payments SET status = 'cancelled', admin_notes = 'পেমেন্ট ইনভয়েস ছাড়া সেশন সমাপ্ত / বাতিল' WHERE id = $1 AND status IN ('initiated', 'pending')",
-            [paymentId]
-          );
+        if (isSmsType) {
+          if (pool) {
+            await pool.query(
+              "UPDATE sms_purchases SET status = 'cancelled', admin_note = 'পেমেন্ট ইনভয়েস ছাড়া সেশন সমাপ্ত / বাতিল' WHERE id = $1 AND status IN ('initiated', 'pending')",
+              [paymentId]
+            ).catch(() => {});
+          }
+        } else {
+          if (pool) {
+            await pool.query(
+              "UPDATE payments SET status = 'cancelled', admin_notes = 'পেমেন্ট ইনভয়েস ছাড়া সেশন সমাপ্ত / বাতিল' WHERE id = $1 AND status IN ('initiated', 'pending')",
+              [paymentId]
+            );
+          }
         }
       }
-      return res.redirect(`/?payment_status=cancelled&message=${encodeURIComponent('পেমেন্ট সেশন সম্পন্ন করা হয়নি')}`);
+      return res.redirect(`/?payment_status=cancelled&message=${encodeURIComponent('পেমেন্ট সেশন সম্পন্ন করা হয়নি')}${isSmsType ? '&type=sms' : ''}`);
     }
 
-    // Step 7 & 8: Verify with Paymently Verify API before activating subscription!
+    // Verify with Paymently Verify API before activating subscription or SMS!
     const verifyResult = await PaymentlyService.verifyAndActivatePayment(invoiceId, {
       expectedPaymentId: paymentId,
     });
@@ -494,21 +516,22 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
     if (verifyResult.success && verifyResult.status === 'approved') {
       const trx = verifyResult.trxId || invoiceId;
       const amount = verifyResult.amount || '';
-      const plan = encodeURIComponent(verifyResult.planName || 'প্রো প্যাকেজ');
+      const plan = encodeURIComponent(verifyResult.planName || (verifyResult.isSms ? `${verifyResult.smsCount}টি SMS` : 'প্রো প্যাকেজ'));
+      const isSmsQuery = verifyResult.isSms ? `&type=sms&sms_count=${verifyResult.smsCount || ''}` : '';
       return res.redirect(
-        `/?payment_status=success&invoice_id=${encodeURIComponent(invoiceId)}&trx_id=${encodeURIComponent(trx)}&amount=${amount}&plan=${plan}`
+        `/?payment_status=success&invoice_id=${encodeURIComponent(invoiceId)}&trx_id=${encodeURIComponent(trx)}&amount=${amount}&plan=${plan}${isSmsQuery}`
       );
     } else if (verifyResult.status === 'pending') {
       return res.redirect(
-        `/?payment_status=pending&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}`
+        `/?payment_status=pending&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}${verifyResult.isSms ? '&type=sms' : ''}`
       );
     } else {
       return res.redirect(
-        `/?payment_status=failed&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}`
+        `/?payment_status=failed&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}${verifyResult.isSms ? '&type=sms' : ''}`
       );
     }
   } catch (err: any) {
-    console.error('Paymently Callback Processing Error:', err);
+    console.error('Payment Callback Processing Error:', err);
     return res.redirect(
       `/?payment_status=failed&message=${encodeURIComponent(err.message || 'পেমেন্ট যাচাইকরণে ত্রুটি হয়েছে')}`
     );
@@ -787,7 +810,7 @@ router.get('/ad-settings', async (req, res) => {
           title: '🛍️ সুপার শপ ও ফার্মেসি বারকোড ও কিউআর স্ক্যানার',
           description: 'দ্রুত ক্যাশ ও পিওএস বিক্রয়ের জন্য হাই-স্পিড বারকোড স্ক্যানার এবং থার্মাল প্রিন্টার অফার।',
           badge: 'প্রস্তাবিত পার্টনার',
-          targetUrl: 'https://wa.me/8801619665875',
+          targetUrl: 'https://wa.me/8801306908115',
           ctaText: 'অফার জানুন',
           isActive: true,
         },

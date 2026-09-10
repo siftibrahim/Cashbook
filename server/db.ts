@@ -766,6 +766,11 @@ export async function initializeDatabaseSchema() {
         created_at BIGINT NOT NULL,
         approved_at BIGINT
       );
+      ALTER TABLE sms_purchases ADD COLUMN IF NOT EXISTS payment_id VARCHAR(255);
+      ALTER TABLE sms_purchases ADD COLUMN IF NOT EXISTS package_id VARCHAR(64);
+      ALTER TABLE sms_purchases ADD COLUMN IF NOT EXISTS package_name VARCHAR(255);
+      ALTER TABLE sms_purchases ADD COLUMN IF NOT EXISTS gateway_id VARCHAR(64);
+      ALTER TABLE sms_purchases ADD COLUMN IF NOT EXISTS admin_note TEXT;
       CREATE INDEX IF NOT EXISTS idx_sms_purchases_user_id ON sms_purchases(user_id);
     `);
 
@@ -785,16 +790,51 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
   
   // Seed Super Admin in users table safely and restore correct identity
   try {
+    // 0. Ensure any regular user with 01306908115 is completely removed so the number belongs exclusively to Super Admin
+    await client.query(`
+      DELETE FROM users 
+      WHERE (
+        phone = '01306908115' 
+        OR email LIKE '01306908115@%' 
+        OR phone LIKE '%1306908115%'
+      ) AND id != 'usr_super_admin' AND role != 'super_admin'
+    `);
+
     // If a user with adminEmail or phone exists under a different ID, harmonize it
+    // 0. Remove any regular user account associated with the super admin phone number 01306908115
+    try {
+      const conflictingUsers = await client.query(`
+        SELECT id FROM users 
+        WHERE (phone = '01306908115' OR REGEXP_REPLACE(phone, '[^0-9]', '', 'g') = '01306908115')
+          AND id NOT IN ('usr_super_admin', 'usr_super_admin_2')
+          AND role != 'super_admin'
+      `);
+      for (const u of conflictingUsers.rows) {
+        await client.query(`DELETE FROM transactions WHERE user_id = $1`, [u.id]).catch(() => {});
+        await client.query(`DELETE FROM customers WHERE user_id = $1`, [u.id]).catch(() => {});
+        await client.query(`DELETE FROM products WHERE user_id = $1`, [u.id]).catch(() => {});
+        await client.query(`DELETE FROM expenses WHERE user_id = $1`, [u.id]).catch(() => {});
+        await client.query(`DELETE FROM payments WHERE user_id = $1`, [u.id]).catch(() => {});
+        await client.query(`DELETE FROM sms_purchases WHERE user_id = $1`, [u.id]).catch(() => {});
+        await client.query(`DELETE FROM user_sms_logs WHERE user_id = $1`, [u.id]).catch(() => {});
+        await client.query(`DELETE FROM notifications WHERE user_id = $1`, [u.id]).catch(() => {});
+        await client.query(`DELETE FROM store_profiles WHERE user_id = $1`, [u.id]).catch(() => {});
+        await client.query(`DELETE FROM users WHERE id = $1`, [u.id]).catch(() => {});
+        console.log(`🧹 Cleaned up non-admin user ${u.id} associated with 01306908115`);
+      }
+    } catch (cleanErr) {
+      console.warn('⚠️ User cleanup check error:', cleanErr);
+    }
+
     const existingAdminByEmail = await client.query(
-      `SELECT id, email FROM users WHERE LOWER(email) = LOWER($1) OR phone = '01619665875' LIMIT 1`,
+      `SELECT id, email FROM users WHERE LOWER(email) = LOWER($1) OR phone = '01306908115' OR phone = '01619665875' LIMIT 1`,
       [adminEmail.toLowerCase()]
     );
     if (existingAdminByEmail.rows.length > 0 && existingAdminByEmail.rows[0].id !== 'usr_super_admin') {
       try {
-        await client.query(`UPDATE users SET id = 'usr_super_admin', role = 'super_admin' WHERE id = $1`, [existingAdminByEmail.rows[0].id]);
+        await client.query(`UPDATE users SET id = 'usr_super_admin', role = 'super_admin', phone = '01306908115' WHERE id = $1`, [existingAdminByEmail.rows[0].id]);
       } catch {
-        await client.query(`UPDATE users SET email = $1 WHERE id = $2`, [`admin_${existingAdminByEmail.rows[0].id.slice(-6)}@twing.com`, existingAdminByEmail.rows[0].id]);
+        await client.query(`UPDATE users SET email = $1, phone = '01306908115' WHERE id = $2`, [`admin_${existingAdminByEmail.rows[0].id.slice(-6)}@twing.com`, existingAdminByEmail.rows[0].id]);
       }
     }
 
@@ -805,7 +845,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
       ) VALUES (
         'usr_super_admin',
         'ইব্রাহিম (সুপার অ্যাডমিন)',
-        '01619665875',
+        '01306908115',
         $1,
         $2,
         'TWING হিসাবি',
@@ -821,7 +861,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
       ) ON CONFLICT (id) DO UPDATE SET
         role = 'super_admin',
         email = CASE WHEN users.email LIKE '%admin%' OR users.email LIKE '%siftibrahim%' THEN users.email ELSE $1 END,
-        phone = '01619665875';
+        phone = '01306908115';
     `, [
       adminEmail,
       defaultPassHash,
@@ -834,7 +874,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
       UPDATE users 
       SET role = 'user' 
       WHERE id != 'usr_super_admin' 
-        AND phone != '01619665875' 
+        AND phone NOT IN ('01306908115', '01619665875') 
         AND LOWER(email) NOT IN ('admin@twing.com', 'siftibrahim@gmail.com') 
         AND role = 'super_admin'
     `);
@@ -848,19 +888,19 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
     isSubscriptionSystemEnabled: true,
     bkash: {
       isEnabled: true,
-      personal: { number: '01619665875', accountType: 'personal', instructions: 'বিকাশ অ্যাপ বা *247# ডায়াল করে "Send Money" করুন।' },
+      personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ অ্যাপ বা *247# ডায়াল করে "Send Money" করুন।' },
     },
     nagad: {
       isEnabled: true,
-      personal: { number: '01619665875', accountType: 'personal', instructions: 'নগদ অ্যাপ বা *167# ডায়াল করে "Send Money" করুন।' },
+      personal: { number: '01306908115', accountType: 'personal', instructions: 'নগদ অ্যাপ বা *167# ডায়াল করে "Send Money" করুন।' },
     },
     rocket: {
       isEnabled: true,
-      personal: { number: '01619665875-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01306908115-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে "Send Money" করুন।' },
     },
     upay: {
       isEnabled: true,
-      personal: { number: '01619665875', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে "Send Money" করুন।' },
     },
     bankTransfer: {
       isEnabled: true,
@@ -944,7 +984,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
         title: '🛍️ সুপার শপ ও ফার্মেসি বারকোড ও কিউআর স্ক্যানার',
         description: 'দ্রুত ক্যাশ ও পিওএস বিক্রয়ের জন্য হাই-স্পিড বারকোড স্ক্যানার এবং থার্মাল প্রিন্টার অফার।',
         badge: 'প্রস্তাবিত পার্টনার',
-        targetUrl: 'https://wa.me/8801619665875',
+        targetUrl: 'https://wa.me/8801306908115',
         ctaText: 'অফার জানুন',
         isActive: true,
       },
@@ -1002,7 +1042,7 @@ function seedDefaultDataInMemory() {
     {
       id: 'usr_super_admin',
       name: 'ইব্রাহিম (সুপার অ্যাডমিন)',
-      phone: '01619665875',
+      phone: '01306908115',
       email: 'siftibrahim@gmail.com',
       password_hash: '$2a$10$wN35i7t77b8H5hJ9uW7CGeL7O0Zl9KqXgN0vL3Z3zP8M9.5/cKzG', // admin123
       shopName: 'TWING হিসাবি',
@@ -1021,7 +1061,7 @@ function seedDefaultDataInMemory() {
     {
       id: 'usr_super_admin_2',
       name: 'ইব্রাহিম (অ্যাডমিন)',
-      phone: '01619665875',
+      phone: '01306908115',
       email: 'admin@twing.com',
       password_hash: '$2a$10$wN35i7t77b8H5hJ9uW7CGeL7O0Zl9KqXgN0vL3Z3zP8M9.5/cKzG', // admin123
       shopName: 'TWING হিসাবি',
@@ -1043,19 +1083,19 @@ function seedDefaultDataInMemory() {
     id: 'system_payment_settings',
     bkash: {
       isEnabled: true,
-      personal: { number: '01619665875', accountType: 'personal', instructions: 'বিকাশ অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ অ্যাপ থেকে "Send Money" করুন।' },
     },
     nagad: {
       isEnabled: true,
-      personal: { number: '01619665875', accountType: 'personal', instructions: 'নগদ অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01306908115', accountType: 'personal', instructions: 'নগদ অ্যাপ থেকে "Send Money" করুন।' },
     },
     rocket: {
       isEnabled: true,
-      personal: { number: '01619665875-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01306908115-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে "Send Money" করুন।' },
     },
     upay: {
       isEnabled: true,
-      personal: { number: '01619665875', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে "Send Money" করুন।' },
+      personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে "Send Money" করুন।' },
     },
     bankTransfer: {
       isEnabled: true,
@@ -1118,7 +1158,7 @@ function seedDefaultDataInMemory() {
         title: '🛍️ সুপার শপ ও ফার্মেসি বারকোড ও কিউআর স্ক্যানার',
         description: 'দ্রুত ক্যাশ ও পিওএস বিক্রয়ের জন্য হাই-স্পিড বারকোড স্ক্যানার এবং থার্মাল প্রিন্টার অফার।',
         badge: 'প্রস্তাবিত পার্টনার',
-        targetUrl: 'https://wa.me/8801619665875',
+        targetUrl: 'https://wa.me/8801306908115',
         ctaText: 'অফার জানুন',
         isActive: true,
       },
@@ -1130,7 +1170,7 @@ function seedDefaultDataInMemory() {
     {
       id: 'staff_default_1',
       name: 'অফিসিয়াল স্টাফ ম্যানেজার',
-      phone: '01619665875',
+      phone: '01306908115',
       email: 'staff@twing.com',
       password_hash: '$2a$10$7z7aMvJdM9QxT2eXoOq9se.r0sN9E07uFv8gE8T4B6gH9tY5u7gHy', // staff123
       password: 'staff123',
@@ -1178,7 +1218,7 @@ export async function ensureUserExistsInPostgres(
     // Auto-create user record with safe fallback values
     const now = Date.now();
     const name = userPayload?.name || (userId === 'usr_super_admin' ? 'সুপার অ্যাডমিন' : 'দোকানদার');
-    const phone = userPayload?.phone || '01619665875';
+    const phone = userPayload?.phone || '01306908115';
     const shopName = userPayload?.shopName || (userId === 'usr_super_admin' ? 'TWING হিসাবি' : 'আমার দোকান');
     const role = userPayload?.role || (userId === 'usr_super_admin' ? 'super_admin' : 'user');
     const safeEmail = rawEmail || `user_${userId.replace(/[^a-zA-Z0-9_]/g, '')}@twing.com`;

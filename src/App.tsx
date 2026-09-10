@@ -381,7 +381,7 @@ export const App: React.FC = () => {
               setIsAdminPanelOpen(true);
             } else if (
               (currentUser.role === 'super_admin' || currentUser.email === ADMIN_EMAIL || currentUser.email === 'siftibrahim@gmail.com') &&
-              (currentUser.email === ADMIN_EMAIL || currentUser.email === 'siftibrahim@gmail.com' || currentUser.phone === '01619665875' || currentUser.phone?.replace(/\D/g, '') === '01619665875' || currentUser.id === 'usr_super_admin')
+              (currentUser.email === ADMIN_EMAIL || currentUser.email === 'siftibrahim@gmail.com' || currentUser.phone === '01306908115' || currentUser.phone?.replace(/\D/g, '') === '01306908115' || currentUser.phone === '01619665875' || currentUser.phone?.replace(/\D/g, '') === '01619665875' || currentUser.id === 'usr_super_admin')
             ) {
               setAdminSession({
                 role: 'super_admin',
@@ -599,7 +599,7 @@ export const App: React.FC = () => {
       await loadUserAccountData(user.id);
     }
     const isSuper = (roleName === 'super_admin' || user?.role === 'super_admin') &&
-      (email === ADMIN_EMAIL || email === 'siftibrahim@gmail.com' || user?.phone === '01619665875' || user?.phone?.replace(/\D/g, '') === '01619665875' || user?.id === 'usr_super_admin');
+      (email === ADMIN_EMAIL || email === 'siftibrahim@gmail.com' || user?.phone === '01306908115' || user?.phone?.replace(/\D/g, '') === '01306908115' || user?.phone === '01619665875' || user?.phone?.replace(/\D/g, '') === '01619665875' || user?.id === 'usr_super_admin');
     const resolvedRole = isSuper ? 'প্রধান সুপার অ্যাডমিন' : 'দোকান মালিক';
     if (!isSuper && user) {
       user.role = 'user';

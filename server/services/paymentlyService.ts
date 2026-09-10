@@ -7,6 +7,7 @@ export interface PaymentlyConfig {
   apiKey: string;
   isEnabled: boolean;
   isSandbox: boolean;
+  gatewayName?: string;
 }
 
 export interface PaymentlyVerifyResult {
@@ -18,6 +19,9 @@ export interface PaymentlyVerifyResult {
   amount?: number;
   paymentMethod?: string;
   planName?: string;
+  isSms?: boolean;
+  smsCount?: number;
+  packageId?: string;
   alreadyProcessed?: boolean;
 }
 
@@ -55,11 +59,14 @@ export function normalizePaymentlyKey(key?: string): string {
 
 export class PaymentlyService {
   /**
-   * Fetch current Paymently gateway configuration from DB settings or environment variables
+   * Fetch current Gateway configuration from DB settings or environment variables.
+   * Pluggable: First checks if any active custom gateway (e.g. UddoktaPay) is enabled in `gateways[]`,
+   * or falls back to `paymently` configuration.
    */
-  public static async getConfig(): Promise<PaymentlyConfig> {
+  public static async getConfig(gatewayId?: string): Promise<PaymentlyConfig> {
     const pool = getDbPool();
-    let dbConfig: any = null;
+    let dbPaymently: any = null;
+    let customGateways: any[] = [];
 
     if (pool) {
       try {
@@ -67,57 +74,284 @@ export class PaymentlyService {
           "SELECT data FROM system_config WHERE id = 'system_payment_settings'"
         );
         if (res.rows.length > 0) {
-          dbConfig = res.rows[0].data?.paymently;
+          const settings = res.rows[0].data || {};
+          dbPaymently = settings.paymently;
+          if (Array.isArray(settings.gateways)) {
+            customGateways = settings.gateways;
+          }
         }
       } catch (err) {
-        console.warn('⚠️ [Paymently] Could not query system_config:', err);
+        console.warn('⚠️ [PaymentGateway] Could not query system_config:', err);
       }
     } else {
       const cfg = inMemoryStore.system_config?.['system_payment_settings'];
-      dbConfig = cfg?.paymently;
+      dbPaymently = cfg?.paymently;
+      if (Array.isArray(cfg?.gateways)) {
+        customGateways = cfg.gateways;
+      }
     }
 
-    const envBaseUrl = process.env.PAYMENTLY_BASE_URL || DEFAULT_PAYMENTLY_CONFIG.baseUrl;
-    const envApiKey = process.env.PAYMENTLY_API_KEY || process.env.PAYMENTLY_KEY || '';
+    // 1. If a specific gateway was requested or if an enabled custom gateway exists (e.g. UddoktaPay)
+    let selectedCustom = null;
+    if (gatewayId) {
+      selectedCustom = customGateways.find((g) => g.gatewayId === gatewayId && g.isEnabled);
+    }
+    if (!selectedCustom) {
+      // Find first enabled custom gateway that has an apiUrl/baseUrl
+      selectedCustom = customGateways.find((g) => g.isEnabled && (g.apiUrl || g.baseUrl || g.appKey));
+    }
 
-    const baseUrl = (dbConfig?.baseUrl || envBaseUrl).replace(/\/+$/, '');
-    const rawApiKey = dbConfig?.apiKey || envApiKey || DEFAULT_PAYMENTLY_CONFIG.apiKey;
+    if (selectedCustom && (selectedCustom.apiUrl || selectedCustom.baseUrl)) {
+      const bUrl = (selectedCustom.apiUrl || selectedCustom.baseUrl || '').replace(/\/+$/, '');
+      const aKey = (selectedCustom.appKey || selectedCustom.apiKey || '').trim();
+      return {
+        baseUrl: bUrl,
+        apiKey: aKey,
+        isEnabled: selectedCustom.isEnabled !== false,
+        isSandbox: !selectedCustom.isLive,
+        gatewayName: selectedCustom.name || 'UddoktaPay / Custom Gateway',
+      };
+    }
+
+    // 2. Default to Paymently / UddoktaPay primary configuration
+    const envBaseUrl = process.env.PAYMENTLY_BASE_URL || process.env.UDDOKTAPAY_BASE_URL || DEFAULT_PAYMENTLY_CONFIG.baseUrl;
+    const envApiKey = process.env.PAYMENTLY_API_KEY || process.env.UDDOKTAPAY_API_KEY || process.env.PAYMENTLY_KEY || '';
+
+    const baseUrl = (dbPaymently?.baseUrl || envBaseUrl).replace(/\/+$/, '');
+    const rawApiKey = dbPaymently?.apiKey || envApiKey || DEFAULT_PAYMENTLY_CONFIG.apiKey;
     const apiKey = normalizePaymentlyKey(rawApiKey);
-    const isEnabled = dbConfig?.isEnabled !== undefined ? !!dbConfig.isEnabled : true;
-    const isSandbox = dbConfig?.isSandbox !== undefined ? !!dbConfig.isSandbox : false;
+    const isEnabled = dbPaymently?.isEnabled !== undefined ? !!dbPaymently.isEnabled : true;
+    const isSandbox = dbPaymently?.isSandbox !== undefined ? !!dbPaymently.isSandbox : false;
 
     return {
       baseUrl,
       apiKey,
       isEnabled,
       isSandbox,
+      gatewayName: 'Paymently / UddoktaPay',
     };
   }
 
   /**
-   * Step 1: Create Paymently Checkout Session
-   * Server-side only with complete package validation
+   * Step 1: Create Gateway Checkout Session
+   * Supports both Subscription packages and SMS packages seamlessly.
+   * Server-side only with complete package validation.
    */
   public static async createCheckout(params: {
-    planId: string;
+    planId?: string;
+    packageId?: string;
+    packageName?: string;
+    smsCount?: number;
+    amount?: number;
+    type?: 'subscription' | 'sms';
     userId: string;
     userEmail?: string;
     userName?: string;
     userPhone?: string;
     shopName?: string;
     appBaseUrl: string;
+    gatewayId?: string;
   }) {
-    const config = await this.getConfig();
+    const config = await this.getConfig(params.gatewayId);
 
     if (!config.isEnabled) {
-      throw new Error('Paymently গেটওয়ে বর্তমানে নিষ্ক্রিয় রয়েছে। অনুগ্রহ করে বিকল্প পেমেন্ট পদ্ধতি ব্যবহার করুন।');
+      throw new Error(`${config.gatewayName || 'পেমেন্ট'} গেটওয়ে বর্তমানে নিষ্ক্রিয় রয়েছে। অনুগ্রহ করে বিকল্প পেমেন্ট পদ্ধতি ব্যবহার করুন।`);
     }
 
-    // 1. Resolve & Validate Plan Server-Side (Never trust client pricing)
-    let plan = DEFAULT_PLANS.find((p) => p.id === params.planId);
+    const pool = getDbPool();
+    const now = Date.now();
+    const isSmsPurchase = params.type === 'sms' || (!params.planId && !!params.packageId);
+
+    // ================== SMS PACKAGE FLOW ==================
+    if (isSmsPurchase) {
+      const pkgId = params.packageId || params.planId;
+      // Fetch dynamic SMS packages
+      let smsPackages: any[] = [];
+      if (pool) {
+        try {
+          const sRes = await pool.query("SELECT data FROM system_config WHERE id = 'system_sms_packages'");
+          if (sRes.rows.length > 0 && sRes.rows[0].data) {
+            smsPackages = typeof sRes.rows[0].data === 'string' ? JSON.parse(sRes.rows[0].data) : sRes.rows[0].data;
+          }
+        } catch (e) {}
+      } else {
+        smsPackages = inMemoryStore.system_config?.['system_sms_packages'] || [];
+      }
+      if (!smsPackages || smsPackages.length === 0) {
+        smsPackages = [
+          { id: 'pack_100', name: '১০০ এসএমএস স্টার্টার প্যাক', smsCount: 100, price: 50 },
+          { id: 'pack_300', name: '৩০০ এসএমএস রেগুলার প্যাক', smsCount: 300, price: 135 },
+          { id: 'pack_500', name: '৫০০ এসএমএস বিজনেস প্যাক', smsCount: 500, price: 200 },
+          { id: 'pack_1000', name: '১০০০ এসএমএস সুপার সেভার প্যাক', smsCount: 1000, price: 350 },
+        ];
+      }
+
+      let pack = smsPackages.find((p: any) => p.id === pkgId || p.id === 'pack_' + pkgId.replace(/\D/g, ''));
+      if (!pack && params.smsCount && params.amount) {
+        pack = {
+          id: pkgId || 'pack_custom',
+          name: params.packageName || `${params.smsCount} টি SMS`,
+          smsCount: Number(params.smsCount),
+          price: Number(params.amount),
+        };
+      }
+      if (!pack || pack.price <= 0) {
+        throw new Error('অবৈধ এসএমএস প্যাকেজ নির্বাচন করা হয়েছে।');
+      }
+
+      const paymentId = 'pay_sms_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+      const appBaseUrl = (params.appBaseUrl || (params as any).origin || 'http://localhost:3000').replace(/\/+$/, '');
+
+      // Pre-record in sms_purchases table
+      if (pool) {
+        await pool.query(
+          `INSERT INTO sms_purchases (
+            id, user_id, user_name, user_phone, shop_name,
+            package_id, package_name, sms_count, amount,
+            payment_method, trx_id, status, created_at, payment_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [
+            paymentId,
+            params.userId,
+            params.userName || 'গ্রাহক',
+            params.userPhone || '',
+            params.shopName || '',
+            pack.id,
+            pack.name,
+            pack.smsCount,
+            pack.price,
+            'online_gateway',
+            'PL_INIT_' + now,
+            'initiated',
+            now,
+            paymentId,
+          ]
+        ).catch((e) => console.warn('sms_purchases insert initiated error:', e));
+      } else {
+        if (!inMemoryStore.sms_purchases) inMemoryStore.sms_purchases = [];
+        inMemoryStore.sms_purchases.push({
+          id: paymentId,
+          payment_id: paymentId,
+          userId: params.userId,
+          userName: params.userName || 'গ্রাহক',
+          userPhone: params.userPhone || '',
+          shopName: params.shopName || '',
+          packageId: pack.id,
+          packageName: pack.name,
+          smsCount: pack.smsCount,
+          amount: pack.price,
+          paymentMethod: 'online_gateway',
+          trxId: 'PL_INIT_' + now,
+          status: 'initiated',
+          createdAt: now,
+        });
+      }
+
+      // Check Sandbox mode
+      if (config.isSandbox || !config.apiKey) {
+        console.log('🧪 [Gateway] Sandbox SMS checkout initiated:', paymentId);
+        const simulatedPaymentUrl = `${appBaseUrl}/api/subscription/paymently/sandbox-checkout?payment_id=${paymentId}&type=sms&amount=${pack.price}&plan_name=${encodeURIComponent(pack.name)}`;
+        return {
+          success: true,
+          paymentUrl: simulatedPaymentUrl,
+          paymentId,
+          isSandbox: true,
+          isSms: true,
+        };
+      }
+
+      const callbackUrl = `${appBaseUrl}/api/subscription/paymently/callback?payment_id=${paymentId}&type=sms`;
+      const cancelUrl = `${appBaseUrl}/api/subscription/paymently/callback?status=cancelled&payment_id=${paymentId}&type=sms`;
+
+      const requestBody = {
+        full_name: params.userName || params.shopName || 'TWING Hisabi User',
+        email: params.userEmail || `${(params.userPhone || '01700000000').replace(/\D/g, '')}@twing.com`,
+        amount: pack.price.toString(),
+        metadata: {
+          type: 'sms',
+          purchase_type: 'sms',
+          user_id: params.userId,
+          package_id: pack.id,
+          package_name: pack.name,
+          sms_count: pack.smsCount,
+          payment_id: paymentId,
+        },
+        redirect_url: callbackUrl,
+        cancel_url: cancelUrl,
+        return_type: 'GET',
+      };
+
+      const primaryUrl = `${config.baseUrl}/checkout`;
+      const secondaryUrl = `${config.baseUrl}/checkout-v2`;
+      let responseData: any = null;
+      let responseStatus = 0;
+
+      try {
+        const cleanKey = (config.apiKey || '').trim();
+        const authHeaders: Record<string, string> = {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: `Bearer ${cleanKey}`,
+          'RT-UDDOKTAPAY-API-KEY': cleanKey,
+          'X-API-KEY': cleanKey,
+        };
+
+        let apiRes = await fetch(primaryUrl, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify(requestBody),
+        });
+        responseStatus = apiRes.status;
+
+        if (responseStatus === 404) {
+          apiRes = await fetch(secondaryUrl, {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify(requestBody),
+          });
+          responseStatus = apiRes.status;
+        }
+
+        responseData = await apiRes.json().catch(() => null);
+
+        if (responseStatus === 401 || (responseData?.message && responseData.message.toLowerCase().includes('api key'))) {
+          const simulatedPaymentUrl = `${params.appBaseUrl}/api/subscription/paymently/sandbox-checkout?payment_id=${paymentId}&type=sms&amount=${pack.price}&plan_name=${encodeURIComponent(pack.name)}&notice=invalid_api_key`;
+          return {
+            success: true,
+            paymentUrl: simulatedPaymentUrl,
+            paymentId,
+            isSandbox: true,
+            isSms: true,
+          };
+        }
+
+        if (!apiRes.ok || !responseData) {
+          const errMsg = responseData?.message || responseData?.error || `HTTP ${responseStatus}`;
+          throw new Error(`পেমেন্ট গেটওয়ে সাড়া দেয়নি (${errMsg})।`);
+        }
+      } catch (fetchErr: any) {
+        throw new Error(fetchErr.message || 'পেমেন্ট সার্ভারে যোগাযোগ করতে সমস্যা হয়েছে');
+      }
+
+      const checkoutUrl = responseData.payment_url || responseData.checkout_url || responseData.url;
+      if (!checkoutUrl) {
+        throw new Error('পেমেন্ট গেটওয়ে থেকে পেমেন্ট লিংক পাওয়া যায়নি।');
+      }
+
+      return {
+        success: true,
+        paymentUrl: checkoutUrl,
+        paymentId,
+        isSandbox: false,
+        isSms: true,
+      };
+    }
+
+    // ================== SUBSCRIPTION PACKAGE FLOW ==================
+    const planId = params.planId || params.packageId || '';
+    let plan = DEFAULT_PLANS.find((p) => p.id === planId);
     let bonusDays = 0;
 
-    const pool = getDbPool();
     if (pool) {
       try {
         const setRes = await pool.query(
@@ -126,7 +360,7 @@ export class PaymentlyService {
         if (setRes.rows.length > 0) {
           const settings = setRes.rows[0].data;
           if (settings.customPlans && Array.isArray(settings.customPlans)) {
-            const foundCustom = settings.customPlans.find((p: any) => p.id === params.planId);
+            const foundCustom = settings.customPlans.find((p: any) => p.id === planId);
             if (foundCustom) plan = foundCustom;
           }
           if (settings.bonusConfig?.isBonusEnabled !== false) {
@@ -139,7 +373,7 @@ export class PaymentlyService {
     } else {
       const settings = inMemoryStore.system_config?.['system_payment_settings'];
       if (settings?.customPlans) {
-        const found = settings.customPlans.find((p: any) => p.id === params.planId);
+        const found = settings.customPlans.find((p: any) => p.id === planId);
         if (found) plan = found;
       }
       if (settings?.bonusConfig?.isBonusEnabled !== false) {
@@ -152,9 +386,8 @@ export class PaymentlyService {
     }
 
     const paymentId = 'pay_pl_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
-    const now = Date.now();
 
-    // 2. Pre-create pending record in payments table for full traceability
+    // Pre-create pending record in payments table for full traceability
     if (pool) {
       await pool.query(
         `INSERT INTO payments (
@@ -213,9 +446,9 @@ export class PaymentlyService {
       } as any);
     }
 
-    // 3. Check for Sandbox Simulation Mode (if enabled by admin)
+    // Check Sandbox Simulation Mode
     if (config.isSandbox || !config.apiKey) {
-      console.log('🧪 [Paymently] Sandbox/Simulation checkout initiated for payment:', paymentId);
+      console.log('🧪 [Gateway] Sandbox subscription checkout initiated:', paymentId);
       const simulatedPaymentUrl = `${params.appBaseUrl}/api/subscription/paymently/sandbox-checkout?payment_id=${paymentId}&amount=${plan.price}&plan_name=${encodeURIComponent(plan.nameBn || plan.name)}`;
       return {
         success: true,
@@ -225,7 +458,7 @@ export class PaymentlyService {
       };
     }
 
-    // 4. Call Paymently Checkout API
+    // Call Gateway Checkout API
     const callbackUrl = `${params.appBaseUrl}/api/subscription/paymently/callback?payment_id=${paymentId}`;
     const cancelUrl = `${params.appBaseUrl}/api/subscription/paymently/callback?status=cancelled&payment_id=${paymentId}`;
 
@@ -234,6 +467,7 @@ export class PaymentlyService {
       email: params.userEmail || `${(params.userPhone || '01700000000').replace(/\D/g, '')}@twing.com`,
       amount: plan.price.toString(),
       metadata: {
+        type: 'subscription',
         user_id: params.userId,
         plan_id: plan.id,
         plan_name: plan.nameBn || plan.name,
@@ -246,15 +480,12 @@ export class PaymentlyService {
       return_type: 'GET',
     };
 
-    // Try primary /checkout and fallback to /checkout-v2 if needed
     const primaryUrl = `${config.baseUrl}/checkout`;
     const secondaryUrl = `${config.baseUrl}/checkout-v2`;
-
     let responseData: any = null;
     let responseStatus = 0;
 
     try {
-      console.log(`[Paymently] Calling checkout API at: ${primaryUrl}`);
       const cleanKey = (config.apiKey || '').trim();
       const authHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -271,10 +502,7 @@ export class PaymentlyService {
       });
 
       responseStatus = apiRes.status;
-
-      // If primary returned 404, attempt checkout-v2
       if (responseStatus === 404) {
-        console.log(`[Paymently] 404 on ${primaryUrl}, trying: ${secondaryUrl}`);
         apiRes = await fetch(secondaryUrl, {
           method: 'POST',
           headers: authHeaders,
@@ -285,14 +513,7 @@ export class PaymentlyService {
 
       responseData = await apiRes.json().catch(() => null);
 
-      // Graceful fallback if live API Key is invalid or expired
-      if (
-        responseStatus === 401 ||
-        (responseData?.message && responseData.message.toLowerCase().includes('api key'))
-      ) {
-        console.warn(
-          `⚠️ [Paymently 401] Invalid or expired API key from ${primaryUrl}. Falling back smoothly to sandbox checkout so user is not blocked.`
-        );
+      if (responseStatus === 401 || (responseData?.message && responseData.message.toLowerCase().includes('api key'))) {
         const simulatedPaymentUrl = `${params.appBaseUrl}/api/subscription/paymently/sandbox-checkout?payment_id=${paymentId}&amount=${plan.price}&plan_name=${encodeURIComponent(plan.nameBn || plan.name)}&notice=invalid_api_key`;
         return {
           success: true,
@@ -300,29 +521,21 @@ export class PaymentlyService {
           paymentId,
           isSandbox: true,
           isFallback: true,
-          warning: 'Paymently লাইভ API Key অকার্যকর থাকায় সুরক্ষিত টেস্ট স্যান্ডবক্স মোডে ওপেন হয়েছে।',
+          warning: 'পেমেন্ট গেটওয়ে API Key অকার্যকর থাকায় সুরক্ষিত টেস্ট স্যান্ডবক্স মোডে ওপেন হয়েছে।',
         };
       }
 
       if (!apiRes.ok || !responseData) {
         const errMsg = responseData?.message || responseData?.error || `HTTP ${responseStatus}`;
-        console.error('❌ [Paymently Checkout Error]', responseStatus, responseData);
-        throw new Error(`Paymently গেটওয়ে সাড়া দেয়নি (${errMsg})। অনুগ্রহ করে API Key ও Base URL সঠিক আছে কিনা যাচাই করুন।`);
+        throw new Error(`পেমেন্ট গেটওয়ে সাড়া দেয়নি (${errMsg})। অনুগ্রহ করে API Key ও Base URL সঠিক আছে কিনা যাচাই করুন।`);
       }
     } catch (fetchErr: any) {
-      console.error('❌ [Paymently Network Error]', fetchErr.message);
-      throw new Error(
-        fetchErr.message.includes('Paymently গেটওয়ে')
-          ? fetchErr.message
-          : `Paymently সার্ভারে যোগাযোগ করতে সমস্যা হয়েছে (${fetchErr.message})।`
-      );
+      throw new Error(fetchErr.message || 'পেমেন্ট সার্ভারে যোগাযোগ করতে সমস্যা হয়েছে');
     }
 
     const checkoutUrl = responseData.payment_url || responseData.checkout_url || responseData.url;
-
     if (!checkoutUrl) {
-      console.error('❌ [Paymently Missing URL]', responseData);
-      throw new Error('Paymently থেকে পেমেন্ট লিংক পাওয়া যায়নি। অ্যাডমিন প্যানেল থেকে গেটওয়ে সেটিংস যাচাই করুন।');
+      throw new Error('পেমেন্ট গেটওয়ে থেকে পেমেন্ট লিংক পাওয়া যায়নি।');
     }
 
     return {
@@ -404,16 +617,37 @@ export class PaymentlyService {
 
     // 2. Handle Sandbox Simulation Verification
     if (cleanInvoiceId.startsWith('SIM_INV_') || config.isSandbox) {
-      console.log('🧪 [Paymently Sandbox] Verifying simulated invoice:', cleanInvoiceId);
+      console.log('🧪 [Gateway Sandbox] Verifying simulated invoice:', cleanInvoiceId);
+      const isSms = options?.expectedPaymentId?.startsWith('pay_sms_') || options?.expectedPaymentId?.startsWith('sms_');
+      let simAmount = isSms ? 50 : 99;
+      if (pool && options?.expectedPaymentId) {
+        try {
+          if (isSms) {
+            const s = await pool.query('SELECT amount, sms_count, user_id FROM sms_purchases WHERE id = $1', [options.expectedPaymentId]);
+            if (s.rows.length > 0) simAmount = parseFloat(s.rows[0].amount) || simAmount;
+          } else {
+            const p = await pool.query('SELECT amount FROM payments WHERE id = $1', [options.expectedPaymentId]);
+            if (p.rows.length > 0) simAmount = parseFloat(p.rows[0].amount) || simAmount;
+          }
+        } catch (e) {}
+      }
+
       return await this.finalizeApprovedPayment({
         invoiceId: cleanInvoiceId,
         trxId: 'TRX_SIM_' + cleanInvoiceId,
-        amount: 99,
+        amount: simAmount,
         senderNumber: '01700000000',
         paymentMethod: 'bKash (Sandbox)',
         expectedPaymentId: options?.expectedPaymentId,
         expectedUserId: options?.expectedUserId,
-        rawGatewayData: { simulated: true, invoiceId: cleanInvoiceId },
+        rawGatewayData: {
+          simulated: true,
+          invoiceId: cleanInvoiceId,
+          metadata: {
+            type: isSms ? 'sms' : 'subscription',
+            purchase_type: isSms ? 'sms' : 'subscription',
+          },
+        },
       });
     }
 
@@ -547,8 +781,120 @@ export class PaymentlyService {
     const pool = getDbPool();
     const now = Date.now();
 
+    const isSmsPurchase =
+      params.rawGatewayData?.metadata?.type === 'sms' ||
+      params.rawGatewayData?.metadata?.purchase_type === 'sms' ||
+      (params.expectedPaymentId && (params.expectedPaymentId.startsWith('pay_sms_') || params.expectedPaymentId.startsWith('sms_')));
+
+    let targetUserId = params.expectedUserId || params.rawGatewayData?.metadata?.user_id;
+
+    // ==========================================
+    // SMS PURCHASE FINALIZATION
+    // ==========================================
+    if (isSmsPurchase) {
+      console.log(`📱 [PaymentGateway] Finalizing SMS purchase:`, params.expectedPaymentId || params.invoiceId);
+      const smsCount =
+        Number(params.rawGatewayData?.metadata?.sms_count) ||
+        (params.amount >= 350 ? 1000 : params.amount >= 200 ? 500 : params.amount >= 135 ? 300 : 100);
+      const pkgId = params.rawGatewayData?.metadata?.package_id || 'pack_custom';
+      const pkgName = params.rawGatewayData?.metadata?.package_name || `${smsCount}টি SMS প্যাকেজ`;
+
+      if (pool) {
+        if (params.expectedPaymentId) {
+          const sRes = await pool.query('SELECT user_id FROM sms_purchases WHERE id = $1', [params.expectedPaymentId]);
+          if (sRes.rows.length > 0 && !targetUserId) {
+            targetUserId = sRes.rows[0].user_id;
+          }
+
+          await pool.query(
+            `UPDATE sms_purchases SET
+              status = 'approved',
+              trx_id = $1,
+              approved_at = $2,
+              payment_method = $3,
+              admin_note = $4
+            WHERE id = $5`,
+            [
+              params.trxId,
+              now,
+              params.paymentMethod || 'online_gateway',
+              `অনলাইন গেটওয়েতে স্বয়ংক্রিয়ভাবে অনুমোদিত (Invoice: ${params.invoiceId})`,
+              params.expectedPaymentId,
+            ]
+          ).catch((e) => console.warn('sms_purchases update error:', e));
+        }
+
+        if (targetUserId) {
+          // Credit SMS balance
+          await pool.query(
+            `UPDATE users SET sms_balance = COALESCE(sms_balance, 0) + $1 WHERE id = $2`,
+            [smsCount, targetUserId]
+          );
+
+          // User notification
+          await pool.query(
+            `INSERT INTO notifications (id, user_id, title, message, type, priority, is_read, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              'notif_usr_sms_' + now,
+              targetUserId,
+              '🎉 এসএমএস রিচার্জ সফল হয়েছে!',
+              `অনলাইন গেটওয়ের মাধ্যমে আপনার ৳${params.amount} পেমেন্ট সফল হয়েছে এবং ${smsCount}টি SMS আপনার অ্যাকাউন্টে যোগ হয়েছে। TrxID: ${params.trxId}`,
+              'sms_recharge',
+              'high',
+              false,
+              now,
+            ]
+          ).catch(() => {});
+        }
+
+        // Admin notification
+        await pool.query(
+          `INSERT INTO notifications (id, title, message, type, target, priority, is_read, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            'notif_adm_sms_' + now,
+            '📱 নতুন সফল এসএমএস পেমেন্ট (অনলাইন গেটওয়ে)!',
+            `গ্রাহক ৳${params.amount} পেমেন্ট করেছেন (${smsCount}টি SMS, মেথড: ${params.paymentMethod}, Trx: ${params.trxId})। স্বয়ংক্রিয়ভাবে ব্যালেন্সে যুক্ত হয়েছে।`,
+            'admin_payment',
+            'all',
+            'high',
+            false,
+            now,
+          ]
+        ).catch(() => {});
+      } else {
+        if (targetUserId) {
+          const u = inMemoryStore.users.find((x) => x.id === targetUserId);
+          if (u) u.smsBalance = (u.smsBalance || 0) + smsCount;
+        }
+        const sp = (inMemoryStore.sms_purchases || []).find((x) => x.id === params.expectedPaymentId);
+        if (sp) {
+          sp.status = 'approved';
+          sp.trxId = params.trxId;
+          sp.approvedAt = now;
+        }
+      }
+
+      return {
+        success: true,
+        status: 'approved',
+        isSms: true,
+        smsCount,
+        packageId: pkgId,
+        planName: pkgName,
+        message: `আপনার অ্যাকাউন্টে ${smsCount}টি SMS সফলভাবে যোগ হয়েছে!`,
+        invoiceId: params.invoiceId,
+        trxId: params.trxId,
+        amount: params.amount,
+        paymentMethod: params.paymentMethod,
+      };
+    }
+
+    // ==========================================
+    // SUBSCRIPTION PURCHASE FINALIZATION
+    // ==========================================
     let targetPayment: any = null;
-    let targetUserId = params.expectedUserId;
 
     if (pool) {
       // Find existing payment row

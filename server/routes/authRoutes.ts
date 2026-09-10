@@ -75,6 +75,12 @@ router.post('/send-registration-otp', async (req, res) => {
       });
     }
 
+    if (cleanPhone === '01306908115') {
+      return res.status(400).json({
+        error: '❌ এই নম্বরটি সুপার অ্যাডমিন অ্যাকাউন্ট হিসেবে সংরক্ষিত। সুপার অ্যাডমিন প্যানেল থেকে লগইন করুন।',
+      });
+    }
+
     // Rate limiting for Registration OTP
     const rateKey = `reg_otp_${cleanPhone}_${req.ip}`;
     const rateLimit = checkRateLimit(rateKey, 4, 10 * 60 * 1000);
@@ -209,6 +215,12 @@ router.post('/register', async (req, res) => {
     if (!cleanPhone || cleanPhone.length !== 11 || !cleanPhone.startsWith('01')) {
       return res.status(400).json({
         error: '❌ অনুগ্রহ করে ১১-সংখ্যার সঠিক বাংলাদেশি মোবাইল নম্বর দিন (যেমন: 017XXXXXXXX)',
+      });
+    }
+
+    if (cleanPhone === '01306908115') {
+      return res.status(400).json({
+        error: '❌ এই নম্বরটি সুপার অ্যাডমিন অ্যাকাউন্ট হিসেবে সংরক্ষিত।',
       });
     }
 
@@ -458,7 +470,7 @@ router.post('/login', async (req, res) => {
     // ----------------------------------------------------
     let customPin = '7860';
     let superAdminEmail = 'siftibrahim@gmail.com';
-    let superAdminPhone = '01619665875';
+    let superAdminPhone = '01306908115';
     let superAdminHash = '';
 
     if (pool) {
@@ -471,7 +483,7 @@ router.post('/login', async (req, res) => {
           if (row.email && (row.email.includes('admin') || row.email.includes('siftibrahim'))) {
             superAdminEmail = row.email.toLowerCase();
           }
-          if (row.phone && row.phone === '01619665875') {
+          if (row.phone) {
             superAdminPhone = row.phone;
           }
           if (row.password_hash) superAdminHash = row.password_hash;
@@ -501,6 +513,7 @@ router.post('/login', async (req, res) => {
     const isSuperAdminIdentifier =
       cleanEmail === 'admin@twing.com' ||
       cleanEmail === 'siftibrahim@gmail.com' ||
+      cleanPhone === '01306908115' ||
       cleanPhone === '01619665875' ||
       rawIdentifier.trim().toLowerCase() === 'admin';
 
@@ -526,7 +539,7 @@ router.post('/login', async (req, res) => {
         clearRateLimit(rateLimitKey);
 
         // Trigger 2FA OTP for Super Admin
-        const cleanAdminPhone = normalizePhone(superAdminPhone) || '01619665875';
+        const cleanAdminPhone = normalizePhone(superAdminPhone) || '01306908115';
         const otpCode = generateOtp();
         const expiresAt = now + 15 * 60 * 1000;
         const tempAuthSession = '2fa_' + now.toString(36) + Math.random().toString(36).substring(2, 8);
@@ -626,7 +639,7 @@ router.post('/login', async (req, res) => {
 
     if (user && isUserMatch) {
       // Strict Role Guarantee: Regular users can NEVER be assigned super_admin
-      const isActualAdminAccount = user.id === 'usr_super_admin' || cleanEmail === 'siftibrahim@gmail.com' || cleanEmail === 'admin@twing.com' || cleanPhone === '01619665875';
+      const isActualAdminAccount = user.id === 'usr_super_admin' || cleanEmail === 'siftibrahim@gmail.com' || cleanEmail === 'admin@twing.com' || cleanPhone === '01306908115' || cleanPhone === '01619665875';
       const userRole = isActualAdminAccount ? 'super_admin' : 'user';
 
       // Check account status
@@ -814,7 +827,7 @@ router.post('/admin-login', async (req, res) => {
     let customPin = '7860';
     let superAdminEmail = DEFAULT_ADMIN_EMAIL;
     let superAdminName = 'সুপার অ্যাডমিন';
-    let superAdminPhone = '01619665875';
+    let superAdminPhone = '01306908115';
     let superAdminHash = '';
 
     if (pool) {
@@ -930,7 +943,7 @@ router.post('/admin-login', async (req, res) => {
 
     // MANDATORY TWO-FACTOR AUTHENTICATION (2FA) OTP
     // Even when email & password are correct, Super Admin CANNOT enter dashboard without OTP verification
-    const cleanAdminPhone = normalizePhone(superAdminPhone) || '01619665875';
+    const cleanAdminPhone = normalizePhone(superAdminPhone) || '01306908115';
     const otpCode = generateOtp();
     const now = Date.now();
     const expiresAt = now + 15 * 60 * 1000; // 15 minutes validity
@@ -1002,7 +1015,7 @@ router.post('/admin-verify-2fa', async (req, res) => {
     let isOtpValid = false;
 
     const isStaff = role === 'staff' || Boolean(staffId);
-    const cleanPhone = normalizePhone(phone) || (isStaff ? '' : '01619665875');
+    const cleanPhone = normalizePhone(phone) || (isStaff ? '' : '01306908115');
 
     // Check real OTP in PostgreSQL database strictly
     if (pool) {
@@ -1343,7 +1356,7 @@ router.get('/me', authenticateUser, async (req: AuthenticatedRequest, res: Respo
         const isSuperAdminAccount =
           u.id === 'usr_super_admin' ||
           (u.email && (u.email.toLowerCase() === 'siftibrahim@gmail.com' || u.email.toLowerCase() === 'admin@twing.com')) ||
-          (u.phone && (u.phone === '01619665875' || u.phone.replace(/\D/g, '') === '01619665875'));
+          (u.phone && (u.phone === '01306908115' || u.phone.replace(/\D/g, '') === '01306908115' || u.phone === '01619665875' || u.phone.replace(/\D/g, '') === '01619665875'));
         
         const effectiveRole = isSuperAdminAccount ? 'super_admin' : 'user';
         if (u.role !== effectiveRole) {
@@ -1460,7 +1473,7 @@ router.post('/change-password', async (req, res) => {
           'usr_super_admin',
           'ইব্রাহিম খলিল',
           cleanEmail,
-          '01619665875',
+          '01306908115',
           'TWING হিসাবি',
           newHash,
           'super_admin',
@@ -1518,6 +1531,7 @@ router.post('/send-reset-otp', async (req, res) => {
     const isSuperAdminIdentifier =
       cleanEmail === 'siftibrahim@gmail.com' ||
       cleanEmail === 'admin@twing.com' ||
+      cleanPhone === '01306908115' ||
       cleanPhone === '01619665875';
 
     if (isSuperAdminIdentifier) {
@@ -1525,7 +1539,7 @@ router.post('/send-reset-otp', async (req, res) => {
       targetUser = {
         id: 'usr_super_admin',
         name: 'সুপার অ্যাডমিন',
-        phone: '01619665875',
+        phone: '01306908115',
         email: 'siftibrahim@gmail.com',
         role: 'super_admin',
       };
@@ -1619,7 +1633,7 @@ router.post('/send-reset-otp', async (req, res) => {
     }
 
     if (!recipientPhone || recipientPhone.length < 11) {
-      recipientPhone = isSuperAdmin ? '01619665875' : cleanPhone;
+      recipientPhone = isSuperAdmin ? '01306908115' : cleanPhone;
     }
 
     const otpCode = generateOtp();
@@ -1807,6 +1821,7 @@ router.post('/reset-password-with-otp', async (req, res) => {
     const newHash = await bcrypt.hash(newPassword, 10);
     const cleanEmail = (phone || '').trim().toLowerCase();
     const isSuperAdminPhone =
+      cleanPhone === '01306908115' ||
       cleanPhone === '01619665875' ||
       cleanEmail === 'admin@twing.com' ||
       cleanEmail === 'siftibrahim@gmail.com';

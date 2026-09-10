@@ -992,6 +992,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 currentUser?.id === 'usr_super_admin' ||
                 currentUser?.email?.toLowerCase() === 'siftibrahim@gmail.com' ||
                 currentUser?.email?.toLowerCase() === 'admin@twing.com' ||
+                currentUser?.phone?.replace(/\D/g, '') === '01306908115' ||
                 currentUser?.phone?.replace(/\D/g, '') === '01619665875'
               )
             );

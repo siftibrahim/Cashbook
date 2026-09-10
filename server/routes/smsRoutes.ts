@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { getDbPool, inMemoryStore } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { sendSmsNotification } from '../services/smsService';
+import { PaymentlyService } from '../services/paymentlyService';
 
 const router = Router();
 
@@ -317,6 +318,64 @@ router.get('/packages', async (req, res) => {
     return res.json({ packages: pkgs });
   } catch (err: any) {
     return res.json({ packages: DEFAULT_SMS_PACKAGES });
+  }
+});
+
+/**
+ * POST /api/sms/checkout
+ * Initiates automated payment gateway checkout (UddoktaPay / Paymently) for chosen SMS package
+ */
+router.post('/checkout', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'লগইন করুন' });
+
+    const { packageId, gatewayId } = req.body;
+    if (!packageId) return res.status(400).json({ error: 'এসএমএস প্যাকেজ আইডি আবশ্যক' });
+
+    const pool = getDbPool();
+    // 1. Check if user already has a pending SMS purchase
+    if (pool) {
+      const pendRes = await pool.query(
+        "SELECT id, trx_id FROM sms_purchases WHERE user_id = $1 AND status = 'pending' LIMIT 1",
+        [userId]
+      );
+      if (pendRes.rows.length > 0) {
+        return res.status(400).json({
+          error: 'আপনার ইতিমধ্যে একটি এসএমএস প্যাকেজ ক্রয়ের অনুরোধ পেন্ডিং আছে (TrxID: ' + pendRes.rows[0].trx_id + ')। অ্যাডমিন অনুমোদন অথবা পূর্বের রিকোয়েস্ট সমাপ্তির পর পুনরায় চেষ্টা করুন।',
+        });
+      }
+
+      // 2. Check balance exclusivity rule
+      const uBalRes = await pool.query('SELECT sms_balance FROM users WHERE id = $1', [userId]);
+      const curBal = uBalRes.rows.length > 0 ? (uBalRes.rows[0].sms_balance ?? 0) : 0;
+      if (curBal > 0) {
+        return res.status(400).json({
+          error: `আপনার বর্তমান প্যাকেজে এখনও ${curBal}টি SMS অবশিষ্ট রয়েছে। ব্যালেন্স শূন্য (০) হওয়ার পর নতুন প্যাকেজ কেনা যাবে।`,
+        });
+      }
+    }
+
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
+    const appBaseUrl = `${protocol}://${host}`;
+
+    const checkout = await PaymentlyService.createCheckout({
+      type: 'sms',
+      packageId,
+      userId,
+      userEmail: req.user?.email,
+      userName: req.user?.name,
+      userPhone: req.user?.phone,
+      shopName: req.user?.shopName,
+      appBaseUrl,
+      gatewayId,
+    });
+
+    return res.json(checkout);
+  } catch (err: any) {
+    console.error('SMS Gateway Checkout Error:', err);
+    return res.status(400).json({ error: err.message || 'এসএমএস পেমেন্ট গেটওয়ে সেশন তৈরিতে ত্রুটি হয়েছে' });
   }
 });
 
