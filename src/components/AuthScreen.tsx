@@ -34,7 +34,7 @@ import { PWAInstallButton } from './pwa/PWAInstallButton';
 
 interface AuthScreenProps {
   store: StoreProfile;
-  onLoginSuccess: (email: string, role: string) => void;
+  onLoginSuccess: (email: string, role: string, userPayload?: any) => void;
   onAdminLoginSuccess?: (email: string, session?: AdminSession) => void;
 }
 
@@ -172,8 +172,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       clearLoginAttempts(cleanIdentifier.toLowerCase());
       setSuccessMsg('✅ দোকানে সফলভাবে প্রবেশ করা হয়েছে!');
       setTimeout(() => {
-        onLoginSuccess(res.user?.email || cleanIdentifier, 'দোকানদার');
-      }, 400);
+        onLoginSuccess(res.user?.email || cleanIdentifier, 'দোকানদার', res.user);
+      }, 300);
     } catch (err: any) {
       console.warn('Unified Auth Error:', err);
 
@@ -233,7 +233,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               staffData: res.staff,
             });
           } else {
-            onLoginSuccess(staffEmail, 'staff');
+            onLoginSuccess(staffEmail, 'staff', res.staff);
           }
         }, 400);
       } else {
@@ -246,7 +246,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               email: adminMail,
             });
           } else {
-            onLoginSuccess(adminMail, 'admin');
+            onLoginSuccess(adminMail, 'admin', res.user);
           }
         }, 400);
       }
@@ -364,8 +364,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
       setSuccessMsg(res.message || '🎉 আপনার নতুন দোকান সফলভাবে খোলা হয়েছে! স্বাগতম...');
       setTimeout(() => {
-        onLoginSuccess(res.user?.phone || cleanPhone, cleanOwner || 'দোকানদার');
-      }, 500);
+        onLoginSuccess(res.user?.phone || cleanPhone, cleanOwner || 'দোকানদার', res.user);
+      }, 400);
     } catch (err: any) {
       console.error('Verify & Register Error:', err);
       setErrorMsg(err.message || 'দোকান তৈরিতে সমস্যা হয়েছে। সঠিক ওটিপি দিন।');

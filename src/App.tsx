@@ -104,11 +104,26 @@ import { SupportMessage, Announcement, AppUpdateConfig, AdminSession, AdminNotif
 import { Store, Loader2 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const [store, setStore] = useState<StoreProfile>(loadStoreProfile);
-  const [customers, setCustomers] = useState<Customer[]>(loadCustomers);
-  const [transactions, setTransactions] = useState<Record<string, Transaction[]>>(loadTransactions);
-  const [expenses, setExpenses] = useState<DailyExpense[]>(loadDailyExpenses);
-  const [products, setProducts] = useState<Product[]>(loadProducts);
+  const [store, setStore] = useState<StoreProfile>(() => {
+    const user = getStoredUser();
+    return loadStoreProfile(user?.id);
+  });
+  const [customers, setCustomers] = useState<Customer[]>(() => {
+    const user = getStoredUser();
+    return loadCustomers(user?.id);
+  });
+  const [transactions, setTransactions] = useState<Record<string, Transaction[]>>(() => {
+    const user = getStoredUser();
+    return loadTransactions(user?.id);
+  });
+  const [expenses, setExpenses] = useState<DailyExpense[]>(() => {
+    const user = getStoredUser();
+    return loadDailyExpenses(user?.id);
+  });
+  const [products, setProducts] = useState<Product[]>(() => {
+    const user = getStoredUser();
+    return loadProducts(user?.id);
+  });
 
   // Active Bottom Tab State
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
@@ -319,18 +334,35 @@ export const App: React.FC = () => {
         });
       }
 
-      if (storeData && storeData.name) {
-        setStore(storeData);
-        saveStoreProfile(storeData, userId);
-      } else if (user?.shopName) {
-        const customStore = {
+      const userShopName = user?.shopName || (user as any)?.shop_name;
+      const userName = user?.name || (user as any)?.owner;
+      const userPhone = user?.phone;
+
+      if (storeData && storeData.name && storeData.name !== 'আমার দোকান' && storeData.name !== 'TWING হিসাবি') {
+        const resolvedStore = {
+          ...storeData,
+          owner: (storeData.owner && storeData.owner !== 'দোকান মালিক' && storeData.owner !== 'মালিক') ? storeData.owner : (userName || storeData.owner || 'মালিক'),
+          phone: (storeData.phone && storeData.phone !== '০১XXXXXXXXX' && storeData.phone !== '০১৭০০০০০০০০') ? storeData.phone : (userPhone || storeData.phone || '০১৭০০০০০০০০'),
+        };
+        setStore(resolvedStore);
+        saveStoreProfile(resolvedStore, userId);
+      } else if (userShopName) {
+        const customStore: StoreProfile = {
           ...DEFAULT_STORE,
-          name: user.shopName,
-          owner: user.name || 'দোকানদার',
-          phone: user.phone || '০১৭০০০০০০০০',
+          ...(storeData || {}),
+          name: userShopName,
+          owner: (storeData?.owner && storeData.owner !== 'দোকান মালিক' && storeData.owner !== 'মালিক')
+            ? storeData.owner
+            : (userName || 'মালিক'),
+          phone: (storeData?.phone && storeData.phone !== '০১XXXXXXXXX' && storeData.phone !== '০১৭০০০০০০০০')
+            ? storeData.phone
+            : (userPhone || '০১৭০০০০০০০০'),
         };
         setStore(customStore);
         saveStoreProfile(customStore, userId);
+      } else if (storeData) {
+        setStore(storeData);
+        saveStoreProfile(storeData, userId);
       }
 
       const loadedCusts = Array.isArray(custList) ? custList : [];
@@ -470,8 +502,10 @@ export const App: React.FC = () => {
   }, [transactions]);
 
   useEffect(() => {
-    saveStoreProfile(store);
-  }, [store]);
+    if (isLoggedIn) {
+      saveStoreProfile(store);
+    }
+  }, [store, isLoggedIn]);
 
   useEffect(() => {
     saveDailyExpenses(expenses);
@@ -485,7 +519,11 @@ export const App: React.FC = () => {
     const unsubStore = subscribeToStoreProfile(
       (cloudProfile) => {
         if (cloudProfile && cloudProfile.name) {
-          setStore((prev) => ({ ...prev, ...cloudProfile }));
+          const user = getStoredUser();
+          const userShop = user?.shopName || (user as any)?.shop_name;
+          const isGeneric = cloudProfile.name === 'আমার দোকান' || cloudProfile.name === 'TWING হিসাবি';
+          const resolvedName = (!isGeneric || !userShop) ? cloudProfile.name : userShop;
+          setStore((prev) => ({ ...prev, ...cloudProfile, name: resolvedName }));
           setIsCloudSynced(true);
         }
       },
@@ -574,9 +612,44 @@ export const App: React.FC = () => {
     (m) => m.sender === 'admin' && !m.isReadByUser
   ).length;
 
-  const handleLoginSuccess = async (email: string, roleName: string) => {
+  const handleLoginSuccess = async (email: string, roleName: string, loggedInUser?: any) => {
+    const user = loggedInUser || getStoredUser();
+
+    // CRITICAL: Immediately prepare and set user-specific profile, shop name, owner, and records
+    // BEFORE setting isLoggedIn(true). This completely eliminates any flash of default placeholder data
+    // and guarantees that only the logged-in user's profile is rendered on the screen.
+    if (user) {
+      const uid = user.id || user.userId;
+      const userShopName = user.shopName || user.shop_name;
+      const userName = user.name || user.owner;
+      const userPhone = user.phone;
+      const cachedStore = uid ? loadStoreProfile(uid) : null;
+
+      const instantStore: StoreProfile = {
+        ...DEFAULT_STORE,
+        ...(cachedStore || {}),
+        name: (cachedStore?.name && cachedStore.name !== 'আমার দোকান' && cachedStore.name !== 'TWING হিসাবি')
+          ? cachedStore.name
+          : (userShopName || cachedStore?.name || DEFAULT_STORE.name),
+        owner: (cachedStore?.owner && cachedStore.owner !== 'দোকান মালিক' && cachedStore.owner !== 'মালিক')
+          ? cachedStore.owner
+          : (userName || cachedStore?.owner || DEFAULT_STORE.owner),
+        phone: (cachedStore?.phone && cachedStore.phone !== '০১XXXXXXXXX' && cachedStore.phone !== '০১৭০০০০০০০০')
+          ? cachedStore.phone
+          : (userPhone || cachedStore?.phone || DEFAULT_STORE.phone),
+      };
+
+      setStore(instantStore);
+      if (uid) {
+        saveStoreProfile(instantStore, uid);
+        setCustomers(loadCustomers(uid));
+        setTransactions(loadTransactions(uid));
+        setExpenses(loadDailyExpenses(uid));
+        setProducts(loadProducts(uid));
+      }
+    }
+
     setIsLoggedIn(true);
-    const user = getStoredUser();
     if (roleName === 'staff' || user?.role === 'staff' || user?.role === 'manager' || (Array.isArray(user?.permissions) && user.permissions.length > 0)) {
       setUserRole('স্টাফ অ্যাকাউন্ট');
       setAdminSession({

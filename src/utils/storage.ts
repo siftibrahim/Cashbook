@@ -263,10 +263,10 @@ const INITIAL_EXPENSES: DailyExpense[] = [
 
 export function getActiveUserId(): string {
   try {
-    const raw = localStorage.getItem('twing_user_data');
+    const raw = localStorage.getItem('twing_user_data') || localStorage.getItem('twing_auth_user');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.id) return parsed.id;
+      if (parsed && (parsed.id || parsed.userId)) return String(parsed.id || parsed.userId);
     }
   } catch {
     // ignore
@@ -285,7 +285,6 @@ export function loadCustomers(userId?: string): Customer[] {
     const key = getUserStorageKey('customers', uid);
     const raw = localStorage.getItem(key);
     if (!raw) {
-      // If guest or no user, provide empty list (or only default if explicitly needed)
       return [];
     }
     const parsed = JSON.parse(raw);
@@ -335,28 +334,52 @@ export function loadStoreProfile(userId?: string): StoreProfile {
     const uid = userId || getActiveUserId();
     const key = getUserStorageKey('store', uid);
     const raw = localStorage.getItem(key);
-    let fallbackStore = { ...DEFAULT_STORE };
+
+    let userShopName = '';
+    let userName = '';
+    let userPhone = '';
     try {
-      const uRaw = localStorage.getItem('twing_user_data');
+      const uRaw = localStorage.getItem('twing_user_data') || localStorage.getItem('twing_auth_user');
       if (uRaw) {
         const u = JSON.parse(uRaw);
-        if (u && u.shopName) {
-          fallbackStore.name = u.shopName;
-          fallbackStore.owner = u.name || 'মালিক';
-          fallbackStore.phone = u.phone || '০১৭০০০০০০০০';
+        if (u && (u.id === uid || u.userId === uid || uid === 'guest' || !userId)) {
+          userShopName = u.shopName || u.shop_name || '';
+          userName = u.name || u.owner || '';
+          userPhone = u.phone || '';
         }
       }
     } catch {
       // ignore
     }
+
+    const fallbackStore: StoreProfile = {
+      ...DEFAULT_STORE,
+      name: userShopName || DEFAULT_STORE.name,
+      owner: userName || DEFAULT_STORE.owner,
+      phone: userPhone || DEFAULT_STORE.phone,
+    };
+
     if (!raw) return fallbackStore;
+
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      if (parsed.name === 'ইব্রাহিম জেনারেল স্টোর' || parsed.name === 'Twing হিসাব খাতা') {
-        parsed.name = 'TWING হিসাবি';
-      }
-    }
-    return { ...fallbackStore, ...parsed };
+    if (!parsed || typeof parsed !== 'object') return fallbackStore;
+
+    // Check if parsed has generic placeholder defaults
+    const isGenericName = !parsed.name || parsed.name === 'আমার দোকান' || parsed.name === 'TWING হিসাবি';
+    const isGenericOwner = !parsed.owner || parsed.owner === 'দোকান মালিক' || parsed.owner === 'মালিক';
+    const isGenericPhone = !parsed.phone || parsed.phone === '০১XXXXXXXXX' || parsed.phone === '০১৭০০০০০০০০';
+
+    const effectiveName = !isGenericName ? parsed.name : (userShopName || parsed.name || DEFAULT_STORE.name);
+    const effectiveOwner = !isGenericOwner ? parsed.owner : (userName || parsed.owner || DEFAULT_STORE.owner);
+    const effectivePhone = !isGenericPhone ? parsed.phone : (userPhone || parsed.phone || DEFAULT_STORE.phone);
+
+    return {
+      ...DEFAULT_STORE,
+      ...parsed,
+      name: effectiveName,
+      owner: effectiveOwner,
+      phone: effectivePhone,
+    };
   } catch (e) {
     console.error('Error loading store profile:', e);
     return DEFAULT_STORE;
@@ -367,6 +390,26 @@ export function saveStoreProfile(profile: StoreProfile, userId?: string): void {
   try {
     const uid = userId || getActiveUserId();
     const key = getUserStorageKey('store', uid);
+
+    // Guard: Prevent overwriting an established store profile with generic placeholder defaults
+    const existingRaw = localStorage.getItem(key);
+    if (existingRaw) {
+      try {
+        const existing = JSON.parse(existingRaw);
+        if (existing && existing.name && existing.name !== 'আমার দোকান' && profile.name === 'আমার দোকান') {
+          profile = { ...profile, name: existing.name };
+        }
+        if (existing && existing.owner && existing.owner !== 'দোকান মালিক' && profile.owner === 'দোকান মালিক') {
+          profile = { ...profile, owner: existing.owner };
+        }
+        if (existing && existing.phone && existing.phone !== '০১XXXXXXXXX' && profile.phone === '০১XXXXXXXXX') {
+          profile = { ...profile, phone: existing.phone };
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     localStorage.setItem(key, JSON.stringify(profile));
   } catch (e) {
     console.error('Error saving store profile:', e);

@@ -31,26 +31,79 @@ router.get('/profile', async (req: AuthenticatedRequest, res: Response) => {
 
     if (pool) {
       const result = await pool.query('SELECT * FROM store_profiles WHERE user_id = $1', [userId]);
-      if (result.rows.length > 0) {
-        const row = result.rows[0];
+      let profileRow = result.rows.length > 0 ? result.rows[0] : null;
+
+      // If store profile not found or has default placeholder, check users table for user-specific data
+      if (!profileRow || profileRow.name === 'আমার দোকান' || profileRow.owner === 'দোকান মালিক' || profileRow.phone === '০১XXXXXXXXX') {
+        const uRes = await pool.query('SELECT name, phone, shop_name, address FROM users WHERE id = $1', [userId]);
+        if (uRes.rows.length > 0) {
+          const u = uRes.rows[0];
+          const realShopName = u.shop_name || (profileRow && profileRow.name !== 'আমার দোকান' ? profileRow.name : '') || req.user?.shopName || 'আমার দোকান';
+          const realOwner = u.name || (profileRow && profileRow.owner !== 'দোকান মালিক' ? profileRow.owner : '') || 'মালিক';
+          const realPhone = u.phone || (profileRow && profileRow.phone !== '০১XXXXXXXXX' ? profileRow.phone : '') || '০১৭০০০০০০০০';
+          const realAddress = u.address || profileRow?.address || 'বাংলাদেশ';
+
+          if (!profileRow) {
+            const storeId = 'store_' + userId;
+            try {
+              await pool.query(`
+                INSERT INTO store_profiles (id, user_id, name, owner, phone, address, currency_symbol, theme_color)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (id) DO UPDATE SET
+                  name = EXCLUDED.name,
+                  owner = EXCLUDED.owner,
+                  phone = EXCLUDED.phone
+              `, [storeId, userId, realShopName, realOwner, realPhone, realAddress, '৳', 'teal']);
+            } catch (e) {
+              console.warn('Auto-create store profile failed:', e);
+            }
+          }
+
+          return res.json({
+            profile: {
+              name: realShopName,
+              owner: realOwner,
+              phone: realPhone,
+              address: realAddress,
+              footerNote: profileRow?.footer_note || '',
+              currencySymbol: profileRow?.currency_symbol || '৳',
+              highDueLimit: profileRow ? (parseFloat(profileRow.high_due_limit) || 5000) : 5000,
+              tagadaTemplate: profileRow?.tagada_template || '',
+              bkashNumber: profileRow?.bkash_number || '',
+              nagadNumber: profileRow?.nagad_number || '',
+              rocketNumber: profileRow?.rocket_number || '',
+              themeColor: profileRow?.theme_color || 'teal',
+              enableSoundEffects: profileRow ? (profileRow.enable_sound_effects !== false) : true,
+              printPaperSize: profileRow?.print_paper_size || 'thermal_80',
+              showQrOnInvoice: profileRow ? (profileRow.show_qr_on_invoice !== false) : true,
+              defaultCreditLimit: profileRow ? (parseFloat(profileRow.default_credit_limit) || 10000) : 10000,
+              subscriptionExpiresAt: subExpiresAt,
+              subscriptionPlan: subPlan,
+              subscriptionStatus: subStatus,
+            },
+          });
+        }
+      }
+
+      if (profileRow) {
         return res.json({
           profile: {
-            name: row.name,
-            owner: row.owner,
-            phone: row.phone,
-            address: row.address || '',
-            footerNote: row.footer_note || '',
-            currencySymbol: row.currency_symbol || '৳',
-            highDueLimit: parseFloat(row.high_due_limit) || 5000,
-            tagadaTemplate: row.tagada_template || '',
-            bkashNumber: row.bkash_number || '',
-            nagadNumber: row.nagad_number || '',
-            rocketNumber: row.rocket_number || '',
-            themeColor: row.theme_color || 'teal',
-            enableSoundEffects: row.enable_sound_effects !== false,
-            printPaperSize: row.print_paper_size || 'thermal_80',
-            showQrOnInvoice: row.show_qr_on_invoice !== false,
-            defaultCreditLimit: parseFloat(row.default_credit_limit) || 10000,
+            name: profileRow.name,
+            owner: profileRow.owner,
+            phone: profileRow.phone,
+            address: profileRow.address || '',
+            footerNote: profileRow.footer_note || '',
+            currencySymbol: profileRow.currency_symbol || '৳',
+            highDueLimit: parseFloat(profileRow.high_due_limit) || 5000,
+            tagadaTemplate: profileRow.tagada_template || '',
+            bkashNumber: profileRow.bkash_number || '',
+            nagadNumber: profileRow.nagad_number || '',
+            rocketNumber: profileRow.rocket_number || '',
+            themeColor: profileRow.theme_color || 'teal',
+            enableSoundEffects: profileRow.enable_sound_effects !== false,
+            printPaperSize: profileRow.print_paper_size || 'thermal_80',
+            showQrOnInvoice: profileRow.show_qr_on_invoice !== false,
+            defaultCreditLimit: parseFloat(profileRow.default_credit_limit) || 10000,
             subscriptionExpiresAt: subExpiresAt,
             subscriptionPlan: subPlan,
             subscriptionStatus: subStatus,
@@ -58,7 +111,7 @@ router.get('/profile', async (req: AuthenticatedRequest, res: Response) => {
         });
       }
     } else {
-      const s = inMemoryStore.stores.find(x => x.userId === userId || !x.userId);
+      const s = inMemoryStore.stores.find(x => x.userId === userId);
       if (s) {
         return res.json({
           profile: {
@@ -69,14 +122,37 @@ router.get('/profile', async (req: AuthenticatedRequest, res: Response) => {
           },
         });
       }
+
+      const memUser = inMemoryStore.users.find(u => u.id === userId);
+      if (memUser) {
+        const memShopName = memUser.shopName || memUser.shop_name || req.user?.shopName || 'আমার দোকান';
+        const memOwner = memUser.name || 'মালিক';
+        const memPhone = memUser.phone || '০১৭০০০০০০০০';
+        const newStore = {
+          id: 'store_' + userId,
+          userId,
+          name: memShopName,
+          owner: memOwner,
+          phone: memPhone,
+          address: memUser.address || 'বাংলাদেশ',
+          currencySymbol: '৳',
+          themeColor: 'teal',
+          subscriptionExpiresAt: subExpiresAt,
+          subscriptionPlan: subPlan,
+          subscriptionStatus: subStatus,
+        };
+        inMemoryStore.stores.push(newStore);
+        return res.json({ profile: newStore });
+      }
     }
 
+    const fallbackUser = inMemoryStore.users.find(u => u.id === userId);
     return res.json({
       profile: {
-        name: req.user?.shopName || 'TWING হিসাবি',
-        owner: 'মালিক',
-        phone: '০১৭০০০০০০০০',
-        address: 'বাংলাদেশ',
+        name: fallbackUser?.shopName || fallbackUser?.shop_name || req.user?.shopName || 'আমার দোকান',
+        owner: fallbackUser?.name || 'মালিক',
+        phone: fallbackUser?.phone || '০১৭০০০০০০০০',
+        address: fallbackUser?.address || 'বাংলাদেশ',
         currencySymbol: '৳',
         themeColor: 'teal',
         subscriptionExpiresAt: subExpiresAt,

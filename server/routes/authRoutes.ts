@@ -410,6 +410,8 @@ router.post('/register', async (req, res) => {
     const token = generateToken({
       userId,
       email: cleanEmail,
+      phone: cleanPhone,
+      name: cleanName,
       role: 'user',
       shopName: cleanShop,
     });
@@ -672,6 +674,8 @@ router.post('/login', async (req, res) => {
       const token = generateToken({
         userId: user.id,
         email: user.email,
+        phone: user.phone,
+        name: user.name,
         role: userRole,
         shopName: user.shop_name || user.shopName,
       });
