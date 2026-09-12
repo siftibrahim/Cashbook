@@ -113,8 +113,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     e.preventDefault();
     setErrorMsg('');
 
-    const targetEmail = email.trim().toLowerCase() || ADMIN_EMAIL;
-    const rateLimit = checkLoginRateLimit(targetEmail);
+    const targetIdentifier = email.trim() || '01306908115';
+    const rateLimit = checkLoginRateLimit(targetIdentifier);
     if (rateLimit.isLocked) {
       setErrorMsg(`⚠️ অতিরিক্ত ভুল চেষ্টার কারণে একাউন্টটি লক করা হয়েছে। দয়া করে ${rateLimit.remainingMinutes} মিনিট পর চেষ্টা করুন।`);
       return;
@@ -125,7 +125,9 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     try {
       const fp = getOrGenerateFingerprint();
       const res = await authApi.adminLogin({
-        email: targetEmail,
+        identifier: targetIdentifier,
+        email: targetIdentifier.includes('@') ? targetIdentifier.toLowerCase() : undefined,
+        phone: !targetIdentifier.includes('@') ? targetIdentifier : undefined,
         password,
         authType: 'password',
         deviceFingerprint: fp,
@@ -136,18 +138,22 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         setShow2FAStep(true);
         setTwoFaSessionToken(res.twoFaSessionToken || '');
         setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
-        onShowToast('🔐 আপনার নিবন্ধিত মোবাইল নম্বরে 2FA OTP কোড পাঠানো হয়েছে!');
+        if (res.devOtp) {
+          onShowToast(`🔐 2FA OTP কোড: ${res.devOtp}`);
+        } else {
+          onShowToast('🔐 আপনার নিবন্ধিত মোবাইল নম্বরে 2FA OTP কোড পাঠানো হয়েছে!');
+        }
         return;
       }
 
       setErrorMsg('সুপার অ্যাডমিন সিকিউরিটির জন্য ২FA ওটিপি যাচাই প্রয়োজন।');
     } catch (err: any) {
       console.warn('Admin sign-in error:', err);
-      const attempt = recordFailedLoginAttempt(targetEmail);
+      const attempt = recordFailedLoginAttempt(targetIdentifier);
       if (attempt.isLockedNow) {
         setErrorMsg('❌ ৫ বার ভুল পাসওয়ার্ড দেওয়ায় সিকিউরিটির জন্য একাউন্ট ১৫ মিনিটের জন্য লক করা হয়েছে!');
       } else {
-        setErrorMsg(`ইমেইল বা পাসওয়ার্ড সঠিক নয়। (বাকি সুযোগ: ${attempt.attemptsLeft} বার)`);
+        setErrorMsg(err.message || `মোবাইল নম্বর বা পাসওয়ার্ড সঠিক নয়। (বাকি সুযোগ: ${attempt.attemptsLeft} বার)`);
       }
     } finally {
       setLoading(false);
@@ -401,7 +407,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                     onClick={() => setMode('password')}
                     className={`cursor-pointer ${mode === 'password' ? 'text-teal-800 underline' : 'hover:text-slate-800'}`}
                   >
-                    ইমেইল ও পাসওয়ার্ড
+                    মোবাইল নম্বর / ইমেইল ও পাসওয়ার্ড
                   </button>
                   <span>•</span>
                   <button
@@ -417,14 +423,14 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                   <form onSubmit={handleSuperAdminPasswordSubmit} className="space-y-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    সুপার অ্যাডমিন ইমেইল <span className="text-red-500">*</span>
+                    সুপার অ্যাডমিন মোবাইল নম্বর বা ইমেইল <span className="text-red-500">*</span>
                   </label>
                   <input
-                    type="email"
+                    type="text"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@twing.com বা রেজিস্টার্ড ইমেইল"
+                    placeholder="01306908115 বা siftibrahim@gmail.com"
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
                   />
                 </div>

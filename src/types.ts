@@ -110,6 +110,17 @@ export interface AppSettings {
 export type CustomerFilter = 'all' | 'due' | 'paid' | 'vip' | 'wholesale';
 export type CustomerSortOption = 'recent_activity' | 'due_desc' | 'due_asc' | 'name_asc';
 
+export interface TagadaTemplate {
+  id: string;
+  title: string;
+  message: string;
+  category?: 'regular' | 'urgent' | 'short' | 'reminder' | 'custom';
+  isDefault?: boolean;
+  isActive?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export type NavTab = 'dashboard' | 'customers' | 'pos' | 'inventory' | 'cashbook' | 'support';
 
 export interface Product {

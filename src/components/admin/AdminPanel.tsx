@@ -64,6 +64,7 @@ import { ActivityLogTab } from './ActivityLogTab';
 import { StaffManagementTab } from './StaffManagementTab';
 import { PaymentSettingsTab } from './PaymentSettingsTab';
 import { SmsGatewayTab } from './SmsGatewayTab';
+import { TagadaTemplatesTab } from './TagadaTemplatesTab';
 import { AdsManagementTab } from './AdsManagementTab';
 import { SuperAdminSecurityTab } from './SuperAdminSecurityTab';
 import {
@@ -101,6 +102,7 @@ import {
   Link2,
   Lock,
   MessageSquare,
+  MessageCircle,
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -271,6 +273,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       id: 'sms_gateway',
       label: 'এসএমএস ও ওটিপি গেটওয়ে',
       icon: Smartphone,
+      isAllowed: isSuperAdmin,
+      isSuperOnly: true,
+    },
+    {
+      id: 'tagada_templates',
+      label: 'তাগাদা মেসেজ অপশন ও টেমপ্লেট',
+      icon: MessageCircle,
       isAllowed: isSuperAdmin,
       isSuperOnly: true,
     },
@@ -701,6 +710,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {activeTab === 'sms_gateway' && isSuperAdmin && (
             <SmsGatewayTab onShowToast={showToast} />
+          )}
+
+          {activeTab === 'tagada_templates' && isSuperAdmin && (
+            <TagadaTemplatesTab onShowToast={showToast} />
           )}
 
           {activeTab === 'ads_management' && isSuperAdmin && (

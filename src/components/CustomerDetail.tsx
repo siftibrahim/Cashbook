@@ -100,30 +100,6 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
 
         {/* Action icons */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {onOpenSms && (
-            <button
-              type="button"
-              onClick={() => onOpenSms(customer)}
-              title="কাস্টমারকে সরাসরি এসএমএস পাঠান"
-              className="px-2.5 sm:px-3 py-1.5 bg-teal-500 hover:bg-teal-400 active:scale-95 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1 shadow-sm transition cursor-pointer"
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>এসএমএস</span>
-            </button>
-          )}
-
-          {onOpenQrCode && (
-            <button
-              type="button"
-              onClick={() => onOpenQrCode(customer)}
-              title="কাস্টমার বাকি কিউআর কোড"
-              className="px-2.5 sm:px-3 py-1.5 bg-white/15 hover:bg-white/25 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-xs transition border border-white/20 cursor-pointer"
-            >
-              <QrCode className="w-3.5 h-3.5 text-teal-200" />
-              <span className="hidden sm:inline">কিউআর</span>
-            </button>
-          )}
-
           <button
             type="button"
             onClick={onOpenNewCustomer}
@@ -137,7 +113,7 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
           <button
             type="button"
             onClick={onOpenTagada}
-            title="হোয়াটসঅ্যাপ বা এসএমএস তাগাদা পাঠান"
+            title="কাস্টমারকে সরাসরি এসএমএস তাগাদা পাঠান"
             className="px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm transition border border-emerald-500 cursor-pointer"
           >
             <MessageCircle className="w-3.5 h-3.5" />

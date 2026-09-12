@@ -95,7 +95,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Row 1: Store Name + Dynamic Online/Offline Status */}
             <div className="flex items-center gap-2 min-w-0">
               <h1 className="text-sm sm:text-base font-black tracking-tight leading-tight text-white truncate drop-shadow-xs max-w-[130px] xs:max-w-[200px] sm:max-w-[340px]">
-                {store.name || 'Ibrahim store'}
+                {store.name || 'আমার দোকান'}
               </h1>
 
               {/* Online / Offline Status Icon Button (Text removed) */}
@@ -127,16 +127,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Row 2: Phone Number */}
-            <div className="flex items-center gap-1 mt-0.5 text-[11px] sm:text-xs text-teal-100/90 font-medium overflow-hidden">
-              <a
-                href={`tel:${store.phone || '01306908115'}`}
-                title={`কল করুন: ${store.phone || '01306908115'}`}
-                className="inline-flex items-center gap-1 hover:text-white transition shrink-0 font-bold text-teal-100"
-              >
-                <Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-teal-300 shrink-0" />
-                <span className="truncate max-w-[140px] sm:max-w-[220px]">{store.phone || '01306908115'}</span>
-              </a>
-            </div>
+            {store.phone && (
+              <div className="flex items-center gap-1 mt-0.5 text-[11px] sm:text-xs text-teal-100/90 font-medium overflow-hidden">
+                <a
+                  href={`tel:${store.phone}`}
+                  title={`কল করুন: ${store.phone}`}
+                  className="inline-flex items-center gap-1 hover:text-white transition shrink-0 font-bold text-teal-100"
+                >
+                  <Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-teal-300 shrink-0" />
+                  <span className="truncate max-w-[140px] sm:max-w-[220px]">{store.phone}</span>
+                </a>
+              </div>
+            )}
           </div>
         </div>
 

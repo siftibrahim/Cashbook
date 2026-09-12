@@ -11,14 +11,17 @@ import {
   Sliders,
   ShieldCheck,
   Zap,
+  MessageCircle,
 } from 'lucide-react';
 import { adminApi } from '../../services/apiService';
+import { TagadaTemplatesTab } from './TagadaTemplatesTab';
 
 interface SmsGatewayTabProps {
   onShowToast: (msg: string) => void;
 }
 
 export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => {
+  const [activeSubTab, setActiveSubTab] = useState<'tagada_options' | 'api_gateway'>('tagada_options');
   const [provider, setProvider] = useState<'greenweb' | 'bulksmsbd' | 'alphasms' | 'mimsms' | 'custom'>('bulksmsbd');
   const [apiKey, setApiKey] = useState('');
   const [senderId, setSenderId] = useState('');
@@ -175,8 +178,41 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
         </div>
       </div>
 
-      {/* Server IP Whitelist Callout Banner */}
-      {serverIp && (
+      {/* Sub-navigation tabs */}
+      <div className="flex items-center gap-2 p-1.5 bg-slate-900/90 rounded-2xl border border-slate-800">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('tagada_options')}
+          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+            activeSubTab === 'tagada_options'
+              ? 'bg-teal-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+          }`}
+        >
+          <MessageCircle className="w-4 h-4" />
+          <span>💬 বাকি তাগাদা মেসেজ ও নতুন অপশন তৈরি</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('api_gateway')}
+          className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+            activeSubTab === 'api_gateway'
+              ? 'bg-teal-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+          }`}
+        >
+          <Sliders className="w-4 h-4" />
+          <span>⚙️ এসএমএস গেটওয়ে এপিআই ও সেটিংস</span>
+        </button>
+      </div>
+
+      {activeSubTab === 'tagada_options' ? (
+        <TagadaTemplatesTab onShowToast={onShowToast} />
+      ) : (
+        <>
+          {/* Server IP Whitelist Callout Banner */}
+          {serverIp && (
         <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-indigo-950/50 via-slate-900/60 to-indigo-950/50 border border-indigo-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
@@ -495,6 +531,8 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 };

@@ -440,11 +440,38 @@ export interface SmsPurchaseRecord {
   approvedAt?: number | null;
 }
 
+export type BannerActionType = 'none' | 'subscription' | 'sms' | 'support' | 'url' | 'tel';
+
+export interface DashboardBannerItem {
+  id: string;
+  title: string;
+  subtitle: string;
+  badgeText?: string;
+  imageUrl?: string;
+  bgGradient: 'emerald' | 'teal' | 'indigo' | 'amber' | 'rose' | 'purple' | 'cyan' | 'slate';
+  textColor?: 'dark' | 'light';
+  actionType: BannerActionType;
+  actionUrl?: string;
+  actionText?: string;
+  isActive: boolean;
+  order: number;
+}
+
+export interface DashboardBannerSettings {
+  isEnabled: boolean;
+  autoPlay: boolean;
+  intervalSeconds: number;
+  banners: DashboardBannerItem[];
+  updatedAt: number;
+}
+
 export type AdminTab =
   | 'dashboard'
+  | 'dashboard_banners'
   | 'payment_settings'
   | 'ads_management'
   | 'sms_gateway'
+  | 'tagada_templates'
   | 'sms_purchases'
   | 'super_admin_security'
   | 'staff_management'

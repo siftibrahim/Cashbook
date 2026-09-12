@@ -15,7 +15,7 @@ import {
   SmsGatewaySettings,
 } from '../services/smsService';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
-import { DEFAULT_SMS_PACKAGES, getDynamicSmsPackages } from './smsRoutes';
+import { DEFAULT_SMS_PACKAGES, getDynamicSmsPackages, DEFAULT_TAGADA_TEMPLATES, getDynamicTagadaTemplates } from './smsRoutes';
 import { DEFAULT_PAYMENTLY_CONFIG, normalizePaymentlyKey } from '../services/paymentlyService';
 
 const router = Router();
@@ -218,35 +218,57 @@ router.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => {
 
 /**
  * 3. POST /api/admin/users/:id/extend-subscription
+ * Extends or reduces user subscription validity
  */
 router.post('/users/:id/extend-subscription', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.params.id;
-    const { days, planName } = req.body;
-    const parsedDays = parseInt(days, 10) || 30;
-    const additionalMs = parsedDays * 86400000;
+    const { days, planName, exactDays } = req.body;
     const pool = getDbPool();
     const now = Date.now();
 
     if (pool) {
-      const uRes = await pool.query('SELECT id, name, phone, shop_name, email, subscription_expires_at, subscription_plan FROM users WHERE id = $1', [userId]);
+      const uRes = await pool.query('SELECT id, name, phone, shop_name, email, subscription_expires_at, subscription_plan, subscription_status FROM users WHERE id = $1', [userId]);
       if (uRes.rows.length === 0) return res.status(404).json({ error: 'ইউজার খুঁজে পাওয়া যায়নি' });
 
       const u = uRes.rows[0];
       const currentExpiry = Number(u.subscription_expires_at) || now;
-      const newExpiry = Math.max(now, currentExpiry) + additionalMs;
-      const effectivePlanName = planName || u.subscription_plan || 'স্পেশাল প্রিমিয়াম প্যাক';
+      let newExpiry = currentExpiry;
+      let parsedDays = 0;
+
+      if (exactDays !== undefined && exactDays !== null) {
+        parsedDays = parseInt(exactDays, 10);
+        newExpiry = parsedDays <= 0 ? now - 1000 : now + (parsedDays * 86400000);
+      } else {
+        parsedDays = parseInt(days, 10);
+        if (isNaN(parsedDays)) parsedDays = 30;
+        
+        if (parsedDays < 0) {
+          // Decreasing days
+          newExpiry = currentExpiry + (parsedDays * 86400000);
+          if (newExpiry <= now) {
+            newExpiry = now - 1000;
+          }
+        } else {
+          // Increasing days: if already expired, extend from now; else extend from currentExpiry
+          newExpiry = Math.max(now, currentExpiry) + (parsedDays * 86400000);
+        }
+      }
+
+      const isExpired = newExpiry <= now;
+      const newStatus = isExpired ? 'expired' : 'active';
+      const effectivePlanName = planName || u.subscription_plan || (isExpired ? 'মেয়াদ শেষ (রিনিউ প্রয়োজন)' : 'স্পেশাল প্রিমিয়াম প্যাক');
 
       // 1. Update users table
       await pool.query(`
         UPDATE users SET
           subscription_expires_at = $1,
-          subscription_status = 'active',
-          subscription_plan = $2,
-          status = 'active',
+          subscription_status = $2,
+          subscription_plan = $3,
+          status = $4,
           updated_at = NOW()
-        WHERE id = $3
-      `, [newExpiry, effectivePlanName, userId]);
+        WHERE id = $5
+      `, [newExpiry, newStatus, effectivePlanName, newStatus, userId]);
 
       // 2. Update store_profiles table
       await pool.query(`
@@ -256,41 +278,53 @@ router.post('/users/:id/extend-subscription', async (req: AuthenticatedRequest, 
         WHERE user_id = $3
       `, [newExpiry, effectivePlanName, userId]).catch(() => {});
 
-      // 3. Insert approved grant record in payments table for strict permanent history & math chaining
-      const paymentId = 'grant_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
-      const trxId = 'ADMIN_GRANT_' + Date.now().toString().slice(-6);
-      await pool.query(`
-        INSERT INTO payments (
-          id, user_id, user_name, user_phone, sender_phone, shop_name,
-          plan_id, plan_name, duration_days, bonus_days, amount,
-          payment_method, payment_mode, trx_id, status, approved_at, admin_notes, created_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6,
-          $7, $8, $9, $10, $11,
-          $12, $13, $14, $15, $16, $17, $18
-        )
-      `, [
-        paymentId,
-        userId,
-        u.name || 'ইউজার',
-        u.phone || '',
-        u.phone || '',
-        u.shop_name || 'আমার দোকান',
-        'plan_admin_grant',
-        effectivePlanName,
-        parsedDays,
-        0,
-        0,
-        'admin_grant',
-        'manual',
-        trxId,
-        'approved',
-        now,
-        `সুপার অ্যাডমিন (${req.user?.email || 'super_admin'}) কর্তৃক সরাসরি ${parsedDays} দিনের প্যাকেজ প্রদান`,
-        now,
-      ]).catch((pErr) => {
-        console.warn('Could not insert grant payment record in DB:', pErr);
-      });
+      // 3. If expired or decreased below now, mark pending/active subscriptions & past payments as reset
+      if (isExpired) {
+        await pool.query(
+          "UPDATE payments SET status = 'reset' WHERE user_id = $1 AND status = 'approved'",
+          [userId]
+        ).catch(() => {});
+        await pool.query(
+          "UPDATE subscriptions SET status = 'EXPIRED', end_date = $1 WHERE user_id = $2",
+          [newExpiry, userId]
+        ).catch(() => {});
+      } else if (parsedDays > 0) {
+        // Record approved grant record for audit log
+        const paymentId = 'grant_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+        const trxId = 'ADMIN_GRANT_' + Date.now().toString().slice(-6);
+        await pool.query(`
+          INSERT INTO payments (
+            id, user_id, user_name, user_phone, sender_phone, shop_name,
+            plan_id, plan_name, duration_days, bonus_days, amount,
+            payment_method, payment_mode, trx_id, status, approved_at, admin_notes, created_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10, $11,
+            $12, $13, $14, $15, $16, $17, $18
+          )
+        `, [
+          paymentId,
+          userId,
+          u.name || 'ইউজার',
+          u.phone || '',
+          u.phone || '',
+          u.shop_name || 'আমার দোকান',
+          'plan_admin_grant',
+          effectivePlanName,
+          parsedDays,
+          0,
+          0,
+          'admin_grant',
+          'manual',
+          trxId,
+          'approved',
+          now,
+          `সুপার অ্যাডমিন (${req.user?.email || 'super_admin'}) কর্তৃক মেয়াদ পরিবর্তন (${parsedDays > 0 ? '+' : ''}${parsedDays} দিন)`,
+          now,
+        ]).catch((pErr) => {
+          console.warn('Could not insert grant payment record in DB:', pErr);
+        });
+      }
 
       // 4. Activity Log
       await pool.query(`
@@ -303,50 +337,74 @@ router.post('/users/:id/extend-subscription', async (req: AuthenticatedRequest, 
         'User',
         userId,
         u.name || u.shop_name || userId,
-        `সাবস্ক্রিপশন প্যাকেজ "${effectivePlanName}" (${parsedDays} দিন) যুক্ত করা হয়েছে। নতুন মেয়াদ: ${new Date(newExpiry).toLocaleDateString('bn-BD')}`,
+        `সাবস্ক্রিপশন মেয়াদ পরিবর্তন (${parsedDays > 0 ? '+' : ''}${parsedDays} দিন)। নতুন মেয়াদ: ${new Date(newExpiry).toLocaleDateString('bn-BD')} (${newStatus})`,
         Date.now(),
       ]);
 
-      // 5. Trigger SubscriptionEngine to sync caches
+      // 5. Trigger SubscriptionEngine to sync
       try {
         await SubscriptionEngine.recalculateAndSyncUserSubscription(userId);
       } catch (syncErr) {
         console.warn('Subscription sync warning on extend-subscription:', syncErr);
       }
+
+      return res.json({
+        message: `✅ ইউজারের সাবস্ক্রিপশন মেয়াদ সফলভাবে ${parsedDays >= 0 ? 'বাড়ানো' : 'কমানো'} হয়েছে (${parsedDays > 0 ? '+' : ''}${parsedDays} দিন)`,
+        subscriptionExpiresAt: newExpiry,
+        subscriptionPlan: effectivePlanName,
+        subscriptionStatus: newStatus,
+      });
     } else {
       const u = inMemoryStore.users.find(x => x.id === userId);
       if (u) {
-        const cur = u.subscriptionExpiresAt || now;
-        u.subscriptionExpiresAt = Math.max(now, cur) + additionalMs;
-        u.subscriptionStatus = 'active';
-        u.status = 'active';
-        if (planName) u.subscriptionPlan = planName;
+        const cur = Number(u.subscriptionExpiresAt || u.subscription_expires_at) || now;
+        let parsedDays = parseInt(days, 10);
+        if (isNaN(parsedDays)) parsedDays = 30;
 
-        // In-memory payment record
-        inMemoryStore.payments.push({
-          id: 'grant_' + Date.now(),
-          userId: u.id,
-          userName: u.name,
-          userPhone: u.phone,
-          shopName: u.shopName,
-          planId: 'plan_admin_grant',
-          planName: planName || u.subscriptionPlan || 'স্পেশাল প্রিমিয়াম প্যাক',
-          durationDays: parsedDays,
-          bonusDays: 0,
-          amount: 0,
-          paymentMethod: 'admin_grant' as any,
-          paymentMode: 'manual',
-          trxId: 'ADMIN_GRANT_' + Date.now().toString().slice(-6),
-          status: 'approved',
-          approvedAt: now,
-          approvedBy: req.user?.email || 'super_admin',
-          createdAt: now,
-          userNote: `সুপার অ্যাডমিন কর্তৃক সরাসরি ${parsedDays} দিনের প্যাকেজ প্রদান`,
+        let newExpiry = cur;
+        if (exactDays !== undefined) {
+          parsedDays = parseInt(exactDays, 10);
+          newExpiry = parsedDays <= 0 ? now - 1000 : now + (parsedDays * 86400000);
+        } else if (parsedDays < 0) {
+          newExpiry = cur + (parsedDays * 86400000);
+          if (newExpiry <= now) newExpiry = now - 1000;
+        } else {
+          newExpiry = Math.max(now, cur) + (parsedDays * 86400000);
+        }
+
+        const isExpired = newExpiry <= now;
+        const newStatus = isExpired ? 'expired' : 'active';
+        const effectivePlanName = planName || u.subscriptionPlan || (isExpired ? 'মেয়াদ শেষ (রিনিউ প্রয়োজন)' : 'স্পেশাল প্রিমিয়াম প্যাক');
+
+        u.subscriptionExpiresAt = newExpiry;
+        u.subscription_expires_at = newExpiry;
+        u.subscriptionStatus = newStatus;
+        u.subscription_status = newStatus;
+        u.status = newStatus;
+        u.subscriptionPlan = effectivePlanName;
+        u.subscription_plan = effectivePlanName;
+
+        const store = inMemoryStore.stores.find(s => s.userId === userId);
+        if (store) {
+          store.subscriptionExpiresAt = newExpiry;
+          store.subscriptionPlan = effectivePlanName;
+        }
+
+        if (isExpired) {
+          (inMemoryStore.payments || []).forEach(p => {
+            if (p.userId === userId) p.status = 'reset';
+          });
+        }
+
+        return res.json({
+          message: `✅ ইউজারের সাবস্ক্রিপশন মেয়াদ সফলভাবে ${parsedDays >= 0 ? 'বাড়ানো' : 'কমানো'} হয়েছে (${parsedDays > 0 ? '+' : ''}${parsedDays} দিন)`,
+          subscriptionExpiresAt: newExpiry,
+          subscriptionPlan: effectivePlanName,
+          subscriptionStatus: newStatus,
         });
       }
+      return res.status(404).json({ error: 'ইউজার খুঁজে পাওয়া যায়নি' });
     }
-
-    return res.json({ message: `✅ সাবস্ক্রিপশনের মেয়াদ সফলভাবে ${parsedDays} দিন বাড়ানো হয়েছে!` });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -1222,41 +1280,96 @@ router.post('/sms-test', requireSuperAdmin, async (req: AuthenticatedRequest, re
 });
 
 /**
+ * Super Admin Tagada Message Templates Management
+ */
+router.get('/tagada-templates', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const templates = await getDynamicTagadaTemplates();
+    return res.json({ templates });
+  } catch (err: any) {
+    return res.json({ templates: DEFAULT_TAGADA_TEMPLATES });
+  }
+});
+
+router.post('/tagada-templates', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { templates } = req.body;
+    if (!Array.isArray(templates)) {
+      return res.status(400).json({ error: 'টেমপ্লেট তালিকা সঠিকভাবে প্রদান করুন' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+    const updatedBy = req.user?.email || 'super_admin';
+
+    if (pool) {
+      await pool.query(
+        `INSERT INTO system_config (id, data, updated_at, updated_by)
+         VALUES ('system_tagada_templates', $1, $2, $3)
+         ON CONFLICT (id) DO UPDATE SET
+           data = EXCLUDED.data,
+           updated_at = EXCLUDED.updated_at,
+           updated_by = EXCLUDED.updated_by`,
+        [JSON.stringify(templates), now, updatedBy]
+      );
+    } else {
+      if (!inMemoryStore.system_config) inMemoryStore.system_config = {};
+      inMemoryStore.system_config['system_tagada_templates'] = templates;
+    }
+
+    return res.json({
+      success: true,
+      message: '✅ তাগাদা মেসেজ টেমপ্লেট সফলভাবে সংরক্ষিত হয়েছে!',
+      templates,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * 13. POST /api/admin/users/:id/reset-subscription
  * Resets user's subscription:
  * - 'trial': sets subscription back to 14 days default trial
- * - 'expired': sets subscription to expired (yesterday)
+ * - 'expired' or default: sets subscription to expired (yesterday / 0 days)
  * - 'custom': sets subscription to custom days from now
  */
 router.post('/users/:id/reset-subscription', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.params.id;
-    const { mode, customDays, note, planName } = req.body;
+    const { mode, customDays, note, planName } = req.body || {};
     const pool = getDbPool();
     const now = Date.now();
 
-    let newExpiry = now + 14 * 86400000;
-    let newPlan = 'ফ্রি ট্রায়াল (১৪ দিন)';
-    let newStatus = 'trial';
+    let newExpiry = now - 1000;
+    let newPlan = planName || 'মেয়াদ শেষ (রিনিউ প্রয়োজন)';
+    let newStatus = 'expired';
 
-    if (mode === 'expired') {
-      newExpiry = now - 86400000; // yesterday
-      newPlan = planName || 'মেয়াদ শেষ (রিনিউ প্রয়োজন)';
-      newStatus = 'expired';
-    } else if (mode === 'custom') {
-      const days = parseInt(customDays, 10);
-      const validDays = isNaN(days) ? 30 : Math.max(0, days);
-      newExpiry = validDays === 0 ? now - 86400000 : now + validDays * 86400000;
-      newPlan = planName || (validDays === 0 ? 'মেয়াদ শেষ (রিনিউ প্রয়োজন)' : `কাস্টম প্ল্যান (${validDays} দিন)`);
-      newStatus = validDays > 0 ? 'active' : 'expired';
-    } else {
-      // default trial
+    if (mode === 'trial') {
       newExpiry = now + 14 * 86400000;
       newPlan = planName || 'ফ্রি ট্রায়াল (১৪ দিন)';
       newStatus = 'trial';
+    } else if (mode === 'custom') {
+      const days = parseInt(customDays, 10);
+      const validDays = isNaN(days) ? 0 : days;
+      if (validDays > 0) {
+        newExpiry = now + validDays * 86400000;
+        newPlan = planName || `কাস্টম প্ল্যান (${validDays} দিন)`;
+        newStatus = 'active';
+      } else {
+        newExpiry = now - 1000;
+        newPlan = planName || 'মেয়াদ শেষ (রিনিউ প্রয়োজন)';
+        newStatus = 'expired';
+      }
+    } else {
+      // mode === 'expired' or package removal
+      newExpiry = now - 1000;
+      newPlan = planName || 'মেয়াদ শেষ (রিনিউ প্রয়োজন)';
+      newStatus = 'expired';
     }
 
     if (pool) {
+      // 1. Update users table
       await pool.query(`
         UPDATE users SET
           subscription_expires_at = $1,
@@ -1267,6 +1380,7 @@ router.post('/users/:id/reset-subscription', async (req: AuthenticatedRequest, r
         WHERE id = $5
       `, [newExpiry, newPlan, newStatus, newStatus === 'expired' ? 'expired' : 'active', userId]);
 
+      // 2. Update store_profiles table
       await pool.query(`
         UPDATE store_profiles SET
           subscription_expires_at = $1,
@@ -1274,13 +1388,19 @@ router.post('/users/:id/reset-subscription', async (req: AuthenticatedRequest, r
         WHERE user_id = $3
       `, [newExpiry, newPlan, userId]).catch(() => {});
 
-      if (mode === 'trial' || mode === 'expired') {
-        await pool.query(`
-          UPDATE payments SET status = 'rejected', rejected_reason = 'এডমিন কর্তৃক সাবস্ক্রিপশন রিসেট করা হয়েছে'
-          WHERE user_id = $1 AND status = 'pending'
-        `, [userId]).catch(() => {});
-      }
+      // 3. Mark past approved payments as 'reset' so calculations don't resurrect validity
+      await pool.query(`
+        UPDATE payments SET status = 'reset', admin_notes = 'এডমিন কর্তৃক সাবস্ক্রিপশন রিসেট করা হয়েছে'
+        WHERE user_id = $1
+      `, [userId]).catch(() => {});
 
+      // 4. Invalidate any active subscriptions in subscriptions table
+      await pool.query(`
+        UPDATE subscriptions SET status = 'EXPIRED', end_date = $1, auto_renew = false
+        WHERE user_id = $2
+      `, [newExpiry, userId]).catch(() => {});
+
+      // 5. Activity log
       await pool.query(`
         INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -1291,17 +1411,39 @@ router.post('/users/:id/reset-subscription', async (req: AuthenticatedRequest, r
         'user',
         userId,
         userId,
-        `সাবস্ক্রিপশন রিসেট: মোড=${mode}, প্ল্যান=${newPlan}${note ? ', নোট: ' + note : ''}`,
+        `সাবস্ক্রিপশন রিসেট: মোড=${mode || 'expired'}, প্ল্যান=${newPlan}${note ? ', নোট: ' + note : ''}`,
         now,
       ]).catch(() => {});
+
+      // 6. Trigger SubscriptionEngine sync
+      try {
+        await SubscriptionEngine.recalculateAndSyncUserSubscription(userId);
+      } catch (syncErr) {
+        console.warn('SubscriptionEngine sync warning on reset-subscription:', syncErr);
+      }
     } else {
       const u = inMemoryStore.users.find(x => x.id === userId);
       if (u) {
         u.subscriptionExpiresAt = newExpiry;
+        u.subscription_expires_at = newExpiry;
         u.subscriptionPlan = newPlan;
+        u.subscription_plan = newPlan;
         u.subscriptionStatus = newStatus;
+        u.subscription_status = newStatus;
         u.status = newStatus === 'expired' ? 'expired' : 'active';
       }
+
+      const store = inMemoryStore.stores.find(s => s.userId === userId);
+      if (store) {
+        store.subscriptionExpiresAt = newExpiry;
+        store.subscriptionPlan = newPlan;
+      }
+
+      (inMemoryStore.payments || []).forEach(p => {
+        if (p.userId === userId) {
+          p.status = 'reset';
+        }
+      });
     }
 
     return res.json({
@@ -1925,65 +2067,110 @@ router.post('/users/:userId/reset-sms', async (req: AuthenticatedRequest, res: R
 });
 
 /**
- * POST /api/admin/users/:userId/reset-subscription
- * Reset/remove a user's subscription package
+ * GET /api/admin/dashboard-banners
+ * Returns dashboard hero banner settings
  */
-router.post('/users/:userId/reset-subscription', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/dashboard-banners', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { userId } = req.params;
+    const pool = getDbPool();
+    if (pool) {
+      const result = await pool.query("SELECT data FROM system_config WHERE id = 'dashboard_banner_settings'");
+      if (result.rows.length > 0 && result.rows[0].data) {
+        const data = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
+        return res.json({ settings: data });
+      }
+    } else if (inMemoryStore.system_config?.['dashboard_banner_settings']) {
+      return res.json({ settings: inMemoryStore.system_config['dashboard_banner_settings'] });
+    }
+
+    const defaultBanners = {
+      isEnabled: true,
+      autoPlay: true,
+      intervalSeconds: 5,
+      banners: [
+        {
+          id: 'banner_store_companion',
+          title: 'আপনার ব্যবসার বিশ্বস্ত ডিজিটাল সঙ্গী',
+          subtitle: 'সহজে নির্ভুল বাকির হিসাব রাখুন, নিরাপদে ব্যবসা এগিয়ে নিন',
+          badgeText: 'খাতা স্পেশাল',
+          imageUrl: '',
+          bgGradient: 'emerald',
+          textColor: 'dark',
+          actionType: 'none',
+          isActive: true,
+          order: 1,
+        },
+        {
+          id: 'banner_sms_tagada',
+          title: 'এক ক্লিকে বকেয়া আদায়ের তাগাদা পাঠান',
+          subtitle: 'গ্রাহকের মোবাইলে বাংলায় সরাসরি তাগাদা এসএমএস পৌঁছে যাবে',
+          badgeText: 'স্মার্ট মেসেজ',
+          imageUrl: '',
+          bgGradient: 'teal',
+          textColor: 'dark',
+          actionType: 'sms',
+          actionText: 'এসএমএস পাঠান',
+          isActive: true,
+          order: 2,
+        },
+        {
+          id: 'banner_premium_upgrade',
+          title: 'আনলিমিটেড ক্লাউড ব্যাকআপ ও প্রিমিয়াম সুবিধা',
+          subtitle: 'মাত্র ৫০ টাকা থেকে সাবস্ক্রিপশন নিয়ে নিশ্চিত থাকুন আজীবন',
+          badgeText: 'প্রো অফার',
+          imageUrl: '',
+          bgGradient: 'amber',
+          textColor: 'dark',
+          actionType: 'subscription',
+          actionText: 'প্যাকেজ দেখুন',
+          isActive: true,
+          order: 3,
+        },
+      ],
+      updatedAt: Date.now(),
+    };
+    return res.json({ settings: defaultBanners });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/dashboard-banners
+ * Updates dashboard hero banner settings
+ */
+router.post('/dashboard-banners', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { settings } = req.body;
+    if (!settings) {
+      return res.status(400).json({ error: 'ব্যানার সেটিংস পাওয়া যায়নি' });
+    }
     const pool = getDbPool();
     const now = Date.now();
-    const adminEmail = req.user?.email || 'admin';
+    const updatedSettings = {
+      ...settings,
+      updatedAt: now,
+    };
 
     if (pool) {
-      await pool.query(
-        "UPDATE subscriptions SET status = 'EXPIRED', end_date = $1, auto_renew = false WHERE user_id = $2 AND status = 'ACTIVE'",
-        [now - 1000, userId]
-      ).catch(() => {});
-
-      // Invalidate all past payments so subscriptionEngine does not re-add trial/bonus days
-      await pool.query(
-        "UPDATE payments SET status = 'reset' WHERE user_id = $1",
-        [userId]
-      ).catch(() => {});
-
-      await pool.query(
-        "UPDATE users SET subscription_status = 'expired', subscription_plan = 'Free', subscription_expires_at = $1 WHERE id = $2",
-        [now - 1000, userId]
-      );
-
       await pool.query(`
-        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `, [
-        'act_' + now,
-        adminEmail,
-        'RESET_USER_SUBSCRIPTION',
-        'subscription',
-        userId,
-        userId,
-        'ইউজারের সাবস্ক্রিপশন প্যাকেজ রিসেট/রিমুভ করা হয়েছে',
-        now,
-      ]).catch(() => {});
-
-      return res.json({ message: '✅ ইউজারের সাবস্ক্রিপশন প্যাকেজ সম্পূর্ণ রিসেট/রিমুভ করা হয়েছে' });
-    } else {
-      const u = inMemoryStore.users.find(x => x.id === userId);
-      if (u) {
-        u.subscriptionStatus = 'expired';
-        u.subscription_status = 'expired';
-        u.subscriptionPlan = 'Free';
-        u.subscription_plan = 'Free';
-        u.subscriptionExpiresAt = now - 1000;
-        u.subscription_expires_at = now - 1000;
-      }
-      (inMemoryStore.payments || []).forEach(p => {
-        if (p.userId === userId) {
-          p.status = 'reset';
-        }
-      });
-      return res.json({ message: '✅ ইউজারের সাবস্ক্রিপশন প্যাকেজ সম্পূর্ণ রিসেট/রিমুভ করা হয়েছে' });
+        INSERT INTO system_config (id, data, updated_at, updated_by)
+        VALUES ('dashboard_banner_settings', $1, $2, $3)
+        ON CONFLICT (id) DO UPDATE SET
+          data = EXCLUDED.data,
+          updated_at = EXCLUDED.updated_at,
+          updated_by = EXCLUDED.updated_by
+      `, [JSON.stringify(updatedSettings), now, req.user?.email || 'admin']);
     }
+
+    if (!inMemoryStore.system_config) inMemoryStore.system_config = {};
+    inMemoryStore.system_config['dashboard_banner_settings'] = updatedSettings;
+
+    return res.json({
+      success: true,
+      message: '✅ ড্যাশবোর্ড হিরো ব্যানার সেটিংস সফলভাবে সংরক্ষিত হয়েছে!',
+      settings: updatedSettings,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

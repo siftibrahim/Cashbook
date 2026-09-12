@@ -114,10 +114,14 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
 
   // Authentication State: Mandatory Auth Gatekeeper
-  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(false);
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(() => {
+    return Boolean(getAuthToken() && getStoredUser());
+  });
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    return Boolean(getAuthToken() && getStoredUser());
+  });
   const [userRole, setUserRole] = useState<string>(() => {
-    return localStorage.getItem('ibrahim_user_role') || 'দোকান মালিক: ইব্রাহিম';
+    return localStorage.getItem('ibrahim_user_role') || 'দোকানদার';
   });
   const [adminSession, setAdminSession] = useState<AdminSession | null>(null);
 
@@ -411,18 +415,8 @@ export const App: React.FC = () => {
           setIsAdminPanelOpen(false);
         }
       } else {
-        // Fallback default store session so the app always opens immediately to the dashboard
-        const defaultOwnerUser = {
-          id: 'usr_ibrahim_owner',
-          name: 'Md Ibrahim',
-          shopName: 'Ibrahim store',
-          phone: '01306908115',
-          role: 'user',
-        };
-        setStoredUser(defaultOwnerUser);
-        setIsLoggedIn(true);
-        localStorage.setItem('ibrahim_is_logged_in', 'true');
-        setUserRole('দোকান মালিক: ইব্রাহিম');
+        // No active session: show AuthScreen
+        setIsLoggedIn(false);
         setAdminSession(null);
         setIsAdminPanelOpen(false);
       }
@@ -1631,11 +1625,23 @@ export const App: React.FC = () => {
         isOpen={isTagadaModalOpen}
         customer={tagadaCustomer}
         store={store}
+        smsBalance={userSmsBalance}
         onClose={() => {
           setIsTagadaModalOpen(false);
           setTagadaCustomer(null);
         }}
         onShowToast={showToast}
+        onSmsSent={() => {
+          handleRefreshSmsStatus();
+        }}
+        onOpenBuySms={() => {
+          setIsTagadaModalOpen(false);
+          handleOpenSms({ tab: 'packages' });
+        }}
+        onOpenDirectSms={(phone, msg, name) => {
+          setIsTagadaModalOpen(false);
+          handleOpenSms({ phone, message: msg, customerName: name });
+        }}
       />
 
       {/* General Ledger Statement Report Modal */}

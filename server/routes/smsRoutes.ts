@@ -58,6 +58,59 @@ export const DEFAULT_SMS_PACKAGES = [
   },
 ];
 
+export const DEFAULT_TAGADA_TEMPLATES = [
+  {
+    id: 'tpl_polite',
+    title: 'বকেয়া তাগাদা (বিনম্র ও সাধারণ)',
+    message: 'আসসালামু আলাইকুম {customer} ভাই, {store}-এ আপনার বর্তমান বকেয়া বাকি {currency} {amount}। সুবিধাজনক সময়ে পরিশোধ করার জন্য অনুরোধ রইল। ধন্যবাদ, {store}। যোগাযোগ: {phone}',
+    isDefault: true,
+    isActive: true,
+    category: 'regular',
+  },
+  {
+    id: 'tpl_urgent',
+    title: 'জরুরি বকেয়া তাগাদা',
+    message: 'শ্রদ্ধেয় {customer}, {store}-এ আপনার বকেয়া হিসাব বাকি রয়েছে {currency} {amount} টাকা। অনুগ্রহ করে অতি দ্রুত বকেয়া পরিশোধ করে সহযোগিতা করুন। যোগাযোগ: {phone}',
+    isDefault: false,
+    isActive: true,
+    category: 'urgent',
+  },
+  {
+    id: 'tpl_short',
+    title: 'সংক্ষিপ্ত তাগাদা',
+    message: 'প্রিয় {customer}, আপনার অবগতির জন্য জানানো যাচ্ছে যে, {store}-এ আপনার বর্তমান জের {currency} {amount} টাকা। ধন্যবাদ, {store}',
+    isDefault: false,
+    isActive: true,
+    category: 'short',
+  },
+  {
+    id: 'tpl_reminder',
+    title: 'হিসাব পরিশোধ রিমাইন্ডার',
+    message: 'আসসালামু আলাইকুম {customer}, {store} থেকে আপনার বাকি বিল {currency} {amount} টাকা পরিশোধের অনুরোধ করা হচ্ছে। শুভেচ্ছান্তে: {store} ({phone})',
+    isDefault: false,
+    isActive: true,
+    category: 'reminder',
+  },
+];
+
+export async function getDynamicTagadaTemplates(pool: any = getDbPool()): Promise<any[]> {
+  try {
+    if (pool) {
+      const res = await pool.query("SELECT data FROM system_config WHERE id = 'system_tagada_templates'");
+      if (res.rows.length > 0 && res.rows[0].data) {
+        const tpls = typeof res.rows[0].data === 'string' ? JSON.parse(res.rows[0].data) : res.rows[0].data;
+        if (Array.isArray(tpls) && tpls.length > 0) return tpls;
+      }
+    } else if (inMemoryStore.system_config?.['system_tagada_templates']) {
+      const tpls = inMemoryStore.system_config['system_tagada_templates'];
+      if (Array.isArray(tpls) && tpls.length > 0) return tpls;
+    }
+  } catch (e) {
+    console.warn('Error reading dynamic Tagada templates:', e);
+  }
+  return DEFAULT_TAGADA_TEMPLATES;
+}
+
 export const SMS_PACKAGES = DEFAULT_SMS_PACKAGES;
 
 /**
@@ -81,7 +134,28 @@ export async function getDynamicSmsPackages(pool: any = getDbPool()): Promise<an
   return DEFAULT_SMS_PACKAGES;
 }
 
-// All routes require user authentication
+/**
+ * Public routes: GET /api/sms/packages & GET /api/sms/tagada-templates
+ */
+router.get('/packages', async (req, res) => {
+  try {
+    const pkgs = await getDynamicSmsPackages();
+    return res.json({ packages: pkgs });
+  } catch (err: any) {
+    return res.json({ packages: DEFAULT_SMS_PACKAGES });
+  }
+});
+
+router.get('/tagada-templates', async (req, res) => {
+  try {
+    const templates = await getDynamicTagadaTemplates();
+    return res.json({ templates });
+  } catch (err: any) {
+    return res.json({ templates: DEFAULT_TAGADA_TEMPLATES });
+  }
+});
+
+// All following routes require user authentication
 router.use(authenticateUser);
 
 /**
@@ -310,14 +384,42 @@ router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
 });
 
 /**
- * GET /api/sms/packages
+ * POST /api/sms/tagada-templates
+ * Super Admin updates or creates message templates
  */
-router.get('/packages', async (req, res) => {
+router.post('/tagada-templates', async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const pkgs = await getDynamicSmsPackages();
-    return res.json({ packages: pkgs });
+    const { templates } = req.body;
+    if (!Array.isArray(templates)) {
+      return res.status(400).json({ error: 'টেমপ্লেট তালিকা সঠিকভাবে প্রদান করুন' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+    const updatedBy = req.user?.email || 'super_admin';
+
+    if (pool) {
+      await pool.query(
+        `INSERT INTO system_config (id, data, updated_at, updated_by)
+         VALUES ('system_tagada_templates', $1, $2, $3)
+         ON CONFLICT (id) DO UPDATE SET
+           data = EXCLUDED.data,
+           updated_at = EXCLUDED.updated_at,
+           updated_by = EXCLUDED.updated_by`,
+        [JSON.stringify(templates), now, updatedBy]
+      );
+    } else {
+      if (!inMemoryStore.system_config) inMemoryStore.system_config = {};
+      inMemoryStore.system_config['system_tagada_templates'] = templates;
+    }
+
+    return res.json({
+      success: true,
+      message: '✅ তাগাদা মেসেজ টেমপ্লেট সফলভাবে সংরক্ষিত হয়েছে!',
+      templates,
+    });
   } catch (err: any) {
-    return res.json({ packages: DEFAULT_SMS_PACKAGES });
+    return res.status(500).json({ error: err.message });
   }
 });
 

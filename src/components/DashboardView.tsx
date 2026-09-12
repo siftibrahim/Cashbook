@@ -383,7 +383,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 আপনার ব্যবসার সঙ্গী
               </p>
               <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-tight mt-0.5">
-                {store.name || 'Ibrahim store'}
+                {store.name || 'আমার দোকান'}
               </h2>
             </div>
           </div>
@@ -408,7 +408,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="h-full shrink-0 flex items-center pl-2">
           <img
             src={heroBannerImg}
-            alt="Ibrahim Store Customer Service"
+            alt="Store Customer Service"
             className="w-24 xs:w-28 sm:w-36 h-full object-cover rounded-xl shadow-2xs border border-white/95"
           />
         </div>
@@ -426,7 +426,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap leading-tight">
               <h3 className="text-xs sm:text-sm font-black text-slate-900 truncate">
-                {store.name || 'Ibrahim store'}
+                {store.name || 'আমার দোকান'}
               </h3>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#e6f7f0] text-[#065f46] text-[9.5px] font-bold border border-[#bbf0da] leading-none">
                 <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
@@ -434,7 +434,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
             <p className="text-[10px] text-slate-500 font-medium leading-none mt-1 truncate">
-              প্রোপাইটার: <strong className="text-slate-700">{store.owner || 'Md Ibrahim'}</strong> &nbsp;|&nbsp; 📅 {formatSlashDate(today)}
+              প্রোপাইটার: <strong className="text-slate-700">{store.owner || 'দোকান মালিক'}</strong> &nbsp;|&nbsp; 📅 {formatSlashDate(today)}
             </p>
           </div>
         </div>

@@ -785,8 +785,8 @@ export async function initializeDatabaseSchema() {
 }
 
 async function seedDefaultDataInPostgres(client: pg.PoolClient) {
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@twing.com';
-  const defaultPassHash = await bcrypt.hash('admin123', 10);
+  const adminEmail = process.env.ADMIN_EMAIL || 'siftibrahim@gmail.com';
+  const defaultPassHash = await bcrypt.hash('33444', 10);
   
   // Seed Super Admin in users table safely and restore correct identity
   try {
@@ -832,9 +832,9 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
     );
     if (existingAdminByEmail.rows.length > 0 && existingAdminByEmail.rows[0].id !== 'usr_super_admin') {
       try {
-        await client.query(`UPDATE users SET id = 'usr_super_admin', role = 'super_admin', phone = '01306908115' WHERE id = $1`, [existingAdminByEmail.rows[0].id]);
+        await client.query(`UPDATE users SET id = 'usr_super_admin', role = 'super_admin', phone = '01306908115', password_hash = $2 WHERE id = $1`, [existingAdminByEmail.rows[0].id, defaultPassHash]);
       } catch {
-        await client.query(`UPDATE users SET email = $1, phone = '01306908115' WHERE id = $2`, [`admin_${existingAdminByEmail.rows[0].id.slice(-6)}@twing.com`, existingAdminByEmail.rows[0].id]);
+        await client.query(`UPDATE users SET email = $1, phone = '01306908115', password_hash = $3 WHERE id = $2`, [`admin_${existingAdminByEmail.rows[0].id.slice(-6)}@twing.com`, existingAdminByEmail.rows[0].id, defaultPassHash]);
       }
     }
 
@@ -844,7 +844,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
         id, name, phone, email, password_hash, shop_name, business_type, address, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at, last_active_at
       ) VALUES (
         'usr_super_admin',
-        'ইব্রাহিম (সুপার অ্যাডমিন)',
+        'ইব্রাহিম খলিল (সুপার অ্যাডমিন)',
         '01306908115',
         $1,
         $2,
@@ -860,12 +860,38 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
         $4
       ) ON CONFLICT (id) DO UPDATE SET
         role = 'super_admin',
+        name = 'ইব্রাহিম খলিল (সুপার অ্যাডমিন)',
         email = CASE WHEN users.email LIKE '%admin%' OR users.email LIKE '%siftibrahim%' THEN users.email ELSE $1 END,
-        phone = '01306908115';
+        phone = '01306908115',
+        password_hash = $2,
+        status = 'active';
     `, [
       adminEmail,
       defaultPassHash,
       Date.now() + 3650 * 86400000,
+      Date.now(),
+    ]);
+
+    // Force update password hash and phone for usr_super_admin to ensure 33444 is active
+    await client.query(`
+      UPDATE users 
+      SET password_hash = $1, phone = '01306908115', role = 'super_admin', status = 'active'
+      WHERE id = 'usr_super_admin' OR phone = '01306908115'
+    `, [defaultPassHash]);
+
+    // Seed/Update super admin security config
+    await client.query(`
+      INSERT INTO system_config (id, data, updated_at, updated_by)
+      VALUES ('super_admin_security', $1, $2, 'usr_super_admin')
+      ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at
+    `, [
+      JSON.stringify({
+        phone: '01306908115',
+        email: adminEmail,
+        masterPin: '7860',
+        is2FAEnabled: true,
+        updatedAt: Date.now(),
+      }),
       Date.now(),
     ]);
 
@@ -999,6 +1025,59 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
     ON CONFLICT (id) DO NOTHING;
   `, ['system_ad_settings', JSON.stringify(defaultAdSettings), Date.now(), adminEmail]);
 
+  const defaultBannerSettings = {
+    isEnabled: true,
+    autoPlay: true,
+    intervalSeconds: 5,
+    banners: [
+      {
+        id: 'banner_store_companion',
+        title: 'আপনার ব্যবসার বিশ্বস্ত ডিজিটাল সঙ্গী',
+        subtitle: 'সহজে নির্ভুল বাকির হিসাব রাখুন, নিরাপদে ব্যবসা এগিয়ে নিন',
+        badgeText: 'খাতা স্পেশাল',
+        imageUrl: '',
+        bgGradient: 'emerald',
+        textColor: 'dark',
+        actionType: 'none',
+        isActive: true,
+        order: 1,
+      },
+      {
+        id: 'banner_sms_tagada',
+        title: 'এক ক্লিকে বকেয়া আদায়ের তাগাদা পাঠান',
+        subtitle: 'গ্রাহকের মোবাইলে বাংলায় সরাসরি তাগাদা এসএমএস পৌঁছে যাবে',
+        badgeText: 'স্মার্ট মেসেজ',
+        imageUrl: '',
+        bgGradient: 'teal',
+        textColor: 'dark',
+        actionType: 'sms',
+        actionText: 'এসএমএস পাঠান',
+        isActive: true,
+        order: 2,
+      },
+      {
+        id: 'banner_premium_upgrade',
+        title: 'আনলিমিটেড ক্লাউড ব্যাকআপ ও প্রিমিয়াম সুবিধা',
+        subtitle: 'মাত্র ৫০ টাকা থেকে সাবস্ক্রিপশন নিয়ে নিশ্চিত থাকুন আজীবন',
+        badgeText: 'প্রো অফার',
+        imageUrl: '',
+        bgGradient: 'amber',
+        textColor: 'dark',
+        actionType: 'subscription',
+        actionText: 'প্যাকেজ দেখুন',
+        isActive: true,
+        order: 3,
+      },
+    ],
+    updatedAt: Date.now(),
+  };
+
+  await client.query(`
+    INSERT INTO system_config (id, data, updated_at, updated_by)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (id) DO NOTHING;
+  `, ['dashboard_banner_settings', JSON.stringify(defaultBannerSettings), Date.now(), adminEmail]);
+
   // Seed default staff member if none exists
   try {
     const staffCheck = await client.query('SELECT id FROM staff LIMIT 1');
@@ -1038,13 +1117,15 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
 
 function seedDefaultDataInMemory() {
   const adminEmail = process.env.ADMIN_EMAIL || 'siftibrahim@gmail.com';
+  const superAdminPassHash = bcrypt.hashSync('33444', 10);
+
   inMemoryStore.users = [
     {
       id: 'usr_super_admin',
-      name: 'ইব্রাহিম (সুপার অ্যাডমিন)',
+      name: 'ইব্রাহিম খলিল (সুপার অ্যাডমিন)',
       phone: '01306908115',
       email: 'siftibrahim@gmail.com',
-      password_hash: '$2a$10$wN35i7t77b8H5hJ9uW7CGeL7O0Zl9KqXgN0vL3Z3zP8M9.5/cKzG', // admin123
+      password_hash: superAdminPassHash, // 33444
       shopName: 'TWING হিসাবি',
       businessType: 'জেনারেল স্টোর',
       address: 'ঢাকা, বাংলাদেশ',
@@ -1060,10 +1141,10 @@ function seedDefaultDataInMemory() {
     },
     {
       id: 'usr_super_admin_2',
-      name: 'ইব্রাহিম (অ্যাডমিন)',
+      name: 'ইব্রাহিম খলিল (অ্যাডমিন)',
       phone: '01306908115',
       email: 'admin@twing.com',
-      password_hash: '$2a$10$wN35i7t77b8H5hJ9uW7CGeL7O0Zl9KqXgN0vL3Z3zP8M9.5/cKzG', // admin123
+      password_hash: superAdminPassHash, // 33444
       shopName: 'TWING হিসাবি',
       businessType: 'জেনারেল স্টোর',
       address: 'ঢাকা, বাংলাদেশ',
@@ -1078,6 +1159,15 @@ function seedDefaultDataInMemory() {
       totalTransactions: 0,
     },
   ];
+
+  inMemoryStore.system_config['super_admin_security'] = {
+    id: 'super_admin_security',
+    phone: '01306908115',
+    email: 'siftibrahim@gmail.com',
+    masterPin: '7860',
+    is2FAEnabled: true,
+    updatedAt: Date.now(),
+  };
 
   inMemoryStore.system_config['system_payment_settings'] = {
     id: 'system_payment_settings',
@@ -1161,6 +1251,53 @@ function seedDefaultDataInMemory() {
         targetUrl: 'https://wa.me/8801306908115',
         ctaText: 'অফার জানুন',
         isActive: true,
+      },
+    ],
+    updatedAt: Date.now(),
+  };
+
+  inMemoryStore.system_config['dashboard_banner_settings'] = {
+    isEnabled: true,
+    autoPlay: true,
+    intervalSeconds: 5,
+    banners: [
+      {
+        id: 'banner_store_companion',
+        title: 'আপনার ব্যবসার বিশ্বস্ত ডিজিটাল সঙ্গী',
+        subtitle: 'সহজে নির্ভুল বাকির হিসাব রাখুন, নিরাপদে ব্যবসা এগিয়ে নিন',
+        badgeText: 'খাতা স্পেশাল',
+        imageUrl: '',
+        bgGradient: 'emerald',
+        textColor: 'dark',
+        actionType: 'none',
+        isActive: true,
+        order: 1,
+      },
+      {
+        id: 'banner_sms_tagada',
+        title: 'এক ক্লিকে বকেয়া আদায়ের তাগাদা পাঠান',
+        subtitle: 'গ্রাহকের মোবাইলে বাংলায় সরাসরি তাগাদা এসএমএস পৌঁছে যাবে',
+        badgeText: 'স্মার্ট মেসেজ',
+        imageUrl: '',
+        bgGradient: 'teal',
+        textColor: 'dark',
+        actionType: 'sms',
+        actionText: 'এসএমএস পাঠান',
+        isActive: true,
+        order: 2,
+      },
+      {
+        id: 'banner_premium_upgrade',
+        title: 'আনলিমিটেড ক্লাউড ব্যাকআপ ও প্রিমিয়াম সুবিধা',
+        subtitle: 'মাত্র ৫০ টাকা থেকে সাবস্ক্রিপশন নিয়ে নিশ্চিত থাকুন আজীবন',
+        badgeText: 'প্রো অফার',
+        imageUrl: '',
+        bgGradient: 'amber',
+        textColor: 'dark',
+        actionType: 'subscription',
+        actionText: 'প্যাকেজ দেখুন',
+        isActive: true,
+        order: 3,
       },
     ],
     updatedAt: Date.now(),

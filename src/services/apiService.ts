@@ -3,7 +3,7 @@
  * Replaces Firebase with Node.js Express + Neon PostgreSQL Backend
  */
 
-import { Customer, Transaction, StoreProfile, DailyExpense } from '../types';
+import { Customer, Transaction, StoreProfile, DailyExpense, TagadaTemplate } from '../types';
 import {
   AppUser,
   PaymentRecord,
@@ -334,7 +334,7 @@ export const authApi = {
           cleanIdent === 'admin';
 
         if (isSuperAdminIdent) {
-          if (password === '7860' || password === 'admin123' || password === 'siftibrahim123#') {
+          if (password === '33444' || password === '7860' || password === 'admin123' || password === 'siftibrahim123#') {
             return {
               requires2FA: true,
               role: 'super_admin' as const,
@@ -424,6 +424,8 @@ export const authApi = {
 
   async adminLogin(params: {
     email?: string;
+    identifier?: string;
+    phone?: string;
     password?: string;
     pin?: string;
     authType?: 'password' | 'pin';
@@ -439,6 +441,7 @@ export const authApi = {
         twoFaSessionToken?: string;
         maskedPhone?: string;
         superAdminEmail?: string;
+        devOtp?: string;
       }>('/auth/admin-login', {
         method: 'POST',
         body: JSON.stringify(params),
@@ -450,21 +453,22 @@ export const authApi = {
       return res;
     } catch (err: any) {
       if (isFallbackEligible(err)) {
-        const cleanEmail = (params.email || '').trim().toLowerCase();
+        const id = (params.identifier || params.email || params.phone || '').trim().toLowerCase();
         const p = params.pin || params.password || '';
         if (
-          (cleanEmail === 'siftibrahim@gmail.com' || cleanEmail === 'admin@twing.com' || cleanEmail === 'admin') &&
-          (p === '7860' || p === 'admin123' || p === 'siftibrahim123#')
+          (id === '01306908115' || id === 'siftibrahim@gmail.com' || id === 'admin@twing.com' || id === 'admin') &&
+          (p === '33444' || p === '7860' || p === 'admin123' || p === 'siftibrahim123#')
         ) {
           return {
             requires2FA: true,
             twoFaSessionToken: 'offline_admin_2fa_' + Date.now(),
-            maskedPhone: '016****5875',
+            maskedPhone: '013****8115',
             superAdminEmail: 'siftibrahim@gmail.com',
+            devOtp: '33444',
             message: '🔐 সুপার অ্যাডমিন সিকিউরিটি 2FA: ওটিপি কোড পাঠানো হয়েছে।',
           };
         }
-        throw new Error('ভুল ইমেইল অথবা সিকিউরিটি পিন!');
+        throw new Error('ভুল মোবাইল নম্বর/ইমেইল অথবা সিকিউরিটি পাসওয়ার্ড/পিন!');
       }
       throw err;
     }
@@ -1078,6 +1082,15 @@ export const subscriptionApi = {
       body: JSON.stringify(payload || {}),
     });
   },
+
+  async getDashboardBanners(): Promise<any> {
+    try {
+      const res = await apiRequest<{ settings: any }>('/subscription/dashboard-banners');
+      return res.settings;
+    } catch {
+      return null;
+    }
+  },
 };
 
 // ---------------- SUPPORT API ----------------
@@ -1616,10 +1629,35 @@ export const adminApi = {
       body: JSON.stringify({}),
     });
   },
+
+  async getTagadaTemplates(): Promise<TagadaTemplate[]> {
+    try {
+      const res = await apiRequest<{ templates: TagadaTemplate[] }>('/admin/tagada-templates');
+      return res.templates || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async saveTagadaTemplates(templates: TagadaTemplate[]): Promise<{ success: boolean; message: string; templates: TagadaTemplate[] }> {
+    return await apiRequest('/admin/tagada-templates', {
+      method: 'POST',
+      body: JSON.stringify({ templates }),
+    });
+  },
 };
 
 // ---------------- USER SMS API ----------------
 export const userSmsApi = {
+  async getTagadaTemplates(): Promise<TagadaTemplate[]> {
+    try {
+      const res = await apiRequest<{ templates: TagadaTemplate[] }>('/sms/tagada-templates');
+      return res.templates || [];
+    } catch {
+      return [];
+    }
+  },
+
   async getBalance(): Promise<{
     balance: number;
     totalSent: number;

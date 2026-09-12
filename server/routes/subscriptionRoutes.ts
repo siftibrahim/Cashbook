@@ -823,4 +823,73 @@ router.get('/ad-settings', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/subscription/dashboard-banners
+ * Returns public dashboard hero banner configuration for users
+ */
+router.get('/dashboard-banners', async (req, res) => {
+  try {
+    const pool = getDbPool();
+    if (pool) {
+      const result = await pool.query("SELECT data FROM system_config WHERE id = 'dashboard_banner_settings'");
+      if (result.rows.length > 0 && result.rows[0].data) {
+        const data = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
+        return res.json({ settings: data });
+      }
+    } else if (inMemoryStore.system_config?.['dashboard_banner_settings']) {
+      return res.json({ settings: inMemoryStore.system_config['dashboard_banner_settings'] });
+    }
+
+    const defaultBanners = {
+      isEnabled: true,
+      autoPlay: true,
+      intervalSeconds: 5,
+      banners: [
+        {
+          id: 'banner_store_companion',
+          title: 'আপনার ব্যবসার বিশ্বস্ত ডিজিটাল সঙ্গী',
+          subtitle: 'সহজে নির্ভুল বাকির হিসাব রাখুন, নিরাপদে ব্যবসা এগিয়ে নিন',
+          badgeText: 'খাতা স্পেশাল',
+          imageUrl: '',
+          bgGradient: 'emerald',
+          textColor: 'dark',
+          actionType: 'none',
+          isActive: true,
+          order: 1,
+        },
+        {
+          id: 'banner_sms_tagada',
+          title: 'এক ক্লিকে বকেয়া আদায়ের তাগাদা পাঠান',
+          subtitle: 'গ্রাহকের মোবাইলে বাংলায় সরাসরি তাগাদা এসএমএস পৌঁছে যাবে',
+          badgeText: 'স্মার্ট মেসেজ',
+          imageUrl: '',
+          bgGradient: 'teal',
+          textColor: 'dark',
+          actionType: 'sms',
+          actionText: 'এসএমএস পাঠান',
+          isActive: true,
+          order: 2,
+        },
+        {
+          id: 'banner_premium_upgrade',
+          title: 'আনলিমিটেড ক্লাউড ব্যাকআপ ও প্রিমিয়াম সুবিধা',
+          subtitle: 'মাত্র ৫০ টাকা থেকে সাবস্ক্রিপশন নিয়ে নিশ্চিত থাকুন আজীবন',
+          badgeText: 'প্রো অফার',
+          imageUrl: '',
+          bgGradient: 'amber',
+          textColor: 'dark',
+          actionType: 'subscription',
+          actionText: 'প্যাকেজ দেখুন',
+          isActive: true,
+          order: 3,
+        },
+      ],
+      updatedAt: Date.now(),
+    };
+    return res.json({ settings: defaultBanners });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
