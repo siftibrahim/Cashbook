@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, OnlineStoreConfig, OnlineOrder } from '../types';
 import { formatMoney } from '../utils/storage';
+import { getFallbackProductImage } from '../utils/productImages';
 import {
   X,
   ShoppingCart,
@@ -456,19 +457,21 @@ ${itemsText}
                       key={product.id}
                       className="bg-white rounded-2xl border border-slate-200/80 hover:border-teal-500/50 hover:shadow-md transition-all flex flex-col overflow-hidden group"
                     >
-                      {/* Product Thumbnail / Placeholder */}
-                      <div className="h-32 sm:h-40 bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center relative p-3 border-b border-slate-100">
-                        {product.imageUrl ? (
-                          <img
-                            src={product.imageUrl}
-                            alt={product.name}
-                            className="w-full h-full object-contain group-hover:scale-105 transition-transform"
-                          />
-                        ) : (
-                          <div className="w-16 h-16 rounded-2xl bg-teal-50/80 text-teal-700 flex items-center justify-center font-black text-2xl group-hover:scale-110 transition-transform">
-                            {product.name.slice(0, 1)}
-                          </div>
-                        )}
+                      {/* Product Thumbnail / Image */}
+                      <div className="h-36 sm:h-44 bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center relative p-2 border-b border-slate-100 overflow-hidden">
+                        <img
+                          src={product.imageUrl || getFallbackProductImage(product.category, product.name)}
+                          alt={product.name}
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            const fallback = getFallbackProductImage(product.category, product.name);
+                            if (target.src !== fallback) {
+                              target.src = fallback;
+                            }
+                          }}
+                          className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
+                        />
 
                         {/* Stock Badge */}
                         <div className="absolute top-2 left-2">
@@ -480,6 +483,13 @@ ${itemsText}
                             }`}
                           >
                             {inStock ? `স্টক: ${product.stock} ${product.unit || 'টি'}` : 'স্টক শেষ'}
+                          </span>
+                        </div>
+
+                        {/* COD available mini tag */}
+                        <div className="absolute top-2 right-2">
+                          <span className="text-[9px] font-black px-1.5 py-0.5 bg-amber-400 text-slate-950 rounded shadow-xs">
+                            COD
                           </span>
                         </div>
 
@@ -498,6 +508,11 @@ ${itemsText}
                           <h3 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-2 leading-snug group-hover:text-[#004D40] transition">
                             {product.name}
                           </h3>
+                          {product.description && (
+                            <p className="text-[11px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">
+                              {product.description}
+                            </p>
+                          )}
                           {product.sku && (
                             <p className="text-[10px] text-slate-400 font-mono mt-0.5">কোড: {product.sku}</p>
                           )}

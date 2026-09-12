@@ -19,6 +19,7 @@ import {
   Database,
   MessageSquare,
   Globe,
+  Truck,
 } from 'lucide-react';
 import {
   subscribeSyncStatus,
@@ -33,6 +34,7 @@ interface NavbarProps {
   onLogout: () => void;
   onOpenSettings?: () => void;
   onOpenOnlineStore?: () => void;
+  onOpenEcommerceCod?: () => void;
   onOpenNotifications?: () => void;
   onOpenSubscription?: () => void;
   onOpenPermissions?: () => void;
@@ -48,6 +50,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   onOpenSettings,
   onOpenOnlineStore,
+  onOpenEcommerceCod,
   onOpenNotifications,
   onOpenSubscription,
   onOpenPermissions,
@@ -81,7 +84,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     <>
       <header
         id="main-app-header"
-        className="sticky top-0 left-0 right-0 z-40 w-full bg-[#033b31] text-white px-3 sm:px-5 py-2.5 sm:py-3 min-h-[58px] sm:min-h-[64px] flex items-center justify-between shadow-md shrink-0 no-print border-b border-[#0a5245] select-none"
+        className="sticky top-0 left-0 right-0 z-40 w-full bg-[#004D40] text-white px-3 sm:px-5 py-2.5 sm:py-3 min-h-[58px] sm:min-h-[64px] flex items-center justify-between shadow-md shrink-0 no-print border-b border-[#00382E] select-none"
         style={{
           paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))',
         }}
@@ -89,7 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Left: Store Branding with Icon & Info */}
         <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 pr-2">
           {/* Store Avatar Badge */}
-          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#0d594b] border border-[#146b5b] flex items-center justify-center text-[#8ce0cb] shrink-0 shadow-sm">
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#00382E] border border-[#005a4b] flex items-center justify-center text-[#8ce0cb] shrink-0 shadow-sm">
             <Store className="w-5 h-5 sm:w-6 sm:h-6 text-[#8ce0cb]" />
           </div>
 
@@ -115,7 +118,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }
                 className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition cursor-pointer active:scale-90 shrink-0 ${
                   syncStatus.isOnline
-                    ? 'bg-[#032a24] text-emerald-400 border-[#0d594b] hover:bg-[#064238]'
+                    ? 'bg-[#00382E] text-emerald-400 border-[#005a4b] hover:bg-[#004D40]'
                     : 'bg-rose-950/80 text-rose-400 border-rose-800 hover:bg-rose-900'
                 }`}
               >
@@ -317,6 +320,38 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </div>
                     </div>
                     <ChevronRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 transition" />
+                  </button>
+                )}
+
+                {/* E-Commerce & COD Dedicated Ledger (Separate Option) */}
+                {onOpenEcommerceCod && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onOpenEcommerceCod();
+                    }}
+                    className="w-full p-3 rounded-2xl bg-gradient-to-r from-teal-500/15 via-emerald-500/10 to-transparent hover:bg-teal-500/25 border border-teal-500/30 text-left flex items-center justify-between transition cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-teal-500/20 text-teal-300">
+                        <Truck className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-black text-teal-200 block">
+                            ই-কমার্স ও COD হিসাব
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-bold border border-amber-400/30">
+                            আলাদা অপশন
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-teal-100/70 block">
+                          ক্যাশ অন ডেলিভারি, কুরিয়ার ও পার্সেল হিসাব
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-teal-400 group-hover:translate-x-0.5 transition" />
                   </button>
                 )}
 

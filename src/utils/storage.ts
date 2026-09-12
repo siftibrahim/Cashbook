@@ -1,4 +1,5 @@
 import { Customer, Transaction, StoreProfile, DailyExpense, Product, OnlineStoreConfig, OnlineOrder } from '../types';
+import { getFallbackProductImage } from './productImages';
 
 export const DEFAULT_STORE: StoreProfile = {
   name: 'আমার দোকান',
@@ -439,7 +440,6 @@ export function saveDailyExpenses(expenses: DailyExpense[], userId?: string): vo
     console.error('Error saving expenses:', e);
   }
 }
-
 export const INITIAL_PRODUCTS: Product[] = [
   {
     id: 'prod_1',
@@ -450,6 +450,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     salePrice: 72,
     stock: 150,
     minStockAlert: 20,
+    imageUrl: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80',
+    description: 'উন্নত মানের প্রিমিয়াম মিনিকেট চাল, রান্নায় ঝরঝরে ও সুস্বাদু।',
     updatedAt: Date.now(),
   },
   {
@@ -461,6 +463,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     salePrice: 890,
     stock: 25,
     minStockAlert: 5,
+    imageUrl: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=500&auto=format&fit=crop&q=80',
+    description: '১০০% বিশুদ্ধ পরিশোধিত সয়াবিন তেল, ভিটামিন এ ও ডি সমৃদ্ধ।',
     updatedAt: Date.now(),
   },
   {
@@ -472,6 +476,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     salePrice: 135,
     stock: 60,
     minStockAlert: 10,
+    imageUrl: 'https://images.unsplash.com/photo-1515543904379-3d757afe72e4?w=500&auto=format&fit=crop&q=80',
+    description: 'দেশি চিকন মসুর ডাল, দ্রুত সেদ্ধ হয় এবং দারুণ স্বাদ।',
     updatedAt: Date.now(),
   },
   {
@@ -483,6 +489,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     salePrice: 142,
     stock: 80,
     minStockAlert: 15,
+    imageUrl: 'https://images.unsplash.com/photo-1622484216805-4c070b435ee9?w=500&auto=format&fit=crop&q=80',
+    description: 'পরিষ্কার ও দানাদার ফ্রেশ রিফাইন্ড হোয়াইট সুগার।',
     updatedAt: Date.now(),
   },
   {
@@ -494,6 +502,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     salePrice: 40,
     stock: 95,
     minStockAlert: 20,
+    imageUrl: 'https://images.unsplash.com/photo-1626197031507-c17099753214?w=500&auto=format&fit=crop&q=80',
+    description: 'ভ্যাকুয়াম ইভাপোরেটেড শতভাগ আয়োডিনযুক্ত টেবিল সল্ট।',
     updatedAt: Date.now(),
   },
   {
@@ -505,6 +515,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     salePrice: 110,
     stock: 45,
     minStockAlert: 10,
+    imageUrl: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=500&auto=format&fit=crop&q=80',
+    description: 'সিলেটের খাঁটি সতেজ বাগানের কড়া লিকার ও মনমাতানো সুবাসের চা।',
     updatedAt: Date.now(),
   },
 ];
@@ -514,12 +526,22 @@ export function loadProducts(userId?: string): Product[] {
     const uid = userId || getActiveUserId();
     const key = getUserStorageKey('products', uid);
     const raw = localStorage.getItem(key);
-    if (!raw) return [];
+    if (!raw) return INITIAL_PRODUCTS;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed) || parsed.length === 0) return INITIAL_PRODUCTS;
+    // Ensure all products have images
+    return parsed.map((p: Product) => {
+      if (!p.imageUrl || p.imageUrl.trim() === '') {
+        return {
+          ...p,
+          imageUrl: getFallbackProductImage(p.name, p.category),
+        };
+      }
+      return p;
+    });
   } catch (e) {
     console.error('Error loading products:', e);
-    return [];
+    return INITIAL_PRODUCTS;
   }
 }
 

@@ -368,7 +368,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div
       id="dashboard-root-view"
-      className="w-full flex flex-col gap-2.5 sm:gap-3.5 select-none text-slate-800"
+      className="w-full flex flex-col gap-2 sm:gap-2.5 select-none text-slate-800"
     >
       {/* 1. Hero Promo Banner (Compact, zero scroll) */}
       <section
@@ -480,7 +480,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               onClick={() => setMetricViewMode('today')}
               className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
                 metricViewMode === 'today'
-                  ? 'bg-[#033b31] text-white shadow-2xs'
+                  ? 'bg-[#004D40] text-white shadow-2xs'
                   : 'text-[#064e3b] hover:text-slate-900'
               }`}
             >
@@ -491,7 +491,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               onClick={() => setMetricViewMode('date_range')}
               className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
                 metricViewMode === 'date_range'
-                  ? 'bg-[#033b31] text-white shadow-2xs'
+                  ? 'bg-[#004D40] text-white shadow-2xs'
                   : 'text-[#064e3b] hover:text-slate-900'
               }`}
             >
@@ -505,7 +505,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <>
               {/* Card 1: আজকের আয় */}
               <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#0e211e] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <ArrowUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
                 </div>
                 <div>
@@ -521,7 +521,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               {/* Card 2: আজকের ব্যয় */}
               <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#0e211e] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <ArrowDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
                 </div>
                 <div>
@@ -537,7 +537,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               {/* Card 3: মোট লেনদেন */}
               <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#0e211e] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
                 </div>
                 <div>
@@ -553,7 +553,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               {/* Card 4: সর্বমোট সম্প্রী */}
               <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#0e211e] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
                 </div>
                 <div>
@@ -657,7 +657,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       >
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#033b31] text-white flex items-center justify-center shrink-0 shadow-2xs">
+            <div className="w-7 h-7 rounded-lg bg-[#004D40] text-white flex items-center justify-center shrink-0 shadow-2xs">
               <Calendar className="w-4 h-4 text-emerald-300" />
             </div>
             <div>
@@ -752,7 +752,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             type="button"
             onClick={() => setIsDateReportModalOpen(true)}
-            className="w-full py-2 px-3 rounded-lg bg-[#033b31] hover:bg-[#064e3b] active:scale-98 text-emerald-100 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
+            className="w-full py-2 px-3 rounded-lg bg-[#004D40] hover:bg-[#00382E] active:scale-98 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
           >
             <BarChart3 className="w-4 h-4 text-emerald-300" />
             <span>বিস্তারিত বিবরণী দেখুন →</span>

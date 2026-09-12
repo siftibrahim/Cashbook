@@ -202,6 +202,10 @@ export interface OnlineOrder {
   paymentStatus: 'unpaid' | 'paid' | 'partial';
   orderStatus: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   notes?: string;
+  courierName?: string;
+  courierTrackingCode?: string;
+  codCollectedAmount?: number;
+  collectedAt?: number;
   createdAt: number;
   updatedAt: number;
 }

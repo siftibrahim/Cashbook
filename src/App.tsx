@@ -1658,7 +1658,9 @@ export const App: React.FC = () => {
               ) : (
                 <main
                   id="main-scroll-container"
-                  className="flex-1 min-h-0 bg-[#eef8f5] flex flex-col smooth-scroll-container overflow-y-auto overscroll-contain p-2.5 sm:p-3.5 gap-2.5 sm:gap-3.5 pb-2.5 sm:pb-3.5"
+                  className={`flex-1 min-h-0 bg-[#eef8f5] flex flex-col smooth-scroll-container ${
+                    activeTab === 'customers' ? 'overflow-hidden' : 'overflow-y-auto'
+                  } overscroll-contain p-2.5 sm:p-3.5 gap-2.5 sm:gap-3.5 pb-2.5 sm:pb-3.5`}
                 >
                   {activeTab === 'dashboard' && (
                     <DashboardView
