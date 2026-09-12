@@ -455,13 +455,17 @@ export const App: React.FC = () => {
               setUserRole('দোকান মালিক');
               setAdminSession(null);
               setIsAdminPanelOpen(false);
-              await loadUserAccountData(currentUser.id);
+              // Unblock UI immediately so user sees their store instantly
+              setIsAuthChecking(false);
+              // Sync account data asynchronously in background
+              loadUserAccountData(currentUser.id).catch(() => {});
             }
           } else {
             authApi.logout();
             setIsLoggedIn(false);
             setAdminSession(null);
             setIsAdminPanelOpen(false);
+            setIsAuthChecking(false);
           }
         } catch (err) {
           console.warn('Auth check catch:', err);
@@ -469,16 +473,27 @@ export const App: React.FC = () => {
           setIsLoggedIn(false);
           setAdminSession(null);
           setIsAdminPanelOpen(false);
+          setIsAuthChecking(false);
         }
       } else {
         // No active session: show AuthScreen
         setIsLoggedIn(false);
         setAdminSession(null);
         setIsAdminPanelOpen(false);
+        setIsAuthChecking(false);
       }
-      setIsAuthChecking(false);
     };
-    checkAuth();
+
+    // Safety fallback: guaranteed unblock after at most 2.5 seconds
+    const safetyTimer = setTimeout(() => {
+      setIsAuthChecking(false);
+    }, 2500);
+
+    checkAuth().finally(() => {
+      clearTimeout(safetyTimer);
+    });
+
+    return () => clearTimeout(safetyTimer);
   }, []);
 
   // Listen for Paymently callback URL parameters on return

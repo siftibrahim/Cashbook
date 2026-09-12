@@ -35,21 +35,21 @@ export function playNotificationSound() {
  * Request Browser Notification Permission
  */
 export async function requestBrowserNotificationPermission(): Promise<boolean> {
-  if (!('Notification' in window)) {
-    return false;
-  }
-
   try {
+    if (typeof window === 'undefined' || !('Notification' in window) || !Notification) {
+      return false;
+    }
+
     if (Notification.permission === 'granted') {
       return true;
     }
 
-    if (Notification.permission !== 'denied') {
+    if (Notification.permission !== 'denied' && typeof Notification.requestPermission === 'function') {
       const permission = await Notification.requestPermission();
       return permission === 'granted';
     }
   } catch (err) {
-    console.warn('Notification permission request failed:', err);
+    console.warn('Notification permission request notice:', err);
   }
 
   return false;
@@ -61,10 +61,10 @@ export async function requestBrowserNotificationPermission(): Promise<boolean> {
 export function triggerSystemPushNotification(title: string, body: string, icon = '/icon.png') {
   playNotificationSound();
 
-  if (!('Notification' in window)) return;
+  try {
+    if (typeof window === 'undefined' || !('Notification' in window) || !Notification) return;
 
-  if (Notification.permission === 'granted') {
-    try {
+    if (Notification.permission === 'granted') {
       const notif = new Notification(title, {
         body,
         icon,
@@ -77,8 +77,8 @@ export function triggerSystemPushNotification(title: string, body: string, icon 
         window.focus();
         notif.close();
       };
-    } catch (e) {
-      console.warn('Error firing native notification:', e);
     }
+  } catch (e) {
+    console.warn('Error firing native notification:', e);
   }
 }

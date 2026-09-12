@@ -121,17 +121,26 @@ async function apiRequest<T = any>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
       headers,
+      signal: options.signal || controller.signal,
     });
   } catch (networkErr: any) {
-    const err = new Error(networkErr?.message || 'Network request failed (offline)');
+    clearTimeout(timeoutId);
+    const isTimeout = networkErr?.name === 'AbortError';
+    const err = new Error(isTimeout ? 'সার্ভার সংযোগে সময় শেষ (Timeout)' : (networkErr?.message || 'Network request failed (offline)'));
     (err as any).status = 0;
     (err as any).isNetworkError = true;
+    (err as any).isTimeout = isTimeout;
     throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const contentType = response.headers.get('content-type') || '';

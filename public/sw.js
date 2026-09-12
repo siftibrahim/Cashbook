@@ -1,8 +1,6 @@
-// TWING হিসাবি — Progressive Web App Service Worker (v2.4.0)
-const CACHE_NAME = 'twing-hisabi-cache-v2.4.0';
+// TWING হিসাবি — Progressive Web App Service Worker (v2.5.0)
+const CACHE_NAME = 'twing-hisabi-cache-v2.5.0';
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
@@ -19,13 +17,13 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
-        console.warn('TWING Hisabi SW cache.addAll non-fatal warning:', err);
+        console.warn('TWING Hisabi SW cache.addAll non-fatal notice:', err);
       });
     })
   );
 });
 
-// Activate Event: Clean up stale caches
+// Activate Event: Clean up all older caches immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -40,7 +38,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Bypass non-GET requests, API routes, or Vite hot modules
+  // Bypass non-GET requests, API routes, Vite dev server endpoints, and source files
   if (
     event.request.method !== 'GET' ||
     url.pathname.startsWith('/api/') ||
@@ -53,27 +51,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation requests (HTML pages)
+  // Navigation requests (HTML pages) - always use network directly
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const copy = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return networkResponse;
-        })
-        .catch(async () => {
-          const cached = await caches.match(event.request);
-          if (cached) return cached;
-          const fallback = await caches.match('/index.html') || await caches.match('/');
-          if (fallback) return fallback;
-          return new Response('TWING হিসাবি অফলাইন মোডে আছে। অনুগ্রহ করে ইন্টারনেট সংযোগ চেক করুন।', {
+      fetch(event.request).catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        return new Response(
+          '<!doctype html><html lang="bn"><head><meta charset="UTF-8"><title>TWING হিসাবি অফলাইন</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="font-family:sans-serif;background:#002820;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;padding:20px;text-align:center;"><div><h2>TWING হিসাবি অফলাইন মোড</h2><p style="color:#a7f3d0">ইন্টারনেট সংযোগ চেক করে পুনরায় রিলোড করুন।</p><button onclick="location.reload()" style="padding:10px 20px;background:#10b981;border:none;border-radius:10px;font-weight:bold;cursor:pointer;">রিলোড করুন</button></div></body></html>',
+          {
             status: 200,
-            headers: { 'Content-Type': 'text/html; charset=utf-8' }
-          });
-        })
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          }
+        );
+      })
     );
     return;
   }

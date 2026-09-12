@@ -16,6 +16,15 @@ interface AppPermissionsModalProps {
   isFirstInstall?: boolean;
 }
 
+function safeIsNotificationGranted(): boolean {
+  try {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification && typeof Notification.permission === 'string') {
+      return Notification.permission === 'granted';
+    }
+  } catch {}
+  return false;
+}
+
 export const AppPermissionsModal: React.FC<AppPermissionsModalProps> = ({
   isOpen,
   onClose,
@@ -23,25 +32,35 @@ export const AppPermissionsModal: React.FC<AppPermissionsModalProps> = ({
   isFirstInstall = false,
 }) => {
   const [notificationAllowed, setNotificationAllowed] = useState<boolean>(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      return Notification.permission === 'granted';
+    if (safeIsNotificationGranted()) {
+      return true;
     }
-    return localStorage.getItem('perm_notification_allowed') === 'true';
+    try {
+      return localStorage.getItem('perm_notification_allowed') === 'true';
+    } catch {
+      return false;
+    }
   });
 
   const [storageAllowed, setStorageAllowed] = useState<boolean>(() => {
-    return localStorage.getItem('perm_storage_allowed') === 'true' || true;
+    try {
+      return localStorage.getItem('perm_storage_allowed') === 'true' || true;
+    } catch {
+      return true;
+    }
   });
 
   const [galleryAllowed, setGalleryAllowed] = useState<boolean>(() => {
-    return localStorage.getItem('perm_gallery_allowed') === 'true';
+    try {
+      return localStorage.getItem('perm_gallery_allowed') === 'true';
+    } catch {
+      return false;
+    }
   });
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'granted') {
-        setNotificationAllowed(true);
-      }
+    if (safeIsNotificationGranted()) {
+      setNotificationAllowed(true);
     }
   }, [isOpen]);
 
@@ -56,24 +75,24 @@ export const AppPermissionsModal: React.FC<AppPermissionsModalProps> = ({
     
     // Immediately update UI to Allowed
     setNotificationAllowed(true);
-    localStorage.setItem('perm_notification_allowed', 'true');
+    try {
+      localStorage.setItem('perm_notification_allowed', 'true');
+    } catch {}
     onShowToast('✅ নোটিফিকেশন পারমিশন সফলভাবে অনুমোদিত হয়েছে!');
 
     // Async request native browser permission in background without blocking UI
     try {
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-        if (Notification.permission !== 'granted') {
-          Notification.requestPermission().then((perm) => {
-            if (perm === 'granted') {
-              try {
-                new Notification('TWING হিসাবি', {
-                  body: 'জরুরি তাগাদা ও বকেয়া নোটিফিকেশন সক্রিয় করা হয়েছে।',
-                  icon: '/icon-192.png',
-                });
-              } catch {}
-            }
-          }).catch(() => {});
-        }
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification && typeof Notification.requestPermission === 'function') {
+        Notification.requestPermission().then((perm) => {
+          if (perm === 'granted') {
+            try {
+              new Notification('TWING হিসাবি', {
+                body: 'জরুরি তাগাদা ও বকেয়া নোটিফিকেশন সক্রিয় করা হয়েছে।',
+                icon: '/icon-192.png',
+              });
+            } catch {}
+          }
+        }).catch(() => {});
       }
     } catch {}
   };
@@ -122,8 +141,10 @@ export const AppPermissionsModal: React.FC<AppPermissionsModalProps> = ({
     localStorage.setItem('twing_permissions_accepted_v2', 'true');
 
     try {
-      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted') {
-        Notification.requestPermission().catch(() => {});
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification && typeof Notification.requestPermission === 'function') {
+        if (Notification.permission !== 'granted') {
+          Notification.requestPermission().catch(() => {});
+        }
       }
     } catch {}
 

@@ -225,8 +225,8 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
         </section>
 
         {/* Ledger Table */}
-        <section className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200/90 flex flex-col overflow-hidden min-h-[320px]">
-          <div className="p-3.5 sm:p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
+        <section className="w-full bg-white rounded-2xl shadow-sm border border-slate-200/90 flex flex-col min-h-[280px]">
+          <div className="p-3.5 sm:p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0 rounded-t-2xl">
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4 text-slate-600" />
               <h4 className="font-bold text-xs sm:text-sm text-slate-800">
@@ -243,7 +243,7 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="w-full overflow-x-auto rounded-b-2xl">
             {transactions.length === 0 ? (
               <div className="text-center py-14 px-4 bg-slate-50/40">
                 <div className="w-12 h-12 rounded-2xl bg-teal-50 text-[#00695C] flex items-center justify-center mx-auto mb-2.5">

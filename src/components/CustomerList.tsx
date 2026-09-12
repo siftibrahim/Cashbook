@@ -99,9 +99,9 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     });
 
   return (
-    <section className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200/80 flex flex-col no-print relative overflow-hidden">
-      {/* Persistent Sticky Sub-Header: Search, Actions, & Filter Controls */}
-      <div className="sticky top-0 z-20 bg-slate-50/98 backdrop-blur-md border-b border-slate-200/80 p-3.5 sm:p-4 space-y-3 shrink-0 rounded-t-2xl shadow-xs transition-shadow">
+    <section className="w-full bg-white rounded-2xl shadow-xs border border-slate-200/80 flex flex-col no-print relative shrink-0 overflow-hidden">
+      {/* Sub-Header: Search, Actions, & Filter Controls */}
+      <div className="bg-white p-3.5 sm:p-4 space-y-3 shrink-0 rounded-t-2xl border-b border-slate-100">
         {/* Search & Actions Row (Row 1) */}
         <div className="flex flex-col sm:flex-row gap-2.5 justify-between items-stretch sm:items-center">
           {/* Search Bar */}
@@ -289,9 +289,9 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       </div>
 
       {/* Customer List Items */}
-      <div className="divide-y divide-slate-100 overflow-y-visible">
+      <div className="w-full bg-white divide-y divide-slate-100">
         {filtered.length === 0 ? (
-          <div className="text-center py-16 px-4">
+          <div className="text-center py-16 px-4 bg-white">
             <div className="w-14 h-14 rounded-2xl bg-teal-50 text-[#00695C] flex items-center justify-center mx-auto mb-3 shadow-inner">
               <Users className="w-7 h-7" />
             </div>
@@ -322,7 +322,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                 <div
                   key={customer.id}
                   onClick={() => onSelectCustomer(customer.id)}
-                  className="p-3.5 sm:p-4 hover:bg-teal-50/50 active:bg-teal-100/60 transition cursor-pointer flex items-center justify-between group gap-3.5 border-b border-slate-100 last:border-b-0"
+                  className="bg-white p-3.5 sm:p-4 hover:bg-teal-50/50 active:bg-teal-100/60 transition cursor-pointer flex items-center justify-between group gap-3.5 border-b border-slate-100 last:border-b-0"
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
                     {/* Avatar */}
@@ -425,7 +425,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
             {(() => {
               const totalDue = filtered.reduce((acc, c) => acc + (Number(c.balance || 0) > 0 ? Number(c.balance || 0) : 0), 0);
               return (
-                <div className="p-3.5 sm:p-4 bg-slate-50/90 text-center border-t border-slate-200/80 space-y-1.5">
+                <div className="p-3.5 sm:p-4 bg-white text-center border-t border-slate-100 space-y-1.5 rounded-b-2xl">
                   <div className="flex items-center justify-center gap-2 flex-wrap text-xs sm:text-sm font-bold text-slate-700">
                     <span className="inline-flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-full border border-slate-200/80 shadow-2xs">
                       <span className="w-2 h-2 rounded-full bg-teal-600 inline-block animate-pulse" />

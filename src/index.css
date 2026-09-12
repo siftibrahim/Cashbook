@@ -190,16 +190,9 @@ input, select, textarea {
   }
 }
 
-/* User UI Zoom: Scales up the app views below the header navbar for enhanced readability and modern touch targets */
+/* User UI: Scales up the app views below the header navbar for enhanced readability without breaking touch-scroll */
 .app-content-zoomed {
-  zoom: 1.04;
   -webkit-text-size-adjust: 100%;
-}
-
-@supports not (zoom: 1) {
-  .app-content-zoomed {
-    font-size: 1.03rem;
-  }
 }
 
 

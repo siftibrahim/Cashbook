@@ -91,24 +91,78 @@
       }
     </style>
     <script>
-      // Gracefully prevent ResizeObserver benign notifications and empty/null error events
+      // Gracefully prevent benign ResizeObserver notifications while preserving real script diagnostics
       window.addEventListener('error', function (e) {
-        if (!e || !e.message || e.message === '' || e.message === 'Script error.' || (typeof e.message === 'string' && (e.message.includes('ResizeObserver') || e.message.includes('Refused to display')))) {
+        if (e && typeof e.message === 'string' && e.message.includes('ResizeObserver loop')) {
           if (e.preventDefault) e.preventDefault();
-          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
           return true;
         }
-      }, true);
-      window.addEventListener('unhandledrejection', function (e) {
-        if (!e || !e.reason || !e.reason.message) {
-          if (e.preventDefault) e.preventDefault();
-          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        }
       });
+
+      // Cleanup stale service workers if running inside an iframe preview or on development host
+      (function cleanStaleSW() {
+        try {
+          var isIframe = window.self !== window.top;
+          var isDevHost = window.location.hostname.includes('localhost') || 
+                          window.location.hostname.includes('.run.app') ||
+                          window.location.port === '3000';
+          if ((isIframe || isDevHost) && 'serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+              for (var i = 0; i < regs.length; i++) {
+                regs[i].unregister();
+              }
+            }).catch(function() {});
+          }
+        } catch (e) {}
+      })();
     </script>
   </head>
   <body class="bg-slate-100 text-slate-800 antialiased">
-    <div id="root"></div>
+    <div id="root">
+      <!-- Instant pre-loader shown immediately while scripts parse & React mounts -->
+      <div id="app-instant-loader" style="position:fixed;inset:0;background:#002820;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Hind Siliguri',system-ui,-apple-system,sans-serif;color:#ffffff;padding:24px;z-index:999999;">
+        <div style="width:72px;height:72px;border-radius:22px;background:linear-gradient(135deg,#10b981,#0d9488);display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px rgba(0,0,0,0.35);margin-bottom:18px;border:2px solid rgba(255,255,255,0.2);">
+          <svg style="width:38px;height:38px;fill:none;stroke:#ffffff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24">
+            <path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>
+            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+            <path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/>
+            <path d="M2 7h20"/>
+            <path d="M22 7v3a2 2 0 0 1-2 2v0a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12v0a2 2 0 0 1-2-2V7"/>
+          </svg>
+        </div>
+        <h1 style="font-size:24px;font-weight:900;margin:0 0 6px 0;letter-spacing:-0.5px;color:#ffffff;text-shadow:0 2px 8px rgba(0,0,0,0.2);">TWING হিসাবি</h1>
+        <p style="font-size:13px;color:#a7f3d0;margin:0 0 22px 0;font-weight:600;opacity:0.95;">ডিজিটাল খাতা ও সুপার শপ ম্যানেজমেন্ট</p>
+
+        <div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.08);padding:9px 20px;border-radius:999px;border:1px solid rgba(255,255,255,0.15);backdrop-filter:blur(4px);">
+          <div style="width:17px;height:17px;border:2.5px solid #34d399;border-top-color:transparent;border-radius:50%;animation:twing-spin 0.75s linear infinite;"></div>
+          <span style="font-size:12px;color:#f8fafc;font-weight:700;">খাতা প্রস্তুত করা হচ্ছে...</span>
+        </div>
+
+        <div id="loader-fallback-actions" style="display:none;margin-top:28px;text-align:center;max-width:320px;animation:twing-fade 0.3s ease-out;">
+          <p style="font-size:12px;color:#fecaca;margin:0 0 12px 0;line-height:1.5;">অ্যাপ খুলতে দেরি হলে নিচে ট্যাপ করুন:</p>
+          <div style="display:flex;gap:8px;justify-content:center;">
+            <button type="button" onclick="window.location.reload()" style="background:#10b981;color:#022c22;border:none;padding:8px 18px;border-radius:12px;font-size:12px;font-weight:800;cursor:pointer;">রিলোড করুন</button>
+            <button type="button" onclick="(function(){try{localStorage.removeItem('twing_temp_cache');if('caches' in window){caches.keys().then(function(k){k.forEach(function(x){caches.delete(x);});});}}catch(e){}window.location.reload();})()" style="background:rgba(255,255,255,0.18);color:#ffffff;border:1px solid rgba(255,255,255,0.3);padding:8px 18px;border-radius:12px;font-size:12px;font-weight:800;cursor:pointer;">ক্যাশ ক্লিয়ার</button>
+          </div>
+        </div>
+      </div>
+      <style>
+        @keyframes twing-spin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes twing-fade {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      </style>
+      <script>
+        // Show fallback reload action if React doesn't mount within 4 seconds
+        setTimeout(function() {
+          var fb = document.getElementById('loader-fallback-actions');
+          if (fb) fb.style.display = 'block';
+        }, 4000);
+      </script>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
