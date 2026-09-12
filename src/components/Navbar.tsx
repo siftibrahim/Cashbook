@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Database,
   MessageSquare,
+  Globe,
 } from 'lucide-react';
 import {
   subscribeSyncStatus,
@@ -31,6 +32,7 @@ interface NavbarProps {
   store: StoreProfile;
   onLogout: () => void;
   onOpenSettings?: () => void;
+  onOpenOnlineStore?: () => void;
   onOpenNotifications?: () => void;
   onOpenSubscription?: () => void;
   onOpenPermissions?: () => void;
@@ -45,6 +47,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   store,
   onLogout,
   onOpenSettings,
+  onOpenOnlineStore,
   onOpenNotifications,
   onOpenSubscription,
   onOpenPermissions,
@@ -287,6 +290,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </div>
                     </div>
                     <ChevronRight className="w-4 h-4 text-teal-400 group-hover:translate-x-0.5 transition" />
+                  </button>
+                )}
+
+                {/* Online Store & Website */}
+                {onOpenOnlineStore && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onOpenOnlineStore();
+                    }}
+                    className="w-full p-3 rounded-2xl bg-slate-950/60 hover:bg-emerald-950/40 border border-emerald-900/40 text-left flex items-center justify-between transition cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                        <Globe className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-emerald-300 block">
+                          অনলাইন স্টোর ও ওয়েবসাইট
+                        </span>
+                        <span className="text-[10px] text-emerald-200/70 block">
+                          ই-কমার্স ওয়েবসাইট, কাস্টম ডোমেন ও অর্ডার
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 transition" />
                   </button>
                 )}
 

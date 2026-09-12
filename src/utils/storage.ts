@@ -1,4 +1,4 @@
-import { Customer, Transaction, StoreProfile, DailyExpense, Product } from '../types';
+import { Customer, Transaction, StoreProfile, DailyExpense, Product, OnlineStoreConfig, OnlineOrder } from '../types';
 
 export const DEFAULT_STORE: StoreProfile = {
   name: 'আমার দোকান',
@@ -533,6 +533,99 @@ export function saveProducts(products: Product[], userId?: string): void {
   }
 }
 
+export function getDefaultOnlineStoreConfig(storeName?: string, phone?: string): OnlineStoreConfig {
+  const cleanName = (storeName && storeName !== 'আমার দোকান' ? storeName : 'আমার অনলাইন স্টোর').trim();
+  // generate slug
+  const baseSlug = cleanName
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .substring(0, 25) || 'twing-shop';
+
+  return {
+    isEnabled: true,
+    storeSlug: baseSlug,
+    storeName: cleanName,
+    tagline: 'সেরা মানের পণ্য, দ্রুত হোম ডেলিভারি ও সুলভ মূল্য',
+    category: 'জেনারেল স্টোর ও ফ্যাশন',
+    phone: phone || '',
+    whatsappPhone: phone || '',
+    address: 'ঢাকা, বাংলাদেশ',
+    customDomain: '',
+    customDomainVerified: false,
+    customDomainStatus: 'pending',
+    themeColor: 'teal',
+    announcement: '🎉 আমাদের অনলাইন শপে স্বাগতম! সারা দেশে ক্যাশ অন ডেলিভারি সুবিধা!',
+    deliveryInsideDhaka: 60,
+    deliveryOutsideDhaka: 120,
+    freeDeliveryAbove: 1500,
+    acceptCOD: true,
+    acceptBkash: true,
+    bkashNumber: phone || '',
+    acceptNagad: true,
+    nagadNumber: phone || '',
+    acceptRocket: false,
+    rocketNumber: '',
+    facebookUrl: '',
+    publishedProductIds: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+export function loadOnlineStoreConfig(userId?: string, storeName?: string, phone?: string): OnlineStoreConfig {
+  try {
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('online_store_config', uid);
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      return getDefaultOnlineStoreConfig(storeName, phone);
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      ...getDefaultOnlineStoreConfig(storeName, phone),
+      ...parsed,
+    };
+  } catch (e) {
+    console.error('Error loading online store config:', e);
+    return getDefaultOnlineStoreConfig(storeName, phone);
+  }
+}
+
+export function saveOnlineStoreConfig(config: OnlineStoreConfig, userId?: string): void {
+  try {
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('online_store_config', uid);
+    localStorage.setItem(key, JSON.stringify({ ...config, updatedAt: Date.now() }));
+  } catch (e) {
+    console.error('Error saving online store config:', e);
+  }
+}
+
+export function loadOnlineOrders(userId?: string): OnlineOrder[] {
+  try {
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('online_orders', uid);
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error('Error loading online orders:', e);
+    return [];
+  }
+}
+
+export function saveOnlineOrders(orders: OnlineOrder[], userId?: string): void {
+  try {
+    const uid = userId || getActiveUserId();
+    const key = getUserStorageKey('online_orders', uid);
+    localStorage.setItem(key, JSON.stringify(orders));
+  } catch (e) {
+    console.error('Error saving online orders:', e);
+  }
+}
+
 export function resetAllData(userId?: string): void {
   try {
     const uid = userId || getActiveUserId();
@@ -541,7 +634,9 @@ export function resetAllData(userId?: string): void {
     saveStoreProfile(DEFAULT_STORE, uid);
     saveDailyExpenses([], uid);
     saveProducts([], uid);
+    saveOnlineOrders([], uid);
   } catch (e) {
     console.error('Error resetting data:', e);
   }
 }
+

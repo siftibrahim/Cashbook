@@ -10,6 +10,8 @@ import {
   InvoiceItem,
   Product,
   NavTab,
+  OnlineStoreConfig,
+  OnlineOrder,
 } from './types';
 import {
   loadCustomers,
@@ -22,6 +24,10 @@ import {
   saveDailyExpenses,
   loadProducts,
   saveProducts,
+  loadOnlineStoreConfig,
+  saveOnlineStoreConfig,
+  loadOnlineOrders,
+  saveOnlineOrders,
   getTodayDateString,
   getCurrentTimeString,
   DEFAULT_STORE,
@@ -90,6 +96,8 @@ import { AppPermissionsModal } from './components/AppPermissionsModal';
 import { UserSmsModal } from './components/sms/UserSmsModal';
 import { QrGeneratorModal } from './components/qr/QrGeneratorModal';
 import { ProductScannerModal } from './components/scanner/ProductScannerModal';
+import { OnlineStoreModal } from './components/OnlineStoreModal';
+import { OnlineStorefrontModal } from './components/OnlineStorefrontModal';
 import { AdBanner } from './components/ads/AdBanner';
 import {
   subscribeToUserSupportMessages,
@@ -164,6 +172,16 @@ export const App: React.FC = () => {
   const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+  const [isOnlineStoreModalOpen, setIsOnlineStoreModalOpen] = useState(false);
+  const [isOnlineStorefrontOpen, setIsOnlineStorefrontOpen] = useState(false);
+  const [onlineStoreConfig, setOnlineStoreConfig] = useState<OnlineStoreConfig>(() => {
+    const user = getStoredUser();
+    return loadOnlineStoreConfig(user?.id, store?.name, store?.phone);
+  });
+  const [onlineOrders, setOnlineOrders] = useState<OnlineOrder[]>(() => {
+    const user = getStoredUser();
+    return loadOnlineOrders(user?.id);
+  });
   const [isUserSmsModalOpen, setIsUserSmsModalOpen] = useState(false);
   const [smsPrefillPhone, setSmsPrefillPhone] = useState('');
   const [smsPrefillMessage, setSmsPrefillMessage] = useState('');
@@ -380,6 +398,12 @@ export const App: React.FC = () => {
       const loadedProds = Array.isArray(prodList) ? prodList : [];
       setProducts(loadedProds);
       saveProducts(loadedProds, userId);
+
+      const loadedStoreConfig = loadOnlineStoreConfig(userId, userShopName || storeData?.name, userPhone || storeData?.phone);
+      setOnlineStoreConfig(loadedStoreConfig);
+
+      const loadedOnlineOrders = loadOnlineOrders(userId);
+      setOnlineOrders(loadedOnlineOrders);
 
       setIsCloudSynced(true);
     } catch (err) {
@@ -724,6 +748,8 @@ export const App: React.FC = () => {
     setIsTagadaModalOpen(false);
     setIsReportModalOpen(false);
     setIsBackupModalOpen(false);
+    setIsOnlineStoreModalOpen(false);
+    setIsOnlineStorefrontOpen(false);
     setConfirmConfig((prev) => ({ ...prev, isOpen: false }));
     showToast('✅ সফলভাবে লগআউট করা হয়েছে!');
   };
@@ -1375,6 +1401,112 @@ export const App: React.FC = () => {
     showToast('দোকানের সেটিংস ক্লাউডে সংরক্ষিত হয়েছে!');
   };
 
+  // Online Store & E-commerce Handlers
+  const handleUpdateOnlineStoreConfig = (newConfig: OnlineStoreConfig) => {
+    const user = getStoredUser();
+    setOnlineStoreConfig(newConfig);
+    saveOnlineStoreConfig(newConfig, user?.id);
+    showToast('অনলাইন স্টোর সেটিংস সংরক্ষিত হয়েছে!');
+  };
+
+  const handleUpdateOnlineOrders = (newOrders: OnlineOrder[]) => {
+    const user = getStoredUser();
+    setOnlineOrders(newOrders);
+    saveOnlineOrders(newOrders, user?.id);
+  };
+
+  const handlePlaceOnlineOrder = (order: OnlineOrder) => {
+    const newOrders = [order, ...onlineOrders];
+    handleUpdateOnlineOrders(newOrders);
+    playSaleTone();
+    showToast(`🛍️ নতুন অনলাইন অর্ডার #${order.orderNumber} সফলভাবে গ্রহণ করা হয়েছে!`);
+  };
+
+  const handleConvertOnlineOrderToSale = async (order: OnlineOrder) => {
+    const now = Date.now();
+    const user = getStoredUser();
+    let targetCust = customers.find(
+      (c) => c.phone && order.customerPhone && normalizePhoneNumber(c.phone) === normalizePhoneNumber(order.customerPhone)
+    );
+
+    if (!targetCust) {
+      targetCust = {
+        id: `cust_${now}`,
+        name: order.customerName,
+        phone: order.customerPhone,
+        address: order.customerAddress,
+        category: 'regular',
+        balance: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const updatedCusts = [targetCust, ...customers];
+      setCustomers(updatedCusts);
+      saveCustomers(updatedCusts, user?.id);
+      await saveCustomerToCloud(targetCust);
+    }
+
+    const prevBalance = targetCust.balance || 0;
+    const balanceAfter = order.paymentMethod === 'cod' ? prevBalance + order.totalAmount : prevBalance;
+
+    const newTx: Transaction = {
+      id: `tx_${now}`,
+      customerId: targetCust.id,
+      type: 'sale',
+      amount: order.totalAmount,
+      balanceAfter,
+      prevBalance,
+      receiptNo: order.orderNumber,
+      subtotal: order.subtotal,
+      date: getTodayDateString(),
+      time: getCurrentTimeString(),
+      description: `অনলাইন অর্ডার #${order.orderNumber}`,
+      paymentMethod: order.paymentMethod === 'cod' ? 'cash' : 'bkash',
+      items: order.items.map((it, idx) => ({
+        id: it.id || it.productId || `item_${idx}_${now}`,
+        name: it.productName,
+        price: it.unitPrice,
+        quantity: it.quantity,
+        total: it.total,
+        unit: it.unit || 'টি',
+      })),
+      discount: 0,
+      paidAmount: order.paymentMethod === 'cod' ? 0 : order.totalAmount,
+      dueAmount: order.paymentMethod === 'cod' ? order.totalAmount : 0,
+      deliveryCharge: order.deliveryCharge,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const targetCustTxs = transactions[targetCust.id] || [];
+    const updatedTxs = { ...transactions, [targetCust.id]: [newTx, ...targetCustTxs] };
+    setTransactions(updatedTxs);
+    saveTransactions(updatedTxs, user?.id);
+    await saveTransactionToCloud(newTx);
+
+    if (order.paymentMethod === 'cod') {
+      const updatedCust = {
+        ...targetCust,
+        balance: (targetCust.balance || 0) + order.totalAmount,
+        updatedAt: now,
+      };
+      const updatedCustList = customers.map((c) => (c.id === targetCust!.id ? updatedCust : c));
+      setCustomers(updatedCustList);
+      saveCustomers(updatedCustList, user?.id);
+      await saveCustomerToCloud(updatedCust);
+    }
+
+    const updatedOrders = onlineOrders.map((o) =>
+      o.id === order.id ? { ...o, orderStatus: 'confirmed' as const, updatedAt: now } : o
+    );
+    handleUpdateOnlineOrders(updatedOrders);
+
+    playSaleTone();
+    triggerConfettiCelebration();
+    showToast(`✅ অর্ডার #${order.orderNumber} মূল বিক্রির খাতায় সফলভাবে এন্ট্রি হয়েছে!`);
+    setIsOnlineStoreModalOpen(false);
+  };
+
   if (isAuthChecking) {
     return (
       <div className="w-full h-[100dvh] bg-slate-100 flex flex-col items-center justify-center p-4">
@@ -1442,6 +1574,7 @@ export const App: React.FC = () => {
               store={store}
               onLogout={triggerLogoutConfirm}
               onOpenSettings={() => setIsSettingsModalOpen(true)}
+              onOpenOnlineStore={() => setIsOnlineStoreModalOpen(true)}
               onOpenNotifications={() => setIsNotificationModalOpen(true)}
               onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
               onOpenPermissions={() => setIsPermissionsModalOpen(true)}
@@ -1535,6 +1668,7 @@ export const App: React.FC = () => {
                       onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
                       onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
                       onOpenSettings={() => setIsSettingsModalOpen(true)}
+                      onOpenOnlineStore={() => setIsOnlineStoreModalOpen(true)}
                       expenses={expenses}
                       products={products}
                       onOpenSms={() => handleOpenSms()}
@@ -1945,6 +2079,33 @@ export const App: React.FC = () => {
         }}
         onShowToast={showToast}
         isFirstInstall={isFirstInstallPrompt}
+      />
+
+      {/* Online E-commerce Store & Custom Domain Management Modal */}
+      <OnlineStoreModal
+        isOpen={isOnlineStoreModalOpen}
+        onClose={() => setIsOnlineStoreModalOpen(false)}
+        config={onlineStoreConfig}
+        onUpdateConfig={handleUpdateOnlineStoreConfig}
+        products={products}
+        orders={onlineOrders}
+        onUpdateOrders={handleUpdateOnlineOrders}
+        store={store}
+        onOpenStorefront={() => setIsOnlineStorefrontOpen(true)}
+        onNavigateToTab={(tab) => {
+          setIsOnlineStoreModalOpen(false);
+          setActiveTab(tab);
+        }}
+        onConvertOrderToSale={handleConvertOnlineOrderToSale}
+      />
+
+      {/* Live Interactive E-commerce Storefront Website */}
+      <OnlineStorefrontModal
+        isOpen={isOnlineStorefrontOpen}
+        onClose={() => setIsOnlineStorefrontOpen(false)}
+        config={onlineStoreConfig}
+        products={products}
+        onPlaceOrder={handlePlaceOnlineOrder}
       />
 
       {/* Complete Admin / Staff Management Console */}

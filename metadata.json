@@ -1,6 +1,6 @@
 {
   "name": "TWING হিসাবি",
-  "description": "TWING হিসাবি - আধুনিক কাস্টমার বাকি, দেনা-পাওনা ও পিওএস দোকান হিসাব খাতা সফটওয়্যার।",
+  "description": "TWING হিসাবি - আধুনিক কাস্টমার বাকি, দেনা-পাওনা, পিওএস ও প্রফেশনাল অনলাইন ই-কমার্স স্টোর খাতা সফটওয়্যার।",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

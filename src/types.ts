@@ -28,6 +28,8 @@ export interface Transaction {
   paidAmount?: number;
   dueAmount?: number;
   prevBalance?: number;
+  deliveryCharge?: number;
+  updatedAt?: number;
 }
 
 export type CustomerCategory = 'regular' | 'vip' | 'retail' | 'wholesale';
@@ -135,5 +137,72 @@ export interface Product {
   minStockAlert?: number;
   sku?: string; // Product code / Barcode / QR Code identifier (e.g. PRD-101)
   qrCode?: string; // Base64 data or QR payload
+  imageUrl?: string;
+  description?: string;
+  isPublishedOnline?: boolean;
   updatedAt: number;
 }
+
+export interface OnlineStoreConfig {
+  isEnabled: boolean;
+  storeSlug: string;
+  storeName: string;
+  tagline: string;
+  category: string;
+  phone: string;
+  whatsappPhone: string;
+  address: string;
+  customDomain?: string;
+  customDomainVerified?: boolean;
+  customDomainStatus?: 'pending' | 'verified' | 'failed';
+  customDomainVerifiedAt?: number;
+  themeColor: 'teal' | 'emerald' | 'indigo' | 'amber' | 'rose' | 'navy';
+  announcement: string;
+  deliveryInsideDhaka: number;
+  deliveryOutsideDhaka: number;
+  freeDeliveryAbove?: number;
+  acceptCOD: boolean;
+  acceptBkash: boolean;
+  bkashNumber?: string;
+  acceptNagad: boolean;
+  nagadNumber?: string;
+  acceptRocket: boolean;
+  rocketNumber?: string;
+  facebookUrl?: string;
+  publishedProductIds?: string[];
+  bannerUrl?: string;
+  logoUrl?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface OnlineOrderItem {
+  id?: string;
+  productId: string;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  unit: string;
+  total: number;
+  sku?: string;
+}
+
+export interface OnlineOrder {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress: string;
+  deliveryArea: 'inside_dhaka' | 'outside_dhaka' | 'store_pickup';
+  deliveryCharge: number;
+  items: OnlineOrderItem[];
+  subtotal: number;
+  totalAmount: number;
+  paymentMethod: 'cod' | 'bkash' | 'nagad' | 'rocket';
+  paymentStatus: 'unpaid' | 'paid' | 'partial';
+  orderStatus: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+

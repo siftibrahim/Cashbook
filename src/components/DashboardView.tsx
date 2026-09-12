@@ -58,6 +58,7 @@ interface DashboardViewProps {
   onOpenSalesHistory?: () => void;
   onOpenSubscription?: () => void;
   onOpenSettings?: () => void;
+  onOpenOnlineStore?: () => void;
   onOpenNewProduct?: () => void;
   onOpenSms?: () => void;
   smsBalance?: number;
@@ -80,6 +81,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenReport,
   onOpenSalesHistory,
   onOpenSettings,
+  onOpenOnlineStore,
   onOpenSms,
 }) => {
   const today = getTodayDateString();
@@ -322,7 +324,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       id: 'online_store',
       title: 'অনলাইন স্টোর',
       icon: OnlineStoreIcon,
-      action: () => onNavigateToTab('inventory'),
+      action: onOpenOnlineStore ? onOpenOnlineStore : () => onNavigateToTab('inventory'),
       badge: '৫',
     },
     {
