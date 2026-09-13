@@ -3,7 +3,7 @@
  * Replaces Firebase with Node.js Express + Neon PostgreSQL Backend
  */
 
-import { Customer, Transaction, StoreProfile, DailyExpense, TagadaTemplate } from '../types';
+import { Customer, Transaction, StoreProfile, DailyExpense, TagadaTemplate, OnlineOrder } from '../types';
 import {
   AppUser,
   PaymentRecord,
@@ -27,6 +27,8 @@ import {
   saveDailyExpenses,
   loadStoreProfile,
   saveStoreProfile,
+  loadOnlineOrders,
+  saveOnlineOrders,
 } from '../utils/storage';
 import {
   saveOfflineCredential,
@@ -883,6 +885,73 @@ export const storeApi = {
       saveCustomers(customers);
       saveTransactions(transactions);
       saveDailyExpenses(expenses);
+    }
+  },
+
+  async getOrders(): Promise<OnlineOrder[]> {
+    try {
+      const res = await apiRequest<{ orders: OnlineOrder[] }>('/store/orders');
+      if (res && Array.isArray(res.orders)) {
+        saveOnlineOrders(res.orders);
+        return res.orders;
+      }
+    } catch (err) {
+      console.warn('API getOrders fallback to local storage:', err);
+    }
+    return loadOnlineOrders();
+  },
+
+  async placeOrder(order: OnlineOrder, vendorId?: string, storeSlug?: string): Promise<OnlineOrder> {
+    try {
+      const res = await apiRequest<{ message: string; order: OnlineOrder }>('/store/orders', {
+        method: 'POST',
+        body: JSON.stringify({ ...order, vendorId, storeSlug }),
+      });
+      if (res && res.order) {
+        return res.order;
+      }
+    } catch (err) {
+      console.warn('API placeOrder fallback to local storage:', err);
+    }
+    return order;
+  },
+
+  async updatePaymentStatus(
+    orderId: string,
+    action: 'accept' | 'reject' | 'reset',
+    rejectReason?: string
+  ): Promise<OnlineOrder | null> {
+    try {
+      const res = await apiRequest<{ message: string; order: OnlineOrder }>(`/store/orders/${encodeURIComponent(orderId)}/payment`, {
+        method: 'PUT',
+        body: JSON.stringify({ action, rejectReason }),
+      });
+      return res?.order || null;
+    } catch (err) {
+      console.error('API updatePaymentStatus error:', err);
+      return null;
+    }
+  },
+
+  async updateOrderStatus(orderId: string, orderStatus: OnlineOrder['orderStatus']): Promise<OnlineOrder | null> {
+    try {
+      const res = await apiRequest<{ order: OnlineOrder }>(`/store/orders/${encodeURIComponent(orderId)}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ orderStatus }),
+      });
+      return res?.order || null;
+    } catch (err) {
+      console.error('API updateOrderStatus error:', err);
+      return null;
+    }
+  },
+
+  async trackOrder(orderNumber: string): Promise<OnlineOrder | null> {
+    try {
+      const res = await apiRequest<{ order: OnlineOrder }>(`/store/orders/track/${encodeURIComponent(orderNumber)}`);
+      return res?.order || null;
+    } catch {
+      return null;
     }
   },
 };

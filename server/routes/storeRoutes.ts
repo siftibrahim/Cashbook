@@ -1,15 +1,14 @@
 import { Router, Response } from 'express';
 import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
-import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
+import { AuthenticatedRequest, authenticateUser, optionalAuth } from '../authMiddleware';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 
 const router = Router();
-router.use(authenticateUser);
 
 /**
  * GET /api/store/profile
  */
-router.get('/profile', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/profile', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
     const pool = getDbPool();
@@ -168,7 +167,7 @@ router.get('/profile', async (req: AuthenticatedRequest, res: Response) => {
 /**
  * PUT /api/store/profile - Save or update Store Profile
  */
-router.put('/profile', async (req: AuthenticatedRequest, res: Response) => {
+router.put('/profile', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
     const {
@@ -269,7 +268,7 @@ router.put('/profile', async (req: AuthenticatedRequest, res: Response) => {
 /**
  * POST /api/store/sync-all - Bulk Sync ledger data
  */
-router.post('/sync-all', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/sync-all', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
     const { store, customers, transactions, expenses, products } = req.body;
@@ -496,6 +495,389 @@ router.post('/sync-all', async (req: AuthenticatedRequest, res: Response) => {
     return res.json({ message: '✅ সম্পূর্ণ ডাটাবেজ ব্যাকআপ ও সিঙ্ক সফল হয়েছে!' });
   } catch (err: any) {
     console.error('Sync-all error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper to format DB row to OnlineOrder object
+function mapDbRowToOrder(r: any) {
+  return {
+    id: r.id,
+    orderNumber: r.order_number,
+    customerName: r.customer_name,
+    customerPhone: r.customer_phone,
+    customerAddress: r.customer_address || '',
+    deliveryArea: r.delivery_area || 'inside_dhaka',
+    deliveryCharge: parseFloat(r.delivery_charge) || 0,
+    items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || []),
+    subtotal: parseFloat(r.subtotal) || 0,
+    totalAmount: parseFloat(r.total_amount) || 0,
+    paymentMethod: r.payment_method || 'cod',
+    paymentStatus: r.payment_status || 'unpaid',
+    orderStatus: r.order_status || 'pending',
+    trxId: r.trx_id || '',
+    senderPhone: r.sender_phone || '',
+    paymentAmount: r.payment_amount ? parseFloat(r.payment_amount) : undefined,
+    paymentProof: r.payment_proof || '',
+    paymentRejectReason: r.payment_reject_reason || '',
+    paymentReviewedAt: r.payment_reviewed_at ? parseInt(r.payment_reviewed_at, 10) : undefined,
+    notes: r.notes || '',
+    courierName: r.courier_name || '',
+    courierTrackingCode: r.courier_tracking_code || '',
+    codCollectedAmount: r.cod_collected_amount ? parseFloat(r.cod_collected_amount) : undefined,
+    collectedAt: r.collected_at ? parseInt(r.collected_at, 10) : undefined,
+    createdAt: parseInt(r.created_at, 10) || Date.now(),
+    updatedAt: parseInt(r.updated_at, 10) || Date.now(),
+  };
+}
+
+/**
+ * GET /api/store/orders - Get all orders for authenticated vendor
+ */
+router.get('/orders', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+
+    if (pool) {
+      const result = await pool.query(
+        'SELECT * FROM online_orders WHERE user_id = $1 ORDER BY created_at DESC',
+        [userId]
+      );
+      const orders = result.rows.map(mapDbRowToOrder);
+      return res.json({ orders });
+    } else {
+      const memoryOrders = (inMemoryStore.online_orders || [])
+        .filter((o) => o.userId === userId || !o.userId)
+        .sort((a, b) => b.createdAt - a.createdAt);
+      return res.json({ orders: memoryOrders });
+    }
+  } catch (err: any) {
+    console.error('Error fetching online orders:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/orders - Place a new customer order (Public or Vendor)
+ */
+router.post('/orders', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const body = req.body;
+    const pool = getDbPool();
+
+    // Determine target vendor user ID
+    let targetUserId = req.user?.userId || body.userId || body.vendorId;
+
+    if (!targetUserId) {
+      // Fallback: look up user from DB or inMemoryStore
+      if (pool) {
+        if (body.storeSlug) {
+          const sRes = await pool.query('SELECT user_id FROM store_profiles WHERE id LIKE $1 LIMIT 1', [`%${body.storeSlug}%`]);
+          if (sRes.rows.length > 0) targetUserId = sRes.rows[0].user_id;
+        }
+        if (!targetUserId) {
+          const uRes = await pool.query('SELECT id FROM users ORDER BY registered_at ASC LIMIT 1');
+          if (uRes.rows.length > 0) targetUserId = uRes.rows[0].id;
+        }
+      } else {
+        if (inMemoryStore.users.length > 0) {
+          targetUserId = inMemoryStore.users[0].id;
+        }
+      }
+    }
+
+    if (!targetUserId) {
+      targetUserId = 'default_vendor';
+    }
+
+    const orderId = body.id || `online_ord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const orderNumber = body.orderNumber || `ORD-${Date.now().toString().slice(-6)}`;
+    const customerName = (body.customerName || 'অনলাইন গ্রাহক').trim();
+    const customerPhone = (body.customerPhone || '').trim();
+    const customerAddress = (body.customerAddress || '').trim();
+    const deliveryArea = body.deliveryArea || 'inside_dhaka';
+    const deliveryCharge = parseFloat(body.deliveryCharge) || 0;
+    const items = Array.isArray(body.items) ? body.items : [];
+    const subtotal = parseFloat(body.subtotal) || 0;
+    const totalAmount = parseFloat(body.totalAmount) || 0;
+    const paymentMethod = body.paymentMethod || 'cod';
+
+    // If customer paid via bKash / Nagad / Rocket, set status to pending_verification so vendor can review!
+    let paymentStatus = body.paymentStatus;
+    if (!paymentStatus) {
+      paymentStatus = paymentMethod === 'cod' ? 'unpaid' : 'pending_verification';
+    }
+
+    const orderStatus = body.orderStatus || 'pending';
+    const trxId = (body.trxId || '').trim();
+    const senderPhone = (body.senderPhone || '').trim();
+    const paymentAmount = body.paymentAmount ? parseFloat(body.paymentAmount) : (paymentMethod !== 'cod' ? totalAmount : undefined);
+    const paymentProof = body.paymentProof || '';
+    const notes = (body.notes || '').trim();
+    const now = Date.now();
+
+    if (pool) {
+      await pool.query(`
+        INSERT INTO online_orders (
+          id, user_id, order_number, customer_name, customer_phone, customer_address,
+          delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
+          payment_status, order_status, trx_id, sender_phone, payment_amount, payment_proof,
+          notes, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          customer_name = EXCLUDED.customer_name,
+          customer_phone = EXCLUDED.customer_phone,
+          customer_address = EXCLUDED.customer_address,
+          total_amount = EXCLUDED.total_amount,
+          payment_status = EXCLUDED.payment_status,
+          trx_id = EXCLUDED.trx_id,
+          sender_phone = EXCLUDED.sender_phone,
+          updated_at = EXCLUDED.updated_at
+      `, [
+        orderId, targetUserId, orderNumber, customerName, customerPhone, customerAddress,
+        deliveryArea, deliveryCharge, JSON.stringify(items), subtotal, totalAmount, paymentMethod,
+        paymentStatus, orderStatus, trxId, senderPhone, paymentAmount || null, paymentProof,
+        notes, now, now
+      ]);
+
+      // Create notification for vendor
+      try {
+        const notifId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const payText = paymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : `${paymentMethod.toUpperCase()}${trxId ? ` (TrxID: ${trxId})` : ''}`;
+        await pool.query(`
+          INSERT INTO notifications (
+            id, title, message, type, target, target_user_id, priority, is_read, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [
+          notifId,
+          `🛍️ নতুন অনলাইন অর্ডার #${orderNumber}`,
+          `গ্রাহক ${customerName} (${customerPhone}) ৳${totalAmount} টাকার অর্ডার দিয়েছেন। পেমেন্ট: ${payText}`,
+          'store_order',
+          'user',
+          targetUserId,
+          'high',
+          false,
+          now
+        ]);
+      } catch (ne) {
+        console.warn('Notification insert notice:', ne);
+      }
+    } else {
+      if (!inMemoryStore.online_orders) inMemoryStore.online_orders = [];
+      const orderObj = {
+        id: orderId,
+        userId: targetUserId,
+        orderNumber,
+        customerName,
+        customerPhone,
+        customerAddress,
+        deliveryArea,
+        deliveryCharge,
+        items,
+        subtotal,
+        totalAmount,
+        paymentMethod,
+        paymentStatus,
+        orderStatus,
+        trxId,
+        senderPhone,
+        paymentAmount,
+        paymentProof,
+        notes,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const existingIdx = inMemoryStore.online_orders.findIndex((o) => o.id === orderId);
+      if (existingIdx >= 0) inMemoryStore.online_orders[existingIdx] = orderObj;
+      else inMemoryStore.online_orders.unshift(orderObj);
+    }
+
+    const createdOrder = {
+      id: orderId,
+      orderNumber,
+      customerName,
+      customerPhone,
+      customerAddress,
+      deliveryArea,
+      deliveryCharge,
+      items,
+      subtotal,
+      totalAmount,
+      paymentMethod,
+      paymentStatus,
+      orderStatus,
+      trxId,
+      senderPhone,
+      paymentAmount,
+      paymentProof,
+      notes,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    return res.status(201).json({
+      message: '✅ নতুন অনলাইন অর্ডার সফলভাবে গ্রহণ করা হয়েছে!',
+      order: createdOrder,
+    });
+  } catch (err: any) {
+    console.error('Error creating online order:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/store/orders/:orderId/payment - Vendor verifies (accepts or rejects) payment
+ */
+router.put('/orders/:orderId/payment', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const { action, rejectReason } = req.body; // action: 'accept' | 'reject' | 'reset'
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (!action || !['accept', 'reject', 'reset'].includes(action)) {
+      return res.status(400).json({ error: "Invalid action. Must be 'accept', 'reject', or 'reset'" });
+    }
+
+    let targetPaymentStatus = 'pending_verification';
+    let newOrderStatus: string | null = null;
+    let finalRejectReason: string | null = null;
+
+    if (action === 'accept') {
+      targetPaymentStatus = 'paid';
+      // Automatically advance pending orders to confirmed when payment is verified
+      newOrderStatus = 'confirmed';
+    } else if (action === 'reject') {
+      targetPaymentStatus = 'rejected';
+      finalRejectReason = (rejectReason || 'ভুল TrxID বা অ্যাকাউন্টে টাকা পাওয়া যায়নি').trim();
+    } else if (action === 'reset') {
+      targetPaymentStatus = 'pending_verification';
+    }
+
+    if (pool) {
+      let updateQuery = `
+        UPDATE online_orders
+        SET payment_status = $1,
+            payment_reject_reason = $2,
+            payment_reviewed_at = $3,
+            updated_at = $4
+      `;
+      const queryParams: any[] = [targetPaymentStatus, finalRejectReason, now, now];
+
+      if (newOrderStatus) {
+        updateQuery += `, order_status = CASE WHEN order_status = 'pending' THEN $5 ELSE order_status END WHERE id = $6 AND user_id = $7 RETURNING *`;
+        queryParams.push(newOrderStatus, orderId, userId);
+      } else {
+        updateQuery += ` WHERE id = $5 AND user_id = $6 RETURNING *`;
+        queryParams.push(orderId, userId);
+      }
+
+      const result = await pool.query(updateQuery, queryParams);
+
+      if (result.rows.length === 0) {
+        // Retry without user_id check in case order was created as default_vendor
+        const fallbackRes = await pool.query(
+          `UPDATE online_orders SET payment_status = $1, payment_reject_reason = $2, payment_reviewed_at = $3, updated_at = $4 WHERE id = $5 RETURNING *`,
+          [targetPaymentStatus, finalRejectReason, now, now, orderId]
+        );
+        if (fallbackRes.rows.length === 0) {
+          return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+        }
+        return res.json({
+          message: action === 'accept' ? '✅ পেমেন্ট সফলভাবে অনুমোদিত হয়েছে!' : '❌ পেমেন্ট বাতিল/রিজেক্ট করা হয়েছে।',
+          order: mapDbRowToOrder(fallbackRes.rows[0]),
+        });
+      }
+
+      return res.json({
+        message: action === 'accept' ? '✅ পেমেন্ট সফলভাবে অনুমোদিত হয়েছে!' : '❌ পেমেন্ট বাতিল/রিজেক্ট করা হয়েছে।',
+        order: mapDbRowToOrder(result.rows[0]),
+      });
+    } else {
+      const order = (inMemoryStore.online_orders || []).find((o) => o.id === orderId);
+      if (!order) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+      }
+      order.paymentStatus = targetPaymentStatus;
+      order.paymentRejectReason = finalRejectReason || undefined;
+      order.paymentReviewedAt = now;
+      order.updatedAt = now;
+      if (newOrderStatus && order.orderStatus === 'pending') {
+        order.orderStatus = newOrderStatus;
+      }
+      return res.json({
+        message: action === 'accept' ? '✅ পেমেন্ট সফলভাবে অনুমোদিত হয়েছে!' : '❌ পেমেন্ট বাতিল/রিজেক্ট করা হয়েছে।',
+        order,
+      });
+    }
+  } catch (err: any) {
+    console.error('Error updating order payment:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/store/orders/:orderId/status - Vendor updates overall order status
+ */
+router.put('/orders/:orderId/status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const { orderStatus } = req.body;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      const result = await pool.query(
+        'UPDATE online_orders SET order_status = $1, updated_at = $2 WHERE id = $3 RETURNING *',
+        [orderStatus, now, orderId]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি' });
+      }
+      return res.json({ order: mapDbRowToOrder(result.rows[0]) });
+    } else {
+      const order = (inMemoryStore.online_orders || []).find((o) => o.id === orderId);
+      if (order) {
+        order.orderStatus = orderStatus;
+        order.updatedAt = now;
+        return res.json({ order });
+      }
+      return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/store/orders/track/:orderNumber - Customer tracks order and payment status
+ */
+router.get('/orders/track/:orderNumber', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderNumber } = req.params;
+    const pool = getDbPool();
+
+    if (pool) {
+      const result = await pool.query(
+        'SELECT * FROM online_orders WHERE order_number = $1 OR id = $1 LIMIT 1',
+        [orderNumber]
+      );
+      if (result.rows.length > 0) {
+        return res.json({ order: mapDbRowToOrder(result.rows[0]) });
+      }
+      return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });
+    } else {
+      const order = (inMemoryStore.online_orders || []).find(
+        (o) => o.orderNumber === orderNumber || o.id === orderNumber
+      );
+      if (order) return res.json({ order });
+      return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });
+    }
+  } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });

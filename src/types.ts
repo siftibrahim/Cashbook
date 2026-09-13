@@ -218,8 +218,14 @@ export interface OnlineOrder {
   subtotal: number;
   totalAmount: number;
   paymentMethod: 'cod' | 'bkash' | 'nagad' | 'rocket';
-  paymentStatus: 'unpaid' | 'paid' | 'partial';
+  paymentStatus: 'unpaid' | 'paid' | 'partial' | 'pending_verification' | 'rejected';
   orderStatus: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  trxId?: string;
+  senderPhone?: string;
+  paymentAmount?: number;
+  paymentProof?: string;
+  paymentRejectReason?: string;
+  paymentReviewedAt?: number;
   notes?: string;
   courierName?: string;
   courierTrackingCode?: string;

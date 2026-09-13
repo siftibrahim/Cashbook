@@ -75,6 +75,7 @@ export const inMemoryStore: {
   trusted_devices: any[];
   sms_logs: any[];
   sms_purchases: any[];
+  online_orders: any[];
 } = {
   users: [],
   stores: [],
@@ -93,6 +94,7 @@ export const inMemoryStore: {
   trusted_devices: [],
   sms_logs: [],
   sms_purchases: [],
+  online_orders: [],
 };
 
 // Helper to create an optimized, resilient pool for Neon serverless
@@ -688,6 +690,41 @@ export async function initializeDatabaseSchema() {
       CREATE INDEX IF NOT EXISTS idx_trusted_devices_user_fp ON trusted_devices(user_id, device_fingerprint);
     `);
 
+    // 14. Online Store Orders & Customer Payments Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS online_orders (
+        id VARCHAR(100) PRIMARY KEY,
+        user_id VARCHAR(100) NOT NULL,
+        order_number VARCHAR(50) NOT NULL,
+        customer_name VARCHAR(150) NOT NULL,
+        customer_phone VARCHAR(50) NOT NULL,
+        customer_address TEXT,
+        delivery_area VARCHAR(50) DEFAULT 'inside_dhaka',
+        delivery_charge NUMERIC(12, 2) DEFAULT 0,
+        items JSONB DEFAULT '[]'::jsonb,
+        subtotal NUMERIC(12, 2) DEFAULT 0,
+        total_amount NUMERIC(12, 2) DEFAULT 0,
+        payment_method VARCHAR(50) DEFAULT 'cod',
+        payment_status VARCHAR(50) DEFAULT 'unpaid',
+        order_status VARCHAR(50) DEFAULT 'pending',
+        trx_id VARCHAR(100),
+        sender_phone VARCHAR(50),
+        payment_amount NUMERIC(12, 2),
+        payment_proof TEXT,
+        payment_reject_reason TEXT,
+        payment_reviewed_at BIGINT,
+        notes TEXT,
+        courier_name VARCHAR(100),
+        courier_tracking_code VARCHAR(100),
+        cod_collected_amount NUMERIC(12, 2),
+        collected_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_online_orders_user ON online_orders(user_id);
+      CREATE INDEX IF NOT EXISTS idx_online_orders_created ON online_orders(created_at DESC);
+    `);
+
     // Schema Evolution Safety: Ensure columns exist on already created tables
     await client.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS total_customers INT DEFAULT 0;
@@ -781,6 +818,8 @@ export async function initializeDatabaseSchema() {
     console.log('✅ PostgreSQL Schema and initial seeds ready!');
   } catch (err) {
     console.error('❌ Failed to initialize database schema:', err);
+    console.log('ℹ️ Activating resilient in-memory storage fallback.');
+    seedDefaultDataInMemory();
   }
 }
 

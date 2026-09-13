@@ -13,6 +13,7 @@ import { StorefrontInboxTab } from './storefront/StorefrontInboxTab';
 import { StorefrontMoreTab } from './storefront/StorefrontMoreTab';
 import { StorefrontSupportDrawer } from './storefront/StorefrontSupportDrawer';
 import { StorefrontProductDetailModal } from './storefront/StorefrontProductDetailModal';
+import { storeApi } from '../services/apiService';
 import {
   X,
   ShoppingCart,
@@ -89,6 +90,7 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   const [deliveryArea, setDeliveryArea] = useState<'inside_dhaka' | 'outside_dhaka'>('inside_dhaka');
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad' | 'rocket'>('cod');
   const [customerTrxId, setCustomerTrxId] = useState('');
+  const [customerSenderPhone, setCustomerSenderPhone] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<OnlineOrder | null>(null);
@@ -206,6 +208,11 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
       return;
     }
 
+    if (paymentMethod !== 'cod' && !customerTrxId.trim()) {
+      alert('অনুগ্রহ করে মোবাইল ব্যাংকিং পেমেন্টের TrxID (ট্রানজেকশন আইডি) প্রদান করুন যাতে দোকানদার তা যাচাই করতে পারেন।');
+      return;
+    }
+
     setIsSubmitting(true);
 
     const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
@@ -213,6 +220,9 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     let combinedNotes = orderNotes.trim();
     if (customerTrxId.trim()) {
       combinedNotes = `${combinedNotes ? combinedNotes + ' | ' : ''}TrxID: ${customerTrxId.trim()}`;
+    }
+    if (customerSenderPhone.trim()) {
+      combinedNotes = `${combinedNotes ? combinedNotes + ' | ' : ''}Sender: ${customerSenderPhone.trim()}`;
     }
 
     const newOrder: OnlineOrder = {
@@ -234,12 +244,18 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
       totalAmount,
       deliveryArea,
       paymentMethod,
-      paymentStatus: 'unpaid',
+      paymentStatus: paymentMethod === 'cod' ? 'unpaid' : 'pending_verification',
       orderStatus: 'pending',
+      trxId: customerTrxId.trim() || undefined,
+      senderPhone: customerSenderPhone.trim() || customerPhone.trim(),
+      paymentAmount: totalAmount,
       notes: combinedNotes,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+
+    // Async sync to server database as well
+    storeApi.placeOrder(newOrder, undefined, config.storeSlug).catch(() => null);
 
     setTimeout(() => {
       onPlaceOrder(newOrder);
@@ -960,18 +976,33 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                               </p>
                             )}
 
-                            <div className="space-y-1 pt-1">
-                              <label className="text-[11px] font-bold text-slate-700">
-                                ট্রানজেকশন আইডি (TrxID) / প্রেরক মোবাইল নম্বর *
-                              </label>
-                              <input
-                                type="text"
-                                required
-                                value={customerTrxId}
-                                onChange={(e) => setCustomerTrxId(e.target.value)}
-                                placeholder="উদাঃ 9J7X5... অথবা আপনার পেমেন্ট নম্বর"
-                                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
-                              />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                              <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-700">
+                                  ট্রানজেকশন আইডি (TrxID) *
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={customerTrxId}
+                                  onChange={(e) => setCustomerTrxId(e.target.value)}
+                                  placeholder="উদাঃ 9J7X5K2L9"
+                                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-mono font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-700">
+                                  যে নম্বর থেকে টাকা পাঠিয়েছেন
+                                </label>
+                                <input
+                                  type="tel"
+                                  value={customerSenderPhone}
+                                  onChange={(e) => setCustomerSenderPhone(e.target.value)}
+                                  placeholder={customerPhone || '017XXXXXXXX'}
+                                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                                />
+                              </div>
                             </div>
                           </div>
                         )}

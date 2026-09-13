@@ -2121,6 +2121,7 @@ export const App: React.FC = () => {
           setActiveTab(tab);
         }}
         onConvertOrderToSale={handleConvertOnlineOrderToSale}
+        onShowToast={showToast}
       />
 
       {/* Live Interactive E-commerce Storefront Website */}

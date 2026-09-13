@@ -35,9 +35,13 @@ import {
   Plus,
   Image as ImageIcon,
   Upload,
+  XCircle,
+  AlertTriangle,
+  Filter,
 } from 'lucide-react';
 import { VendorChatInboxTab } from './vendor/VendorChatInboxTab';
 import { getTotalUnreadVendorMessages, CHAT_SYNC_EVENT } from '../utils/storeChatStorage';
+import { storeApi } from '../services/apiService';
 
 interface OnlineStoreModalProps {
   isOpen: boolean;
@@ -51,6 +55,7 @@ interface OnlineStoreModalProps {
   onOpenStorefront: () => void;
   onNavigateToTab?: (tab: 'customers' | 'pos' | 'inventory' | 'cashbook') => void;
   onConvertOrderToSale?: (order: OnlineOrder) => void;
+  onShowToast?: (msg: string) => void;
 }
 
 type TabType = 'overview' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages';
@@ -67,6 +72,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   onOpenStorefront,
   onNavigateToTab,
   onConvertOrderToSale,
+  onShowToast,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
 
@@ -82,6 +88,12 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<OnlineOrder | null>(null);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [bannerUploadNotice, setBannerUploadNotice] = useState<string | null>(null);
+
+  // Online orders filter and payment verification states
+  const [orderFilter, setOrderFilter] = useState<'all' | 'pending_verification' | 'paid' | 'rejected' | 'cod'>('all');
+  const [rejectModalOrder, setRejectModalOrder] = useState<OnlineOrder | null>(null);
+  const [rejectReasonInput, setRejectReasonInput] = useState('');
+  const [isProcessingPayment, setIsProcessingPayment] = useState<string | null>(null);
 
   // Load unread customer messages count and listen to chat sync
   React.useEffect(() => {
@@ -103,7 +115,95 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
   const currentDomainDisplay = formData.customDomainVerified && formData.customDomain
     ? formData.customDomain
-    : `${formData.storeSlug || 'shop'}.twingstore.com`;
+    : `${formData.storeSlug || 'shop'}.twinghisabi.site`;
+
+  const handleAcceptPayment = async (order: OnlineOrder) => {
+    try {
+      setIsProcessingPayment(order.id);
+      const now = Date.now();
+      const updatedOrders = orders.map((o) =>
+        o.id === order.id
+          ? {
+              ...o,
+              paymentStatus: 'paid' as const,
+              paymentReviewedAt: now,
+              orderStatus: o.orderStatus === 'pending' ? ('confirmed' as const) : o.orderStatus,
+              updatedAt: now,
+            }
+          : o
+      );
+      onUpdateOrders(updatedOrders);
+      await storeApi.updatePaymentStatus(order.id, 'accept');
+      if (onShowToast) {
+        onShowToast(`✅ অর্ডার #${order.orderNumber} এর পেমেন্ট একসেপ্ট ও ভেরিফাই করা হয়েছে!`);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsProcessingPayment(null);
+    }
+  };
+
+  const handleOpenRejectModal = (order: OnlineOrder) => {
+    setRejectModalOrder(order);
+    setRejectReasonInput('ভুল TrxID বা অ্যাকাউন্টে টাকা ক্রেডিট হয়নি');
+  };
+
+  const handleConfirmRejectPayment = async () => {
+    if (!rejectModalOrder) return;
+    try {
+      setIsProcessingPayment(rejectModalOrder.id);
+      const now = Date.now();
+      const reason = rejectReasonInput.trim() || 'ভুল TrxID বা টাকা পাওয়া যায়নি';
+      const updatedOrders = orders.map((o) =>
+        o.id === rejectModalOrder.id
+          ? {
+              ...o,
+              paymentStatus: 'rejected' as const,
+              paymentRejectReason: reason,
+              paymentReviewedAt: now,
+              updatedAt: now,
+            }
+          : o
+      );
+      onUpdateOrders(updatedOrders);
+      await storeApi.updatePaymentStatus(rejectModalOrder.id, 'reject', reason);
+      if (onShowToast) {
+        onShowToast(`❌ অর্ডার #${rejectModalOrder.orderNumber} এর পেমেন্ট রিজেক্ট করা হয়েছে।`);
+      }
+      setRejectModalOrder(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsProcessingPayment(null);
+    }
+  };
+
+  const handleResetPaymentStatus = async (order: OnlineOrder) => {
+    try {
+      setIsProcessingPayment(order.id);
+      const now = Date.now();
+      const updatedOrders = orders.map((o) =>
+        o.id === order.id
+          ? {
+              ...o,
+              paymentStatus: 'pending_verification' as const,
+              paymentRejectReason: undefined,
+              updatedAt: now,
+            }
+          : o
+      );
+      onUpdateOrders(updatedOrders);
+      await storeApi.updatePaymentStatus(order.id, 'reset');
+      if (onShowToast) {
+        onShowToast(`🔄 পেমেন্ট স্ট্যাটাস পুনরায় যাচাই অপেক্ষমাণ করা হয়েছে।`);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsProcessingPayment(null);
+    }
+  };
 
   const copyToClipboard = (text: string, type?: string) => {
     navigator.clipboard.writeText(text);
@@ -661,7 +761,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       className="bg-transparent font-bold text-teal-900 focus:outline-none px-1 flex-1 min-w-0"
                       placeholder="your-shop-name"
                     />
-                    <span className="text-slate-500 font-bold">.twingstore.com</span>
+                    <span className="text-slate-500 font-bold">.twinghisabi.site</span>
                   </div>
 
                   <button
@@ -773,12 +873,12 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                         <tr>
                           <td className="py-2.5 font-bold text-indigo-700">CNAME</td>
                           <td className="py-2.5 text-slate-800">www</td>
-                          <td className="py-2.5 text-teal-800 font-bold">cname.twingstore.com</td>
+                          <td className="py-2.5 text-teal-800 font-bold">cname.twinghisabi.site</td>
                           <td className="py-2.5 text-slate-500">স্বয়ংক্রিয় / 3600</td>
                           <td className="py-2.5 text-right">
                             <button
                               type="button"
-                              onClick={() => copyToClipboard('cname.twingstore.com', 'cname')}
+                              onClick={() => copyToClipboard('cname.twinghisabi.site', 'cname')}
                               className="p-1 text-slate-500 hover:text-indigo-600"
                               title="কপি করুন"
                             >
@@ -1593,167 +1693,579 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           )}
 
           {/* TAB 5: ONLINE ORDERS */}
-          {activeTab === 'orders' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200">
-                <div>
-                  <h3 className="font-bold text-sm sm:text-base text-slate-900">অনলাইন গ্রাহকদের অর্ডারসমূহ</h3>
-                  <p className="text-xs text-slate-500">
-                    ওয়েবসাইট থেকে আসা সকল অর্ডারের তালিকা ও স্ট্যাটাস ম্যানেজমেন্ট
-                  </p>
+          {activeTab === 'orders' && (() => {
+            const pendingPaymentOrdersCount = orders.filter(
+              (o) =>
+                o.paymentMethod !== 'cod' &&
+                (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
+            ).length;
+            const paidOrdersCount = orders.filter((o) => o.paymentStatus === 'paid').length;
+            const rejectedOrdersCount = orders.filter((o) => o.paymentStatus === 'rejected').length;
+            const codOrdersCount = orders.filter((o) => o.paymentMethod === 'cod').length;
+
+            const filteredOrders = orders.filter((o) => {
+              if (orderFilter === 'pending_verification') {
+                return (
+                  o.paymentMethod !== 'cod' &&
+                  (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
+                );
+              }
+              if (orderFilter === 'paid') return o.paymentStatus === 'paid';
+              if (orderFilter === 'rejected') return o.paymentStatus === 'rejected';
+              if (orderFilter === 'cod') return o.paymentMethod === 'cod';
+              return true;
+            });
+
+            return (
+              <div className="space-y-4">
+                {/* Orders Header & Summary */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200">
+                  <div>
+                    <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                      <span>অনলাইন গ্রাহকদের অর্ডার ও পেমেন্ট ম্যানেজমেন্ট</span>
+                      {pendingPaymentOrdersCount > 0 && (
+                        <span className="px-2 py-0.5 bg-amber-500 text-white text-[11px] font-black rounded-full animate-pulse">
+                          {pendingPaymentOrdersCount} টি পেমেন্ট যাচাই বাকি
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      গ্রাহকের অনলাইন অর্ডার এবং বিকাশ/নগদ পেমেন্ট ভেরিফিকেশন (একসেপ্ট / রিজেক্ট) করুন
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleGenerateTestOrder}
+                      className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>+ টেস্ট অর্ডার যোগ করুন</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                {/* Filter Tabs */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
                   <button
                     type="button"
-                    onClick={handleGenerateTestOrder}
-                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                    onClick={() => setOrderFilter('all')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition shrink-0 cursor-pointer ${
+                      orderFilter === 'all'
+                        ? 'bg-[#004D40] text-white shadow-xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                    }`}
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>+ টেস্ট অর্ডার যোগ করুন</span>
+                    সকল অর্ডার ({orders.length})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setOrderFilter('pending_verification')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                      orderFilter === 'pending_verification'
+                        ? 'bg-amber-500 text-white shadow-xs'
+                        : 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100'
+                    }`}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>পেমেন্ট যাচাই বাকি ({pendingPaymentOrdersCount})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setOrderFilter('paid')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                      orderFilter === 'paid'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>পেমেন্ট একসেপ্টেড ({paidOrdersCount})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setOrderFilter('rejected')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                      orderFilter === 'rejected'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-rose-50 text-rose-900 border border-rose-200 hover:bg-rose-100'
+                    }`}
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>পেমেন্ট রিজেক্টেড ({rejectedOrdersCount})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setOrderFilter('cod')}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                      orderFilter === 'cod'
+                        ? 'bg-teal-700 text-white shadow-xs'
+                        : 'bg-teal-50 text-teal-900 border border-teal-200 hover:bg-teal-100'
+                    }`}
+                  >
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>ক্যাশ অন ডেলিভারি ({codOrdersCount})</span>
+                  </button>
+                </div>
+
+                {filteredOrders.length === 0 ? (
+                  <div className="bg-white rounded-3xl p-12 border border-slate-200 text-center space-y-3">
+                    <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center">
+                      <ShoppingBag className="w-8 h-8" />
+                    </div>
+                    <h4 className="font-bold text-slate-800 text-base">
+                      {orderFilter === 'all'
+                        ? 'এখনো কোনো অনলাইন অর্ডার আসেনি'
+                        : 'এই ফিল্টারে কোনো অর্ডার পাওয়া যায়নি'}
+                    </h4>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      গ্রাহকরা আপনার অনলাইন স্টোরে ভিজিট করে অর্ডার দিলে সাথে সাথে এখানে জমা হবে।
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {filteredOrders.map((ord) => {
+                      const statusColors = {
+                        pending: 'bg-amber-100 text-amber-900 border-amber-300',
+                        confirmed: 'bg-blue-100 text-blue-900 border-blue-300',
+                        processing: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+                        shipped: 'bg-purple-100 text-purple-900 border-purple-300',
+                        delivered: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+                        cancelled: 'bg-red-100 text-red-900 border-red-300',
+                      };
+
+                      const statusLabels = {
+                        pending: 'নতুন (অপেক্ষমান)',
+                        confirmed: 'নিশ্চিত করা হয়েছে',
+                        processing: 'প্যাকিং চলছে',
+                        shipped: 'ডেলিভারিতে আছে',
+                        delivered: 'ডেলিভারি সম্পন্ন',
+                        cancelled: 'বাতিল',
+                      };
+
+                      const isPendingReview =
+                        ord.paymentMethod !== 'cod' &&
+                        (ord.paymentStatus === 'pending_verification' || (!ord.paymentStatus || ord.paymentStatus === 'unpaid'));
+                      const isPaid = ord.paymentStatus === 'paid';
+                      const isRejected = ord.paymentStatus === 'rejected';
+
+                      return (
+                        <div
+                          key={ord.id}
+                          className={`bg-white rounded-2xl p-4 border transition-all space-y-3.5 ${
+                            isPendingReview
+                              ? 'border-amber-400/90 shadow-md ring-2 ring-amber-400/20'
+                              : 'border-slate-200/90 shadow-2xs'
+                          }`}
+                        >
+                          {/* Top Row: Order Number & Delivery Status */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono font-bold text-xs sm:text-sm text-teal-900 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                                {ord.orderNumber}
+                              </span>
+                              <span
+                                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                  statusColors[ord.orderStatus] || statusColors.pending
+                                }`}
+                              >
+                                {statusLabels[ord.orderStatus] || ord.orderStatus}
+                              </span>
+                              <span className="text-xs text-slate-400 font-medium">
+                                {new Date(ord.createdAt).toLocaleDateString('bn-BD')} •{' '}
+                                {new Date(ord.createdAt).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-500">ডেলিভারি স্ট্যাটাস:</span>
+                              <select
+                                value={ord.orderStatus}
+                                onChange={(e) => handleUpdateOrderStatus(ord.id, e.target.value as OnlineOrder['orderStatus'])}
+                                className="text-xs font-bold px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 cursor-pointer"
+                              >
+                                <option value="pending">নতুন (পেন্ডিং)</option>
+                                <option value="confirmed">নিশ্চিত</option>
+                                <option value="processing">প্যাকিং</option>
+                                <option value="shipped">ডেলিভারিতে</option>
+                                <option value="delivered">সম্পন্ন</option>
+                                <option value="cancelled">বাতিল</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Customer & Product Info Grid */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                            <div className="space-y-1.5">
+                              <div className="font-bold text-slate-900 text-sm">{ord.customerName}</div>
+                              <div className="text-slate-600 flex items-center gap-1.5">
+                                <Phone className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="font-mono font-bold">{ord.customerPhone}</span>
+                              </div>
+                              <div className="text-slate-500 leading-relaxed">
+                                ঠিকানা: {ord.customerAddress} ({ord.deliveryArea === 'inside_dhaka' ? 'ঢাকা সিটির ভেতরে' : 'ঢাকার বাইরে'})
+                              </div>
+                              {ord.notes && (
+                                <div className="text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-200/60 text-[11px]">
+                                  <span className="font-bold">নোট:</span> {ord.notes}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-200/70">
+                              <div className="font-bold text-slate-800 mb-1">অর্ডারকৃত পণ্য:</div>
+                              <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                                {ord.items.map((item, idx) => (
+                                  <div key={idx} className="flex justify-between text-slate-600">
+                                    <span>
+                                      {item.productName} ({item.quantity} {item.unit})
+                                    </span>
+                                    <span className="font-bold text-slate-800">৳ {formatMoney(item.total)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="border-t border-slate-200 pt-1.5 flex justify-between font-black text-slate-900 text-xs">
+                                <span>ডেলিভারি চার্জ:</span>
+                                <span>৳ {formatMoney(ord.deliveryCharge)}</span>
+                              </div>
+                              <div className="border-t border-slate-200 pt-1 flex justify-between font-black text-slate-900">
+                                <span>সর্বমোট প্রদেয়:</span>
+                                <span className="text-teal-900 text-sm">৳ {formatMoney(ord.totalAmount)}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* PAYMENT VERIFICATION BOX */}
+                          <div
+                            className={`rounded-xl p-3.5 border transition-all space-y-2.5 ${
+                              ord.paymentMethod === 'cod'
+                                ? 'bg-slate-50 border-slate-200'
+                                : isPendingReview
+                                ? 'bg-amber-50/70 border-amber-300/90'
+                                : isPaid
+                                ? 'bg-emerald-50/60 border-emerald-300'
+                                : 'bg-rose-50/60 border-rose-300'
+                            }`}
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-black/5 pb-2">
+                              <div className="flex items-center gap-2">
+                                <CreditCard className="w-4 h-4 text-slate-700" />
+                                <span className="font-bold text-xs text-slate-800">পেমেন্ট মেথড ও তথ্য:</span>
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                    ord.paymentMethod === 'bkash'
+                                      ? 'bg-pink-100 text-pink-800 border border-pink-300'
+                                      : ord.paymentMethod === 'nagad'
+                                      ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                                      : ord.paymentMethod === 'rocket'
+                                      ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                                      : 'bg-slate-200 text-slate-800'
+                                  }`}
+                                >
+                                  {ord.paymentMethod === 'bkash' && '🌸 বিকাশ (bKash)'}
+                                  {ord.paymentMethod === 'nagad' && '🟠 নগদ (Nagad)'}
+                                  {ord.paymentMethod === 'rocket' && '🟣 রকেট (Rocket)'}
+                                  {ord.paymentMethod === 'cod' && '🚚 ক্যাশ অন ডেলিভারি (COD)'}
+                                </span>
+                              </div>
+
+                              <div>
+                                {ord.paymentMethod === 'cod' ? (
+                                  <span className="text-xs font-bold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                    ডেলিভারির সময় নগদ আদায়
+                                  </span>
+                                ) : isPendingReview ? (
+                                  <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-full">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                    <span>যাচাই অপেক্ষমান (Pending)</span>
+                                  </span>
+                                ) : isPaid ? (
+                                  <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-full">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>পেমেন্ট একসেপ্টেড ও ভেরিফাইড</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-800 bg-rose-100 border border-rose-300 px-2.5 py-0.5 rounded-full">
+                                    <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>পেমেন্ট বাতিল / রিজেক্টেড</span>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Mobile Banking Details (TrxID & Sender Phone) */}
+                            {ord.paymentMethod !== 'cod' && (
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                                <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+                                  <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                    ট্রানজেকশন আইডি (TrxID)
+                                  </div>
+                                  <div className="flex items-center justify-between mt-0.5">
+                                    <span className="font-mono font-black text-slate-900 text-xs sm:text-sm select-all">
+                                      {ord.trxId || (ord.notes?.match(/TrxID:\s*([^\s|]+)/i)?.[1] ?? 'পাওয়া যায়নি')}
+                                    </span>
+                                    {(ord.trxId || ord.notes?.includes('TrxID')) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const t = ord.trxId || ord.notes?.match(/TrxID:\s*([^\s|]+)/i)?.[1] || '';
+                                          if (t) copyToClipboard(t, `trx_${ord.id}`);
+                                        }}
+                                        className="p-1 text-slate-400 hover:text-teal-700 cursor-pointer"
+                                        title="TrxID কপি করুন"
+                                      >
+                                        {copiedRecord === `trx_${ord.id}` ? (
+                                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                        ) : (
+                                          <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+                                  <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                    প্রেরক মোবাইল নম্বর
+                                  </div>
+                                  <div className="flex items-center justify-between mt-0.5">
+                                    <span className="font-mono font-bold text-slate-800 text-xs">
+                                      {ord.senderPhone || ord.customerPhone}
+                                    </span>
+                                    <a
+                                      href={`tel:${ord.senderPhone || ord.customerPhone}`}
+                                      className="p-1 text-slate-400 hover:text-indigo-600"
+                                      title="কল করুন"
+                                    >
+                                      <Phone className="w-3.5 h-3.5" />
+                                    </a>
+                                  </div>
+                                </div>
+
+                                <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs">
+                                  <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                    প্রদত্ত টাকার পরিমাণ
+                                  </div>
+                                  <div className="font-black text-teal-900 text-xs sm:text-sm mt-0.5">
+                                    ৳ {formatMoney(ord.paymentAmount || ord.totalAmount)}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Rejection Notice if rejected */}
+                            {isRejected && ord.paymentRejectReason && (
+                              <div className="bg-rose-100/90 text-rose-900 p-2.5 rounded-lg border border-rose-300 text-xs flex items-center justify-between gap-2">
+                                <div>
+                                  <span className="font-bold">বাতিলের কারণ: </span>
+                                  <span>{ord.paymentRejectReason}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleResetPaymentStatus(ord)}
+                                  className="text-[11px] font-bold text-rose-800 underline hover:text-rose-950 cursor-pointer shrink-0"
+                                >
+                                  পুনরায় যাচাইয়ে নিন
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Vendor Verification Action Buttons */}
+                            {ord.paymentMethod !== 'cod' && (
+                              <div className="flex items-center justify-between gap-2 pt-1 border-t border-black/5 flex-wrap">
+                                <div className="text-[11px] text-slate-500">
+                                  {isPendingReview
+                                    ? '⚠️ স্টেটমেন্টে টাকা ও TrxID চেক করে একসেপ্ট অথবা রিজেক্ট করুন'
+                                    : isPaid
+                                    ? '✅ পেমেন্ট সফলভাবে একসেপ্ট করা হয়েছে'
+                                    : '❌ পেমেন্ট বাতিল করা হয়েছে'}
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {isPendingReview ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={isProcessingPayment === ord.id}
+                                        onClick={() => handleAcceptPayment(ord)}
+                                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>পেমেন্ট একসেপ্ট করুন</span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        disabled={isProcessingPayment === ord.id}
+                                        onClick={() => handleOpenRejectModal(ord)}
+                                        className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                                      >
+                                        <XCircle className="w-3.5 h-3.5" />
+                                        <span>রিজেক্ট করুন</span>
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={isProcessingPayment === ord.id}
+                                      onClick={() => handleResetPaymentStatus(ord)}
+                                      className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                                    >
+                                      <RefreshCw className="w-3 h-3 text-slate-500" />
+                                      <span>স্ট্যাটাস পরিবর্তন (Reset)</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Order Actions: WhatsApp, Phone Call, Convert to Sale */}
+                          <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100 flex-wrap">
+                            <a
+                              href={`https://wa.me/88${ord.customerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                                `আসসালামু আলাইকুম ${ord.customerName} ভাই, ${formData.storeName} থেকে আপনার অনলাইন অর্ডার #${ord.orderNumber} এর বিষয়ে যোগাযোগ করা হয়েছে। মোট বিল: ৳${formatMoney(
+                                  ord.totalAmount
+                                )}। পেমেন্ট অবস্থা: ${
+                                  isPaid
+                                    ? 'পরিশোধিত (পেমেন্ট ভেরিফাইড ✅)'
+                                    : isRejected
+                                    ? `বাতিল (${ord.paymentRejectReason || 'পেমেন্ট মিসম্যাচ ❌'})`
+                                    : 'যাচাই প্রক্রিয়াধীন'
+                                }। ধন্যবাদ!`
+                              )}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1 transition"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>WhatsApp বার্তা</span>
+                            </a>
+
+                            <a
+                              href={`tel:${ord.customerPhone}`}
+                              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1 transition"
+                            >
+                              <Phone className="w-3.5 h-3.5" />
+                              <span>কল করুন</span>
+                            </a>
+
+                            {onConvertOrderToSale && (
+                              <button
+                                type="button"
+                                onClick={() => onConvertOrderToSale(ord)}
+                                className="px-3 py-1.5 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                              >
+                                <ShoppingBag className="w-3.5 h-3.5" />
+                                <span>বিক্রির খাতায় এন্ট্রি</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* REJECT PAYMENT MODAL */}
+          {rejectModalOrder && (
+            <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                      <XCircle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm sm:text-base">পেমেন্ট রিজেক্ট করুন</h4>
+                      <p className="text-xs text-slate-500">অর্ডার #{rejectModalOrder.orderNumber}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setRejectModalOrder(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">গ্রাহকের নাম:</span>
+                      <span className="font-bold text-slate-800">{rejectModalOrder.customerName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">পেমেন্ট মেথড:</span>
+                      <span className="font-bold text-slate-800 uppercase">{rejectModalOrder.paymentMethod}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">প্রদত্ত TrxID:</span>
+                      <span className="font-mono font-bold text-rose-600">{rejectModalOrder.trxId || 'নেই'}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-bold text-slate-800">রিজেক্ট করার কারণ নির্বাচন করুন বা লিখুন:</label>
+                    <div className="flex flex-wrap gap-1.5 pb-1">
+                      {[
+                        'ভুল TrxID দেওয়া হয়েছে',
+                        'অ্যাকাউন্টে টাকা ক্রেডিট হয়নি',
+                        'টাকার পরিমাণ কম পাঠানো হয়েছে',
+                        'অন্য নম্বরে টাকা পাঠানো হয়েছে',
+                      ].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setRejectReasonInput(preset)}
+                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                            rejectReasonInput === preset
+                              ? 'bg-rose-600 text-white border-rose-600'
+                              : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={rejectReasonInput}
+                      onChange={(e) => setRejectReasonInput(e.target.value)}
+                      placeholder="গ্রাহককে কারণ জানানোর জন্য লিখুন..."
+                      className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-rose-500/30 text-xs font-medium text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setRejectModalOrder(null)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                  >
+                    ফিরে যান
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isProcessingPayment === rejectModalOrder.id}
+                    onClick={handleConfirmRejectPayment}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>রিজেক্ট নিশ্চিত করুন</span>
                   </button>
                 </div>
               </div>
-
-              {orders.length === 0 ? (
-                <div className="bg-white rounded-3xl p-12 border border-slate-200 text-center space-y-3">
-                  <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center">
-                    <ShoppingBag className="w-8 h-8" />
-                  </div>
-                  <h4 className="font-bold text-slate-800 text-base">এখনো কোনো অনলাইন অর্ডার আসেনি</h4>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                    গ্রাহকরা আপনার অনলাইন স্টোরে ভিজিট করে অর্ডার দিলে সাথে সাথে এখানে জমা হবে। আপনি উপরে '+ টেস্ট অর্ডার যোগ করুন' বাটনে ক্লিক করে পরীক্ষা করতে পারেন।
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {orders.map((ord) => {
-                    const statusColors = {
-                      pending: 'bg-amber-100 text-amber-900 border-amber-300',
-                      confirmed: 'bg-blue-100 text-blue-900 border-blue-300',
-                      processing: 'bg-indigo-100 text-indigo-900 border-indigo-300',
-                      shipped: 'bg-purple-100 text-purple-900 border-purple-300',
-                      delivered: 'bg-emerald-100 text-emerald-900 border-emerald-300',
-                      cancelled: 'bg-red-100 text-red-900 border-red-300',
-                    };
-
-                    const statusLabels = {
-                      pending: 'নতুন (অপেক্ষমান)',
-                      confirmed: 'নিশ্চিত করা হয়েছে',
-                      processing: 'প্যাকিং চলছে',
-                      shipped: 'ডেলিভারিতে আছে',
-                      delivered: 'ডেলিভারি সম্পন্ন',
-                      cancelled: 'বাতিল',
-                    };
-
-                    return (
-                      <div
-                        key={ord.id}
-                        className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs space-y-3"
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono font-bold text-xs sm:text-sm text-teal-900 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-                              {ord.orderNumber}
-                            </span>
-                            <span
-                              className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                                statusColors[ord.orderStatus] || statusColors.pending
-                              }`}
-                            >
-                              {statusLabels[ord.orderStatus] || ord.orderStatus}
-                            </span>
-                            <span className="text-xs text-slate-400 font-medium">
-                              {new Date(ord.createdAt).toLocaleDateString('bn-BD')} •{' '}
-                              {new Date(ord.createdAt).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-slate-500">স্ট্যাটাস পরিবর্তন:</span>
-                            <select
-                              value={ord.orderStatus}
-                              onChange={(e) => handleUpdateOrderStatus(ord.id, e.target.value as OnlineOrder['orderStatus'])}
-                              className="text-xs font-bold px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 cursor-pointer"
-                            >
-                              <option value="pending">নতুন (পেন্ডিং)</option>
-                              <option value="confirmed">নিশ্চিত</option>
-                              <option value="processing">প্যাকিং</option>
-                              <option value="shipped">ডেলিভারিতে</option>
-                              <option value="delivered">সম্পন্ন</option>
-                              <option value="cancelled">বাতিল</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Customer & Product Info Grid */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                          <div className="space-y-1">
-                            <div className="font-bold text-slate-900 text-sm">{ord.customerName}</div>
-                            <div className="text-slate-600 flex items-center gap-1.5">
-                              <Phone className="w-3.5 h-3.5 text-slate-400" />
-                              <span>{ord.customerPhone}</span>
-                            </div>
-                            <div className="text-slate-500 leading-relaxed">
-                              ঠিকানা: {ord.customerAddress} ({ord.deliveryArea === 'inside_dhaka' ? 'ঢাকা সিটির ভেতরে' : 'ঢাকার বাইরে'})
-                            </div>
-                          </div>
-
-                          <div className="space-y-1 bg-slate-50 p-2.5 rounded-xl border border-slate-200/70">
-                            <div className="font-bold text-slate-800">অর্ডারকৃত পণ্য:</div>
-                            <div className="space-y-0.5">
-                              {ord.items.map((item, idx) => (
-                                <div key={idx} className="flex justify-between text-slate-600">
-                                  <span>{item.productName} ({item.quantity} {item.unit})</span>
-                                  <span className="font-bold">৳ {formatMoney(item.total)}</span>
-                                </div>
-                              ))}
-                            </div>
-                            <div className="border-t border-slate-200 pt-1 flex justify-between font-black text-slate-900">
-                              <span>ডেলিভারি সহ সর্বমোট:</span>
-                              <span className="text-teal-900">৳ {formatMoney(ord.totalAmount)}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Order Actions */}
-                        <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100 flex-wrap">
-                          <a
-                            href={`https://wa.me/88${ord.customerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                              `আসসালামু আলাইকুম ${ord.customerName} ভাই, ${formData.storeName} থেকে আপনার অনলাইন অর্ডার #${ord.orderNumber} এর বিষয়ে যোগাযোগ করা হয়েছে। আপনার মোট বিল ৳${formatMoney(ord.totalAmount)}। ধন্যবাদ!`
-                            )}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1 transition"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>WhatsApp বার্তা</span>
-                          </a>
-
-                          <a
-                            href={`tel:${ord.customerPhone}`}
-                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1 transition"
-                          >
-                            <Phone className="w-3.5 h-3.5" />
-                            <span>কল করুন</span>
-                          </a>
-
-                          {onConvertOrderToSale && (
-                            <button
-                              type="button"
-                              onClick={() => onConvertOrderToSale(ord)}
-                              className="px-3 py-1.5 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer"
-                            >
-                              <ShoppingBag className="w-3.5 h-3.5" />
-                              <span>বিক্রির খাতায় এন্ট্রি</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           )}
 

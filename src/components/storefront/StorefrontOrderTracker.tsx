@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, PackageCheck, Truck, CheckCircle2, Clock, MapPin, Phone, MessageCircle } from 'lucide-react';
+import { Search, PackageCheck, Truck, CheckCircle2, Clock, MapPin, Phone, MessageCircle, AlertTriangle, XCircle, CreditCard } from 'lucide-react';
 import { OnlineOrder } from '../../types';
 import { formatMoney } from '../../utils/storage';
 
@@ -157,6 +157,60 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
                     <span>সর্বমোট বিল:</span>
                     <span className="text-teal-900">৳{formatMoney(order.totalAmount)}</span>
                   </div>
+                </div>
+
+                {/* Payment Status Box */}
+                <div className="bg-white rounded-2xl p-3 border border-slate-200/80 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                      <CreditCard className="w-3.5 h-3.5 text-slate-400" />
+                      <span>পেমেন্ট মেথড:</span>
+                    </span>
+                    <span className="font-bold text-slate-800 uppercase">
+                      {order.paymentMethod === 'cod'
+                        ? 'ক্যাশ অন ডেলিভারি (COD)'
+                        : order.paymentMethod === 'bkash'
+                        ? '🌸 বিকাশ (bKash)'
+                        : order.paymentMethod === 'nagad'
+                        ? '🟠 নগদ (Nagad)'
+                        : '🟣 রকেট (Rocket)'}
+                    </span>
+                  </div>
+
+                  {order.paymentMethod !== 'cod' && (
+                    <>
+                      <div className="flex items-center justify-between border-t border-slate-100 pt-1">
+                        <span className="text-slate-500">ট্রানজেকশন আইডি (TrxID):</span>
+                        <span className="font-mono font-bold text-slate-700">
+                          {order.trxId || (order.notes?.match(/TrxID:\s*([^\s|]+)/i)?.[1] ?? 'যাচাই হচ্ছে')}
+                        </span>
+                      </div>
+
+                      <div className="border-t border-slate-100 pt-1.5">
+                        {order.paymentStatus === 'paid' ? (
+                          <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-xl border border-emerald-200 font-bold text-[11px]">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>আপনার পেমেন্ট সফলভাবে অনুমোদিত ও কনফার্ম হয়েছে!</span>
+                          </div>
+                        ) : order.paymentStatus === 'rejected' ? (
+                          <div className="space-y-1 text-rose-900 bg-rose-50 p-2.5 rounded-xl border border-rose-200 text-[11px]">
+                            <div className="flex items-center gap-1.5 font-bold">
+                              <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                              <span>পেমেন্ট বাতিল করা হয়েছে</span>
+                            </div>
+                            <p className="text-rose-700 pl-5">
+                              {order.paymentRejectReason || 'দোকানদার আপনার TrxID বা অ্যাকাউন্টে টাকা খুঁজে পাননি। অনুগ্রহ করে সঠিক তথ্যের জন্য যোগাযোগ করুন।'}
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 text-amber-800 bg-amber-50 px-2.5 py-1.5 rounded-xl border border-amber-200 font-bold text-[11px]">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>দোকানদার আপনার পেমেন্ট ভেরিফাই করছেন (যাচাই অপেক্ষমান)...</span>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Delivery details & WhatsApp action */}
