@@ -113,17 +113,9 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
   if (!isOpen) return null;
 
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-  const currentStoreSlug = (formData.storeSlug || 'shop').trim().toLowerCase();
-  // 100% working live browser store URL across any device (Chrome, Safari, mobile, etc.)
-  const liveStoreUrl = `${currentOrigin}/?shop=${encodeURIComponent(currentStoreSlug)}`;
-  const customDomainUrl = formData.customDomainVerified && formData.customDomain
-    ? `https://${formData.customDomain}`
-    : null;
-  const primaryShareUrl = customDomainUrl || liveStoreUrl;
   const currentDomainDisplay = formData.customDomainVerified && formData.customDomain
     ? formData.customDomain
-    : `${currentStoreSlug}.twinghisabi.site`;
+    : `${formData.storeSlug || 'shop'}.twinghisabi.site`;
 
   const handleAcceptPayment = async (order: OnlineOrder) => {
     try {
@@ -306,7 +298,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
       return;
     }
     onUpdateConfig(formData);
-    storeApi.saveOnlineConfig(formData).catch(() => null);
     setSaveSuccessNotice(true);
     try {
       if (typeof window !== 'undefined' && 'vibrate' in navigator) {
@@ -335,7 +326,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
       };
       setFormData(updated);
       onUpdateConfig(updated);
-      storeApi.saveOnlineConfig(updated).catch(() => null);
       setDomainVerifySuccess('অভিনন্দন! আপনার কাস্টম ডোমেন সফলভাবে ভেরিফাই ও সংযুক্ত হয়েছে। ফ্রি SSL সক্রিয়!');
       setTimeout(() => setDomainVerifySuccess(null), 5000);
     }, 1200);
@@ -352,7 +342,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
       setCustomDomainInput('');
       setFormData(updated);
       onUpdateConfig(updated);
-      storeApi.saveOnlineConfig(updated).catch(() => null);
     }
   };
 
@@ -421,7 +410,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   };
 
   const handleShareOnWhatsApp = () => {
-    const text = `🛍️ আসসালামু আলাইকুম! আমাদের অনলাইন শপ এখন সম্পূর্ণ লাইভ।\nঘরে বসেই সেরা মূল্যে পছন্দের পণ্য অর্ডার করতে ভিজিট করুন:\n👉 ${primaryShareUrl}\n\nধন্যবাদ,\n${formData.storeName}`;
+    const text = `🛍️ আসসালামু আলাইকুম! আমাদের অনলাইন শপ এখন সম্পূর্ণ লাইভ।\nঘরে বসেই সেরা মূল্যে পছন্দের পণ্য অর্ডার করতে ভিজিট করুন:\n👉 https://${currentDomainDisplay}\n\nধন্যবাদ,\n${formData.storeName}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -598,46 +587,27 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               <div className="bg-white rounded-3xl p-5 border border-slate-200/90 shadow-sm space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="relative flex h-2.5 w-2.5">
-                        {formData.isEnabled && (
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        )}
-                        <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${formData.isEnabled ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
-                      </span>
-                      <span className={`text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${
-                        formData.isEnabled
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                          : 'bg-slate-100 text-slate-600 border-slate-200'
-                      }`}>
-                        {formData.isEnabled ? 'অনলাইন স্টোর সক্রিয় ও লাইভ' : 'স্টোর সাময়িক বন্ধ'}
-                      </span>
-                      {formData.customDomainVerified && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
-                          <ShieldCheck className="w-3 h-3" />
-                          কাস্টম ডোমেন
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
-                      {formData.storeName || 'আমার অনলাইন শপ'}
+                    <span className="text-[11px] font-bold tracking-wider text-teal-800 uppercase bg-teal-50 px-2.5 py-1 rounded-md border border-teal-200">
+                      লাইভ ওয়েবসাইট অ্যাড্রেস
+                    </span>
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight font-mono">
+                      https://{currentDomainDisplay}
                     </h3>
                     <p className="text-xs text-slate-500 font-medium">
-                      এই লিংকটি দিয়ে ক্রেতারা সরাসরি যেকোনো মোবাইল বা কম্পিউটার ব্রাউজার থেকে আপনার পণ্য দেখতে এবং অর্ডার করতে পারবেন।
+                      এই লিংকটি ফেসবুক, হোয়াটসঅ্যাপ বা ভিজিটিং কার্ডে শেয়ার করে সরাসরি অনলাইন অর্ডার গ্রহণ করুন।
                     </p>
                   </div>
 
                   {/* Toggle Live */}
-                  <div className="flex items-center gap-2 shrink-0 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 self-start sm:self-auto">
+                  <div className="flex items-center gap-2 shrink-0 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
                     <button
                       type="button"
                       onClick={() => {
                         const updated = { ...formData, isEnabled: !formData.isEnabled };
                         setFormData(updated);
                         onUpdateConfig(updated);
-                        storeApi.saveOnlineConfig(updated).catch(() => null);
                       }}
-                      className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer ${
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer ${
                         formData.isEnabled
                           ? 'bg-[#004D40] text-white shadow-xs'
                           : 'text-slate-600 hover:text-slate-900'
@@ -648,50 +618,11 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                   </div>
                 </div>
 
-                {/* Live Working URL Address Box */}
-                <div className="p-3.5 bg-slate-50 border border-slate-200/90 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div className="w-10 h-10 rounded-xl bg-teal-100/80 text-teal-800 flex items-center justify-center shrink-0">
-                      <Globe className="w-5 h-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
-                        <span>লাইভ ওয়েবসাইট লিংক (যেকোনো ব্রাউজারে চলবে):</span>
-                        <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold">100% LIVE</span>
-                      </div>
-                      <p className="text-xs sm:text-sm font-black text-teal-950 font-mono truncate select-all">
-                        {primaryShareUrl}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => window.open(primaryShareUrl, '_blank')}
-                      className="px-3.5 py-2 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
-                      title="ব্রাউজারে সরাসরি নতুন ট্যাবে ওপেন করুন"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>ব্রাউজারে ওপেন করুন</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(primaryShareUrl)}
-                      className="p-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1 transition active:scale-95 cursor-pointer shadow-2xs"
-                      title="লিংক কপি করুন"
-                    >
-                      {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                      <span className="text-[11px]">{copiedLink ? 'কপি হয়েছে' : 'কপি'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Fast Action Share Buttons */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-100">
+                {/* Fast Action Buttons */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => copyToClipboard(primaryShareUrl)}
+                    onClick={() => copyToClipboard(`https://${currentDomainDisplay}`)}
                     className="p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
                   >
                     {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
@@ -724,45 +655,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                     <Globe className="w-3.5 h-3.5 text-indigo-700" />
                     <span>ডোমেন সেটিং</span>
                   </button>
-                </div>
-              </div>
-
-              {/* Browser & Google Search Guidance Card */}
-              <div className="bg-amber-50/90 border border-amber-200/90 rounded-3xl p-5 space-y-3">
-                <div className="flex items-center gap-2 text-amber-950 font-black text-xs sm:text-sm">
-                  <HelpCircle className="w-4 h-4 text-amber-700 shrink-0" />
-                  <span>ব্রাউজারে বা গুগলে সার্চ করার সময় সমস্যা হচ্ছে? সমাধান জেনে নিন:</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-slate-700">
-                  <div className="bg-white/90 p-3.5 rounded-2xl border border-amber-200/70 space-y-1">
-                    <div className="font-bold text-amber-950 flex items-center gap-1.5">
-                      <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center text-[10px] font-black">১</span>
-                      <span>ব্রাউজারে সরাসরি ওপেন</span>
-                    </div>
-                    <p className="text-slate-600 leading-relaxed text-[11px]">
-                      উপরের <strong>"ব্রাউজারে ওপেন করুন"</strong> বাটনে ক্লিক করলে বা <strong>"লিংক কপি"</strong> করে Chrome, Safari, বা Edge ব্রাউজারের অ্যাড্রেস বারে পেস্ট করলে আপনার স্টোর ১০০% সাথে সাথে চলে আসবে।
-                    </p>
-                  </div>
-
-                  <div className="bg-white/90 p-3.5 rounded-2xl border border-amber-200/70 space-y-1">
-                    <div className="font-bold text-amber-950 flex items-center gap-1.5">
-                      <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center text-[10px] font-black">২</span>
-                      <span>গুগল সার্চ ও ইনডেক্সিং</span>
-                    </div>
-                    <p className="text-slate-600 leading-relaxed text-[11px]">
-                      নতুন যেকোনো ওয়েবসাইট গুগল ক্রলারের খুঁজে পেতে ও ইনডেক্স করতে ৩-৭ দিন সময় লাগে। তাই গুগলে সার্চ না করে লিঙ্কটি সরাসরি গ্রাহকদের সাথে শেয়ার করুন।
-                    </p>
-                  </div>
-
-                  <div className="bg-white/90 p-3.5 rounded-2xl border border-amber-200/70 space-y-1">
-                    <div className="font-bold text-amber-950 flex items-center gap-1.5">
-                      <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center text-[10px] font-black">৩</span>
-                      <span>নিজস্ব কেনা কাস্টম ডোমেন</span>
-                    </div>
-                    <p className="text-slate-600 leading-relaxed text-[11px]">
-                      আপনার নিজের কেনা .com ডোমেন থাকলে <strong>"কাস্টম ডোমেন"</strong> ট্যাবে গিয়ে ডোমেনটি যুক্ত করে DNS রেকর্ড আপডেট করুন।
-                    </p>
-                  </div>
                 </div>
               </div>
 
@@ -844,78 +736,40 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           {/* TAB 2: CUSTOM DOMAIN & SUBDOMAIN */}
           {activeTab === 'domain' && (
             <div className="space-y-6">
-              {/* Free Instant Live Store Link */}
-              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-2xl bg-teal-50 text-teal-800 flex items-center justify-center font-black">
-                      ১
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-sm sm:text-base text-slate-900">
-                        ফ্রি ইনস্ট্যান্ট লাইভ লিঙ্ক (Instant Live Link)
-                      </h3>
-                      <p className="text-xs text-slate-500">
-                        কোনো ডোমেন কেনা ছাড়াই এখনই চালু থাকা ১০০% সক্রিয় ওয়েব অ্যাড্রেস
-                      </p>
-                    </div>
+              {/* Free Subdomain Setting */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
+                    ১
                   </div>
-                  <span className="self-start sm:self-auto px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    এখনই সক্রিয়
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-700">আপনার দোকানের ইউজারনেম / স্ল্যাগ:</label>
-                  <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                    <div className="flex-1 flex items-center rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 font-mono text-xs sm:text-sm focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-500/20">
-                      <span className="text-slate-400 font-sans text-xs mr-1">shop=</span>
-                      <input
-                        type="text"
-                        value={formData.storeSlug}
-                        onChange={(e) => {
-                          const clean = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
-                          setFormData({ ...formData, storeSlug: clean });
-                        }}
-                        className="bg-transparent font-bold text-teal-900 focus:outline-none px-1 flex-1 min-w-0"
-                        placeholder="your-shop-name"
-                      />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSaveSettings()}
-                      className="px-4 py-2.5 bg-[#004D40] hover:bg-[#00382E] text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer shrink-0"
-                    >
-                      স্ল্যাগ সেভ করুন
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => window.open(liveStoreUrl, '_blank')}
-                      className="px-4 py-2.5 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs rounded-xl transition active:scale-95 cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>ব্রাউজারে টেস্ট করুন</span>
-                    </button>
+                  <div>
+                    <h3 className="font-bold text-sm sm:text-base text-slate-900">ফ্রি ইনস্ট্যান্ট সাব-ডোমেন</h3>
+                    <p className="text-xs text-slate-500">কোনো খরচ ছাড়াই তাৎক্ষণিক সক্রিয় ব্র্যান্ডেড ওয়েব অ্যাড্রেস</p>
                   </div>
                 </div>
 
-                {/* Instant Live Link Box */}
-                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="truncate font-mono text-slate-700 text-xs flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-teal-700 shrink-0" />
-                    <span className="font-bold text-teal-900">সরাসরি ব্রাউজার লিঙ্ক:</span>
-                    <span className="text-slate-800 truncate select-all">{liveStoreUrl}</span>
+                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center pt-2">
+                  <div className="flex-1 flex items-center rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-xs sm:text-sm focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-500/20">
+                    <span className="text-slate-400">https://</span>
+                    <input
+                      type="text"
+                      value={formData.storeSlug}
+                      onChange={(e) => {
+                        const clean = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+                        setFormData({ ...formData, storeSlug: clean });
+                      }}
+                      className="bg-transparent font-bold text-teal-900 focus:outline-none px-1 flex-1 min-w-0"
+                      placeholder="your-shop-name"
+                    />
+                    <span className="text-slate-500 font-bold">.twinghisabi.site</span>
                   </div>
+
                   <button
                     type="button"
-                    onClick={() => copyToClipboard(liveStoreUrl)}
-                    className="self-start sm:self-auto shrink-0 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    onClick={() => handleSaveSettings()}
+                    className="px-4 py-2 bg-[#004D40] hover:bg-[#00382E] text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer shrink-0"
                   >
-                    {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedLink ? 'কপি হয়েছে' : 'লিংক কপি'}</span>
+                    সেভ করুন
                   </button>
                 </div>
               </div>
@@ -923,16 +777,16 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               {/* Connect Custom Domain (Own Domain) */}
               <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-black">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold">
                       ২
                     </div>
                     <div>
                       <h3 className="font-bold text-sm sm:text-base text-slate-900">
-                        আপনার নিজস্ব কেনা কাস্টম ডোমেন যুক্ত করুন
+                        আপনার নিজস্ব ডোমেন যুক্ত করুন (Own Custom Domain)
                       </h3>
                       <p className="text-xs text-slate-500">
-                        যেমন: GoDaddy, Namecheap থেকে কেনা .com, .net, .com.bd ডোমেন
+                        যেমন: আপনার নিজের কেনা .com, .xyz, .com.bd ডোমেন যুক্ত করে প্রফেশনাল ব্র্যান্ড তৈরি করুন
                       </p>
                     </div>
                   </div>
@@ -993,7 +847,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                   </div>
                 </div>
 
-                {/* DNS Configuration Instructions */}
+                {/* DNS Configuration Instructions (Zero Hassle) */}
                 <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/90 space-y-3">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5">
@@ -1060,13 +914,13 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                     </table>
                   </div>
 
-                  <div className="bg-indigo-50/70 border border-indigo-200/60 rounded-xl p-3 text-[11px] text-indigo-900 space-y-1.5">
+                  <div className="bg-indigo-50/70 border border-indigo-200/60 rounded-xl p-2.5 text-[11px] text-indigo-900 space-y-1">
                     <p className="font-bold flex items-center gap-1">
                       <ShieldCheck className="w-3.5 h-3.5 text-indigo-700" />
-                      <span>কাস্টম ডোমেন সক্রিয় হতে কতক্ষণ লাগে?</span>
+                      <span>ফ্রি অটোমেটিক SSL সার্টিফিকেট (HTTPS) অন্তর্ভুক্ত:</span>
                     </p>
                     <p className="text-indigo-800/90 leading-relaxed">
-                      DNS রেকর্ড যুক্ত করার পর বিশ্বজুড়ে কার্যকর (DNS Propagation) হতে ১ থেকে ২৪ ঘণ্টা সময় লাগতে পারে। ডোমেন কানেক্ট হওয়ার সাথে সাথে ফ্রি SSL সার্টিফিকেট স্বয়ংক্রিয়ভাবে সক্রিয় হয়ে যায়।
+                      ডোমেন কানেক্ট হওয়ার সাথে সাথে স্বয়ংক্রিয়ভাবে বিনামূল্যে SSL সার্টিফিকেট সক্রিয় হয়ে যায়। আপনার ক্রেতারা ব্রাউজারে নিরাপদ তালা আইকন দেখতে পাবেন।
                     </p>
                   </div>
                 </div>

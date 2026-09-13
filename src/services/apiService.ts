@@ -3,7 +3,7 @@
  * Replaces Firebase with Node.js Express + Neon PostgreSQL Backend
  */
 
-import { Customer, Transaction, StoreProfile, DailyExpense, TagadaTemplate, OnlineOrder, OnlineStoreConfig, Product } from '../types';
+import { Customer, Transaction, StoreProfile, DailyExpense, TagadaTemplate, OnlineOrder } from '../types';
 import {
   AppUser,
   PaymentRecord,
@@ -951,46 +951,6 @@ export const storeApi = {
       const res = await apiRequest<{ order: OnlineOrder }>(`/store/orders/track/${encodeURIComponent(orderNumber)}`);
       return res?.order || null;
     } catch {
-      return null;
-    }
-  },
-
-  async getOnlineConfig(): Promise<OnlineStoreConfig | null> {
-    try {
-      const res = await apiRequest<{ config: OnlineStoreConfig | null }>('/store/online-config');
-      return res?.config || null;
-    } catch {
-      return null;
-    }
-  },
-
-  async saveOnlineConfig(config: OnlineStoreConfig): Promise<void> {
-    try {
-      await apiRequest('/store/online-config', {
-        method: 'PUT',
-        body: JSON.stringify(config),
-      });
-    } catch (err) {
-      console.warn('API saveOnlineConfig fallback:', err);
-    }
-  },
-
-  async getPublicStorefront(query: { shop?: string; domain?: string; vendorId?: string }): Promise<{
-    config: OnlineStoreConfig;
-    products: Product[];
-    store?: Partial<StoreProfile>;
-  } | null> {
-    try {
-      const params = new URLSearchParams();
-      if (query.shop) params.set('shop', query.shop);
-      if (query.domain) params.set('domain', query.domain);
-      if (query.vendorId) params.set('vendor_id', query.vendorId);
-      const res = await apiRequest<{ config: OnlineStoreConfig; products: Product[]; store?: Partial<StoreProfile> }>(
-        `/store/public?${params.toString()}`
-      );
-      return res;
-    } catch (err) {
-      console.error('API getPublicStorefront error:', err);
       return null;
     }
   },
