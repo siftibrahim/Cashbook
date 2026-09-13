@@ -76,6 +76,7 @@ export const inMemoryStore: {
   sms_logs: any[];
   sms_purchases: any[];
   online_orders: any[];
+  online_store_configs: any[];
 } = {
   users: [],
   stores: [],
@@ -95,6 +96,7 @@ export const inMemoryStore: {
   sms_logs: [],
   sms_purchases: [],
   online_orders: [],
+  online_store_configs: [],
 };
 
 // Helper to create an optimized, resilient pool for Neon serverless
@@ -437,6 +439,13 @@ export async function initializeDatabaseSchema() {
         sale_price NUMERIC(12, 2) DEFAULT 0,
         stock NUMERIC(12, 2) DEFAULT 0,
         min_stock_alert NUMERIC(12, 2) DEFAULT 5,
+        sku VARCHAR(100),
+        qr_code TEXT,
+        image_url TEXT,
+        description TEXT,
+        original_price NUMERIC(12, 2) DEFAULT 0,
+        discount_percent NUMERIC(5, 2) DEFAULT 0,
+        is_published_online BOOLEAN DEFAULT TRUE,
         updated_at BIGINT NOT NULL
       );
       ALTER TABLE products DROP CONSTRAINT IF EXISTS products_user_id_fkey;
@@ -723,6 +732,46 @@ export async function initializeDatabaseSchema() {
       );
       CREATE INDEX IF NOT EXISTS idx_online_orders_user ON online_orders(user_id);
       CREATE INDEX IF NOT EXISTS idx_online_orders_created ON online_orders(created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS online_store_configs (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        store_slug VARCHAR(100),
+        store_name VARCHAR(255),
+        tagline TEXT,
+        category VARCHAR(100),
+        phone VARCHAR(50),
+        whatsapp_phone VARCHAR(50),
+        address TEXT,
+        custom_domain VARCHAR(255),
+        custom_domain_verified BOOLEAN DEFAULT FALSE,
+        custom_domain_status VARCHAR(50) DEFAULT 'pending',
+        custom_domain_verified_at BIGINT,
+        banner_url TEXT,
+        logo_url TEXT,
+        banner_style VARCHAR(50) DEFAULT 'gradient',
+        theme_preset VARCHAR(50) DEFAULT 'emerald',
+        delivery_inside_dhaka NUMERIC(10, 2) DEFAULT 60,
+        delivery_outside_dhaka NUMERIC(10, 2) DEFAULT 120,
+        free_delivery_above NUMERIC(10, 2) DEFAULT 2000,
+        estimated_delivery_days VARCHAR(50) DEFAULT '২-৩ দিন',
+        enable_online_payment BOOLEAN DEFAULT TRUE,
+        enable_cash_on_delivery BOOLEAN DEFAULT TRUE,
+        bkash_merchant_number VARCHAR(50),
+        nagad_merchant_number VARCHAR(50),
+        rocket_merchant_number VARCHAR(50),
+        is_enabled BOOLEAN DEFAULT TRUE,
+        announcement_text TEXT,
+        support_hours VARCHAR(100),
+        support_whatsapp_message TEXT,
+        facebook_url TEXT,
+        published_product_ids JSONB DEFAULT '[]'::jsonb,
+        created_at BIGINT,
+        updated_at BIGINT
+      );
+      CREATE INDEX IF NOT EXISTS idx_online_store_configs_slug ON online_store_configs(store_slug);
+      CREATE INDEX IF NOT EXISTS idx_online_store_configs_domain ON online_store_configs(custom_domain);
+      CREATE INDEX IF NOT EXISTS idx_online_store_configs_user ON online_store_configs(user_id);
     `);
 
     // Schema Evolution Safety: Ensure columns exist on already created tables
@@ -759,6 +808,11 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_balance INT DEFAULT 20;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS sku VARCHAR(100);
       ALTER TABLE products ADD COLUMN IF NOT EXISTS qr_code TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS original_price NUMERIC(12, 2) DEFAULT 0;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_percent NUMERIC(5, 2) DEFAULT 0;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS is_published_online BOOLEAN DEFAULT TRUE;
 
       -- Drop strict foreign key constraints to ensure offline/sync/staff operations never crash
       ALTER TABLE products DROP CONSTRAINT IF EXISTS products_user_id_fkey;

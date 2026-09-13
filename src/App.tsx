@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Customer,
   Transaction,
@@ -98,6 +98,8 @@ import { QrGeneratorModal } from './components/qr/QrGeneratorModal';
 import { ProductScannerModal } from './components/scanner/ProductScannerModal';
 import { OnlineStoreModal } from './components/OnlineStoreModal';
 import { OnlineStorefrontModal } from './components/OnlineStorefrontModal';
+import { CustomerStorefrontPage } from './components/storefront/CustomerStorefrontPage';
+import { parseStorefrontUrl, StorefrontParams } from './utils/storefrontRouting';
 import { AdBanner } from './components/ads/AdBanner';
 import {
   subscribeToUserSupportMessages,
@@ -111,7 +113,7 @@ import {
 import { SupportMessage, Announcement, AppUpdateConfig, AdminSession, AdminNotification } from './types/adminTypes';
 import { Store, Loader2 } from 'lucide-react';
 
-export const App: React.FC = () => {
+const MerchantApp: React.FC = () => {
   const [store, setStore] = useState<StoreProfile>(() => {
     const user = getStoredUser();
     return loadStoreProfile(user?.id);
@@ -173,14 +175,7 @@ export const App: React.FC = () => {
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [isOnlineStoreModalOpen, setIsOnlineStoreModalOpen] = useState(false);
-  const [isOnlineStorefrontOpen, setIsOnlineStorefrontOpen] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const search = window.location.search;
-      const params = new URLSearchParams(search);
-      return params.get('store') === '1' || params.get('storefront') === '1' || params.get('shop') === '1';
-    }
-    return false;
-  });
+  const [isOnlineStorefrontOpen, setIsOnlineStorefrontOpen] = useState(false);
   const [onlineStoreConfig, setOnlineStoreConfig] = useState<OnlineStoreConfig>(() => {
     const user = getStoredUser();
     return loadOnlineStoreConfig(user?.id, store?.name, store?.phone);
@@ -408,6 +403,14 @@ export const App: React.FC = () => {
 
       const loadedStoreConfig = loadOnlineStoreConfig(userId, userShopName || storeData?.name, userPhone || storeData?.phone);
       setOnlineStoreConfig(loadedStoreConfig);
+
+      // Async fetch cloud-saved storefront configuration
+      storeApi.getOnlineConfig().then((cloudCfg) => {
+        if (cloudCfg) {
+          setOnlineStoreConfig(cloudCfg);
+          saveOnlineStoreConfig(cloudCfg, userId);
+        }
+      }).catch(() => null);
 
       const loadedOnlineOrders = loadOnlineOrders(userId);
       setOnlineOrders(loadedOnlineOrders);
@@ -1428,6 +1431,9 @@ export const App: React.FC = () => {
     const user = getStoredUser();
     setOnlineStoreConfig(newConfig);
     saveOnlineStoreConfig(newConfig, user?.id);
+    storeApi.saveOnlineConfig(newConfig).catch((err) => {
+      console.warn('Failed to save online store config to backend:', err);
+    });
     showToast('অনলাইন স্টোর সেটিংস সংরক্ষিত হয়েছে!');
   };
 
@@ -2186,6 +2192,27 @@ export const App: React.FC = () => {
       />
     </div>
   );
+};
+
+export const App: React.FC = () => {
+  const storefrontParams = useMemo<StorefrontParams>(() => parseStorefrontUrl(), []);
+
+  // Customer Storefront Isolation:
+  // If the visitor arrived via shop slug, subdomain (*.twinghisabi.site), or custom domain,
+  // render the dedicated Customer Storefront. The visitor has ZERO access to the merchant's ledger!
+  if (storefrontParams.isStorefront) {
+    return (
+      <CustomerStorefrontPage
+        initialParams={storefrontParams}
+        onExitToMerchantDashboard={() => {
+          window.location.href = window.location.origin;
+        }}
+      />
+    );
+  }
+
+  // Otherwise, render the complete Merchant Accounting Dashboard
+  return <MerchantApp />;
 };
 
 export default App;
