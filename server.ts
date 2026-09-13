@@ -19,6 +19,7 @@ import publicStoreRoutes from './server/routes/publicStoreRoutes';
 import { migrateDataToPostgres } from './server/migration';
 import { requireSuperAdmin } from './server/authMiddleware';
 import { SubscriptionEngine } from './server/services/subscriptionEngine';
+import { wildcardCors } from './server/middleware/subdomainMiddleware';
 
 dotenv.config();
 
@@ -37,8 +38,8 @@ async function startServer() {
     next();
   });
 
-  // Common Middlewares
-  app.use(cors());
+  // Dynamic Wildcard CORS for *.twinghisabi.site, root domain & dev environments
+  app.use(wildcardCors);
   app.use(express.json({ limit: '20mb' }));
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
   app.use(express.static(path.join(process.cwd(), 'public')));
