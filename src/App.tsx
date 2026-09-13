@@ -173,7 +173,14 @@ export const App: React.FC = () => {
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [isOnlineStoreModalOpen, setIsOnlineStoreModalOpen] = useState(false);
-  const [isOnlineStorefrontOpen, setIsOnlineStorefrontOpen] = useState(false);
+  const [isOnlineStorefrontOpen, setIsOnlineStorefrontOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const search = window.location.search;
+      const params = new URLSearchParams(search);
+      return params.get('store') === '1' || params.get('storefront') === '1' || params.get('shop') === '1';
+    }
+    return false;
+  });
   const [onlineStoreConfig, setOnlineStoreConfig] = useState<OnlineStoreConfig>(() => {
     const user = getStoredUser();
     return loadOnlineStoreConfig(user?.id, store?.name, store?.phone);

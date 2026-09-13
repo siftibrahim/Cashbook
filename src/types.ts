@@ -132,6 +132,11 @@ export interface Product {
   unit: string;
   buyPrice: number;
   salePrice: number;
+  originalPrice?: number; // MRP / Regular price for discount ribbon
+  discountPercent?: number; // e.g. 46 for 46% OFF
+  rating?: number; // e.g. 4.9
+  reviewCount?: number; // e.g. 181
+  deliveryTime?: string; // e.g. '১২-২৪ ঘণ্টা'
   stock: number;
   minStock?: number;
   minStockAlert?: number;
@@ -161,17 +166,31 @@ export interface OnlineStoreConfig {
   deliveryInsideDhaka: number;
   deliveryOutsideDhaka: number;
   freeDeliveryAbove?: number;
+  minOrderAmount?: number;
+  deliveryTimeEstimate?: string;
   acceptCOD: boolean;
   acceptBkash: boolean;
   bkashNumber?: string;
+  bkashType?: 'personal' | 'merchant' | 'agent';
   acceptNagad: boolean;
   nagadNumber?: string;
+  nagadType?: 'personal' | 'merchant';
   acceptRocket: boolean;
   rocketNumber?: string;
+  rocketType?: 'personal' | 'merchant';
+  paymentInstructions?: string;
+  bannerUrl?: string;
+  bannerTitle?: string;
+  bannerSubtitle?: string;
+  bannerTag?: string;
+  bannerDiscountText?: string;
+  bannerStyle?: 'neon' | 'image' | 'gradient';
+  logoUrl?: string;
+  supportWhatsAppMessage?: string;
+  supportHours?: string;
+  estimatedDeliveryDays?: string;
   facebookUrl?: string;
   publishedProductIds?: string[];
-  bannerUrl?: string;
-  logoUrl?: string;
   createdAt?: number;
   updatedAt?: number;
 }

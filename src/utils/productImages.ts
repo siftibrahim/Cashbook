@@ -118,14 +118,23 @@ export function getFallbackProductImage(name?: string, category?: string): strin
   if (q.includes('বিস্কুট') || q.includes('biscuit') || q.includes('কুকিজ') || q.includes('কেক')) {
     return 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=500&auto=format&fit=crop&q=80';
   }
-  if (q.includes('সাবান') || q.includes('soap') || q.includes('শ্যাম্পু') || q.includes('প্রসাধন')) {
-    return 'https://images.unsplash.com/photo-1607006314144-88481358dbb7?w=500&auto=format&fit=crop&q=80';
+  if (q.includes('মিনক্সিডিল') || q.includes('minoxidil') || q.includes('হেয়ার রিগ্রোথ')) {
+    return 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=600&auto=format&fit=crop&q=80';
+  }
+  if (q.includes('সিরাম') || q.includes('serum') || q.includes('নিয়াসিনামাইড') || q.includes('ordinary')) {
+    return 'https://images.unsplash.com/photo-1608248597359-54d9c79e6e8e?w=600&auto=format&fit=crop&q=80';
+  }
+  if (q.includes('ক্লিনজার') || q.includes('cleanser') || q.includes('cerave') || q.includes('ফেসওয়াশ')) {
+    return 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&auto=format&fit=crop&q=80';
+  }
+  if (q.includes('পোশাক') || q.includes('শাড়ি') || q.includes('শার্ট') || q.includes('পাঞ্জাবি') || q.includes('panjabi') || q.includes('কাপড়')) {
+    return 'https://images.unsplash.com/photo-1607345366928-199ea26cfe3e?w=600&auto=format&fit=crop&q=80';
+  }
+  if (q.includes('সাবান') || q.includes('soap') || q.includes('শ্যাম্পু') || q.includes('shampoo') || q.includes('প্রসাধন') || q.includes('skincare')) {
+    return 'https://images.unsplash.com/photo-1607006314144-88481358dbb7?w=600&auto=format&fit=crop&q=80';
   }
   if (q.includes('আটা') || q.includes('ময়দা') || q.includes('সুজি')) {
     return 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=500&auto=format&fit=crop&q=80';
-  }
-  if (q.includes('পোশাক') || q.includes('শাড়ি') || q.includes('শার্ট') || q.includes('পাঞ্জাবি') || q.includes('কাপড়')) {
-    return 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=500&auto=format&fit=crop&q=80';
   }
   // Default crisp product pack image
   return 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500&auto=format&fit=crop&q=80';

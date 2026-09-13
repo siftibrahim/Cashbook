@@ -515,25 +515,44 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       {/* Add / Edit Product Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
-          <div className="bg-white rounded-2xl w-full max-w-md p-4 sm:p-5 shadow-2xl border border-slate-200 animate-in zoom-in-95">
-            <h3 className="text-sm sm:text-base font-black text-slate-900 mb-3 flex items-center gap-1.5">
-              <Package className="w-4 h-4 text-teal-700" />
-              <span>{editingProduct ? 'পণ্য তথ্য এডিট' : 'নতুন পণ্য যুক্ত করুন'}</span>
-            </h3>
-
-            <form onSubmit={handleSave} className="space-y-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">পণ্যের নাম *</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="যেমন: মিনিকেট চাল"
-                  className="w-full px-3 py-2 text-xs font-medium border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
-                />
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-start sm:justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain animate-in fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 animate-in zoom-in-95 my-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Modal Header with Close Button */}
+            <div className="p-3.5 sm:p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-teal-100 text-[#004D40] flex items-center justify-center font-bold">
+                  <Package className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-800">
+                    {editingProduct ? 'পণ্য তথ্য এডিট' : 'নতুন পণ্য যুক্ত করুন'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">ইনভেন্টরি ও পিওএস বিক্রয়ের তথ্য</p>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="w-8 h-8 rounded-lg bg-slate-200/70 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-xs transition cursor-pointer"
+                title="বন্ধ করুন"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5 smooth-scroll-container">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">পণ্যের নাম *</label>
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="যেমন: মিনিকেট চাল"
+                    className="w-full px-3 py-2 text-xs font-medium border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                  />
+                </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -853,20 +872,23 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
               </div>
+              </div>
 
-              <div className="flex gap-2 pt-2">
+              {/* Sticky Footer Action Buttons */}
+              <div className="p-3 sm:p-4 bg-white border-t border-slate-100 flex gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition"
                 >
                   বাতিল
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 bg-[#004D40] hover:bg-[#00382E] text-white text-xs font-black rounded-xl shadow-xs cursor-pointer"
+                  className="flex-1 py-2.5 bg-[#004D40] hover:bg-[#00382E] text-white text-xs font-black rounded-xl shadow-xs cursor-pointer transition flex items-center justify-center gap-1.5"
                 >
-                  সংরক্ষণ করুন
+                  <Check className="w-4 h-4" />
+                  <span>{editingProduct ? 'আপডেট করুন' : 'পণ্য সংরক্ষণ করুন'}</span>
                 </button>
               </div>
             </form>

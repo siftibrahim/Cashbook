@@ -33,7 +33,11 @@ import {
   DollarSign,
   Send,
   Plus,
+  Image as ImageIcon,
+  Upload,
 } from 'lucide-react';
+import { VendorChatInboxTab } from './vendor/VendorChatInboxTab';
+import { getTotalUnreadVendorMessages, CHAT_SYNC_EVENT } from '../utils/storeChatStorage';
 
 interface OnlineStoreModalProps {
   isOpen: boolean;
@@ -49,7 +53,7 @@ interface OnlineStoreModalProps {
   onConvertOrderToSale?: (order: OnlineOrder) => void;
 }
 
-type TabType = 'overview' | 'domain' | 'settings' | 'catalog' | 'orders';
+type TabType = 'overview' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages';
 
 export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   isOpen,
@@ -76,6 +80,18 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [copiedRecord, setCopiedRecord] = useState<string | null>(null);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<OnlineOrder | null>(null);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [bannerUploadNotice, setBannerUploadNotice] = useState<string | null>(null);
+
+  // Load unread customer messages count and listen to chat sync
+  React.useEffect(() => {
+    setUnreadMessageCount(getTotalUnreadVendorMessages());
+    const handleSync = () => {
+      setUnreadMessageCount(getTotalUnreadVendorMessages());
+    };
+    window.addEventListener(CHAT_SYNC_EVENT, handleSync);
+    return () => window.removeEventListener(CHAT_SYNC_EVENT, handleSync);
+  }, []);
 
   // Sync formData when config changes
   React.useEffect(() => {
@@ -100,11 +116,95 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
     }
   };
 
+  const handleBannerFileUpload = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1200;
+        let width = img.width;
+        let height = img.height;
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          const updated = {
+            ...formData,
+            bannerUrl: dataUrl,
+            bannerStyle: 'image' as const,
+          };
+          setFormData(updated);
+          onUpdateConfig(updated);
+          setBannerUploadNotice('✅ ব্যানার ছবি সফলভাবে আপলোড ও সেভ হয়েছে!');
+          setTimeout(() => setBannerUploadNotice(null), 4000);
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleLogoFileUpload = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 400;
+        let width = img.width;
+        let height = img.height;
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/png');
+          const updated = {
+            ...formData,
+            logoUrl: dataUrl,
+          };
+          setFormData(updated);
+          onUpdateConfig(updated);
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSaveSettings = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (!formData.storeName || !formData.storeName.trim()) {
+      alert('অনুগ্রহ করে আপনার অনলাইন স্টোরের নাম দিন।');
+      return;
+    }
     onUpdateConfig(formData);
     setSaveSuccessNotice(true);
-    setTimeout(() => setSaveSuccessNotice(false), 3000);
+    try {
+      if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate(50);
+      }
+    } catch (err) {}
+    setTimeout(() => setSaveSuccessNotice(false), 4000);
   };
 
   const handleVerifyCustomDomain = () => {
@@ -343,6 +443,24 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           >
             <Settings className="w-4 h-4 text-slate-600" />
             <span>ই-কমার্স সেটিংস</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('messages')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'messages'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <MessageCircle className="w-4 h-4 text-emerald-600" />
+            <span>গ্রাহক মেসেজ ও চ্যাট</span>
+            {unreadMessageCount > 0 && (
+              <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[10px] font-black animate-pulse">
+                {unreadMessageCount}
+              </span>
+            )}
           </button>
         </div>
 
@@ -712,23 +830,34 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
           {/* TAB 3: STORE SETTINGS & CUSTOMIZER */}
           {activeTab === 'settings' && (
-            <form onSubmit={handleSaveSettings} className="space-y-5">
-              {/* Basic Brand Info */}
+            <form onSubmit={handleSaveSettings} className="space-y-6">
+              {/* Section 1: Store Name, Header & Brand Settings */}
               <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
-                <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
-                  <Store className="w-4 h-4 text-teal-700" />
-                  <span>দোকানের ব্র্যান্ডিং ও তথ্য</span>
-                </h3>
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                    <Store className="w-4 h-4 text-teal-700" />
+                    <span>ই-কমার্স নাম ও হেডার ব্র্যান্ডিং</span>
+                  </h3>
+                  <span className="text-[11px] text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full font-bold">
+                    হেডার এবং পুরো সাইটে প্রদর্শিত হবে
+                  </span>
+                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700">অনলাইন স্টোরের নাম *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                      <span>ই-কমার্স স্টোরের নাম *</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        (এটি সরাসরি উপরের হেডারের বামপাশে বড় অক্ষরে দেখা যাবে)
+                      </span>
+                    </label>
                     <input
                       type="text"
                       required
                       value={formData.storeName}
                       onChange={(e) => setFormData({ ...formData, storeName: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                      placeholder="উদাঃ bikroyhub, Smart Shop, etc."
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
                     />
                   </div>
 
@@ -738,9 +867,68 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       type="text"
                       value={formData.category}
                       onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                      placeholder="উদাঃ ফ্যাশন, মুদি, কসমেটিকস"
+                      placeholder="উদাঃ স্কিনকেয়ার, ফ্যাশন, গ্যাজেট"
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
                     />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700">স্টোর লোগো / আইকন</label>
+                      {formData.logoUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, logoUrl: '' })}
+                          className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer"
+                        >
+                          লোগো মুছুন
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {formData.logoUrl ? (
+                        <div className="w-10 h-10 rounded-xl border border-slate-200 overflow-hidden bg-white shrink-0 flex items-center justify-center">
+                          <img
+                            src={formData.logoUrl}
+                            alt="Logo"
+                            className="w-full h-full object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl border border-dashed border-slate-300 bg-slate-50 shrink-0 flex items-center justify-center text-slate-400">
+                          <ImageIcon className="w-5 h-5" />
+                        </div>
+                      )}
+
+                      <label
+                        htmlFor="store-logo-upload"
+                        className="px-3 py-2 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-teal-700" />
+                        <span>ছবি আপলোড</span>
+                      </label>
+                      <input
+                        id="store-logo-upload"
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            handleLogoFileUpload(e.target.files[0]);
+                          }
+                        }}
+                      />
+
+                      <input
+                        type="url"
+                        value={formData.logoUrl || ''}
+                        onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
+                        placeholder="অথবা লোগো URL পেস্ট করুন"
+                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                      />
+                    </div>
                   </div>
 
                   <div className="sm:col-span-2 space-y-1">
@@ -749,7 +937,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       type="text"
                       value={formData.tagline}
                       onChange={(e) => setFormData({ ...formData, tagline: e.target.value })}
-                      placeholder="উদাঃ সেরা মানের পোশাক ও দ্রুততম হোম ডেলিভারি"
+                      placeholder="উদাঃ সেরা মানের পণ্য ও দ্রুততম হোম ডেলিভারি"
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
                     />
                   </div>
@@ -767,16 +955,411 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                 </div>
               </div>
 
-              {/* Delivery Settings */}
+              {/* Section 2: Top Hero Banner Customization (ব্যানার পরিবর্তন) */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-pink-600" />
+                    <span>উপরের হিরো ব্যানার পরিবর্তন ও কাস্টমাইজেশন</span>
+                  </h3>
+                  <span className="text-[11px] text-pink-700 bg-pink-50 px-2.5 py-1 rounded-full font-bold">
+                    হিরো সেকশন
+                  </span>
+                </div>
+
+                {/* Banner Style Selector */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700">ব্যানারের স্টাইল নির্বাচন করুন:</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, bannerStyle: 'neon' })}
+                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex items-start gap-3 ${
+                        (formData.bannerStyle || 'neon') === 'neon'
+                          ? 'border-pink-500 bg-pink-50/50 shadow-xs ring-1 ring-pink-400'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-pink-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <Sparkles className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-slate-900">🌟 নিয়ন Best Picks ব্যানার</div>
+                        <div className="text-[11px] text-slate-600">
+                          স্ক্রিনশটের হুবহু নিয়ন গ্লো সাইন ও প্রডাক্ট ডিসপ্লে
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, bannerStyle: 'image' })}
+                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex items-start gap-3 ${
+                        formData.bannerStyle === 'image'
+                          ? 'border-teal-600 bg-teal-50/50 shadow-xs ring-1 ring-teal-500'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-teal-700 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <ImageIcon className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-slate-900">🖼️ কাস্টম ফটো ব্যানার</div>
+                        <div className="text-[11px] text-slate-600">
+                          নিজের পছন্দের প্রমোশনাল ছবি বা অফার ব্যানার আপলোড
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-fields for Neon Banner */}
+                {(formData.bannerStyle || 'neon') === 'neon' && (
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-pink-50/40 to-purple-50/40 border border-pink-200/60 space-y-3">
+                    <div className="text-xs font-bold text-pink-900 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>নিয়ন ব্যানারের টেক্সট সেটিংস</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">ব্যানার টাইটেল</label>
+                        <input
+                          type="text"
+                          value={formData.bannerTitle || ''}
+                          onChange={(e) => setFormData({ ...formData, bannerTitle: e.target.value })}
+                          placeholder="BEST PICKS"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-800"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">ব্যানার ট্যাগ</label>
+                        <input
+                          type="text"
+                          value={formData.bannerTag || ''}
+                          onChange={(e) => setFormData({ ...formData, bannerTag: e.target.value })}
+                          placeholder="OF THE WEEK"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">ডিসকাউন্ট অফার টেক্সট</label>
+                        <input
+                          type="text"
+                          value={formData.bannerDiscountText || ''}
+                          onChange={(e) => setFormData({ ...formData, bannerDiscountText: e.target.value })}
+                          placeholder="UP TO 55% DISCOUNT"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub-fields for Image Banner */}
+                {formData.bannerStyle === 'image' && (
+                  <div className="p-4 rounded-2xl bg-teal-50/40 border border-teal-200/60 space-y-3.5">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5" />
+                        <span>কাস্টম ফটো ব্যানার আপলোড ও প্রিসেট</span>
+                      </div>
+                      {bannerUploadNotice && (
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                          {bannerUploadNotice}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Direct File Upload Area */}
+                    <div className="p-4 rounded-xl bg-white border-2 border-dashed border-teal-300 hover:border-teal-500 transition text-center space-y-2.5">
+                      {formData.bannerUrl ? (
+                        <div className="space-y-2">
+                          <div className="relative rounded-lg overflow-hidden border border-slate-200 max-h-48 bg-slate-100">
+                            <img
+                              src={formData.bannerUrl}
+                              alt="Store Banner"
+                              className="w-full h-36 object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setFormData({ ...formData, bannerUrl: '' })}
+                                className="px-2.5 py-1 bg-red-600/90 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-md cursor-pointer transition"
+                              >
+                                ছবি মুছুন
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-emerald-700 font-bold">
+                            ✓ বর্তমান ব্যানার সক্রিয় আছে
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="py-2 text-slate-500 space-y-1">
+                          <Upload className="w-8 h-8 mx-auto text-teal-600" />
+                          <p className="text-xs font-bold text-slate-700">
+                            মোবাইল গ্যালারি বা কম্পিউটার থেকে ব্যানার ছবি আপলোড করুন
+                          </p>
+                          <p className="text-[11px] text-slate-400">
+                            সুপারিশকৃত সাইজ: 1200 x 400 পিক্সেল (JPG, PNG, WebP)
+                          </p>
+                        </div>
+                      )}
+
+                      <div>
+                        <label
+                          htmlFor="banner-file-picker"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer active:scale-95"
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>{formData.bannerUrl ? 'নতুন ব্যানার ছবি নির্বাচন করুন' : 'ব্যানার ছবি আপলোড করুন'}</span>
+                        </label>
+                        <input
+                          id="banner-file-picker"
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files?.[0]) {
+                              handleBannerFileUpload(e.target.files[0]);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-700">অথবা সরাসরি ব্যানার ছবির URL পেস্ট করুন</label>
+                      <input
+                        type="url"
+                        value={formData.bannerUrl || ''}
+                        onChange={(e) => setFormData({ ...formData, bannerUrl: e.target.value })}
+                        placeholder="https://images.unsplash.com/..."
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                      />
+                    </div>
+
+                    {/* Quick Preset Buttons */}
+                    <div className="space-y-1.5 pt-1">
+                      <div className="text-[10px] font-bold text-slate-600">অথবা ১-ক্লিকে প্রিসেট ব্যানার নির্বাচন করুন:</div>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          {
+                            label: '💄 বিউটি ও স্কিনকেয়ার',
+                            url: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=1000&auto=format&fit=crop&q=80',
+                          },
+                          {
+                            label: '👗 ফ্যাশন ও ক্লথিং',
+                            url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1000&auto=format&fit=crop&q=80',
+                          },
+                          {
+                            label: '📱 গ্যাজেট ও ইলেকট্রনিক্স',
+                            url: 'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=1000&auto=format&fit=crop&q=80',
+                          },
+                          {
+                            label: '🍎 মুদি ও সুপারস্টোর',
+                            url: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1000&auto=format&fit=crop&q=80',
+                          },
+                        ].map((preset) => (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => {
+                              const updated = {
+                                ...formData,
+                                bannerUrl: preset.url,
+                                bannerStyle: 'image' as const,
+                              };
+                              setFormData(updated);
+                              onUpdateConfig(updated);
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-white border border-teal-300 hover:border-teal-500 text-[11px] font-bold text-teal-900 cursor-pointer shadow-2xs hover:bg-teal-50"
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Section 3: Payment Gateways (পেমেন্ট গেটওয়ে সেটিংস) */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-indigo-700" />
+                    <span>পেমেন্ট গেটওয়ে সেটিংস (COD, বিকাশ, নগদ, রকেট)</span>
+                  </h3>
+                  <span className="text-[11px] text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full font-bold">
+                    চেকআউটে সক্রিয় থাকবে
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* COD */}
+                  <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-slate-900">ক্যাশ অন ডেলিভারি (COD)</div>
+                        <div className="text-[11px] text-slate-500">পণ্য হাতে পেয়ে নগদ টাকা প্রদান</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptCOD}
+                        onChange={(e) => setFormData({ ...formData, acceptCOD: e.target.checked })}
+                        className="w-5 h-5 rounded text-teal-600 focus:ring-teal-500 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* bKash */}
+                  <div className="p-3.5 rounded-2xl border border-pink-200 bg-pink-50/40 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-pink-900">বিকাশ (bKash) পেমেন্ট</div>
+                        <div className="text-[11px] text-pink-700">গ্রাহক সহজে বিকাশ করে ট্রানজেকশন আইডি দিবে</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptBkash}
+                        onChange={(e) => setFormData({ ...formData, acceptBkash: e.target.checked })}
+                        className="w-5 h-5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
+                      />
+                    </div>
+                    {formData.acceptBkash && (
+                      <div className="space-y-2 pt-1">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="col-span-2">
+                            <label className="text-[10px] font-bold text-pink-950">বিকাশ নম্বর</label>
+                            <input
+                              type="text"
+                              value={formData.bkashNumber || ''}
+                              onChange={(e) => setFormData({ ...formData, bkashNumber: e.target.value })}
+                              placeholder="01XXXXXXXXX"
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-pink-300 bg-white text-xs font-semibold text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-pink-950">ধরন</label>
+                            <select
+                              value={formData.bkashType || 'merchant'}
+                              onChange={(e) => setFormData({ ...formData, bkashType: e.target.value as any })}
+                              className="w-full px-2 py-1.5 rounded-lg border border-pink-300 bg-white text-xs font-semibold text-slate-800"
+                            >
+                              <option value="merchant">মার্চেন্ট</option>
+                              <option value="personal">পার্সোনাল</option>
+                              <option value="agent">এজেন্ট</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Nagad */}
+                  <div className="p-3.5 rounded-2xl border border-orange-200 bg-orange-50/40 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-orange-900">নগদ (Nagad) পেমেন্ট</div>
+                        <div className="text-[11px] text-orange-700">নগদ একাউন্টে পেমেন্ট সংগ্রহ</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptNagad}
+                        onChange={(e) => setFormData({ ...formData, acceptNagad: e.target.checked })}
+                        className="w-5 h-5 rounded text-orange-600 focus:ring-orange-500 cursor-pointer"
+                      />
+                    </div>
+                    {formData.acceptNagad && (
+                      <div className="space-y-2 pt-1">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="col-span-2">
+                            <label className="text-[10px] font-bold text-orange-950">নগদ নম্বর</label>
+                            <input
+                              type="text"
+                              value={formData.nagadNumber || ''}
+                              onChange={(e) => setFormData({ ...formData, nagadNumber: e.target.value })}
+                              placeholder="01XXXXXXXXX"
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-orange-300 bg-white text-xs font-semibold text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-orange-950">ধরন</label>
+                            <select
+                              value={formData.nagadType || 'personal'}
+                              onChange={(e) => setFormData({ ...formData, nagadType: e.target.value as any })}
+                              className="w-full px-2 py-1.5 rounded-lg border border-orange-300 bg-white text-xs font-semibold text-slate-800"
+                            >
+                              <option value="merchant">মার্চেন্ট</option>
+                              <option value="personal">পার্সোনাল</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Rocket */}
+                  <div className="p-3.5 rounded-2xl border border-purple-200 bg-purple-50/40 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-purple-900">রকেট (Rocket) পেমেন্ট</div>
+                        <div className="text-[11px] text-purple-700">ডাচ-বাংলা রকেট একাউন্ট</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptRocket}
+                        onChange={(e) => setFormData({ ...formData, acceptRocket: e.target.checked })}
+                        className="w-5 h-5 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                      />
+                    </div>
+                    {formData.acceptRocket && (
+                      <div className="space-y-2 pt-1">
+                        <div>
+                          <label className="text-[10px] font-bold text-purple-950">রকেট নম্বর</label>
+                          <input
+                            type="text"
+                            value={formData.rocketNumber || ''}
+                            onChange={(e) => setFormData({ ...formData, rocketNumber: e.target.value })}
+                            placeholder="01XXXXXXXXX-X"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-purple-300 bg-white text-xs font-semibold text-slate-800"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payment Instructions Note for Customers */}
+                  <div className="sm:col-span-2 space-y-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      গ্রাহকদের জন্য পেমেন্ট নির্দেশিকা বা বিশেষ নোট
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={formData.paymentInstructions || ''}
+                      onChange={(e) => setFormData({ ...formData, paymentInstructions: e.target.value })}
+                      placeholder="উদাঃ সেন্ড মানি বা পেমেন্ট সম্পন্ন করার পর আপনার TrxID ইনপুট করুন।"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 4: Delivery Fees & Minimum Order Limit */}
               <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
                 <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
                   <Truck className="w-4 h-4 text-emerald-700" />
-                  <span>ডেলিভারি চার্জ ও শর্তাবলী</span>
+                  <span>ডেলিভারি চার্জ ও অর্ডার সেটিংস</span>
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700">ঢাকা সিটির ভেতরে ডেলিভারি ফি (৳)</label>
+                    <label className="text-xs font-bold text-slate-700">ঢাকা সিটির ভেতরে ফি (৳)</label>
                     <input
                       type="number"
                       value={formData.deliveryInsideDhaka}
@@ -786,7 +1369,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700">ঢাকার বাইরে ডেলিভারি ফি (৳)</label>
+                    <label className="text-xs font-bold text-slate-700">ঢাকার বাইরে ফি (৳)</label>
                     <input
                       type="number"
                       value={formData.deliveryOutsideDhaka}
@@ -805,65 +1388,48 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
                     />
                   </div>
-                </div>
-              </div>
 
-              {/* Payment Methods */}
-              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
-                <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
-                  <CreditCard className="w-4 h-4 text-indigo-700" />
-                  <span>পেমেন্ট গেটওয়ে ও মোবাইল ব্যাংকিং</span>
-                </h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* COD */}
-                  <div className="flex items-center justify-between p-3 rounded-2xl border border-slate-200 bg-slate-50">
-                    <div>
-                      <div className="font-bold text-xs sm:text-sm text-slate-800">ক্যাশ অন ডেলিভারি (COD)</div>
-                      <div className="text-[11px] text-slate-500">পণ্য হাতে পেয়ে টাকা প্রদান</div>
-                    </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">সর্বনিম্ন অর্ডার মূল্য (৳)</label>
                     <input
-                      type="checkbox"
-                      checked={formData.acceptCOD}
-                      onChange={(e) => setFormData({ ...formData, acceptCOD: e.target.checked })}
-                      className="w-5 h-5 rounded text-teal-600 focus:ring-teal-500 cursor-pointer"
+                      type="number"
+                      value={formData.minOrderAmount || ''}
+                      onChange={(e) => setFormData({ ...formData, minOrderAmount: Number(e.target.value) || 0 })}
+                      placeholder="উদাঃ 200"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
                     />
                   </div>
 
-                  {/* bKash */}
-                  <div className="p-3 rounded-2xl border border-pink-200 bg-pink-50/50 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="font-bold text-xs sm:text-sm text-pink-900">বিকাশ (bKash) পেমেন্ট</div>
-                      <input
-                        type="checkbox"
-                        checked={formData.acceptBkash}
-                        onChange={(e) => setFormData({ ...formData, acceptBkash: e.target.checked })}
-                        className="w-5 h-5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
-                      />
-                    </div>
-                    {formData.acceptBkash && (
-                      <input
-                        type="text"
-                        value={formData.bkashNumber || ''}
-                        onChange={(e) => setFormData({ ...formData, bkashNumber: e.target.value })}
-                        placeholder="বিকাশ নম্বর (পার্সোনাল বা মার্চেন্ট)"
-                        className="w-full px-2.5 py-1.5 rounded-lg border border-pink-300 bg-white text-xs font-semibold"
-                      />
-                    )}
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-xs font-bold text-slate-700">সম্ভাব্য ডেলিভারি সময়</label>
+                    <input
+                      type="text"
+                      value={formData.estimatedDeliveryDays || ''}
+                      onChange={(e) => setFormData({ ...formData, estimatedDeliveryDays: e.target.value })}
+                      placeholder="উদাঃ ২৪-৭২ ঘণ্টার মধ্যে হোম ডেলিভারি"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
                   </div>
                 </div>
               </div>
 
-              {/* Contact & WhatsApp */}
+              {/* Section 5: Customer Support & Vendor Chat */}
               <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
-                <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
-                  <Phone className="w-4 h-4 text-teal-700" />
-                  <span>গ্রাহক যোগাযোগ ও WhatsApp</span>
-                </h3>
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                    <MessageCircle className="w-4 h-4 text-emerald-600" />
+                    <span>কাস্টমার সাপোর্ট মেনু ও ভেন্ডর চ্যাট</span>
+                  </h3>
+                  <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full font-bold">
+                    হেডারের সাপোর্ট মেনুর সাথে যুক্ত
+                  </span>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700">WhatsApp নম্বর (অর্ডার নোটিফিকেশনের জন্য)</label>
+                    <label className="text-xs font-bold text-slate-700">
+                      ভেন্ডর সাপোর্ট WhatsApp নম্বর *
+                    </label>
                     <input
                       type="text"
                       value={formData.whatsappPhone}
@@ -871,6 +1437,9 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       placeholder="উদাঃ 017XXXXXXXX"
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
                     />
+                    <p className="text-[10px] text-slate-500">
+                      কাস্টমার হেডারের সাপোর্ট মেনু ক্লিক করলে সরাসরি এই নম্বরে হোয়াটসঅ্যাপে চ্যাট শুরু হবে
+                    </p>
                   </div>
 
                   <div className="space-y-1">
@@ -883,18 +1452,61 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
                     />
                   </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">হেল্পলাইন খোলা থাকার সময়সূচি</label>
+                    <input
+                      type="text"
+                      value={formData.supportHours || ''}
+                      onChange={(e) => setFormData({ ...formData, supportHours: e.target.value })}
+                      placeholder="উদাঃ প্রতিদিন সকাল ৯:০০ - রাত ১০:০০"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">WhatsApp ডিফল্ট শুভেচ্ছা বার্তা</label>
+                    <input
+                      type="text"
+                      value={formData.supportWhatsAppMessage || ''}
+                      onChange={(e) => setFormData({ ...formData, supportWhatsAppMessage: e.target.value })}
+                      placeholder="উদাঃ আসসালামু আলাইকুম, আমি আপনার অনলাইন স্টোর থেকে যোগাযোগ করছি।"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* Bottom Submit */}
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="submit"
-                  className="px-6 py-3 bg-[#004D40] hover:bg-[#00382E] text-white font-black text-sm rounded-2xl shadow-sm transition active:scale-95 cursor-pointer flex items-center gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                  <span>সকল পরিবর্তন সংরক্ষণ করুন</span>
-                </button>
+              {/* Bottom Submit Button */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200">
+                <div className="flex items-center gap-2">
+                  {saveSuccessNotice && (
+                    <span className="text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 animate-pulse">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>সকল সেটিংস ও ব্যানার সফলভাবে সংরক্ষিত হয়েছে!</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <button
+                    type="button"
+                    onClick={onOpenStorefront}
+                    className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Eye className="w-4 h-4 text-teal-700" />
+                    <span>স্টোরে ফলাফল দেখুন</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSaveSettings()}
+                    className="flex-1 sm:flex-initial px-6 py-3.5 bg-[#004D40] hover:bg-[#00382E] text-white font-black text-xs sm:text-sm rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                    <span>সকল সেটিংস ও ব্যানার সেভ করুন</span>
+                  </button>
+                </div>
               </div>
             </form>
           )}
@@ -1142,6 +1754,27 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* TAB 6: CUSTOMER MESSAGES & LIVE CHAT */}
+          {activeTab === 'messages' && (
+            <div className="space-y-4">
+              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-[#004D40] text-white flex items-center justify-center">
+                    <MessageCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">গ্রাহক মেসেজ ও ইনবক্স</h3>
+                    <p className="text-xs text-slate-600">
+                      আপনার অনলাইন স্টোরের সাপোর্ট ড্রয়ার থেকে আসা সকল কাস্টমার বার্তা এখানে পাওয়া যাবে। আপনি এখান থেকেই সরাসরি উত্তর দিতে পারবেন।
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <VendorChatInboxTab storeName={formData.storeName} />
             </div>
           )}
         </div>

@@ -1,8 +1,18 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, OnlineStoreConfig, OnlineOrder } from '../types';
 import { formatMoney } from '../utils/storage';
-import { getFallbackProductImage } from '../utils/productImages';
+import { StorefrontHeader } from './storefront/StorefrontHeader';
+import { StorefrontSearchBar } from './storefront/StorefrontSearchBar';
+import { StorefrontHeroCarousel } from './storefront/StorefrontHeroCarousel';
+import { StorefrontProductCard } from './storefront/StorefrontProductCard';
+import { StorefrontBottomNav, StorefrontTab } from './storefront/StorefrontBottomNav';
+import { StorefrontCategoryGrid } from './storefront/StorefrontCategoryGrid';
+import { StorefrontOrderTracker } from './storefront/StorefrontOrderTracker';
+import { StorefrontInboxTab } from './storefront/StorefrontInboxTab';
+import { StorefrontMoreTab } from './storefront/StorefrontMoreTab';
+import { StorefrontSupportDrawer } from './storefront/StorefrontSupportDrawer';
+import { StorefrontProductDetailModal } from './storefront/StorefrontProductDetailModal';
 import {
   X,
   ShoppingCart,
@@ -27,6 +37,9 @@ import {
   Store,
   BadgePercent,
   Check,
+  Bell,
+  User,
+  ShoppingBag,
 } from 'lucide-react';
 
 interface OnlineStorefrontModalProps {
@@ -42,6 +55,8 @@ interface CartItem {
   quantity: number;
 }
 
+const STORE_ORDERS_STORAGE_KEY = 'ibrahim_khata_online_customer_orders_v1';
+
 export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   isOpen,
   onClose,
@@ -49,11 +64,23 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   products,
   onPlaceOrder,
 }) => {
+  // Navigation tab
+  const [activeTab, setActiveTab] = useState<StorefrontTab>('home');
+  const [language, setLanguage] = useState<'bn' | 'en'>('bn');
+  const [showOnlyBestPicks, setShowOnlyBestPicks] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+
+  // Search & Categories
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+
+  // Cart & Checkout
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutStep, setIsCheckoutStep] = useState(false);
+  const [isSupportDrawerOpen, setIsSupportDrawerOpen] = useState(false);
+  const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
 
   // Checkout form fields
   const [customerName, setCustomerName] = useState('');
@@ -61,10 +88,20 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   const [customerAddress, setCustomerAddress] = useState('');
   const [deliveryArea, setDeliveryArea] = useState<'inside_dhaka' | 'outside_dhaka'>('inside_dhaka');
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad' | 'rocket'>('cod');
+  const [customerTrxId, setCustomerTrxId] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<OnlineOrder | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // Stored customer orders
+  const [customerOrders, setCustomerOrders] = useState<OnlineOrder[]>(() => {
+    try {
+      const raw = localStorage.getItem(STORE_ORDERS_STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return [];
+  });
 
   // Filter published products
   const publishedProducts = useMemo(() => {
@@ -86,7 +123,7 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     return Array.from(set);
   }, [publishedProducts]);
 
-  // Filtered by search & category
+  // Filtered by search, category & Best Picks
   const filteredProducts = useMemo(() => {
     return publishedProducts.filter((p) => {
       const matchCat = selectedCategory === 'all' || p.category === selectedCategory;
@@ -96,43 +133,26 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
         p.name.toLowerCase().includes(q) ||
         (p.category && p.category.toLowerCase().includes(q)) ||
         (p.sku && p.sku.toLowerCase().includes(q));
-      return matchCat && matchSearch;
+
+      const matchBestPicks = !showOnlyBestPicks || (p.discountPercent && p.discountPercent >= 20) || (p.rating && p.rating >= 4.8);
+
+      return matchCat && matchSearch && matchBestPicks;
     });
-  }, [publishedProducts, selectedCategory, searchQuery]);
+  }, [publishedProducts, selectedCategory, searchQuery, showOnlyBestPicks]);
 
-  // Cart calculations
-  const cartItemCount = useMemo(() => {
-    return cart.reduce((acc, item) => acc + item.quantity, 0);
-  }, [cart]);
-
-  const subtotal = useMemo(() => {
-    return cart.reduce((acc, item) => acc + item.product.salePrice * item.quantity, 0);
-  }, [cart]);
-
-  const isFreeDeliveryEligible = config.freeDeliveryAbove && config.freeDeliveryAbove > 0 && subtotal >= config.freeDeliveryAbove;
-
-  const deliveryCharge = isFreeDeliveryEligible
-    ? 0
-    : deliveryArea === 'inside_dhaka'
-    ? config.deliveryInsideDhaka || 60
-    : config.deliveryOutsideDhaka || 120;
-
-  const totalAmount = subtotal + deliveryCharge;
-
-  if (!isOpen) return null;
-
-  // Cart actions
-  const addToCart = (product: Product) => {
+  // Cart operations
+  const addToCart = (product: Product, quantityToAdd: number = 1) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
         return prev.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+          item.product.id === product.id
+            ? { ...item, quantity: item.quantity + quantityToAdd }
+            : item
         );
       }
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { product, quantity: quantityToAdd }];
     });
-    setIsCartOpen(true);
   };
 
   const updateQuantity = (productId: string, delta: number) => {
@@ -153,105 +173,137 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     setCart((prev) => prev.filter((item) => item.product.id !== productId));
   };
 
+  const cartItemCount = useMemo(() => {
+    return cart.reduce((sum, item) => sum + item.quantity, 0);
+  }, [cart]);
+
+  const subtotal = useMemo(() => {
+    return cart.reduce((sum, item) => sum + item.product.salePrice * item.quantity, 0);
+  }, [cart]);
+
+  // Delivery charge calculation
+  const isFreeDeliveryEligible =
+    config.freeDeliveryAbove && config.freeDeliveryAbove > 0 && subtotal >= config.freeDeliveryAbove;
+
+  const deliveryCharge = isFreeDeliveryEligible
+    ? 0
+    : deliveryArea === 'inside_dhaka'
+    ? config.deliveryInsideDhaka || 60
+    : config.deliveryOutsideDhaka || 120;
+
+  const totalAmount = subtotal + deliveryCharge;
+
+  // Checkout submission
   const handleCheckoutSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName.trim() || !customerPhone.trim() || !customerAddress.trim()) {
-      alert('দয়া করে আপনার নাম, মোবাইল নম্বর এবং সম্পূর্ণ ডেলিভারি ঠিকানা প্রদান করুন।');
       return;
     }
-    if (cart.length === 0) {
-      alert('আপনার কার্ট খালি। অনুগ্রহ করে পণ্য যোগ করুন।');
+    if (cart.length === 0) return;
+
+    if (config.minOrderAmount && subtotal < config.minOrderAmount) {
+      alert(`এই স্টোরের সর্বনিম্ন অর্ডার মূল্য ৳ ${formatMoney(config.minOrderAmount)}। অনুগ্রহ করে আরও পণ্য কার্টে যুক্ত করুন।`);
       return;
     }
 
     setIsSubmitting(true);
+
     const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
+
+    let combinedNotes = orderNotes.trim();
+    if (customerTrxId.trim()) {
+      combinedNotes = `${combinedNotes ? combinedNotes + ' | ' : ''}TrxID: ${customerTrxId.trim()}`;
+    }
+
     const newOrder: OnlineOrder = {
-      id: `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: `online_ord_${Date.now()}`,
       orderNumber,
       customerName: customerName.trim(),
       customerPhone: customerPhone.trim(),
       customerAddress: customerAddress.trim(),
-      deliveryArea,
-      deliveryCharge,
       items: cart.map((c) => ({
         productId: c.product.id,
         productName: c.product.name,
         unitPrice: c.product.salePrice,
         quantity: c.quantity,
-        unit: c.product.unit || 'টি',
+        unit: c.product.unit,
         total: c.product.salePrice * c.quantity,
-        sku: c.product.sku,
       })),
       subtotal,
+      deliveryCharge,
       totalAmount,
+      deliveryArea,
       paymentMethod,
       paymentStatus: 'unpaid',
       orderStatus: 'pending',
-      notes: orderNotes.trim() || undefined,
+      notes: combinedNotes,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
 
     setTimeout(() => {
       onPlaceOrder(newOrder);
+
+      // Save to customer order list in localStorage
+      const updatedOrders = [newOrder, ...customerOrders];
+      setCustomerOrders(updatedOrders);
+      try {
+        localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(updatedOrders));
+      } catch {}
+
       setCompletedOrder(newOrder);
       setCart([]);
-      setIsCheckoutStep(false);
       setIsSubmitting(false);
     }, 600);
   };
 
-  const domainDisplay = config.customDomainVerified && config.customDomain
-    ? config.customDomain
-    : `${config.storeSlug || 'shop'}.twingstore.com`;
-
   const copyStoreLink = () => {
-    navigator.clipboard.writeText(`https://${domainDisplay}`);
+    const url = window.location.origin;
+    navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
   const sendOrderToWhatsApp = (order: OnlineOrder) => {
-    const phone = config.whatsappPhone || config.phone;
-    if (!phone) return;
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
-    const fullPhone = cleanPhone.startsWith('88') ? cleanPhone : `88${cleanPhone}`;
-    const itemsText = order.items
-      .map((it, i) => `${i + 1}. ${it.productName} x ${it.quantity} ${it.unit} = ৳${formatMoney(it.total)}`)
+    const phone = (config.whatsappPhone || config.phone || '').replace(/[^0-9]/g, '');
+    const itemsList = order.items
+      .map((it) => `• ${it.productName} (${it.quantity} ${it.unit || 'টি'}) = ৳${it.unitPrice * it.quantity}`)
       .join('\n');
 
-    const msg = `🛍️ *নতুন অনলাইন অর্ডার - ${order.orderNumber}*
-দোকান: ${config.storeName}
---------------------------
-গ্রাহকের নাম: ${order.customerName}
-মোবাইল: ${order.customerPhone}
-ঠিকানা: ${order.customerAddress}
-এলাকা: ${order.deliveryArea === 'inside_dhaka' ? 'ঢাকা সিটির ভেতরে' : 'ঢাকার বাইরে'}
-পেমেন্ট: ${order.paymentMethod.toUpperCase()}
+    const msg = `*🛒 নতুন অনলাইন অর্ডার (${order.orderNumber})*
+----------------------------
+*গ্রাহকের নাম:* ${order.customerName}
+*মোবাইল:* ${order.customerPhone}
+*ঠিকানা:* ${order.customerAddress}
+*ডেলিভারি এরিয়া:* ${order.deliveryArea === 'inside_dhaka' ? 'ঢাকা সিটির ভেতরে' : 'ঢাকার বাইরে'}
+*পেমেন্ট পদ্ধতি:* ${order.paymentMethod.toUpperCase()}
 
 *অর্ডারকৃত পণ্যসমূহ:*
-${itemsText}
---------------------------
-সাবটোটাল: ৳${formatMoney(order.subtotal)}
-ডেলিভারি চার্জ: ৳${formatMoney(order.deliveryCharge)}
-*মোট প্রদেয়: ৳${formatMoney(order.totalAmount)}*
+${itemsList}
 
-অর্ডারটি দ্রুত নিশ্চিত ও ডেলিভারি করার জন্য ধন্যবাদ!`;
+*পণ্য মূল্য:* ৳${order.subtotal}
+*ডেলিভারি ফি:* ৳${order.deliveryCharge}
+*সর্বমোট প্রদেয়:* ৳${order.totalAmount}
 
-    window.open(`https://wa.me/${fullPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+_ধন্যবাদ! অনুগ্রহ করে অর্ডারটি কনফার্ম করুন।_`;
+
+    const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+    window.open(waUrl, '_blank');
   };
 
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex flex-col justify-center items-center overflow-hidden p-0 sm:p-2 md:p-4">
-      <div className="w-full max-w-5xl h-full sm:h-[94vh] bg-slate-100 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200/80 relative">
-        {/* Top Merchant Control Bar */}
-        <div className="bg-slate-900 text-white px-3 sm:px-5 py-2 sm:py-2.5 flex items-center justify-between gap-2 shrink-0 z-30 text-xs sm:text-sm">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-950/80 backdrop-blur-xs flex flex-col justify-end sm:justify-center items-center">
+      {/* Modal Container */}
+      <div className="relative w-full max-w-5xl h-full max-h-[100dvh] sm:max-h-[96vh] sm:rounded-3xl bg-white shadow-2xl flex flex-col overflow-hidden border border-slate-200/80">
+        {/* Admin Store Bar (Top Slim Bar) */}
+        <div className="bg-slate-900 text-white px-3.5 sm:px-6 py-2 flex items-center justify-between text-xs shrink-0 border-b border-slate-800">
           <div className="flex items-center gap-2 truncate">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
             <span className="font-bold text-slate-200">লাইভ ই-কমার্স স্টোরফ্রন্ট প্রিভিউ</span>
-            <span className="hidden md:inline-block px-2 py-0.5 rounded-full bg-slate-800 text-[11px] text-teal-300 font-mono">
-              https://{domainDisplay}
+            <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-teal-300 font-mono">
+              bikroyhub • Verified Store
             </span>
           </div>
 
@@ -267,7 +319,7 @@ ${itemsText}
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg transition cursor-pointer"
+              className="p-1 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg transition cursor-pointer"
               title="প্রিভিউ বন্ধ করুন"
             >
               <X className="w-5 h-5" />
@@ -275,333 +327,334 @@ ${itemsText}
           </div>
         </div>
 
-        {/* E-Commerce Storefront Body (Scrollable) */}
-        <div className="flex-1 overflow-y-auto bg-slate-50 relative flex flex-col">
-          {/* Announcement Bar */}
-          {config.announcement && (
-            <div className="bg-[#004D40] text-white text-xs sm:text-sm font-semibold py-1.5 px-4 text-center tracking-wide shrink-0 flex items-center justify-center gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-bounce" />
-              <span>{config.announcement}</span>
-            </div>
-          )}
+        {/* Storefront Header (Only Ecommerce Name, Support Chat Menu & Cart Menu) */}
+        <StorefrontHeader
+          storeName={config.storeName}
+          logoUrl={config.logoUrl}
+          cartCount={cartItemCount}
+          onOpenCart={() => {
+            setIsCartOpen(true);
+            setIsCheckoutStep(false);
+          }}
+          onOpenSupport={() => setIsSupportDrawerOpen(true)}
+        />
 
-          {/* Storefront Header */}
-          <header className="bg-white border-b border-slate-200 px-4 sm:px-8 py-3.5 sm:py-4 sticky top-0 z-20 shadow-xs">
-            <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
-              {/* Brand Logo & Name */}
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-teal-50 border-2 border-teal-600 text-teal-800 flex items-center justify-center font-black text-lg sm:text-xl shadow-xs shrink-0">
-                  <Store className="w-5 h-5 sm:w-6 sm:h-6 text-teal-700" />
+        {/* Account Menu Dropdown */}
+        <AnimatePresence>
+          {isAccountMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute top-20 right-4 sm:right-6 z-40 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 text-xs space-y-1"
+            >
+              <div className="p-2 border-b border-slate-100 flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-[#00695C] text-white flex items-center justify-center font-bold">
+                  T
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <h1 className="text-base sm:text-xl font-black text-slate-900 truncate tracking-tight">
-                      {config.storeName}
-                    </h1>
-                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-                      <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                      ভেরিফাইড শপ
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 truncate font-medium mt-0.5">{config.tagline}</p>
+                  <div className="font-bold text-slate-900 truncate">গ্রাহক প্রোফাইল</div>
+                  <div className="text-[10px] text-slate-400">অনলাইন শপিং সেবা</div>
                 </div>
               </div>
 
-              {/* Header Right Actions: WhatsApp, Call, Cart */}
-              <div className="flex items-center gap-2 shrink-0">
-                {config.whatsappPhone && (
-                  <a
-                    href={`https://wa.me/${config.whatsappPhone.replace(/[^0-9]/g, '')}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-2 sm:px-3 sm:py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl hover:bg-emerald-100 text-xs font-bold flex items-center gap-1.5 transition"
-                  >
-                    <MessageCircle className="w-4 h-4 text-emerald-600" />
-                    <span className="hidden sm:inline">WhatsApp</span>
-                  </a>
-                )}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('orders');
+                  setIsAccountMenuOpen(false);
+                }}
+                className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 font-bold text-slate-700 flex items-center gap-2 cursor-pointer"
+              >
+                <Package className="w-4 h-4 text-teal-700" />
+                <span>আমার অর্ডার সমূহ</span>
+              </button>
 
-                {/* Cart Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCartOpen(true);
-                    setIsCheckoutStep(false);
-                  }}
-                  className="relative px-3.5 py-2 bg-[#00695C] hover:bg-[#004D40] text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 shadow-sm transition active:scale-95 cursor-pointer"
-                >
-                  <ShoppingCart className="w-4 h-4" />
-                  <span className="hidden sm:inline">কার্ট</span>
-                  <span className="w-5 h-5 rounded-full bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center">
-                    {cartItemCount}
-                  </span>
-                </button>
-              </div>
-            </div>
-          </header>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('inbox');
+                  setIsAccountMenuOpen(false);
+                }}
+                className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 font-bold text-slate-700 flex items-center gap-2 cursor-pointer"
+              >
+                <MessageCircle className="w-4 h-4 text-emerald-600" />
+                <span>কাস্টমার সাপোর্ট</span>
+              </button>
 
-          {/* Hero Banner Section */}
-          <div className="bg-gradient-to-r from-[#004D40] to-[#00695C] text-white py-6 sm:py-8 px-4 sm:px-8 shrink-0">
-            <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="space-y-1.5 text-center md:text-left">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 text-white text-xs font-bold backdrop-blur-xs border border-white/20">
-                  <BadgePercent className="w-3.5 h-3.5 text-amber-300" />
-                  <span>অনলাইন স্পেশাল অফার চলমান</span>
-                </div>
-                <h2 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight">
-                  ঘরে বসেই অর্ডার করুন আপনার পছন্দের পণ্য!
-                </h2>
-                <p className="text-xs sm:text-sm text-teal-100 max-w-xl">
-                  {config.address ? `লোকেশন: ${config.address} • ` : ''}সারা দেশে দ্রুত হোম ডেলিভারি ও ক্যাশ অন ডেলিভারি সুবিধা।
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('more');
+                  setIsAccountMenuOpen(false);
+                }}
+                className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 font-bold text-slate-700 flex items-center gap-2 cursor-pointer"
+              >
+                <Store className="w-4 h-4 text-slate-500" />
+                <span>দোকানের তথ্য ও পলিসি</span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-              {/* Delivery info pills */}
-              <div className="flex items-center gap-2 flex-wrap justify-center md:justify-end">
-                <div className="bg-white/10 backdrop-blur-md px-3 py-2 rounded-xl border border-white/20 text-center">
-                  <div className="text-[11px] text-teal-200">ঢাকা ভেতরে</div>
-                  <div className="font-bold text-sm">৳{config.deliveryInsideDhaka || 60}</div>
-                </div>
-                <div className="bg-white/10 backdrop-blur-md px-3 py-2 rounded-xl border border-white/20 text-center">
-                  <div className="text-[11px] text-teal-200">ঢাকার বাইরে</div>
-                  <div className="font-bold text-sm">৳{config.deliveryOutsideDhaka || 120}</div>
-                </div>
-                {config.freeDeliveryAbove && (
-                  <div className="bg-amber-400 text-slate-950 px-3 py-2 rounded-xl text-center font-bold">
-                    <div className="text-[10px] text-slate-800 font-semibold">ফ্রি ডেলিভারি</div>
-                    <div className="text-xs font-black">৳{formatMoney(config.freeDeliveryAbove)}+ অর্ডারে</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+        {/* Storefront Main Body Container */}
+        <div className="flex-1 overflow-y-auto bg-[#F8FAFC] flex flex-col">
+          {/* TAB 1: HOME TAB */}
+          {activeTab === 'home' && (
+            <div className="flex flex-col space-y-2 pb-16">
+              {/* Search Bar with Mic Voice Search & Clear */}
+              <StorefrontSearchBar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                onClear={() => setSearchQuery('')}
+                placeholder='Search "Medicine, Skincare, Panjabi..."'
+              />
 
-          {/* Search & Category Filter Section */}
-          <div className="max-w-5xl mx-auto w-full px-4 sm:px-8 py-4 space-y-3 shrink-0">
-            <div className="flex flex-col sm:flex-row gap-2.5">
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="পণ্য খুঁজুন (নাম বা কোড)..."
-                  className="w-full pl-10 pr-9 py-2.5 sm:py-3 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-sm font-semibold text-slate-800 shadow-2xs placeholder:text-slate-400"
-                />
-                <Search className="w-4.5 h-4.5 absolute left-3.5 top-3 sm:top-3.5 text-slate-400" />
-                {searchQuery && (
+              {/* Hero Banner Carousel (Exact match to screenshot: Neon Best Picks Sign or Vendor Custom Banner) */}
+              <StorefrontHeroCarousel
+                config={config}
+                onExploreClick={() => {
+                  setShowOnlyBestPicks(true);
+                  setSelectedCategory('all');
+                }}
+              />
+
+              {/* Category Horizontal Chips */}
+              <div className="w-full px-3.5 sm:px-6 py-1">
+                <div className="max-w-5xl mx-auto flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
                   <button
                     type="button"
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-2.5 sm:top-3 text-slate-400 hover:text-slate-600 font-bold text-sm p-1"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Category Chips */}
-            {categories.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-                <button
-                  type="button"
-                  onClick={() => setSelectedCategory('all')}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 cursor-pointer ${
-                    selectedCategory === 'all'
-                      ? 'bg-[#004D40] text-white shadow-xs'
-                      : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-                  }`}
-                >
-                  সকল পণ্য ({publishedProducts.length})
-                </button>
-                {categories.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 cursor-pointer ${
-                      selectedCategory === cat
-                        ? 'bg-[#004D40] text-white shadow-xs'
+                    onClick={() => {
+                      setSelectedCategory('all');
+                      setShowOnlyBestPicks(false);
+                    }}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 cursor-pointer shadow-2xs ${
+                      selectedCategory === 'all' && !showOnlyBestPicks
+                        ? 'bg-[#004D40] text-white shadow-teal-950/20'
                         : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
                     }`}
                   >
-                    {cat}
+                    সকল পণ্য ({publishedProducts.length})
                   </button>
-                ))}
-              </div>
-            )}
-          </div>
 
-          {/* Product Grid */}
-          <div className="max-w-5xl mx-auto w-full px-4 sm:px-8 pb-12 flex-1">
-            {filteredProducts.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-slate-200/80 p-8 sm:p-12 text-center space-y-3 my-4">
-                <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center">
-                  <Package className="w-8 h-8" />
-                </div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-800">কোনো পণ্য পাওয়া যায়নি</h3>
-                <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto">
-                  {publishedProducts.length === 0
-                    ? 'দোকানের ইনভেনটরি থেকে পণ্য যুক্ত করুন। পণ্য যুক্ত করলে স্বয়ংক্রিয়ভাবে এখানে প্রদর্শিত হবে।'
-                    : 'আপনার অনুসন্ধানের সাথে মিল রেখে কোনো পণ্য পাওয়া যায়নি। অন্য কিছু লিখে খুঁজুন।'}
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
-                {filteredProducts.map((product) => {
-                  const inCartItem = cart.find((c) => c.product.id === product.id);
-                  const inStock = product.stock > 0;
-
-                  return (
-                    <div
-                      key={product.id}
-                      className="bg-white rounded-2xl border border-slate-200/80 hover:border-teal-500/50 hover:shadow-md transition-all flex flex-col overflow-hidden group"
+                  {categories.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategory(cat);
+                        setShowOnlyBestPicks(false);
+                      }}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 cursor-pointer shadow-2xs ${
+                        selectedCategory === cat
+                          ? 'bg-[#004D40] text-white shadow-teal-950/20'
+                          : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                      }`}
                     >
-                      {/* Product Thumbnail / Image */}
-                      <div className="h-36 sm:h-44 bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center relative p-2 border-b border-slate-100 overflow-hidden">
-                        <img
-                          src={product.imageUrl || getFallbackProductImage(product.category, product.name)}
-                          alt={product.name}
-                          referrerPolicy="no-referrer"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            const fallback = getFallbackProductImage(product.category, product.name);
-                            if (target.src !== fallback) {
-                              target.src = fallback;
-                            }
-                          }}
-                          className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
-                        />
-
-                        {/* Stock Badge */}
-                        <div className="absolute top-2 left-2">
-                          <span
-                            className={`text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                              inStock
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                : 'bg-red-100 text-red-800 border border-red-200'
-                            }`}
-                          >
-                            {inStock ? `স্টক: ${product.stock} ${product.unit || 'টি'}` : 'স্টক শেষ'}
-                          </span>
-                        </div>
-
-                        {/* COD available mini tag */}
-                        <div className="absolute top-2 right-2">
-                          <span className="text-[9px] font-black px-1.5 py-0.5 bg-amber-400 text-slate-950 rounded shadow-xs">
-                            COD
-                          </span>
-                        </div>
-
-                        {product.category && (
-                          <div className="absolute bottom-2 right-2">
-                            <span className="text-[10px] font-semibold px-2 py-0.5 bg-white/90 backdrop-blur-xs rounded-md text-slate-600 border border-slate-200 shadow-2xs">
-                              {product.category}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Product Details */}
-                      <div className="p-3 sm:p-3.5 flex-1 flex flex-col justify-between space-y-2.5">
-                        <div>
-                          <h3 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-2 leading-snug group-hover:text-[#004D40] transition">
-                            {product.name}
-                          </h3>
-                          {product.description && (
-                            <p className="text-[11px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">
-                              {product.description}
-                            </p>
-                          )}
-                          {product.sku && (
-                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">কোড: {product.sku}</p>
-                          )}
-                        </div>
-
-                        {/* Price & Action Button */}
-                        <div className="pt-1">
-                          <div className="flex items-baseline justify-between gap-1 mb-2">
-                            <span className="text-sm sm:text-base font-black text-teal-800">
-                              ৳ {formatMoney(product.salePrice)}
-                            </span>
-                            <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium">
-                              প্রতি {product.unit || 'টি'}
-                            </span>
-                          </div>
-
-                          {inCartItem ? (
-                            <div className="flex items-center justify-between bg-teal-50 border border-teal-300 rounded-xl p-1">
-                              <button
-                                type="button"
-                                onClick={() => updateQuantity(product.id, -1)}
-                                className="w-7 h-7 bg-white text-teal-800 rounded-lg flex items-center justify-center font-bold hover:bg-teal-100 shadow-2xs transition active:scale-90"
-                              >
-                                <Minus className="w-3.5 h-3.5" />
-                              </button>
-                              <span className="font-black text-xs sm:text-sm text-teal-900 px-2">
-                                {inCartItem.quantity}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => updateQuantity(product.id, 1)}
-                                className="w-7 h-7 bg-[#004D40] text-white rounded-lg flex items-center justify-center font-bold hover:bg-[#00382E] shadow-2xs transition active:scale-90"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => addToCart(product)}
-                              disabled={!inStock}
-                              className={`w-full py-2 px-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow-2xs cursor-pointer ${
-                                inStock
-                                  ? 'bg-[#004D40] hover:bg-[#00382E] text-white'
-                                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                              }`}
-                            >
-                              <ShoppingCart className="w-3.5 h-3.5" />
-                              <span>{inStock ? 'অর্ডার করুন' : 'মজুদ নেই'}</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                      {cat}
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
-          </div>
 
-          {/* Sticky Mobile Floating Cart Bar */}
-          {cartItemCount > 0 && !isCartOpen && (
-            <div className="sticky bottom-3 mx-4 sm:mx-8 z-20">
-              <div className="bg-[#004D40] text-white p-3 sm:p-3.5 rounded-2xl shadow-xl flex items-center justify-between gap-3 border border-teal-600/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center font-black text-sm">
-                    {cartItemCount}
+              {/* Section Header: "Best Picks" & "see all" (Exact match to screenshot) */}
+              <div className="w-full px-3.5 sm:px-6 pt-2 pb-1">
+                <div className="max-w-5xl mx-auto flex items-center justify-between">
+                  <h2 className="text-[#be185d] text-lg sm:text-xl font-black tracking-tight">
+                    {showOnlyBestPicks ? 'Best Picks (স্পেশাল অফার)' : 'Best Picks'}
+                  </h2>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowOnlyBestPicks((prev) => !prev)}
+                    className="text-[#be185d] text-xs sm:text-sm font-bold hover:underline cursor-pointer transition active:scale-95"
+                  >
+                    {showOnlyBestPicks ? 'সকল পণ্য দেখুন' : 'see all'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Product Grid (2 columns on mobile, 3-4 on desktop) */}
+              <div className="w-full px-3.5 sm:px-6 pb-8">
+                <div className="max-w-5xl mx-auto">
+                  {filteredProducts.length === 0 ? (
+                    <div className="bg-white rounded-3xl border border-slate-200/80 p-8 text-center space-y-3 my-4 shadow-2xs">
+                      <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center">
+                        <Package className="w-8 h-8" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-800">কোনো পণ্য পাওয়া যায়নি</h3>
+                      <p className="text-xs text-slate-500 max-w-md mx-auto">
+                        আপনার অনুসন্ধানের সাথে মিল রেখে কোনো পণ্য পাওয়া যায়নি। অনুগ্রহ করে অন্য নাম দিয়ে খুঁজুন।
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSelectedCategory('all');
+                          setShowOnlyBestPicks(false);
+                        }}
+                        className="px-4 py-2 bg-[#004D40] text-white text-xs font-bold rounded-xl"
+                      >
+                        সকল পণ্য দেখুন
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
+                      {filteredProducts.map((product) => {
+                        const inCart = cart.find((item) => item.product.id === product.id);
+                        return (
+                          <StorefrontProductCard
+                            key={product.id}
+                            product={product}
+                            inCartQuantity={inCart ? inCart.quantity : 0}
+                            onAddToCart={(prod) => addToCart(prod, 1)}
+                            onUpdateQuantity={updateQuantity}
+                            onViewProduct={(prod) => setSelectedProductForDetail(prod)}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: ORDERS TRACKER TAB */}
+          {activeTab === 'orders' && (
+            <StorefrontOrderTracker
+              orders={customerOrders}
+              whatsappPhone={config.whatsappPhone || config.phone}
+            />
+          )}
+
+          {/* TAB 3: CATEGORIES EXPLORER TAB */}
+          {activeTab === 'categories' && (
+            <StorefrontCategoryGrid
+              categories={categories}
+              selectedCategory={selectedCategory}
+              onSelectCategory={(cat) => {
+                setSelectedCategory(cat);
+                setShowOnlyBestPicks(false);
+                setActiveTab('home');
+              }}
+              products={publishedProducts}
+            />
+          )}
+
+          {/* TAB 4: INBOX & LIVE SUPPORT TAB */}
+          {activeTab === 'inbox' && (
+            <StorefrontInboxTab
+              storeName={config.storeName || 'bikroyhub'}
+              whatsappPhone={config.whatsappPhone}
+              storePhone={config.phone}
+            />
+          )}
+
+          {/* TAB 5: MORE INFO & STORE PROFILE TAB */}
+          {activeTab === 'more' && (
+            <StorefrontMoreTab
+              config={config}
+              totalProductsCount={publishedProducts.length}
+            />
+          )}
+        </div>
+
+        {/* Floating Cart CTA if items in cart and on home/categories tab */}
+        {cartItemCount > 0 && !isCartOpen && (
+          <div className="sticky bottom-14 mx-4 sm:mx-6 z-20 pointer-events-auto pb-1">
+            <div className="max-w-5xl mx-auto bg-[#004D40] text-white p-2.5 sm:p-3 rounded-2xl shadow-xl flex items-center justify-between gap-3 border border-teal-600/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black text-xs">
+                  {cartItemCount}
+                </div>
+                <div>
+                  <div className="text-[10px] text-teal-200">মোট কার্ট মূল্য</div>
+                  <div className="text-xs sm:text-sm font-black">৳ {formatMoney(subtotal)}</div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCartOpen(true);
+                  setIsCheckoutStep(true);
+                }}
+                className="px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer"
+              >
+                <span>চেকআউট করুন</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Bottom Navigation Bar (Fixed 5-Tab Bar matching screenshot: হোম, অর্ডার, ক্যাটাগরি, ইনবক্স, আরও) */}
+        <StorefrontBottomNav
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          inboxBadge={1}
+        />
+
+        {/* Notification & Announcement Drawer */}
+        <AnimatePresence>
+          {isNotificationsOpen && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl space-y-4 border border-slate-200"
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
+                      <Bell className="w-4 h-4" />
+                    </div>
+                    <h3 className="font-black text-base text-slate-900">বিজ্ঞপ্তি ও বিশেষ অফার</h3>
                   </div>
-                  <div>
-                    <div className="text-xs text-teal-200">মোট কার্ট মূল্য</div>
-                    <div className="text-sm sm:text-base font-black">৳ {formatMoney(subtotal)}</div>
+                  <button
+                    type="button"
+                    onClick={() => setIsNotificationsOpen(false)}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-2.5 text-xs">
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl space-y-1">
+                    <div className="font-bold text-amber-900 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      <span>সাপ্তাহিক ধামাকা অফার!</span>
+                    </div>
+                    <p className="text-amber-800">
+                      সেরা মানের স্কিনকেয়ার, মেডিসিন ও পাঞ্জাবিতে আকর্ষণীয় ছাড় চলছে। স্টক শেষ হওয়ার আগেই অর্ডার করুন!
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-teal-50 border border-teal-200 rounded-2xl space-y-1">
+                    <div className="font-bold text-teal-900 flex items-center gap-1.5">
+                      <Truck className="w-3.5 h-3.5 text-teal-600" />
+                      <span>১২-২৪ ঘণ্টায় হোম ডেলিভারি</span>
+                    </div>
+                    <p className="text-teal-800">
+                      সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি সুবিধা। নির্দিষ্ট টাকার বেশি অর্ডারে ফ্রি শিপিং সুবিধা!
+                    </p>
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setIsCartOpen(true);
-                    setIsCheckoutStep(true);
-                  }}
-                  className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer"
+                  onClick={() => setIsNotificationsOpen(false)}
+                  className="w-full py-2.5 bg-[#004D40] text-white font-bold text-xs rounded-xl"
                 >
-                  <span>অর্ডার সম্পন্ন করুন</span>
-                  <ArrowRight className="w-4 h-4" />
+                  বুঝেছি, কেনাকাটা চালিয়ে যান
                 </button>
-              </div>
+              </motion.div>
             </div>
           )}
-        </div>
+        </AnimatePresence>
 
         {/* Sliding Cart & Checkout Drawer */}
         <AnimatePresence>
@@ -617,7 +670,7 @@ ${itemsText}
                 {/* Drawer Header */}
                 <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
                   <div className="flex items-center gap-2">
-                    <ShoppingCart className="w-5 h-5 text-teal-800" />
+                    <ShoppingBag className="w-5 h-5 text-teal-800" />
                     <h3 className="font-bold text-base text-slate-900">
                       {isCheckoutStep ? 'ডেলিভারি ও চেকআউট' : `শপিং কার্ট (${cartItemCount})`}
                     </h3>
@@ -625,7 +678,7 @@ ${itemsText}
                   <button
                     type="button"
                     onClick={() => setIsCartOpen(false)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition cursor-pointer"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -636,7 +689,7 @@ ${itemsText}
                   {cart.length === 0 ? (
                     <div className="text-center py-12 space-y-3">
                       <div className="w-16 h-16 rounded-2xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center">
-                        <ShoppingCart className="w-8 h-8" />
+                        <ShoppingBag className="w-8 h-8" />
                       </div>
                       <p className="font-bold text-slate-700 text-sm">আপনার কার্ট খালি!</p>
                       <p className="text-xs text-slate-400">স্টোরফ্রন্ট থেকে পছন্দের পণ্য যোগ করুন।</p>
@@ -790,8 +843,8 @@ ${itemsText}
                         </div>
                       </div>
 
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-700">পেমেন্ট পদ্ধতি</label>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-700">পেমেন্ট পদ্ধতি নির্বাচন করুন</label>
                         <div className="grid grid-cols-2 gap-2">
                           {config.acceptCOD && (
                             <button
@@ -799,7 +852,7 @@ ${itemsText}
                               onClick={() => setPaymentMethod('cod')}
                               className={`p-2.5 rounded-xl border text-xs font-bold text-left transition cursor-pointer ${
                                 paymentMethod === 'cod'
-                                  ? 'bg-teal-50 border-teal-600 text-teal-900'
+                                  ? 'bg-teal-50 border-teal-600 text-teal-900 shadow-2xs'
                                   : 'bg-white border-slate-200 text-slate-700'
                               }`}
                             >
@@ -814,15 +867,114 @@ ${itemsText}
                               onClick={() => setPaymentMethod('bkash')}
                               className={`p-2.5 rounded-xl border text-xs font-bold text-left transition cursor-pointer ${
                                 paymentMethod === 'bkash'
-                                  ? 'bg-pink-50 border-pink-500 text-pink-900'
+                                  ? 'bg-pink-50 border-pink-500 text-pink-900 shadow-2xs'
                                   : 'bg-white border-slate-200 text-slate-700'
                               }`}
                             >
-                              <div>বিকাশ (bKash)</div>
-                              <div className="text-[10px] text-pink-700 font-semibold">{config.bkashNumber || 'মার্চেন্ট/পার্সোনাল'}</div>
+                              <div className="flex items-center justify-between">
+                                <span>বিকাশ (bKash)</span>
+                                {config.bkashType && (
+                                  <span className="text-[9px] px-1 py-0.2 bg-pink-200 text-pink-950 rounded">
+                                    {config.bkashType === 'merchant' ? 'মার্চেন্ট' : config.bkashType === 'agent' ? 'এজেন্ট' : 'পার্সোনাল'}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-pink-700 font-semibold truncate">{config.bkashNumber || 'বিকাশ পেমেন্ট'}</div>
+                            </button>
+                          )}
+
+                          {config.acceptNagad && (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentMethod('nagad')}
+                              className={`p-2.5 rounded-xl border text-xs font-bold text-left transition cursor-pointer ${
+                                paymentMethod === 'nagad'
+                                  ? 'bg-orange-50 border-orange-500 text-orange-900 shadow-2xs'
+                                  : 'bg-white border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span>নগদ (Nagad)</span>
+                                {config.nagadType && (
+                                  <span className="text-[9px] px-1 py-0.2 bg-orange-200 text-orange-950 rounded">
+                                    {config.nagadType === 'merchant' ? 'মার্চেন্ট' : 'পার্সোনাল'}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-orange-700 font-semibold truncate">{config.nagadNumber || 'নগদ পেমেন্ট'}</div>
+                            </button>
+                          )}
+
+                          {config.acceptRocket && (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentMethod('rocket')}
+                              className={`p-2.5 rounded-xl border text-xs font-bold text-left transition cursor-pointer ${
+                                paymentMethod === 'rocket'
+                                  ? 'bg-purple-50 border-purple-500 text-purple-900 shadow-2xs'
+                                  : 'bg-white border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span>রকেট (Rocket)</span>
+                              </div>
+                              <div className="text-[10px] text-purple-700 font-semibold truncate">{config.rocketNumber || 'রকেট পেমেন্ট'}</div>
                             </button>
                           )}
                         </div>
+
+                        {/* Payment Instructions & TrxID Input for Mobile Banking */}
+                        {paymentMethod !== 'cod' && (
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 text-xs">
+                            <div className="font-bold text-slate-800 flex items-center justify-between">
+                              <span>
+                                {paymentMethod === 'bkash' && `বিকাশ নম্বর: ${config.bkashNumber || 'নম্বর নেই'}`}
+                                {paymentMethod === 'nagad' && `নগদ নম্বর: ${config.nagadNumber || 'নম্বর নেই'}`}
+                                {paymentMethod === 'rocket' && `রকেট নম্বর: ${config.rocketNumber || 'নম্বর নেই'}`}
+                              </span>
+                              {(config.bkashNumber || config.nagadNumber || config.rocketNumber) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const num =
+                                      paymentMethod === 'bkash'
+                                        ? config.bkashNumber
+                                        : paymentMethod === 'nagad'
+                                        ? config.nagadNumber
+                                        : config.rocketNumber;
+                                    if (num) {
+                                      navigator.clipboard.writeText(num);
+                                      alert('পেমেন্ট নম্বর কপি করা হয়েছে!');
+                                    }
+                                  }}
+                                  className="text-teal-700 font-bold hover:underline cursor-pointer"
+                                >
+                                  কপি করুন
+                                </button>
+                              )}
+                            </div>
+
+                            {config.paymentInstructions && (
+                              <p className="text-[11px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200">
+                                {config.paymentInstructions}
+                              </p>
+                            )}
+
+                            <div className="space-y-1 pt-1">
+                              <label className="text-[11px] font-bold text-slate-700">
+                                ট্রানজেকশন আইডি (TrxID) / প্রেরক মোবাইল নম্বর *
+                              </label>
+                              <input
+                                type="text"
+                                required
+                                value={customerTrxId}
+                                onChange={(e) => setCustomerTrxId(e.target.value)}
+                                placeholder="উদাঃ 9J7X5... অথবা আপনার পেমেন্ট নম্বর"
+                                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Total Breakdown */}
@@ -944,16 +1096,42 @@ ${itemsText}
                     onClick={() => {
                       setCompletedOrder(null);
                       setIsCartOpen(false);
+                      setActiveTab('orders');
                     }}
                     className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
                   >
-                    ঠিক আছে, বন্ধ করুন
+                    অর্ডার ট্র্যাক করুন
                   </button>
                 </div>
               </motion.div>
             </div>
           )}
         </AnimatePresence>
+        {/* Product Quick View / Detail Modal */}
+        <StorefrontProductDetailModal
+          isOpen={!!selectedProductForDetail}
+          product={selectedProductForDetail}
+          onClose={() => setSelectedProductForDetail(null)}
+          inCartQuantity={
+            selectedProductForDetail
+              ? cart.find((i) => i.product.id === selectedProductForDetail.id)?.quantity || 0
+              : 0
+          }
+          onAddToCart={(prod, qty = 1) => addToCart(prod, qty)}
+          onBuyNow={(prod, qty) => {
+            addToCart(prod, qty);
+            setSelectedProductForDetail(null);
+            setIsCartOpen(true);
+          }}
+          config={config}
+        />
+
+        {/* Vendor Support Drawer (Live Customer Support & Chat) */}
+        <StorefrontSupportDrawer
+          isOpen={isSupportDrawerOpen}
+          onClose={() => setIsSupportDrawerOpen(false)}
+          config={config}
+        />
       </div>
     </div>
   );
