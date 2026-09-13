@@ -124,6 +124,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }, 150);
   };
 
+  // Helper for Bengali to English digits
+  const toEnglishDigits = (str: string) => {
+    const bn = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+    return (str || '').replace(/[০-৯]/g, (d) => String(bn.indexOf(d)));
+  };
+
   // -------------------------------------------------------------
   // 1. UNIFIED LOGIN HANDLER (User, Super Admin, Staff)
   // -------------------------------------------------------------
@@ -132,18 +138,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setErrorMsg('');
     setSuccessMsg('');
 
-    const cleanIdentifier = identifier.trim();
+    const cleanIdentifier = toEnglishDigits(identifier.trim());
+    const cleanPassword = toEnglishDigits(password.trim());
     if (!cleanIdentifier) {
       setErrorMsg('অনুগ্রহ করে মোবাইল নম্বর, ইমেইল বা ইউজারনেম দিন');
       return;
     }
-    if (!password) {
+    if (!cleanPassword) {
       setErrorMsg('অনুগ্রহ করে গোপন পাসওয়ার্ড অথবা পিন লিখুন');
       return;
     }
 
     const rateLimit = checkLoginRateLimit(cleanIdentifier.toLowerCase());
-    if (rateLimit.isLocked) {
+    if (rateLimit.isLocked && rateLimit.remainingMinutes > 0) {
       setErrorMsg(`⚠️ অতিরিক্ত ভুল চেষ্টার কারণে অ্যাকাউন্টটি সাময়িক লক করা হয়েছে। দয়া করে ${rateLimit.remainingMinutes} মিনিট পর চেষ্টা করুন।`);
       return;
     }
@@ -151,11 +158,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoading(true);
 
     try {
-      const res = await authApi.login(cleanIdentifier, password);
+      const res = await authApi.login(cleanIdentifier, cleanPassword);
 
       // Check if 2FA OTP is required (Super Admin or Staff)
       if (res.requires2FA) {
         clearLoginAttempts(cleanIdentifier.toLowerCase());
+        clearLoginAttempts(identifier.trim().toLowerCase());
         setShow2FA(true);
         setTwoFaRole(res.role === 'staff' ? 'staff' : 'super_admin');
         setTwoFaStaffId(res.staffId || '');
@@ -170,6 +178,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
       // Regular User direct login
       clearLoginAttempts(cleanIdentifier.toLowerCase());
+      clearLoginAttempts(identifier.trim().toLowerCase());
       setSuccessMsg('✅ দোকানে সফলভাবে প্রবেশ করা হয়েছে!');
       setTimeout(() => {
         onLoginSuccess(res.user?.email || cleanIdentifier, 'দোকানদার', res.user);
@@ -179,7 +188,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
       const attempt = recordFailedLoginAttempt(cleanIdentifier.toLowerCase());
       if (attempt.isLockedNow) {
-        setErrorMsg('❌ ৫ বার ভুল চেষ্টা করায় অ্যাকাউন্টটি ১৫ মিনিটের জন্য লক করা হয়েছে!');
+        setErrorMsg('❌ ৫ বার ভুল চেষ্টা করায় অ্যাকাউন্টটি সাময়িক লক করা হয়েছে।');
       } else {
         let msg = err?.message || '';
         if (!msg || msg.includes('Failed to fetch') || msg.includes('Network request failed') || msg.includes('NetworkError')) {
@@ -275,12 +284,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     } finally {
       setLoading(false);
     }
-  };
-
-  // Helper for Bengali to English digits
-  const toEnglishDigits = (str: string) => {
-    const bn = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
-    return str.replace(/[০-৯]/g, (d) => String(bn.indexOf(d)));
   };
 
   // -------------------------------------------------------------
@@ -407,7 +410,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     if (e) e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
-    const target = resetTarget.trim();
+    const target = toEnglishDigits(resetTarget.trim());
     if (!target) {
       setErrorMsg('অনুগ্রহ করে আপনার রেজিস্টার্ড মোবাইল নম্বর লিখুন');
       return;
@@ -433,7 +436,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
-    const cleanOtp = resetOtp.trim();
+    const cleanOtp = toEnglishDigits(resetOtp.trim());
     if (!cleanOtp) {
       setErrorMsg('অনুগ্রহ করে ৬-সংখ্যার OTP কোড লিখুন');
       return;
@@ -441,7 +444,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
     setLoading(true);
     try {
-      const res = await authApi.verifyResetOtp(resetTarget, cleanOtp);
+      const target = toEnglishDigits(resetTarget.trim());
+      const res = await authApi.verifyResetOtp(target, cleanOtp);
       setSuccessMsg(res.message || '✅ OTP সফলভাবে যাচাই হয়েছে!');
       setResetStep('new_password');
     } catch (err: any) {
@@ -457,11 +461,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (resetNewPass.length < 4) {
+    const cleanNewPass = toEnglishDigits(resetNewPass.trim());
+    const cleanConfirmPass = toEnglishDigits(resetConfirmPass.trim());
+
+    if (cleanNewPass.length < 4) {
       setErrorMsg('নতুন পিন ন্যূনতম ৪ সংখ্যার হতে হবে');
       return;
     }
-    if (resetNewPass !== resetConfirmPass) {
+    if (cleanNewPass !== cleanConfirmPass) {
       setErrorMsg('উভয় পিন হুবহু একই হতে হবে!');
       return;
     }

@@ -653,71 +653,70 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                   </div>
                 </div>
 
-                {/* Primary Store URL Box */}
+                {/* Primary Store URL Box (Canonical Wildcard Subdomain) */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
-                    <span>আপনার প্রধান স্টোর অ্যাড্রেস (শেয়ার ও প্রচারের জন্য):</span>
+                    <span>আপনার প্রধান স্টোর সাব-ডোমেন (শেয়ার ও প্রচারের ক্যানোনিকাল URL):</span>
                     <span className="text-emerald-700 font-bold flex items-center gap-1">
                       <ShieldCheck className="w-3.5 h-3.5" /> SSL এনক্রিপ্ট
                     </span>
                   </div>
 
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-2.5 sm:p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shadow-2xs">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <div className="w-8 h-8 rounded-xl bg-teal-100/70 text-teal-800 flex items-center justify-center shrink-0">
-                        <Globe className="w-4 h-4" />
+                  <div className="bg-slate-50 border-2 border-teal-600/30 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xs w-full min-w-0 overflow-hidden">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
+                      <div className="w-9 h-9 rounded-xl bg-[#004D40] text-white flex items-center justify-center shrink-0 shadow-2xs">
+                        <Globe className="w-5 h-5" />
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-mono text-sm sm:text-base font-black text-slate-900 truncate">
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <div className="text-[11px] font-bold text-teal-800 uppercase tracking-wider">
+                          {formData.customDomainVerified && formData.customDomain ? 'কাস্টম ডোমেন' : 'অফিসিয়াল সাব-ডোমেন'}
+                        </div>
+                        <div className="font-mono text-xs sm:text-base font-black text-slate-900 break-all select-all">
                           https://{currentDomainDisplay}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
                       <button
                         type="button"
                         onClick={() => copyToClipboard(`https://${currentDomainDisplay}`)}
-                        className="flex-1 sm:flex-initial px-3 py-2 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-2xs"
+                        className="flex-1 sm:flex-initial px-3.5 py-2.5 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-2xs"
                       >
                         {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedLink ? 'কপি হয়েছে' : 'লিংক কপি'}</span>
+                        <span>{copiedLink ? 'কপি হয়েছে' : 'সাব-ডোমেন কপি'}</span>
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={onOpenStorefront}
-                        className="flex-1 sm:flex-initial px-3.5 py-2 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+                      <a
+                        href={`https://${currentDomainDisplay}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 sm:flex-initial px-3.5 py-2.5 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
                       >
                         <Eye className="w-3.5 h-3.5" />
-                        <span>প্রিভিউ দেখুন</span>
-                      </button>
+                        <span>ব্রাউজারে ভিজিট</span>
+                      </a>
                     </div>
                   </div>
                 </div>
 
-                {/* Instant Universal Link Box (Works 100% on any device/server without DNS delay) */}
-                <div className="bg-teal-50/60 border border-teal-200/80 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Sparkles className="w-4 h-4 text-teal-700 shrink-0" />
-                    <div className="min-w-0">
-                      <div className="font-bold text-teal-950">তাৎক্ষণিক সার্বজনীন লিংক:</div>
-                      <div className="font-mono text-[11px] text-teal-800 truncate">
-                        {typeof window !== 'undefined' ? `${window.location.origin}/?shop=${formData.storeSlug || 'shop'}` : `https://${currentDomainDisplay}`}
-                      </div>
-                    </div>
+                {/* Secondary Fallback Note (Collapsed / Subdued) */}
+                <div className="bg-slate-50/80 border border-slate-200 rounded-xl px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500 w-full min-w-0 overflow-hidden">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                    <span className="font-semibold text-slate-600 shrink-0">অভ্যন্তরীণ ব্যাকআপ লিংক:</span>
+                    <span className="font-mono text-slate-500 truncate min-w-0 block">
+                      {typeof window !== 'undefined' ? `${window.location.origin}/?shop=${formData.storeSlug || 'shop'}` : `https://${currentDomainDisplay}`}
+                    </span>
                   </div>
-
                   <button
                     type="button"
                     onClick={() => {
                       const url = typeof window !== 'undefined' ? `${window.location.origin}/?shop=${formData.storeSlug || 'shop'}` : `https://${currentDomainDisplay}`;
                       copyToClipboard(url);
                     }}
-                    className="px-2.5 py-1.5 bg-white hover:bg-teal-50 border border-teal-300 text-teal-900 rounded-lg font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
+                    className="self-end sm:self-auto px-2 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 rounded text-teal-700 hover:text-teal-900 font-bold shrink-0 cursor-pointer"
                   >
-                    <Copy className="w-3 h-3" />
-                    <span>কপি লিংক</span>
+                    কপি
                   </button>
                 </div>
 
@@ -841,28 +840,30 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
             <div className="space-y-6">
               {/* Free Subdomain Setting */}
               <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-800 flex items-center justify-center font-black text-sm border border-teal-200">
+                <div className="flex flex-wrap sm:flex-nowrap items-start sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-800 flex items-center justify-center font-black text-sm border border-teal-200 shrink-0">
                       ১
                     </div>
-                    <div>
-                      <h3 className="font-bold text-sm sm:text-base text-slate-900">ফ্রি ইনস্ট্যান্ট সাব-ডোমেন (Subdomain)</h3>
-                      <p className="text-xs text-slate-500">কোনো খরচ ছাড়াই তাৎক্ষণিক সক্রিয় ব্র্যান্ডেড ওয়েব অ্যাড্রেস</p>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-sm sm:text-base text-slate-900">ডাইনামিক ওয়াইল্ডকার্ড সাব-ডোমেন (Dynamic Wildcard Subdomain)</h3>
+                      <p className="text-xs text-slate-500">
+                        আপনার দোকানের নিজস্ব সাব-ডোমেন URL (মূল ডোমেন: <span className="font-mono font-bold text-teal-800">twinghisabi.site</span>)
+                      </p>
                     </div>
                   </div>
 
                   <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold shrink-0">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    স্বয়ংক্রিয় সক্রিয়
+                    ক্যানোনিকাল সক্রিয়
                   </span>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700">আপনার দোকানের পছন্দমতো সাব-ডোমেন নাম দিন:</label>
-                  <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                    <div className="flex-1 flex items-center rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 font-mono text-xs sm:text-sm focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-500/20 focus-within:bg-white shadow-2xs">
-                      <span className="text-slate-400 font-semibold select-none">https://</span>
+                  <label className="text-xs font-bold text-slate-700">আপনার দোকানের পছন্দমতো সাব-ডোমেন স্লাগ দিন (৩-৩০ ক্যারেক্টার):</label>
+                  <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center">
+                    <div className="flex-1 flex items-center rounded-xl border border-slate-300 bg-slate-50 px-2.5 sm:px-3 py-2 sm:py-2.5 font-mono text-xs sm:text-sm focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-500/20 focus-within:bg-white shadow-2xs min-w-0 overflow-hidden">
+                      <span className="text-slate-400 font-semibold select-none shrink-0 text-xs">https://</span>
                       <input
                         type="text"
                         value={formData.storeSlug}
@@ -870,72 +871,76 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                           const clean = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
                           setFormData({ ...formData, storeSlug: clean });
                         }}
-                        className="bg-transparent font-bold text-teal-950 focus:outline-none px-1.5 flex-1 min-w-0"
-                        placeholder="your-shop-name"
+                        className="bg-transparent font-bold text-teal-950 focus:outline-none px-1 flex-1 min-w-0 text-xs sm:text-sm"
+                        placeholder="your-shop-slug"
                       />
-                      <span className="text-teal-800 font-bold select-none">.twinghisabi.site</span>
+                      <span className="text-teal-800 font-bold select-none shrink-0 text-xs">.twinghisabi.site</span>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => handleSaveSettings()}
-                      className="px-5 py-2.5 bg-[#004D40] hover:bg-[#00382E] text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
+                      className="w-full sm:w-auto px-5 py-2.5 bg-[#004D40] hover:bg-[#00382E] text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
                     >
                       <Save className="w-3.5 h-3.5" />
                       <span>সাব-ডোমেন সেভ করুন</span>
                     </button>
                   </div>
+                  <p className="text-[11px] text-slate-500">
+                    * শুধুমাত্র ইংরেজি ছোট হাতের অক্ষর (a-z), সংখ্যা (0-9) এবং হাইফেন (-) প্রযোজ্য। যেমন: <span className="font-mono font-bold text-teal-700">tanjinhub</span>, <span className="font-mono font-bold text-teal-700">rahimstore</span>
+                  </p>
                 </div>
 
-                {/* Subdomain Active Links Display */}
-                <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 space-y-2.5 text-xs">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
+                {/* Subdomain Active Canonical Links Display */}
+                <div className="bg-slate-50 border border-teal-600/30 rounded-2xl p-3.5 sm:p-4 space-y-3 text-xs w-full min-w-0 overflow-hidden shadow-2xs">
+                  <div className="space-y-2 w-full min-w-0">
+                    <div className="flex items-center gap-1.5 text-slate-700">
                       <Globe className="w-4 h-4 text-teal-700 shrink-0" />
-                      <span className="text-slate-600 font-medium">সাব-ডোমেন লিংক:</span>
-                      <span className="font-mono font-bold text-slate-900 truncate">
-                        https://{formData.storeSlug || 'shop'}.twinghisabi.site
-                      </span>
+                      <span className="text-[11px] sm:text-xs font-bold">পাবলিক ক্যানোনিকাল সাব-ডোমেন URL:</span>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(`https://${formData.storeSlug || 'shop'}.twinghisabi.site`)}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-lg text-[11px] flex items-center gap-1 transition cursor-pointer shadow-2xs"
-                      >
-                        <Copy className="w-3 h-3" />
-                        <span>কপি</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onOpenStorefront}
-                        className="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold rounded-lg text-[11px] flex items-center gap-1 transition cursor-pointer"
-                      >
-                        <Eye className="w-3 h-3" />
-                        <span>প্রিভিউ</span>
-                      </button>
+
+                    <div className="bg-white border border-slate-200/90 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full min-w-0 shadow-2xs">
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <a
+                          href={`https://${formData.storeSlug || 'shop'}.twinghisabi.site`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono font-black text-xs sm:text-sm text-teal-950 hover:text-teal-700 hover:underline break-all block select-all tracking-tight"
+                        >
+                          https://{formData.storeSlug || 'shop'}.twinghisabi.site
+                        </a>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(`https://${formData.storeSlug || 'shop'}.twinghisabi.site`)}
+                          className="flex-1 sm:flex-initial px-3.5 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-slate-600" />
+                          <span>কপি</span>
+                        </button>
+                        <a
+                          href={`https://${formData.storeSlug || 'shop'}.twinghisabi.site`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 sm:flex-initial px-3.5 py-2 bg-[#004D40] hover:bg-[#00382E] active:scale-95 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>ব্রাউজারে খুলুন</span>
+                        </a>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-2 border-t border-slate-200/70">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span className="text-slate-600 font-medium">তাৎক্ষণিক লিংক:</span>
-                      <span className="font-mono font-bold text-slate-900 truncate">
-                        {typeof window !== 'undefined' ? `${window.location.origin}/?shop=${formData.storeSlug || 'shop'}` : `https://${formData.storeSlug || 'shop'}.twinghisabi.site`}
-                      </span>
+                  <div className="bg-white/90 rounded-xl p-3 border border-slate-200/80 text-[11px] text-slate-600 space-y-1">
+                    <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>হোস্টনেম ভিত্তিক আইসোলেশন ও রাউটিং সক্রিয়</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const url = typeof window !== 'undefined' ? `${window.location.origin}/?shop=${formData.storeSlug || 'shop'}` : `https://${formData.storeSlug || 'shop'}.twinghisabi.site`;
-                        copyToClipboard(url);
-                      }}
-                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-lg text-[11px] flex items-center gap-1 transition cursor-pointer shadow-2xs shrink-0"
-                    >
-                      <Copy className="w-3 h-3" />
-                      <span>কপি</span>
-                    </button>
+                    <p className="leading-relaxed">
+                      প্রতিটি সাব-ডোমেন রিকোয়েস্টে ব্যাকএন্ড <span className="font-mono text-teal-700 font-bold">Host</span> হেডারের মাধ্যমে ভেন্ডরের তথ্য স্বয়ংক্রিয়ভাবে নির্ধারণ করে এবং ডাটাবেজ লেভেলে অন্য কোনো ভেন্ডরের ডাটা অ্যাক্সেস প্রতিরোধ করে।
+                    </p>
                   </div>
                 </div>
               </div>

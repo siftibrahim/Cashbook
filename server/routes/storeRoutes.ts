@@ -2,8 +2,10 @@ import { Router, Response } from 'express';
 import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
 import { AuthenticatedRequest, authenticateUser, optionalAuth } from '../authMiddleware';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
+import { validateStoreSlug, cleanDomainString } from '../utils/domainResolver';
 
 const router = Router();
+
 
 /**
  * GET /api/store/profile
@@ -704,13 +706,16 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
       .replace(/^-|-$/g, '');
     if (!rawSlug) rawSlug = `store-${userId.slice(-4)}`;
 
+    // Validate slug constraints
+    if (body.storeSlug) {
+      const slugValidation = validateStoreSlug(rawSlug);
+      if (!slugValidation.valid) {
+        return res.status(400).json({ error: slugValidation.error });
+      }
+    }
+
     // Clean custom domain
-    let cleanDomain = (body.customDomain || '')
-      .toLowerCase()
-      .trim()
-      .replace(/^https?:\/\//i, '')
-      .replace(/\/.*$/, '')
-      .replace(/:\d+$/, '');
+    let cleanDomain = cleanDomainString(body.customDomain || '');
 
     const pool = getDbPool();
     if (pool) {
@@ -720,6 +725,11 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
         [rawSlug, userId]
       );
       if (slugCheck.rows.length > 0) {
+        if (body.storeSlug && body.storeSlug.trim()) {
+          return res.status(409).json({
+            error: `সাব-ডোমেন "${rawSlug}.twinghisabi.site" ইতিমধ্যে অন্য একজন ভেন্ডর নিবন্ধন করেছেন। অনুগ্রহ করে একটি ইউনিক সাব-ডোমেন নাম দিন (যেমন: ${rawSlug}-bd)।`,
+          });
+        }
         rawSlug = `${rawSlug}-${userId.slice(-4)}`;
       }
 
@@ -976,8 +986,14 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
       else inMemoryStore.online_store_configs.push(confObj);
     }
 
+    const canonicalUrl = body.customDomainVerified && cleanDomain
+      ? `https://${cleanDomain}`
+      : `https://${rawSlug}.twinghisabi.site`;
+
     return res.json({
       message: '✅ অনলাইন স্টোর সেটিংস সফলভাবে সংরক্ষিত হয়েছে!',
+      subdomainUrl: `https://${rawSlug}.twinghisabi.site`,
+      canonicalUrl,
       config: { ...body, storeSlug: rawSlug, customDomain: cleanDomain },
     });
   } catch (err: any) {

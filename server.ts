@@ -26,6 +26,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Trust reverse proxy (Render.com, Cloudflare, Nginx) for accurate Host, IP, and Protocol detection
+  app.set('trust proxy', true);
+
   // Security Headers Middleware
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');

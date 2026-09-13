@@ -923,6 +923,13 @@ export async function initializeDatabaseSchema() {
   } catch (err) {
     console.error('❌ Failed to initialize database schema:', err);
     console.log('ℹ️ Activating resilient in-memory storage fallback.');
+    if (pool) {
+      try {
+        await pool.end();
+      } catch {}
+      pool = null;
+    }
+    isDbConnected = false;
     seedDefaultDataInMemory();
   }
 }

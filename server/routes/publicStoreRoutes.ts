@@ -1,18 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { getDbPool, inMemoryStore } from '../db';
+import { cleanDomainString, extractSubdomainFromHost } from '../utils/domainResolver';
 
 const router = Router();
 
-// Helper to normalize domain strings
-export function cleanDomainString(domain: string): string {
-  if (!domain) return '';
-  return domain
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//i, '')
-    .replace(/\/.*$/, '')
-    .replace(/:\d+$/, ''); // remove port
-}
 
 // Helper to sanitize public store configuration
 function sanitizePublicConfig(row: any, fallbackStoreProfile?: any) {
@@ -93,7 +84,7 @@ export async function resolveStoreVendor(identifier: string): Promise<{ userId: 
       return { userId: res.rows[0].user_id, storeConfig: res.rows[0] };
     }
 
-    // 3. Subdomain extraction: If identifier is "tanjina.twinghisabi.site" or "foo.mybrand.com"
+    // 3. Subdomain extraction: If identifier is "tanjinhub.twinghisabi.site" or "foo.mybrand.com"
     if (cleanId.includes('.')) {
       const subSlug = cleanId.split('.')[0].toLowerCase();
       if (subSlug && subSlug !== 'www' && subSlug !== 'app' && subSlug !== 'admin' && subSlug !== 'api') {
@@ -107,7 +98,7 @@ export async function resolveStoreVendor(identifier: string): Promise<{ userId: 
       }
     }
 
-    // 4. Path-style extraction: If identifier is "shop/tanjina" or "store/tanjina"
+    // 4. Path-style extraction: If identifier is "shop/tanjinhub" or "store/tanjinhub"
     if (cleanId.includes('/')) {
       const parts = cleanId.split('/').filter(Boolean);
       const last = parts[parts.length - 1].toLowerCase();
@@ -189,7 +180,7 @@ export async function resolveStoreVendor(identifier: string): Promise<{ userId: 
     );
     if (found) return { userId: found.userId || found.user_id, storeConfig: found };
 
-    // 3. Subdomain extraction: If identifier is "tanjina.twinghisabi.site"
+    // 3. Subdomain extraction: If identifier is "tanjinhub.twinghisabi.site"
     if (cleanId.includes('.')) {
       const subSlug = cleanId.split('.')[0].toLowerCase();
       if (subSlug && subSlug !== 'www' && subSlug !== 'app' && subSlug !== 'admin' && subSlug !== 'api') {
@@ -227,87 +218,157 @@ export async function resolveStoreVendor(identifier: string): Promise<{ userId: 
 }
 
 /**
+ * Enforces Tenant Isolation and resolves the authorized store vendor for the request.
+ * If the request arrives on a vendor subdomain (e.g. tanjinhub.twinghisabi.site),
+ * the subdomain is canonical and strictly bound. Cross-tenant access is forbidden.
+ */
+export async function getVerifiedStoreContext(
+  req: Request,
+  identifier?: string
+): Promise<{ error?: string; status?: number; resolved?: { userId: string; storeConfig: any } }> {
+  const rawHost = (req.headers['x-forwarded-host'] || req.headers.host || '') as string;
+  const hostInfo = extractSubdomainFromHost(rawHost);
+
+  let targetToResolve = identifier || '';
+
+  // 1. PRIMARY CANONICAL RESOLUTION: Dynamic Wildcard Subdomain (e.g. tanjinhub.twinghisabi.site)
+  if (hostInfo.isSubdomain && hostInfo.slug) {
+    const hostResolved = await resolveStoreVendor(hostInfo.slug);
+    if (!hostResolved) {
+      return {
+        error: `"${hostInfo.slug}.twinghisabi.site" সাব-ডোমেনে কোনো সক্রিয় অনলাইন স্টোর পাওয়া যায়নি।`,
+        status: 404,
+      };
+    }
+
+    // If identifier is empty, 'current', 'self', 'default' or matches the host slug, grant access
+    if (
+      !targetToResolve ||
+      targetToResolve === 'current' ||
+      targetToResolve === 'self' ||
+      targetToResolve === 'default' ||
+      targetToResolve.toLowerCase() === hostInfo.slug.toLowerCase()
+    ) {
+      return { resolved: hostResolved };
+    }
+
+    // STRICT CROSS-TENANT SECURITY:
+    // If the client requested another vendor's identifier while on this subdomain, verify they match!
+    const requestedResolved = await resolveStoreVendor(targetToResolve);
+    if (!requestedResolved || requestedResolved.userId !== hostResolved.userId) {
+      return {
+        error: 'টেন্যান্ট সুরক্ষা নিরাপত্তা সতর্কতা: এই সাব-ডোমেন থেকে অন্য কোনো ভেন্ডরের স্টোর ডেটা অ্যাক্সেস করা সম্পূর্ণ নিষিদ্ধ।',
+        status: 403,
+      };
+    }
+
+    return { resolved: hostResolved };
+  }
+
+  // 2. Custom Domain (e.g. myshopbd.com)
+  if (hostInfo.isCustomDomain) {
+    const hostResolved = await resolveStoreVendor(hostInfo.cleanHost);
+    if (!hostResolved) {
+      return {
+        error: `কাস্টম ডোমেন "${hostInfo.cleanHost}"-এর সাথে কোনো সক্রিয় অনলাইন স্টোর সংযুক্ত নেই।`,
+        status: 404,
+      };
+    }
+
+    if (
+      !targetToResolve ||
+      targetToResolve === 'current' ||
+      targetToResolve === 'self' ||
+      targetToResolve === 'default' ||
+      cleanDomainString(targetToResolve).toLowerCase() === hostInfo.cleanHost.toLowerCase()
+    ) {
+      return { resolved: hostResolved };
+    }
+
+    const requestedResolved = await resolveStoreVendor(targetToResolve);
+    if (!requestedResolved || requestedResolved.userId !== hostResolved.userId) {
+      return {
+        error: 'টেন্যান্ট সুরক্ষা সতর্কতা: এই কাস্টম ডোমেন থেকে অন্য কোনো ভেন্ডরের স্টোর ডেটা অ্যাক্সেস করা সম্পূর্ণ নিষিদ্ধ।',
+        status: 403,
+      };
+    }
+
+    return { resolved: hostResolved };
+  }
+
+  // 3. Root Domain or Platform Host (e.g. twinghisabi.site, localhost, *.run.app, *.onrender.com)
+  if (
+    !targetToResolve ||
+    targetToResolve === 'current' ||
+    targetToResolve === 'self' ||
+    targetToResolve === 'default'
+  ) {
+    targetToResolve = (req.query.slug || req.query.shop || req.query.store || req.query.vendor || '') as string;
+  }
+
+  if (!targetToResolve) {
+    // If testing without params in dev/preview mode, fallback to first active store
+    const pool = getDbPool();
+    if (pool) {
+      const first = await pool.query('SELECT * FROM online_store_configs WHERE is_enabled = true LIMIT 1');
+      if (first.rows.length > 0) {
+        targetToResolve = first.rows[0].store_slug || first.rows[0].user_id;
+      }
+    } else if ((inMemoryStore.online_store_configs || []).length > 0) {
+      targetToResolve = inMemoryStore.online_store_configs[0].storeSlug || inMemoryStore.online_store_configs[0].userId;
+    }
+  }
+
+  if (!targetToResolve) {
+    return {
+      error: 'কোনো অনলাইন স্টোর পাওয়া যায়নি। অনুগ্রহ করে সঠিক স্টোর লিংক প্রদান করুন।',
+      status: 404,
+    };
+  }
+
+  const resolved = await resolveStoreVendor(targetToResolve);
+  if (!resolved) {
+    return {
+      error: 'অনুরোধকৃত অনলাইন স্টোরটি খুঁজে পাওয়া যায়নি।',
+      status: 404,
+    };
+  }
+
+  return { resolved };
+}
+
+/**
  * GET /api/public/store/resolve
- * Resolves a store via query param or host header
+ * Deterministically resolves a store via Host header (Subdomain / Custom Domain)
+ * or query fallback on root domain
  */
 router.get('/resolve', async (req: Request, res: Response) => {
   try {
-    const queryTarget = (req.query.slug || req.query.shop || req.query.store || req.query.domain || req.query.vendor || '') as string;
-    const hostHeader = cleanDomainString((req.headers['x-forwarded-host'] || req.headers.host || '') as string);
+    const rawHost = (req.headers['x-forwarded-host'] || req.headers.host || '') as string;
+    const hostInfo = extractSubdomainFromHost(rawHost);
 
-    let identifierToResolve = '';
+    const requestedSlug = (req.query.slug || req.query.shop || req.query.store || req.query.domain || req.query.vendor || '') as string;
+    const ctx = await getVerifiedStoreContext(req, requestedSlug);
 
-    // 1. Check explicit query parameter first
-    if (queryTarget && queryTarget !== '1' && queryTarget !== 'true' && queryTarget !== 'default') {
-      identifierToResolve = queryTarget;
-    } else if (hostHeader) {
-      // 2. Check if host has subdomain on twinghisabi.site or another base domain
-      if (hostHeader.includes('.twinghisabi.site')) {
-        const sub = hostHeader.split('.twinghisabi.site')[0].toLowerCase();
-        if (sub && sub !== 'www' && sub !== 'app' && sub !== 'admin' && sub !== 'api') {
-          identifierToResolve = sub;
-        } else {
-          identifierToResolve = hostHeader;
-        }
-      } else {
-        // 3. Custom domain or external host (e.g. myshop.com)
-        const isPlatformHost =
-          hostHeader.includes('localhost') ||
-          hostHeader.includes('127.0.0.1') ||
-          hostHeader.endsWith('googleusercontent.com') ||
-          hostHeader.endsWith('run.app') ||
-          hostHeader === 'twinghisabi.site' ||
-          hostHeader === 'www.twinghisabi.site' ||
-          hostHeader === 'app.twinghisabi.site';
-
-        if (!isPlatformHost) {
-          identifierToResolve = hostHeader;
-        }
-      }
-    }
-
-    if (!identifierToResolve) {
-      // If query was just ?store=1 in dev/preview mode, fallback to first active store
-      const pool = getDbPool();
-      if (pool) {
-        const first = await pool.query('SELECT * FROM online_store_configs WHERE is_enabled = true LIMIT 1');
-        if (first.rows.length > 0) {
-          identifierToResolve = first.rows[0].store_slug || first.rows[0].user_id;
-        } else {
-          const firstUser = await pool.query('SELECT id FROM users ORDER BY registered_at ASC LIMIT 1');
-          if (firstUser.rows.length > 0) {
-            identifierToResolve = firstUser.rows[0].id;
-          }
-        }
-      } else {
-        if ((inMemoryStore.online_store_configs || []).length > 0) {
-          identifierToResolve = inMemoryStore.online_store_configs[0].storeSlug || inMemoryStore.online_store_configs[0].userId;
-        } else if (inMemoryStore.users.length > 0) {
-          identifierToResolve = inMemoryStore.users[0].id;
-        }
-      }
-    }
-
-    if (!identifierToResolve) {
-      return res.status(404).json({
+    if (ctx.error || !ctx.resolved) {
+      return res.status(ctx.status || 404).json({
         found: false,
-        error: 'কোনো অনলাইন স্টোর পাওয়া যায়নি। অনুগ্রহ করে সঠিক স্টোর লিংক প্রদান করুন।',
+        error: ctx.error || 'অনলাইন স্টোর পাওয়া যায়নি।',
+        hostInfo,
       });
     }
 
-    const resolved = await resolveStoreVendor(identifierToResolve);
-    if (!resolved) {
-      return res.status(404).json({
-        found: false,
-        error: 'অনুরোধকৃত অনলাইন স্টোর বা কাস্টম ডোমেনটি খুঁজে পাওয়া যায়নি।',
-      });
-    }
+    const publicConfig = sanitizePublicConfig(ctx.resolved.storeConfig);
+    const canonicalUrl = publicConfig.customDomainVerified && publicConfig.customDomain
+      ? `https://${publicConfig.customDomain}`
+      : `https://${publicConfig.storeSlug || 'shop'}.twinghisabi.site`;
 
-    const publicConfig = sanitizePublicConfig(resolved.storeConfig);
     return res.json({
       found: true,
       store: publicConfig,
-      vendorId: resolved.userId,
+      vendorId: ctx.resolved.userId,
+      canonicalUrl,
+      subdomain: publicConfig.storeSlug,
     });
   } catch (err: any) {
     console.error('Error in public store resolve:', err);
@@ -318,19 +379,19 @@ router.get('/resolve', async (req: Request, res: Response) => {
 /**
  * GET /api/public/store/:identifier/products
  * Returns strictly the public, published products of this vendor
- * NEVER exposes vendor cost price (buyPrice) or other vendors' data
+ * Enforces tenant isolation and never exposes cost price or other vendors' data
  */
 router.get('/:identifier/products', async (req: Request, res: Response) => {
   try {
     const { identifier } = req.params;
-    const resolved = await resolveStoreVendor(identifier);
+    const ctx = await getVerifiedStoreContext(req, identifier);
 
-    if (!resolved) {
-      return res.status(404).json({ error: 'স্টোরটি পাওয়া যায়নি।' });
+    if (ctx.error || !ctx.resolved) {
+      return res.status(ctx.status || 404).json({ error: ctx.error });
     }
 
-    const targetUserId = resolved.userId;
-    const storeConfig = resolved.storeConfig;
+    const targetUserId = ctx.resolved.userId;
+    const storeConfig = ctx.resolved.storeConfig;
     const publishedIds: string[] = Array.isArray(storeConfig.published_product_ids)
       ? storeConfig.published_product_ids
       : (typeof storeConfig.published_product_ids === 'string'
@@ -401,20 +462,82 @@ router.get('/:identifier/products', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/public/store/:identifier/products/:productId
+ * Returns a single product strictly isolated to this vendor's catalog
+ */
+router.get('/:identifier/products/:productId', async (req: Request, res: Response) => {
+  try {
+    const { identifier, productId } = req.params;
+    const ctx = await getVerifiedStoreContext(req, identifier);
+
+    if (ctx.error || !ctx.resolved) {
+      return res.status(ctx.status || 404).json({ error: ctx.error });
+    }
+
+    const targetUserId = ctx.resolved.userId;
+    const pool = getDbPool();
+
+    if (pool) {
+      const result = await pool.query(
+        `SELECT id, name, category, unit, sale_price, stock, sku, qr_code, image_url, description, rating, discount_percent, is_published_online
+         FROM products
+         WHERE id = $1 AND user_id = $2 AND (is_published_online IS NOT FALSE)
+         LIMIT 1`,
+        [productId, targetUserId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি।' });
+      }
+
+      const row = result.rows[0];
+      return res.json({
+        product: {
+          id: row.id,
+          name: row.name,
+          category: row.category || 'সাধারণ',
+          unit: row.unit || 'পিস',
+          salePrice: parseFloat(row.sale_price) || 0,
+          stock: parseFloat(row.stock) || 0,
+          sku: row.sku || '',
+          qrCode: row.qr_code || '',
+          imageUrl: row.image_url || '',
+          description: row.description || '',
+          rating: row.rating ? parseFloat(row.rating) : 5.0,
+          discountPercent: row.discount_percent ? parseFloat(row.discount_percent) : 0,
+          isPublishedOnline: row.is_published_online !== false,
+        },
+      });
+    } else {
+      const p = (inMemoryStore.products || []).find(
+        (prod) => prod.id === productId && prod.userId === targetUserId && prod.isPublishedOnline !== false
+      );
+      if (!p) return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি।' });
+      return res.json({ product: p });
+    }
+  } catch (err: any) {
+    console.error('Error fetching single product:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
+/**
  * POST /api/public/store/:identifier/orders
  * Public customer places an order strictly for this specific vendor
  */
 router.post('/:identifier/orders', async (req: Request, res: Response) => {
   try {
     const { identifier } = req.params;
-    const resolved = await resolveStoreVendor(identifier);
+    const ctx = await getVerifiedStoreContext(req, identifier);
 
-    if (!resolved) {
-      return res.status(404).json({ error: 'স্টোরটি বর্তমানে অর্ডার গ্রহণের জন্য প্রস্তুত নয়।' });
+    if (ctx.error || !ctx.resolved) {
+      return res.status(ctx.status || 404).json({ error: ctx.error || 'স্টোরটি বর্তমানে অর্ডার গ্রহণের জন্য প্রস্তুত নয়।' });
     }
 
-    const targetUserId = resolved.userId;
+    const targetUserId = ctx.resolved.userId;
     const body = req.body;
+
 
     const customerName = (body.customerName || '').trim();
     const customerPhone = (body.customerPhone || '').trim();
@@ -560,14 +683,15 @@ router.post('/:identifier/orders', async (req: Request, res: Response) => {
 router.get('/:identifier/orders/track/:orderNumber', async (req: Request, res: Response) => {
   try {
     const { identifier, orderNumber } = req.params;
-    const resolved = await resolveStoreVendor(identifier);
+    const ctx = await getVerifiedStoreContext(req, identifier);
 
-    if (!resolved) {
-      return res.status(404).json({ error: 'স্টোরটি পাওয়া যায়নি।' });
+    if (ctx.error || !ctx.resolved) {
+      return res.status(ctx.status || 404).json({ error: ctx.error || 'স্টোরটি পাওয়া যায়নি।' });
     }
 
-    const targetUserId = resolved.userId;
+    const targetUserId = ctx.resolved.userId;
     const pool = getDbPool();
+
 
     if (pool) {
       const result = await pool.query(
