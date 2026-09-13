@@ -98,6 +98,8 @@ import { QrGeneratorModal } from './components/qr/QrGeneratorModal';
 import { ProductScannerModal } from './components/scanner/ProductScannerModal';
 import { OnlineStoreModal } from './components/OnlineStoreModal';
 import { OnlineStorefrontModal } from './components/OnlineStorefrontModal';
+import { PublicStorefrontPage } from './components/PublicStorefrontPage';
+import { detectPublicStoreContext } from './utils/storefrontDetector';
 import { AdBanner } from './components/ads/AdBanner';
 import {
   subscribeToUserSupportMessages,
@@ -173,14 +175,9 @@ export const App: React.FC = () => {
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [isOnlineStoreModalOpen, setIsOnlineStoreModalOpen] = useState(false);
-  const [isOnlineStorefrontOpen, setIsOnlineStorefrontOpen] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const search = window.location.search;
-      const params = new URLSearchParams(search);
-      return params.get('store') === '1' || params.get('storefront') === '1' || params.get('shop') === '1';
-    }
-    return false;
-  });
+  const [publicStoreContext, setPublicStoreContext] = useState(() => detectPublicStoreContext());
+  const [isMerchantAdminViewForced, setIsMerchantAdminViewForced] = useState(false);
+  const [isOnlineStorefrontOpen, setIsOnlineStorefrontOpen] = useState(false);
   const [onlineStoreConfig, setOnlineStoreConfig] = useState<OnlineStoreConfig>(() => {
     const user = getStoredUser();
     return loadOnlineStoreConfig(user?.id, store?.name, store?.phone);
@@ -501,6 +498,15 @@ export const App: React.FC = () => {
     });
 
     return () => clearTimeout(safetyTimer);
+  }, []);
+
+  // Sync public storefront detection on browser history / back / forward
+  useEffect(() => {
+    const handlePopState = () => {
+      setPublicStoreContext(detectPublicStoreContext());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   // Listen for Paymently callback URL parameters on return
@@ -1528,6 +1534,18 @@ export const App: React.FC = () => {
     showToast(`✅ অর্ডার #${order.orderNumber} মূল বিক্রির খাতায় সফলভাবে এন্ট্রি হয়েছে!`);
     setIsOnlineStoreModalOpen(false);
   };
+
+  // If this session is visiting a public storefront (subdomain or ?shop=) and hasn't forced merchant login:
+  if (publicStoreContext.isPublicStore && !isMerchantAdminViewForced) {
+    return (
+      <PublicStorefrontPage
+        identifier={publicStoreContext.storeIdentifier}
+        onMerchantLogin={() => {
+          setIsMerchantAdminViewForced(true);
+        }}
+      />
+    );
+  }
 
   if (isAuthChecking) {
     return (

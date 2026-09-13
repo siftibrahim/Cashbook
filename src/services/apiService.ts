@@ -3,7 +3,7 @@
  * Replaces Firebase with Node.js Express + Neon PostgreSQL Backend
  */
 
-import { Customer, Transaction, StoreProfile, DailyExpense, TagadaTemplate, OnlineOrder } from '../types';
+import { Customer, Transaction, StoreProfile, DailyExpense, TagadaTemplate, OnlineOrder, OnlineStoreConfig, Product } from '../types';
 import {
   AppUser,
   PaymentRecord,
@@ -949,6 +949,101 @@ export const storeApi = {
   async trackOrder(orderNumber: string): Promise<OnlineOrder | null> {
     try {
       const res = await apiRequest<{ order: OnlineOrder }>(`/store/orders/track/${encodeURIComponent(orderNumber)}`);
+      return res?.order || null;
+    } catch {
+      return null;
+    }
+  },
+
+  async deleteOrder(orderId: string): Promise<boolean> {
+    try {
+      await apiRequest(`/store/orders/${encodeURIComponent(orderId)}`, { method: 'DELETE' });
+      return true;
+    } catch (err) {
+      console.error('API deleteOrder error:', err);
+      return false;
+    }
+  },
+
+  async getOnlineConfig(): Promise<OnlineStoreConfig | null> {
+    try {
+      const res = await apiRequest<{ config: OnlineStoreConfig }>('/store/online-config');
+      return res?.config || null;
+    } catch (err) {
+      console.warn('Failed to fetch online-config:', err);
+      return null;
+    }
+  },
+
+  async saveOnlineConfig(config: OnlineStoreConfig): Promise<OnlineStoreConfig> {
+    try {
+      const res = await apiRequest<{ message: string; config: OnlineStoreConfig }>('/store/online-config', {
+        method: 'PUT',
+        body: JSON.stringify(config),
+      });
+      return res?.config || config;
+    } catch (err) {
+      console.error('Failed to save online-config:', err);
+      throw err;
+    }
+  },
+
+  async verifyCustomDomain(domain: string): Promise<{ success: boolean; message: string; domain: string }> {
+    return apiRequest<{ success: boolean; message: string; domain: string }>('/store/verify-domain', {
+      method: 'POST',
+      body: JSON.stringify({ domain }),
+    });
+  },
+
+  async disconnectCustomDomain(): Promise<void> {
+    await apiRequest('/store/custom-domain', { method: 'DELETE' });
+  },
+};
+
+// ---------------- PUBLIC CUSTOMER STOREFRONT API ----------------
+export const publicStoreApi = {
+  async resolveStore(identifier?: string): Promise<{ found: boolean; store: OnlineStoreConfig; vendorId: string } | null> {
+    try {
+      const params = new URLSearchParams();
+      if (identifier) params.set('slug', identifier);
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      const res = await apiRequest<{ found: boolean; store: OnlineStoreConfig; vendorId: string }>(
+        `/public/store/resolve${queryString}`
+      );
+      return res;
+    } catch (err) {
+      console.warn('Public resolveStore error:', err);
+      return null;
+    }
+  },
+
+  async getProducts(identifier: string): Promise<Product[]> {
+    try {
+      const res = await apiRequest<{ products: Product[] }>(
+        `/public/store/${encodeURIComponent(identifier)}/products`
+      );
+      return res?.products || [];
+    } catch (err) {
+      console.warn('Public getProducts error:', err);
+      return [];
+    }
+  },
+
+  async placeOrder(identifier: string, orderData: any): Promise<{ success: boolean; message: string; order: OnlineOrder }> {
+    return apiRequest<{ success: boolean; message: string; order: OnlineOrder }>(
+      `/public/store/${encodeURIComponent(identifier)}/orders`,
+      {
+        method: 'POST',
+        body: JSON.stringify(orderData),
+      }
+    );
+  },
+
+  async trackOrder(identifier: string, orderNumber: string): Promise<OnlineOrder | null> {
+    try {
+      const res = await apiRequest<{ order: OnlineOrder }>(
+        `/public/store/${encodeURIComponent(identifier)}/orders/track/${encodeURIComponent(orderNumber)}`
+      );
       return res?.order || null;
     } catch {
       return null;

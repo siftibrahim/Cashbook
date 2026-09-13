@@ -125,6 +125,15 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
     const pool = getDbPool();
     if (pool) {
       const validUserId = await ensureUserExistsInPostgres(pool, userId, req.user);
+
+      // Multi-tenant check: if product ID is provided, verify it does NOT belong to another tenant
+      if (id) {
+        const existingCheck = await pool.query('SELECT user_id FROM products WHERE id = $1', [id]);
+        if (existingCheck.rows.length > 0 && existingCheck.rows[0].user_id !== validUserId) {
+          return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি অন্য ভেন্ডরের পণ্য পরিবর্তন করতে পারবেন না।' });
+        }
+      }
+
       try {
         await pool.query(`
           INSERT INTO products (
@@ -141,6 +150,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
             sku = EXCLUDED.sku,
             qr_code = EXCLUDED.qr_code,
             updated_at = EXCLUDED.updated_at
+          WHERE products.user_id = EXCLUDED.user_id
         `, [
           prodId, validUserId, name.trim(), category || 'সাধারণ', unit || 'পিস',
           cleanBuy, cleanSale, cleanStock, cleanAlert, assignedSku, qrCode || '', now
@@ -164,6 +174,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
               sku = EXCLUDED.sku,
               qr_code = EXCLUDED.qr_code,
               updated_at = EXCLUDED.updated_at
+            WHERE products.user_id = EXCLUDED.user_id
           `, [
             prodId, validUserId, name.trim(), category || 'সাধারণ', unit || 'পিস',
             cleanBuy, cleanSale, cleanStock, cleanAlert, assignedSku, qrCode || '', now
@@ -174,6 +185,15 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       }
     } else {
       if (!inMemoryStore.products) inMemoryStore.products = [];
+
+      // Multi-tenant check for in-memory
+      if (id) {
+        const memExisting = inMemoryStore.products.find(p => p.id === id);
+        if (memExisting && memExisting.userId !== userId) {
+          return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি অন্য ভেন্ডরের পণ্য পরিবর্তন করতে পারবেন না।' });
+        }
+      }
+
       const idx = inMemoryStore.products.findIndex(p => p.id === prodId && p.userId === userId);
       const prodObj = {
         id: prodId,
@@ -225,9 +245,21 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
 
     const pool = getDbPool();
     if (pool) {
-      await pool.query('DELETE FROM products WHERE id = $1 AND user_id = $2', [id, userId]);
+      const result = await pool.query('DELETE FROM products WHERE id = $1 AND user_id = $2 RETURNING id', [id, userId]);
+      if (result.rows.length === 0) {
+        // Check if the product belongs to another user
+        const otherCheck = await pool.query('SELECT user_id FROM products WHERE id = $1', [id]);
+        if (otherCheck.rows.length > 0) {
+          return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি অন্য ভেন্ডরের পণ্য মুছতে পারবেন না।' });
+        }
+        return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি' });
+      }
     } else {
       if (inMemoryStore.products) {
+        const existing = inMemoryStore.products.find(p => p.id === id);
+        if (existing && existing.userId !== userId) {
+          return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি অন্য ভেন্ডরের পণ্য মুছতে পারবেন না।' });
+        }
         inMemoryStore.products = inMemoryStore.products.filter(p => !(p.id === id && p.userId === userId));
       }
     }

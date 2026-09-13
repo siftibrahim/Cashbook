@@ -76,6 +76,7 @@ export const inMemoryStore: {
   sms_logs: any[];
   sms_purchases: any[];
   online_orders: any[];
+  online_store_configs: any[];
 } = {
   users: [],
   stores: [],
@@ -95,6 +96,7 @@ export const inMemoryStore: {
   sms_logs: [],
   sms_purchases: [],
   online_orders: [],
+  online_store_configs: [],
 };
 
 // Helper to create an optimized, resilient pool for Neon serverless
@@ -725,6 +727,58 @@ export async function initializeDatabaseSchema() {
       CREATE INDEX IF NOT EXISTS idx_online_orders_created ON online_orders(created_at DESC);
     `);
 
+    // 15. Multi-Tenant Online Store Configuration & Custom Domain Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS online_store_configs (
+        user_id VARCHAR(100) PRIMARY KEY,
+        store_slug VARCHAR(100) UNIQUE NOT NULL,
+        store_name VARCHAR(255) NOT NULL,
+        tagline TEXT,
+        category VARCHAR(100),
+        phone VARCHAR(50),
+        whatsapp_phone VARCHAR(50),
+        address TEXT,
+        custom_domain VARCHAR(255) UNIQUE,
+        custom_domain_verified BOOLEAN DEFAULT FALSE,
+        custom_domain_status VARCHAR(50) DEFAULT 'pending',
+        custom_domain_verified_at BIGINT,
+        theme_color VARCHAR(50) DEFAULT 'teal',
+        announcement TEXT,
+        delivery_inside_dhaka NUMERIC(12, 2) DEFAULT 60,
+        delivery_outside_dhaka NUMERIC(12, 2) DEFAULT 120,
+        free_delivery_above NUMERIC(12, 2),
+        min_order_amount NUMERIC(12, 2),
+        delivery_time_estimate VARCHAR(100),
+        accept_cod BOOLEAN DEFAULT TRUE,
+        accept_bkash BOOLEAN DEFAULT FALSE,
+        bkash_number VARCHAR(50),
+        bkash_type VARCHAR(50) DEFAULT 'personal',
+        accept_nagad BOOLEAN DEFAULT FALSE,
+        nagad_number VARCHAR(50),
+        nagadType VARCHAR(50) DEFAULT 'personal',
+        accept_rocket BOOLEAN DEFAULT FALSE,
+        rocket_number VARCHAR(50),
+        rocket_type VARCHAR(50) DEFAULT 'personal',
+        payment_instructions TEXT,
+        banner_url TEXT,
+        banner_title TEXT,
+        banner_subtitle TEXT,
+        banner_tag TEXT,
+        banner_discount_text TEXT,
+        banner_style VARCHAR(50) DEFAULT 'gradient',
+        logo_url TEXT,
+        support_whatsapp_message TEXT,
+        support_hours VARCHAR(100),
+        facebook_url TEXT,
+        published_product_ids JSONB DEFAULT '[]'::jsonb,
+        is_enabled BOOLEAN DEFAULT TRUE,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_online_store_configs_slug ON online_store_configs(store_slug);
+      CREATE INDEX IF NOT EXISTS idx_online_store_configs_domain ON online_store_configs(custom_domain);
+    `);
+
     // Schema Evolution Safety: Ensure columns exist on already created tables
     await client.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS total_customers INT DEFAULT 0;
@@ -732,6 +786,12 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS notes TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS device_info TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS app_version TEXT;
+      
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS is_published_online BOOLEAN DEFAULT TRUE;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_percent NUMERIC(5, 2) DEFAULT 0;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS rating NUMERIC(3, 2) DEFAULT 5.0;
       
       ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS print_paper_size VARCHAR(50) DEFAULT 'thermal_80';
       ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS show_qr_on_invoice BOOLEAN DEFAULT TRUE;
@@ -768,6 +828,50 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE store_profiles DROP CONSTRAINT IF EXISTS store_profiles_user_id_fkey;
       ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_user_id_fkey;
       ALTER TABLE sms_logs DROP CONSTRAINT IF EXISTS sms_logs_user_id_fkey;
+      ALTER TABLE online_store_configs DROP CONSTRAINT IF EXISTS online_store_configs_user_id_fkey;
+
+      -- Ensure all multi-tenant columns exist on online_store_configs
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS theme_color VARCHAR(50) DEFAULT 'teal';
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS tagline TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS whatsapp_phone VARCHAR(50);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS address TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain_verified BOOLEAN DEFAULT FALSE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain_status VARCHAR(50) DEFAULT 'pending';
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain_verified_at BIGINT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS announcement TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS delivery_inside_dhaka NUMERIC(12, 2) DEFAULT 60;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS delivery_outside_dhaka NUMERIC(12, 2) DEFAULT 120;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS free_delivery_above NUMERIC(12, 2);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS min_order_amount NUMERIC(12, 2);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS delivery_time_estimate VARCHAR(100);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_cod BOOLEAN DEFAULT TRUE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_bkash BOOLEAN DEFAULT FALSE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bkash_number VARCHAR(50);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bkash_type VARCHAR(50) DEFAULT 'personal';
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_nagad BOOLEAN DEFAULT FALSE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS nagad_number VARCHAR(50);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS nagad_type VARCHAR(50) DEFAULT 'personal';
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_rocket BOOLEAN DEFAULT FALSE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS rocket_number VARCHAR(50);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS rocket_type VARCHAR(50) DEFAULT 'personal';
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS payment_instructions TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_url TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_title TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_subtitle TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_tag TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_discount_text TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_style VARCHAR(50) DEFAULT 'gradient';
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS logo_url TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS support_whatsapp_message TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS support_hours VARCHAR(100);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS facebook_url TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS published_product_ids JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT TRUE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS created_at BIGINT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS updated_at BIGINT;
       ALTER TABLE sms_purchases DROP CONSTRAINT IF EXISTS sms_purchases_user_id_fkey;
       ALTER TABLE support_messages DROP CONSTRAINT IF EXISTS support_messages_user_id_fkey;
       ALTER TABLE subscriptions DROP CONSTRAINT IF EXISTS subscriptions_user_id_fkey;

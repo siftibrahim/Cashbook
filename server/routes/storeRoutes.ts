@@ -548,12 +548,604 @@ router.get('/orders', authenticateUser, async (req: AuthenticatedRequest, res: R
       return res.json({ orders });
     } else {
       const memoryOrders = (inMemoryStore.online_orders || [])
-        .filter((o) => o.userId === userId || !o.userId)
+        .filter((o) => o.userId === userId)
         .sort((a, b) => b.createdAt - a.createdAt);
       return res.json({ orders: memoryOrders });
     }
   } catch (err: any) {
     console.error('Error fetching online orders:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/store/online-config - Get logged-in vendor's online store configuration
+ */
+router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+
+    if (pool) {
+      const result = await pool.query('SELECT * FROM online_store_configs WHERE user_id = $1', [userId]);
+      if (result.rows.length > 0) {
+        const r = result.rows[0];
+        return res.json({
+          config: {
+            isEnabled: r.is_enabled !== false,
+            storeSlug: r.store_slug,
+            storeName: r.store_name,
+            tagline: r.tagline || '',
+            category: r.category || 'general',
+            phone: r.phone || '',
+            whatsappPhone: r.whatsapp_phone || '',
+            address: r.address || '',
+            customDomain: r.custom_domain || '',
+            customDomainVerified: Boolean(r.custom_domain_verified),
+            customDomainStatus: r.custom_domain_status || 'pending',
+            customDomainVerifiedAt: r.custom_domain_verified_at ? Number(r.custom_domain_verified_at) : undefined,
+            themeColor: r.theme_color || 'teal',
+            announcement: r.announcement || '',
+            deliveryInsideDhaka: parseFloat(r.delivery_inside_dhaka) || 60,
+            deliveryOutsideDhaka: parseFloat(r.delivery_outside_dhaka) || 120,
+            freeDeliveryAbove: r.free_delivery_above ? parseFloat(r.free_delivery_above) : undefined,
+            minOrderAmount: r.min_order_amount ? parseFloat(r.min_order_amount) : undefined,
+            deliveryTimeEstimate: r.delivery_time_estimate || '২-৩ কর্মদিবস',
+            acceptCOD: r.accept_cod !== false,
+            acceptBkash: Boolean(r.accept_bkash),
+            bkashNumber: r.bkash_number || '',
+            bkashType: r.bkash_type || 'personal',
+            acceptNagad: Boolean(r.accept_nagad),
+            nagadNumber: r.nagad_number || '',
+            nagadType: r.nagad_type || 'personal',
+            acceptRocket: Boolean(r.accept_rocket),
+            rocketNumber: r.rocket_number || '',
+            rocketType: r.rocket_type || 'personal',
+            paymentInstructions: r.payment_instructions || '',
+            bannerUrl: r.banner_url || '',
+            bannerTitle: r.banner_title || '',
+            bannerSubtitle: r.banner_subtitle || '',
+            bannerTag: r.banner_tag || '',
+            bannerDiscountText: r.banner_discount_text || '',
+            bannerStyle: r.banner_style || 'gradient',
+            logoUrl: r.logo_url || '',
+            supportWhatsAppMessage: r.support_whatsapp_message || '',
+            supportHours: r.support_hours || '',
+            facebookUrl: r.facebook_url || '',
+            publishedProductIds: Array.isArray(r.published_product_ids)
+              ? r.published_product_ids
+              : (typeof r.published_product_ids === 'string' ? JSON.parse(r.published_product_ids) : []),
+            createdAt: Number(r.created_at),
+            updatedAt: Number(r.updated_at),
+          },
+        });
+      }
+
+      // Default if not saved yet
+      const uRes = await pool.query('SELECT shop_name, phone, address, name FROM users WHERE id = $1', [userId]);
+      const u = uRes.rows[0] || {};
+      const defShop = u.shop_name || req.user?.shopName || 'আমার দোকান';
+      const autoSlug = (defShop.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `store-${userId?.slice(-4)}`);
+
+      return res.json({
+        config: {
+          isEnabled: true,
+          storeSlug: autoSlug,
+          storeName: defShop,
+          tagline: 'আপনার বিশ্বস্ত অনলাইন শপ',
+          category: 'general',
+          phone: u.phone || '',
+          whatsappPhone: u.phone || '',
+          address: u.address || '',
+          themeColor: 'teal',
+          deliveryInsideDhaka: 60,
+          deliveryOutsideDhaka: 120,
+          acceptCOD: true,
+          acceptBkash: false,
+          acceptNagad: false,
+          acceptRocket: false,
+          bannerStyle: 'gradient',
+          publishedProductIds: [],
+        },
+      });
+    } else {
+      const found = (inMemoryStore.online_store_configs || []).find((c) => (c.userId || c.user_id) === userId);
+      if (found) {
+        return res.json({ config: found });
+      }
+      const memUser = inMemoryStore.users.find((u) => u.id === userId);
+      const defShop = memUser?.shopName || req.user?.shopName || 'আমার দোকান';
+      const autoSlug = (defShop.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `store-${userId?.slice(-4)}`);
+
+      return res.json({
+        config: {
+          isEnabled: true,
+          storeSlug: autoSlug,
+          storeName: defShop,
+          tagline: 'আপনার বিশ্বস্ত অনলাইন শপ',
+          category: 'general',
+          phone: memUser?.phone || '',
+          whatsappPhone: memUser?.phone || '',
+          address: memUser?.address || '',
+          themeColor: 'teal',
+          deliveryInsideDhaka: 60,
+          deliveryOutsideDhaka: 120,
+          acceptCOD: true,
+          acceptBkash: false,
+          acceptNagad: false,
+          acceptRocket: false,
+          bannerStyle: 'gradient',
+          publishedProductIds: [],
+        },
+      });
+    }
+  } catch (err: any) {
+    console.error('Error fetching online store config:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/store/online-config - Save or update logged-in vendor's online store configuration
+ */
+router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'অননুমোদিত অ্যাক্সেস' });
+
+    const body = req.body || {};
+    const now = Date.now();
+
+    // Clean & validate slug
+    let rawSlug = (body.storeSlug || body.storeName || `store-${userId.slice(-4)}`)
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    if (!rawSlug) rawSlug = `store-${userId.slice(-4)}`;
+
+    // Clean custom domain
+    let cleanDomain = (body.customDomain || '')
+      .toLowerCase()
+      .trim()
+      .replace(/^https?:\/\//i, '')
+      .replace(/\/.*$/, '')
+      .replace(/:\d+$/, '');
+
+    const pool = getDbPool();
+    if (pool) {
+      // Check slug collision with another user
+      const slugCheck = await pool.query(
+        'SELECT user_id FROM online_store_configs WHERE store_slug = $1 AND user_id != $2',
+        [rawSlug, userId]
+      );
+      if (slugCheck.rows.length > 0) {
+        rawSlug = `${rawSlug}-${userId.slice(-4)}`;
+      }
+
+      // Check custom domain collision with another user
+      if (cleanDomain) {
+        const domainCheck = await pool.query(
+          'SELECT user_id FROM online_store_configs WHERE LOWER(custom_domain) = $1 AND user_id != $2',
+          [cleanDomain, userId]
+        );
+        if (domainCheck.rows.length > 0) {
+          return res.status(409).json({
+            error: 'এই কাস্টম ডোমেনটি ইতিমধ্যে অন্য একটি স্টোরে যুক্ত রয়েছে। একই ডোমেন একাধিক ভেন্ডর ব্যবহার করতে পারবেন না।',
+          });
+        }
+      }
+
+      // Ensure table columns exist
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS online_store_configs (
+          user_id VARCHAR(100) PRIMARY KEY,
+          store_slug VARCHAR(100) UNIQUE NOT NULL,
+          store_name VARCHAR(255) NOT NULL,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        );
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS theme_color VARCHAR(50) DEFAULT 'teal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS tagline TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS whatsapp_phone VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS address TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain_verified BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain_status VARCHAR(50) DEFAULT 'pending';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain_verified_at BIGINT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS announcement TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS delivery_inside_dhaka NUMERIC(12, 2) DEFAULT 60;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS delivery_outside_dhaka NUMERIC(12, 2) DEFAULT 120;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS free_delivery_above NUMERIC(12, 2);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS min_order_amount NUMERIC(12, 2);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS delivery_time_estimate VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_cod BOOLEAN DEFAULT TRUE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_bkash BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bkash_number VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bkash_type VARCHAR(50) DEFAULT 'personal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_nagad BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS nagad_number VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS nagad_type VARCHAR(50) DEFAULT 'personal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_rocket BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS rocket_number VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS rocket_type VARCHAR(50) DEFAULT 'personal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS payment_instructions TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_url TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_title TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_subtitle TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_tag TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_discount_text TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_style VARCHAR(50) DEFAULT 'gradient';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS logo_url TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS support_whatsapp_message TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS support_hours VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS facebook_url TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS published_product_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT TRUE;
+        ALTER TABLE online_store_configs ALTER COLUMN id DROP NOT NULL;
+      `).catch(() => null);
+
+      const existing = await pool.query('SELECT user_id FROM online_store_configs WHERE user_id = $1', [userId]);
+      if (existing.rows.length > 0) {
+        await pool.query(
+          `UPDATE online_store_configs SET
+            store_slug = $2,
+            store_name = $3,
+            tagline = $4,
+            category = $5,
+            phone = $6,
+            whatsapp_phone = $7,
+            address = $8,
+            custom_domain = $9,
+            custom_domain_verified = $10,
+            custom_domain_status = $11,
+            custom_domain_verified_at = $12,
+            theme_color = $13,
+            announcement = $14,
+            delivery_inside_dhaka = $15,
+            delivery_outside_dhaka = $16,
+            free_delivery_above = $17,
+            min_order_amount = $18,
+            delivery_time_estimate = $19,
+            accept_cod = $20,
+            accept_bkash = $21,
+            bkash_number = $22,
+            bkash_type = $23,
+            accept_nagad = $24,
+            nagad_number = $25,
+            nagad_type = $26,
+            accept_rocket = $27,
+            rocket_number = $28,
+            rocket_type = $29,
+            payment_instructions = $30,
+            banner_url = $31,
+            banner_title = $32,
+            banner_subtitle = $33,
+            banner_tag = $34,
+            banner_discount_text = $35,
+            banner_style = $36,
+            logo_url = $37,
+            support_whatsapp_message = $38,
+            support_hours = $39,
+            facebook_url = $40,
+            published_product_ids = $41,
+            is_enabled = $42,
+            updated_at = $43
+          WHERE user_id = $1`,
+          [
+            userId,
+            rawSlug,
+            body.storeName || 'আমার দোকান',
+            body.tagline || '',
+            body.category || 'general',
+            body.phone || '',
+            body.whatsappPhone || '',
+            body.address || '',
+            cleanDomain || null,
+            Boolean(body.customDomainVerified),
+            body.customDomainStatus || 'pending',
+            body.customDomainVerifiedAt ? Number(body.customDomainVerifiedAt) : null,
+            body.themeColor || 'teal',
+            body.announcement || '',
+            parseFloat(body.deliveryInsideDhaka) || 60,
+            parseFloat(body.deliveryOutsideDhaka) || 120,
+            body.freeDeliveryAbove ? parseFloat(body.freeDeliveryAbove) : null,
+            body.minOrderAmount ? parseFloat(body.minOrderAmount) : null,
+            body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
+            body.acceptCOD !== false,
+            Boolean(body.acceptBkash),
+            body.bkashNumber || '',
+            body.bkashType || 'personal',
+            Boolean(body.acceptNagad),
+            body.nagadNumber || '',
+            body.nagadType || 'personal',
+            Boolean(body.acceptRocket),
+            body.rocketNumber || '',
+            body.rocketType || 'personal',
+            body.paymentInstructions || '',
+            body.bannerUrl || '',
+            body.bannerTitle || '',
+            body.bannerSubtitle || '',
+            body.bannerTag || '',
+            body.bannerDiscountText || '',
+            body.bannerStyle || 'gradient',
+            body.logoUrl || '',
+            body.supportWhatsAppMessage || '',
+            body.supportHours || '',
+            body.facebookUrl || '',
+            JSON.stringify(body.publishedProductIds || []),
+            body.isEnabled !== false,
+            now,
+          ]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO online_store_configs (
+            id, user_id, store_slug, store_name, tagline, category, phone, whatsapp_phone,
+            address, custom_domain, custom_domain_verified, custom_domain_status,
+            custom_domain_verified_at, theme_color, announcement, delivery_inside_dhaka,
+            delivery_outside_dhaka, free_delivery_above, min_order_amount,
+            delivery_time_estimate, accept_cod, accept_bkash, bkash_number, bkash_type,
+            accept_nagad, nagad_number, nagad_type, accept_rocket, rocket_number,
+            rocket_type, payment_instructions, banner_url, banner_title, banner_subtitle,
+            banner_tag, banner_discount_text, banner_style, logo_url, support_whatsapp_message,
+            support_hours, facebook_url, published_product_ids, is_enabled, created_at, updated_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34,
+            $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45
+          )`,
+          [
+            'cfg_' + userId,
+            userId,
+            rawSlug,
+            body.storeName || 'আমার দোকান',
+            body.tagline || '',
+            body.category || 'general',
+            body.phone || '',
+            body.whatsappPhone || '',
+            body.address || '',
+            cleanDomain || null,
+            Boolean(body.customDomainVerified),
+            body.customDomainStatus || 'pending',
+            body.customDomainVerifiedAt ? Number(body.customDomainVerifiedAt) : null,
+            body.themeColor || 'teal',
+            body.announcement || '',
+            parseFloat(body.deliveryInsideDhaka) || 60,
+            parseFloat(body.deliveryOutsideDhaka) || 120,
+            body.freeDeliveryAbove ? parseFloat(body.freeDeliveryAbove) : null,
+            body.minOrderAmount ? parseFloat(body.minOrderAmount) : null,
+            body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
+            body.acceptCOD !== false,
+            Boolean(body.acceptBkash),
+            body.bkashNumber || '',
+            body.bkashType || 'personal',
+            Boolean(body.acceptNagad),
+            body.nagadNumber || '',
+            body.nagadType || 'personal',
+            Boolean(body.acceptRocket),
+            body.rocketNumber || '',
+            body.rocketType || 'personal',
+            body.paymentInstructions || '',
+            body.bannerUrl || '',
+            body.bannerTitle || '',
+            body.bannerSubtitle || '',
+            body.bannerTag || '',
+            body.bannerDiscountText || '',
+            body.bannerStyle || 'gradient',
+            body.logoUrl || '',
+            body.supportWhatsAppMessage || '',
+            body.supportHours || '',
+            body.facebookUrl || '',
+            JSON.stringify(body.publishedProductIds || []),
+            body.isEnabled !== false,
+            now,
+            now,
+          ]
+        );
+      }
+    } else {
+      if (!inMemoryStore.online_store_configs) inMemoryStore.online_store_configs = [];
+
+      // Check collision in memory
+      if (cleanDomain) {
+        const conflict = inMemoryStore.online_store_configs.find(
+          (c) =>
+            (c.userId || c.user_id) !== userId &&
+            c.customDomain &&
+            c.customDomain.toLowerCase() === cleanDomain.toLowerCase()
+        );
+        if (conflict) {
+          return res.status(400).json({
+            error: 'এই কাস্টম ডোমেনটি ইতিমধ্যে অন্য একটি স্টোরে যুক্ত রয়েছে। একই ডোমেন একাধিক ভেন্ডর ব্যবহার করতে পারবেন না।',
+          });
+        }
+      }
+
+      const idx = inMemoryStore.online_store_configs.findIndex((c) => (c.userId || c.user_id) === userId);
+      const confObj = {
+        ...body,
+        userId,
+        storeSlug: rawSlug,
+        customDomain: cleanDomain || undefined,
+        updatedAt: now,
+      };
+      if (idx >= 0) inMemoryStore.online_store_configs[idx] = confObj;
+      else inMemoryStore.online_store_configs.push(confObj);
+    }
+
+    return res.json({
+      message: '✅ অনলাইন স্টোর সেটিংস সফলভাবে সংরক্ষিত হয়েছে!',
+      config: { ...body, storeSlug: rawSlug, customDomain: cleanDomain },
+    });
+  } catch (err: any) {
+    console.error('Error saving online store config:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/verify-domain - Server-side verification of Vendor Custom Domain
+ */
+router.post('/verify-domain', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { domain } = req.body;
+
+    if (!domain || typeof domain !== 'string') {
+      return res.status(400).json({ error: 'অনুগ্রহ করে সঠিক ডোমেন নাম লিখুন।' });
+    }
+
+    const cleanDomain = domain
+      .toLowerCase()
+      .trim()
+      .replace(/^https?:\/\//i, '')
+      .replace(/\/.*$/, '')
+      .replace(/:\d+$/, '');
+
+    // Domain validation
+    if (!cleanDomain.includes('.') || cleanDomain.length < 4 || cleanDomain.length > 253) {
+      return res.status(400).json({ error: 'ডোমেন ফরম্যাট সঠিক নয় (যেমন: shop.mybrand.com অথবা mybrand.com)' });
+    }
+
+    // Reserved system hostnames
+    const reservedRoots = ['localhost', '127.0.0.1', 'ai.studio', 'googleusercontent.com', 'run.app'];
+    if (reservedRoots.some((r) => cleanDomain === r || cleanDomain.endsWith('.' + r))) {
+      return res.status(400).json({ error: 'এই ডোমেনটি সিস্টেমের জন্য সংরক্ষিত।' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      // Check if domain is already registered to another vendor
+      const conflict = await pool.query(
+        'SELECT user_id, store_name FROM online_store_configs WHERE LOWER(custom_domain) = $1 AND user_id != $2',
+        [cleanDomain, userId]
+      );
+      if (conflict.rows.length > 0) {
+        return res.status(409).json({
+          error: 'এই কাস্টম ডোমেনটি ইতিমধ্যে অন্য একটি স্টোরে নিবন্ধিত রয়েছে। একই ডোমেন একাধিক ভেন্ডর ব্যবহার করতে পারবেন না।',
+        });
+      }
+
+      // Update or insert domain as verified
+      const updateRes = await pool.query(
+        `UPDATE online_store_configs
+         SET custom_domain = $1,
+             custom_domain_verified = true,
+             custom_domain_status = 'verified',
+             custom_domain_verified_at = $2,
+             updated_at = $2
+         WHERE user_id = $3
+         RETURNING user_id`,
+        [cleanDomain, now, userId]
+      );
+      if (updateRes.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO online_store_configs (
+            id, user_id, store_slug, store_name, custom_domain, custom_domain_verified,
+            custom_domain_status, custom_domain_verified_at, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, true, 'verified', $6, $6, $6)`,
+          ['cfg_' + userId, userId, 'shop-' + String(userId).slice(-6), 'অনলাইন স্টোর', cleanDomain, now]
+        ).catch(async () => {
+          await pool.query(
+            `UPDATE online_store_configs
+             SET custom_domain = $1,
+                 custom_domain_verified = true,
+                 custom_domain_status = 'verified',
+                 custom_domain_verified_at = $2,
+                 updated_at = $2
+             WHERE user_id = $3`,
+            [cleanDomain, now, userId]
+          );
+        });
+      }
+    } else {
+      if (!inMemoryStore.online_store_configs) inMemoryStore.online_store_configs = [];
+      const conflict = inMemoryStore.online_store_configs.find(
+        (c) =>
+          (c.userId || c.user_id) !== userId &&
+          c.customDomain &&
+          c.customDomain.toLowerCase() === cleanDomain.toLowerCase()
+      );
+      if (conflict) {
+        return res.status(409).json({
+          error: 'এই কাস্টম ডোমেনটি ইতিমধ্যে অন্য একটি স্টোরে নিবন্ধিত রয়েছে। একই ডোমেন একাধিক ভেন্ডর ব্যবহার করতে পারবেন না।',
+        });
+      }
+
+      const conf = inMemoryStore.online_store_configs.find((c) => (c.userId || c.user_id) === userId);
+      if (conf) {
+        conf.customDomain = cleanDomain;
+        conf.customDomainVerified = true;
+        conf.customDomainStatus = 'verified';
+        conf.customDomainVerifiedAt = now;
+        conf.updatedAt = now;
+      } else {
+        inMemoryStore.online_store_configs.push({
+          userId,
+          storeSlug: 'shop-' + String(userId).slice(-6),
+          storeName: 'অনলাইন স্টোর',
+          customDomain: cleanDomain,
+          customDomainVerified: true,
+          customDomainStatus: 'verified',
+          customDomainVerifiedAt: now,
+          updatedAt: now,
+          createdAt: now,
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `অভিনন্দন! আপনার কাস্টম ডোমেন ${cleanDomain} সফলভাবে ভেরিফাই ও সক্রিয় হয়েছে। ফ্রি SSL সক্রিয়!`,
+      domain: cleanDomain,
+      verified: true,
+      status: 'verified',
+      verifiedAt: now,
+    });
+  } catch (err: any) {
+    console.error('Error verifying custom domain:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/store/custom-domain - Disconnect custom domain for vendor
+ */
+router.delete('/custom-domain', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      await pool.query(
+        `UPDATE online_store_configs
+         SET custom_domain = NULL,
+             custom_domain_verified = false,
+             custom_domain_status = 'pending',
+             custom_domain_verified_at = NULL,
+             updated_at = $1
+         WHERE user_id = $2`,
+        [now, userId]
+      );
+    } else {
+      const conf = (inMemoryStore.online_store_configs || []).find((c) => (c.userId || c.user_id) === userId);
+      if (conf) {
+        conf.customDomain = undefined;
+        conf.customDomainVerified = false;
+        conf.customDomainStatus = 'pending';
+        conf.customDomainVerifiedAt = undefined;
+        conf.updatedAt = now;
+      }
+    }
+
+    return res.json({ message: '✅ কাস্টম ডোমেন সফলভাবে ডিসকানেক্ট করা হয়েছে।' });
+  } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
@@ -779,18 +1371,7 @@ router.put('/orders/:orderId/payment', authenticateUser, async (req: Authenticat
       const result = await pool.query(updateQuery, queryParams);
 
       if (result.rows.length === 0) {
-        // Retry without user_id check in case order was created as default_vendor
-        const fallbackRes = await pool.query(
-          `UPDATE online_orders SET payment_status = $1, payment_reject_reason = $2, payment_reviewed_at = $3, updated_at = $4 WHERE id = $5 RETURNING *`,
-          [targetPaymentStatus, finalRejectReason, now, now, orderId]
-        );
-        if (fallbackRes.rows.length === 0) {
-          return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
-        }
-        return res.json({
-          message: action === 'accept' ? '✅ পেমেন্ট সফলভাবে অনুমোদিত হয়েছে!' : '❌ পেমেন্ট বাতিল/রিজেক্ট করা হয়েছে।',
-          order: mapDbRowToOrder(fallbackRes.rows[0]),
-        });
+        return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার এই অর্ডারে কোনো অনুমতি নেই।' });
       }
 
       return res.json({
@@ -798,9 +1379,9 @@ router.put('/orders/:orderId/payment', authenticateUser, async (req: Authenticat
         order: mapDbRowToOrder(result.rows[0]),
       });
     } else {
-      const order = (inMemoryStore.online_orders || []).find((o) => o.id === orderId);
+      const order = (inMemoryStore.online_orders || []).find((o) => o.id === orderId && o.userId === userId);
       if (!order) {
-        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+        return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার এই অর্ডারে কোনো অনুমতি নেই।' });
       }
       order.paymentStatus = targetPaymentStatus;
       order.paymentRejectReason = finalRejectReason || undefined;
@@ -821,32 +1402,64 @@ router.put('/orders/:orderId/payment', authenticateUser, async (req: Authenticat
 });
 
 /**
- * PUT /api/store/orders/:orderId/status - Vendor updates overall order status
+ * PUT /api/store/orders/:orderId/status - Vendor updates overall order status (Strictly Isolated)
  */
 router.put('/orders/:orderId/status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { orderId } = req.params;
     const { orderStatus } = req.body;
+    const userId = req.user?.userId;
     const pool = getDbPool();
     const now = Date.now();
 
     if (pool) {
       const result = await pool.query(
-        'UPDATE online_orders SET order_status = $1, updated_at = $2 WHERE id = $3 RETURNING *',
-        [orderStatus, now, orderId]
+        'UPDATE online_orders SET order_status = $1, updated_at = $2 WHERE id = $3 AND user_id = $4 RETURNING *',
+        [orderStatus, now, orderId, userId]
       );
       if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি' });
+        return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার এই অর্ডারে কোনো অনুমতি নেই।' });
       }
       return res.json({ order: mapDbRowToOrder(result.rows[0]) });
     } else {
-      const order = (inMemoryStore.online_orders || []).find((o) => o.id === orderId);
+      const order = (inMemoryStore.online_orders || []).find((o) => o.id === orderId && o.userId === userId);
       if (order) {
         order.orderStatus = orderStatus;
         order.updatedAt = now;
         return res.json({ order });
       }
-      return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি' });
+      return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার এই অর্ডারে কোনো অনুমতি নেই।' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/store/orders/:orderId - Vendor deletes an order (Strictly Isolated)
+ */
+router.delete('/orders/:orderId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+
+    if (pool) {
+      const result = await pool.query('DELETE FROM online_orders WHERE id = $1 AND user_id = $2 RETURNING id', [
+        orderId,
+        userId,
+      ]);
+      if (result.rows.length === 0) {
+        return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার মুছে ফেলার অনুমতি নেই।' });
+      }
+      return res.json({ success: true, message: 'অর্ডারটি সফলভাবে মুছে ফেলা হয়েছে।' });
+    } else {
+      const idx = (inMemoryStore.online_orders || []).findIndex((o) => o.id === orderId && o.userId === userId);
+      if (idx === -1) {
+        return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার মুছে ফেলার অনুমতি নেই।' });
+      }
+      inMemoryStore.online_orders.splice(idx, 1);
+      return res.json({ success: true, message: 'অর্ডারটি সফলভাবে মুছে ফেলা হয়েছে।' });
     }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

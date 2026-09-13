@@ -1,0 +1,630 @@
+import { Router, Request, Response } from 'express';
+import { getDbPool, inMemoryStore } from '../db';
+
+const router = Router();
+
+// Helper to normalize domain strings
+export function cleanDomainString(domain: string): string {
+  if (!domain) return '';
+  return domain
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/.*$/, '')
+    .replace(/:\d+$/, ''); // remove port
+}
+
+// Helper to sanitize public store configuration
+function sanitizePublicConfig(row: any, fallbackStoreProfile?: any) {
+  return {
+    storeSlug: row.store_slug || row.storeSlug || '',
+    storeName: row.store_name || row.storeName || fallbackStoreProfile?.name || 'অনলাইন স্টোর',
+    tagline: row.tagline || 'আপনার বিশ্বস্ত অনলাইন শপ',
+    category: row.category || fallbackStoreProfile?.category || 'general',
+    phone: row.phone || fallbackStoreProfile?.phone || '',
+    whatsappPhone: row.whatsapp_phone || row.whatsappPhone || row.phone || fallbackStoreProfile?.phone || '',
+    address: row.address || fallbackStoreProfile?.address || '',
+    themeColor: row.theme_color || row.themeColor || fallbackStoreProfile?.themeColor || 'teal',
+    announcement: row.announcement || '',
+    deliveryInsideDhaka: parseFloat(row.delivery_inside_dhaka ?? row.deliveryInsideDhaka ?? 60),
+    deliveryOutsideDhaka: parseFloat(row.delivery_outside_dhaka ?? row.deliveryOutsideDhaka ?? 120),
+    freeDeliveryAbove: row.free_delivery_above ? parseFloat(row.free_delivery_above) : (row.freeDeliveryAbove ? parseFloat(row.freeDeliveryAbove) : undefined),
+    minOrderAmount: row.min_order_amount ? parseFloat(row.min_order_amount) : (row.minOrderAmount ? parseFloat(row.minOrderAmount) : undefined),
+    deliveryTimeEstimate: row.delivery_time_estimate || row.deliveryTimeEstimate || '২-৩ কর্মদিবস',
+    acceptCOD: row.accept_cod !== false && row.acceptCOD !== false,
+    acceptBkash: Boolean(row.accept_bkash ?? row.acceptBkash),
+    bkashNumber: row.bkash_number || row.bkashNumber || fallbackStoreProfile?.bkashNumber || '',
+    bkashType: row.bkash_type || row.bkashType || 'personal',
+    acceptNagad: Boolean(row.accept_nagad ?? row.acceptNagad),
+    nagadNumber: row.nagad_number || row.nagadNumber || fallbackStoreProfile?.nagadNumber || '',
+    nagadType: row.nagad_type || row.nagadType || 'personal',
+    acceptRocket: Boolean(row.accept_rocket ?? row.acceptRocket),
+    rocketNumber: row.rocket_number || row.rocketNumber || fallbackStoreProfile?.rocketNumber || '',
+    rocketType: row.rocket_type || row.rocketType || 'personal',
+    paymentInstructions: row.payment_instructions || row.paymentInstructions || '',
+    bannerUrl: row.banner_url || row.bannerUrl || '',
+    bannerTitle: row.banner_title || row.bannerTitle || '',
+    bannerSubtitle: row.banner_subtitle || row.bannerSubtitle || '',
+    bannerTag: row.banner_tag || row.bannerTag || '',
+    bannerDiscountText: row.banner_discount_text || row.bannerDiscountText || '',
+    bannerStyle: row.banner_style || row.bannerStyle || 'gradient',
+    logoUrl: row.logo_url || row.logoUrl || '',
+    supportWhatsAppMessage: row.support_whatsapp_message || row.supportWhatsAppMessage || '',
+    supportHours: row.support_hours || row.supportHours || 'সকাল ৯টা - রাত ১০টা',
+    facebookUrl: row.facebook_url || row.facebookUrl || '',
+    publishedProductIds: Array.isArray(row.published_product_ids)
+      ? row.published_product_ids
+      : (typeof row.published_product_ids === 'string'
+          ? JSON.parse(row.published_product_ids || '[]')
+          : (row.publishedProductIds || [])),
+    customDomain: row.custom_domain || row.customDomain || '',
+    customDomainVerified: Boolean(row.custom_domain_verified ?? row.customDomainVerified),
+    isEnabled: row.is_enabled !== false && row.isEnabled !== false,
+  };
+}
+
+/**
+ * Resolve target vendor record from Postgres or inMemoryStore
+ */
+export async function resolveStoreVendor(identifier: string): Promise<{ userId: string; storeConfig: any } | null> {
+  const cleanId = cleanDomainString(identifier);
+  if (!cleanId) return null;
+
+  const pool = getDbPool();
+  if (pool) {
+    // 1. Match by custom_domain (exact or without www)
+    let res = await pool.query(
+      `SELECT * FROM online_store_configs 
+       WHERE (LOWER(custom_domain) = $1 OR LOWER(custom_domain) = $2) 
+         AND custom_domain_verified = true 
+       LIMIT 1`,
+      [cleanId.toLowerCase(), cleanId.toLowerCase().replace(/^www\./, '')]
+    );
+    if (res.rows.length > 0) {
+      return { userId: res.rows[0].user_id, storeConfig: res.rows[0] };
+    }
+
+    // 2. Match by store_slug (exact)
+    res = await pool.query(
+      'SELECT * FROM online_store_configs WHERE LOWER(store_slug) = $1 LIMIT 1',
+      [cleanId.toLowerCase()]
+    );
+    if (res.rows.length > 0) {
+      return { userId: res.rows[0].user_id, storeConfig: res.rows[0] };
+    }
+
+    // 3. Subdomain extraction: If identifier is "tanjina.twinghisabi.site" or "foo.mybrand.com"
+    if (cleanId.includes('.')) {
+      const subSlug = cleanId.split('.')[0].toLowerCase();
+      if (subSlug && subSlug !== 'www' && subSlug !== 'app' && subSlug !== 'admin' && subSlug !== 'api') {
+        res = await pool.query(
+          'SELECT * FROM online_store_configs WHERE LOWER(store_slug) = $1 LIMIT 1',
+          [subSlug]
+        );
+        if (res.rows.length > 0) {
+          return { userId: res.rows[0].user_id, storeConfig: res.rows[0] };
+        }
+      }
+    }
+
+    // 4. Path-style extraction: If identifier is "shop/tanjina" or "store/tanjina"
+    if (cleanId.includes('/')) {
+      const parts = cleanId.split('/').filter(Boolean);
+      const last = parts[parts.length - 1].toLowerCase();
+      if (last) {
+        res = await pool.query(
+          'SELECT * FROM online_store_configs WHERE LOWER(store_slug) = $1 LIMIT 1',
+          [last]
+        );
+        if (res.rows.length > 0) {
+          return { userId: res.rows[0].user_id, storeConfig: res.rows[0] };
+        }
+      }
+    }
+
+    // 5. Match by user_id directly
+    res = await pool.query(
+      'SELECT * FROM online_store_configs WHERE user_id = $1 LIMIT 1',
+      [cleanId]
+    );
+    if (res.rows.length > 0) {
+      return { userId: res.rows[0].user_id, storeConfig: res.rows[0] };
+    }
+
+    // 6. Fallback check: match user in users / store_profiles
+    const targetSlug = cleanId.includes('.') ? cleanId.split('.')[0].toLowerCase() : cleanId.toLowerCase();
+    const spRes = await pool.query(
+      `SELECT sp.*, u.shop_name, u.email, u.id as matched_user_id 
+       FROM users u 
+       LEFT JOIN store_profiles sp ON sp.user_id = u.id 
+       WHERE u.id = $1 
+          OR LOWER(REPLACE(u.shop_name, ' ', '')) = $2 
+          OR LOWER(REPLACE(COALESCE(sp.name, ''), ' ', '')) = $2 
+          OR LOWER(SPLIT_PART(u.email, '@', 1)) = $2 
+       LIMIT 1`,
+      [cleanId, targetSlug]
+    );
+    if (spRes.rows.length > 0) {
+      const sp = spRes.rows[0];
+      const autoSlug = targetSlug || (sp.shop_name || sp.name || 'store')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') || `store-${sp.matched_user_id.slice(-4)}`;
+
+      return {
+        userId: sp.matched_user_id,
+        storeConfig: {
+          user_id: sp.matched_user_id,
+          store_slug: autoSlug,
+          store_name: sp.name || sp.shop_name || 'অনলাইন স্টোর',
+          phone: sp.phone || '',
+          whatsapp_phone: sp.phone || '',
+          address: sp.address || '',
+          theme_color: sp.theme_color || 'teal',
+          category: sp.category || 'general',
+          is_enabled: true,
+          accept_cod: true,
+          delivery_inside_dhaka: 60,
+          delivery_outside_dhaka: 120,
+        },
+      };
+    }
+  } else {
+    // Memory store lookup
+    const configs = inMemoryStore.online_store_configs || [];
+
+    // 1. By custom_domain
+    let found = configs.find(
+      (c) =>
+        c.customDomain &&
+        (cleanDomainString(c.customDomain).toLowerCase() === cleanId.toLowerCase() ||
+          cleanDomainString(c.customDomain).toLowerCase().replace(/^www\./, '') === cleanId.toLowerCase()) &&
+        c.customDomainVerified
+    );
+    if (found) return { userId: found.userId || found.user_id, storeConfig: found };
+
+    // 2. By store_slug
+    found = configs.find(
+      (c) => c.storeSlug && c.storeSlug.toLowerCase() === cleanId.toLowerCase()
+    );
+    if (found) return { userId: found.userId || found.user_id, storeConfig: found };
+
+    // 3. Subdomain extraction: If identifier is "tanjina.twinghisabi.site"
+    if (cleanId.includes('.')) {
+      const subSlug = cleanId.split('.')[0].toLowerCase();
+      if (subSlug && subSlug !== 'www' && subSlug !== 'app' && subSlug !== 'admin' && subSlug !== 'api') {
+        found = configs.find(
+          (c) => c.storeSlug && c.storeSlug.toLowerCase() === subSlug
+        );
+        if (found) return { userId: found.userId || found.user_id, storeConfig: found };
+      }
+    }
+
+    // 4. By user_id
+    found = configs.find((c) => (c.userId || c.user_id) === cleanId);
+    if (found) return { userId: found.userId || found.user_id, storeConfig: found };
+
+    // 5. Check memory stores/users fallback
+    const targetSlug = cleanId.includes('.') ? cleanId.split('.')[0].toLowerCase() : cleanId.toLowerCase();
+    const sp = (inMemoryStore.stores || []).find((s) => s.userId === cleanId || s.id === cleanId);
+    if (sp) {
+      return {
+        userId: sp.userId,
+        storeConfig: {
+          user_id: sp.userId,
+          store_slug: targetSlug || `store-${sp.userId}`,
+          store_name: sp.name,
+          phone: sp.phone,
+          address: sp.address,
+          theme_color: sp.themeColor || 'teal',
+          is_enabled: true,
+        },
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * GET /api/public/store/resolve
+ * Resolves a store via query param or host header
+ */
+router.get('/resolve', async (req: Request, res: Response) => {
+  try {
+    const queryTarget = (req.query.slug || req.query.shop || req.query.store || req.query.domain || req.query.vendor || '') as string;
+    const hostHeader = cleanDomainString((req.headers['x-forwarded-host'] || req.headers.host || '') as string);
+
+    let identifierToResolve = '';
+
+    // 1. Check explicit query parameter first
+    if (queryTarget && queryTarget !== '1' && queryTarget !== 'true' && queryTarget !== 'default') {
+      identifierToResolve = queryTarget;
+    } else if (hostHeader) {
+      // 2. Check if host has subdomain on twinghisabi.site or another base domain
+      if (hostHeader.includes('.twinghisabi.site')) {
+        const sub = hostHeader.split('.twinghisabi.site')[0].toLowerCase();
+        if (sub && sub !== 'www' && sub !== 'app' && sub !== 'admin' && sub !== 'api') {
+          identifierToResolve = sub;
+        } else {
+          identifierToResolve = hostHeader;
+        }
+      } else {
+        // 3. Custom domain or external host (e.g. myshop.com)
+        const isPlatformHost =
+          hostHeader.includes('localhost') ||
+          hostHeader.includes('127.0.0.1') ||
+          hostHeader.endsWith('googleusercontent.com') ||
+          hostHeader.endsWith('run.app') ||
+          hostHeader === 'twinghisabi.site' ||
+          hostHeader === 'www.twinghisabi.site' ||
+          hostHeader === 'app.twinghisabi.site';
+
+        if (!isPlatformHost) {
+          identifierToResolve = hostHeader;
+        }
+      }
+    }
+
+    if (!identifierToResolve) {
+      // If query was just ?store=1 in dev/preview mode, fallback to first active store
+      const pool = getDbPool();
+      if (pool) {
+        const first = await pool.query('SELECT * FROM online_store_configs WHERE is_enabled = true LIMIT 1');
+        if (first.rows.length > 0) {
+          identifierToResolve = first.rows[0].store_slug || first.rows[0].user_id;
+        } else {
+          const firstUser = await pool.query('SELECT id FROM users ORDER BY registered_at ASC LIMIT 1');
+          if (firstUser.rows.length > 0) {
+            identifierToResolve = firstUser.rows[0].id;
+          }
+        }
+      } else {
+        if ((inMemoryStore.online_store_configs || []).length > 0) {
+          identifierToResolve = inMemoryStore.online_store_configs[0].storeSlug || inMemoryStore.online_store_configs[0].userId;
+        } else if (inMemoryStore.users.length > 0) {
+          identifierToResolve = inMemoryStore.users[0].id;
+        }
+      }
+    }
+
+    if (!identifierToResolve) {
+      return res.status(404).json({
+        found: false,
+        error: 'কোনো অনলাইন স্টোর পাওয়া যায়নি। অনুগ্রহ করে সঠিক স্টোর লিংক প্রদান করুন।',
+      });
+    }
+
+    const resolved = await resolveStoreVendor(identifierToResolve);
+    if (!resolved) {
+      return res.status(404).json({
+        found: false,
+        error: 'অনুরোধকৃত অনলাইন স্টোর বা কাস্টম ডোমেনটি খুঁজে পাওয়া যায়নি।',
+      });
+    }
+
+    const publicConfig = sanitizePublicConfig(resolved.storeConfig);
+    return res.json({
+      found: true,
+      store: publicConfig,
+      vendorId: resolved.userId,
+    });
+  } catch (err: any) {
+    console.error('Error in public store resolve:', err);
+    return res.status(500).json({ found: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/public/store/:identifier/products
+ * Returns strictly the public, published products of this vendor
+ * NEVER exposes vendor cost price (buyPrice) or other vendors' data
+ */
+router.get('/:identifier/products', async (req: Request, res: Response) => {
+  try {
+    const { identifier } = req.params;
+    const resolved = await resolveStoreVendor(identifier);
+
+    if (!resolved) {
+      return res.status(404).json({ error: 'স্টোরটি পাওয়া যায়নি।' });
+    }
+
+    const targetUserId = resolved.userId;
+    const storeConfig = resolved.storeConfig;
+    const publishedIds: string[] = Array.isArray(storeConfig.published_product_ids)
+      ? storeConfig.published_product_ids
+      : (typeof storeConfig.published_product_ids === 'string'
+          ? JSON.parse(storeConfig.published_product_ids || '[]')
+          : (storeConfig.publishedProductIds || []));
+
+    const pool = getDbPool();
+    if (pool) {
+      const result = await pool.query(
+        `SELECT id, name, category, unit, sale_price, stock, sku, qr_code, image_url, description, rating, discount_percent, is_published_online
+         FROM products
+         WHERE user_id = $1 AND (is_published_online IS NOT FALSE)
+         ORDER BY updated_at DESC`,
+        [targetUserId]
+      );
+
+      let products = result.rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        category: row.category || 'সাধারণ',
+        unit: row.unit || 'পিস',
+        salePrice: parseFloat(row.sale_price) || 0,
+        stock: parseFloat(row.stock) || 0,
+        sku: row.sku || '',
+        qrCode: row.qr_code || '',
+        imageUrl: row.image_url || '',
+        description: row.description || '',
+        rating: row.rating ? parseFloat(row.rating) : 5.0,
+        discountPercent: row.discount_percent ? parseFloat(row.discount_percent) : 0,
+        isPublishedOnline: row.is_published_online !== false,
+      }));
+
+      if (publishedIds.length > 0) {
+        products = products.filter((p) => publishedIds.includes(p.id));
+      }
+
+      return res.json({ products });
+    } else {
+      const memoryProducts = (inMemoryStore.products || [])
+        .filter((p) => p.userId === targetUserId && p.isPublishedOnline !== false)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          category: p.category || 'সাধারণ',
+          unit: p.unit || 'পিস',
+          salePrice: parseFloat(p.salePrice) || 0,
+          stock: parseFloat(p.stock) || 0,
+          sku: p.sku || '',
+          qrCode: p.qrCode || '',
+          imageUrl: p.imageUrl || '',
+          description: p.description || '',
+          rating: p.rating ? parseFloat(p.rating) : 5.0,
+          discountPercent: p.discountPercent ? parseFloat(p.discountPercent) : 0,
+          isPublishedOnline: p.isPublishedOnline !== false,
+        }));
+
+      let filtered = memoryProducts;
+      if (publishedIds.length > 0) {
+        filtered = filtered.filter((p) => publishedIds.includes(p.id));
+      }
+
+      return res.json({ products: filtered });
+    }
+  } catch (err: any) {
+    console.error('Error fetching public store products:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/public/store/:identifier/orders
+ * Public customer places an order strictly for this specific vendor
+ */
+router.post('/:identifier/orders', async (req: Request, res: Response) => {
+  try {
+    const { identifier } = req.params;
+    const resolved = await resolveStoreVendor(identifier);
+
+    if (!resolved) {
+      return res.status(404).json({ error: 'স্টোরটি বর্তমানে অর্ডার গ্রহণের জন্য প্রস্তুত নয়।' });
+    }
+
+    const targetUserId = resolved.userId;
+    const body = req.body;
+
+    const customerName = (body.customerName || '').trim();
+    const customerPhone = (body.customerPhone || '').trim();
+    const customerAddress = (body.customerAddress || '').trim();
+
+    if (!customerName || !customerPhone || !customerAddress) {
+      return res.status(400).json({ error: 'গ্রাহকের নাম, মোবাইল নম্বর এবং সম্পূর্ণ ঠিকানা আবশ্যক।' });
+    }
+
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (items.length === 0) {
+      return res.status(400).json({ error: 'কার্টে কমপক্ষে একটি পণ্য থাকা আবশ্যক।' });
+    }
+
+    const now = Date.now();
+    const orderId = body.id || `online_ord_${now}_${Math.random().toString(36).substring(2, 6)}`;
+    const orderNumber = body.orderNumber || `ORD-${now.toString().slice(-6)}`;
+    const deliveryArea = body.deliveryArea || 'inside_dhaka';
+    const deliveryCharge = parseFloat(body.deliveryCharge) || 0;
+    const subtotal = parseFloat(body.subtotal) || 0;
+    const totalAmount = parseFloat(body.totalAmount) || (subtotal + deliveryCharge);
+    const paymentMethod = body.paymentMethod || 'cod';
+
+    // Verification check for mobile banking payments
+    const isMobileBanking = ['bkash', 'nagad', 'rocket'].includes(paymentMethod);
+    const paymentStatus = isMobileBanking ? 'pending_verification' : 'unpaid';
+    const trxId = body.trxId ? String(body.trxId).trim() : undefined;
+    const senderPhone = body.senderPhone ? String(body.senderPhone).trim() : customerPhone;
+    const notes = body.notes ? String(body.notes).trim() : '';
+
+    const orderObj = {
+      id: orderId,
+      userId: targetUserId,
+      orderNumber,
+      customerName,
+      customerPhone,
+      customerAddress,
+      deliveryArea,
+      deliveryCharge,
+      items,
+      subtotal,
+      totalAmount,
+      paymentMethod,
+      paymentStatus,
+      orderStatus: 'pending',
+      trxId: trxId || null,
+      senderPhone: senderPhone || null,
+      paymentAmount: totalAmount,
+      notes: notes || null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const pool = getDbPool();
+    if (pool) {
+      await pool.query(
+        `INSERT INTO online_orders (
+          id, user_id, order_number, customer_name, customer_phone, customer_address,
+          delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
+          payment_status, order_status, trx_id, sender_phone, payment_amount, notes,
+          created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+        [
+          orderId,
+          targetUserId,
+          orderNumber,
+          customerName,
+          customerPhone,
+          customerAddress,
+          deliveryArea,
+          deliveryCharge,
+          JSON.stringify(items),
+          subtotal,
+          totalAmount,
+          paymentMethod,
+          paymentStatus,
+          'pending',
+          trxId || null,
+          senderPhone || null,
+          totalAmount,
+          notes || null,
+          now,
+          now,
+        ]
+      );
+
+      // Create an in-app notification for the vendor
+      try {
+        const notifId = `notif_order_${now}_${Math.random().toString(36).substring(2, 6)}`;
+        await pool.query(
+          `INSERT INTO notifications (id, title, message, type, is_read, created_at)
+           VALUES ($1, $2, $3, $4, false, $5)`,
+          [
+            notifId,
+            `নতুন অনলাইন অর্ডার: ${orderNumber}`,
+            `${customerName} (${customerPhone}) ৳${totalAmount.toLocaleString('en-US')} টাকার একটি নতুন অনলাইন অর্ডার দিয়েছেন।`,
+            'order',
+            now,
+          ]
+        );
+      } catch (e) {
+        // Notification failure is non-blocking
+      }
+    } else {
+      if (!inMemoryStore.online_orders) inMemoryStore.online_orders = [];
+      inMemoryStore.online_orders.unshift(orderObj);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: '✅ আপনার অর্ডারটি সফলভাবে গৃহীত হয়েছে!',
+      order: {
+        id: orderId,
+        orderNumber,
+        customerName,
+        customerPhone,
+        customerAddress,
+        deliveryArea,
+        deliveryCharge,
+        items,
+        subtotal,
+        totalAmount,
+        paymentMethod,
+        paymentStatus,
+        orderStatus: 'pending',
+        trxId,
+        senderPhone,
+        notes,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+  } catch (err: any) {
+    console.error('Error placing public store order:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/public/store/:identifier/orders/track/:orderNumber
+ * Public customer tracks an order by orderNumber strictly within this store
+ */
+router.get('/:identifier/orders/track/:orderNumber', async (req: Request, res: Response) => {
+  try {
+    const { identifier, orderNumber } = req.params;
+    const resolved = await resolveStoreVendor(identifier);
+
+    if (!resolved) {
+      return res.status(404).json({ error: 'স্টোরটি পাওয়া যায়নি।' });
+    }
+
+    const targetUserId = resolved.userId;
+    const pool = getDbPool();
+
+    if (pool) {
+      const result = await pool.query(
+        `SELECT id, order_number, customer_name, customer_phone, customer_address,
+                delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
+                payment_status, order_status, trx_id, sender_phone, payment_reject_reason,
+                courier_name, courier_tracking_code, created_at, updated_at
+         FROM online_orders
+         WHERE (order_number = $1 OR id = $1) AND user_id = $2
+         LIMIT 1`,
+        [orderNumber, targetUserId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি। অনুগ্রহ করে সঠিক অর্ডার নম্বর দিন।' });
+      }
+
+      const row = result.rows[0];
+      return res.json({
+        order: {
+          id: row.id,
+          orderNumber: row.order_number,
+          customerName: row.customer_name,
+          customerPhone: row.customer_phone,
+          customerAddress: row.customer_address,
+          deliveryArea: row.delivery_area,
+          deliveryCharge: parseFloat(row.delivery_charge) || 0,
+          items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
+          subtotal: parseFloat(row.subtotal) || 0,
+          totalAmount: parseFloat(row.total_amount) || 0,
+          paymentMethod: row.payment_method,
+          paymentStatus: row.payment_status,
+          orderStatus: row.order_status,
+          trxId: row.trx_id,
+          senderPhone: row.sender_phone,
+          paymentRejectReason: row.payment_reject_reason,
+          courierName: row.courier_name,
+          courierTrackingCode: row.courier_tracking_code,
+          createdAt: Number(row.created_at),
+          updatedAt: Number(row.updated_at),
+        },
+      });
+    } else {
+      const order = (inMemoryStore.online_orders || []).find(
+        (o) => (o.orderNumber === orderNumber || o.id === orderNumber) && o.userId === targetUserId
+      );
+
+      if (!order) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি। অনুগ্রহ করে সঠিক অর্ডার নম্বর দিন।' });
+      }
+
+      return res.json({ order });
+    }
+  } catch (err: any) {
+    console.error('Error tracking customer order:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+export default router;
