@@ -13,25 +13,35 @@ export const StorefrontHeroCarousel: React.FC<StorefrontHeroCarouselProps> = ({
   config,
 }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const totalSlides = 3;
   const timerRef = useRef<any>(null);
+
+  // Active custom banners from config
+  const customBanners = (config?.banners || []).filter((b) => b.active !== false && b.imageUrl);
+  const hasCustomBanners = customBanners.length > 0;
+  const totalSlides = hasCustomBanners ? customBanners.length : 3;
+
+  useEffect(() => {
+    if (currentSlide >= totalSlides) {
+      setCurrentSlide(0);
+    }
+  }, [totalSlides, currentSlide]);
 
   useEffect(() => {
     timerRef.current = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % totalSlides);
-    }, 4800);
+    }, 4500);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, []);
+  }, [totalSlides]);
 
   const handleDotClick = (index: number) => {
     setCurrentSlide(index);
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % totalSlides);
-    }, 4800);
+    }, 4500);
   };
 
   const isCustomImageBanner = config?.bannerStyle === 'image' && !!config?.bannerUrl;
@@ -48,8 +58,67 @@ export const StorefrontHeroCarousel: React.FC<StorefrontHeroCarouselProps> = ({
       <div className="max-w-5xl mx-auto">
         <div className="relative rounded-3xl overflow-hidden shadow-xs border border-slate-200/60 bg-[#F5F1EB] select-none min-h-[190px] sm:min-h-[230px] md:min-h-[260px] flex items-center">
           <AnimatePresence mode="wait">
-            {/* Slide 1: Primary Banner (Custom Image or Glowing Neon Best Picks) */}
-            {currentSlide === 0 && (
+            {hasCustomBanners ? (
+              /* Custom Banners Carousel */
+              customBanners.map((banner, index) => {
+                if (index !== currentSlide) return null;
+                return (
+                  <motion.div
+                    key={`custom-banner-${banner.id || index}`}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.35 }}
+                    className="w-full h-full"
+                  >
+                    <div className="relative w-full h-[190px] sm:h-[230px] md:h-[260px] flex items-center overflow-hidden">
+                      <img
+                        src={banner.imageUrl}
+                        alt={banner.title || 'Store Banner'}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/45 to-transparent flex items-center p-4 sm:p-8">
+                        <div className="max-w-md space-y-2 text-white">
+                          {banner.tag && (
+                            <span className="inline-block px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] sm:text-xs font-black uppercase tracking-wider">
+                              {banner.tag}
+                            </span>
+                          )}
+                          {banner.title && (
+                            <h2 className="text-lg sm:text-2xl md:text-3xl font-black leading-tight drop-shadow-md">
+                              {banner.title}
+                            </h2>
+                          )}
+                          {banner.subtitle && (
+                            <p className="text-xs sm:text-sm text-slate-200 drop-shadow-xs line-clamp-2">
+                              {banner.subtitle}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (banner.linkUrl) {
+                                window.open(banner.linkUrl, '_blank', 'noopener,noreferrer');
+                              } else if (onExploreClick) {
+                                onExploreClick();
+                              }
+                            }}
+                            className="mt-1 px-4 py-1.5 sm:py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs sm:text-sm rounded-xl flex items-center gap-1.5 shadow-md transition active:scale-95 cursor-pointer"
+                          >
+                            <span>এখনই অর্ডার করুন</span>
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })
+            ) : (
+              <>
+                {/* Fallback Slide 1: Primary Banner (Custom Single Image or Glowing Neon Best Picks) */}
+                {currentSlide === 0 && (
               <motion.div
                 key="slide-0"
                 initial={{ opacity: 0, x: 20 }}
@@ -259,22 +328,26 @@ export const StorefrontHeroCarousel: React.FC<StorefrontHeroCarouselProps> = ({
                 </div>
               </motion.div>
             )}
+              </>
+            )}
           </AnimatePresence>
 
           {/* Carousel Navigation Indicator Dots */}
-          <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-10 bg-black/20 backdrop-blur-xs px-2.5 py-1 rounded-full">
-            {[0, 1, 2].map((idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => handleDotClick(idx)}
-                className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
-                  currentSlide === idx ? 'w-5 bg-amber-400' : 'w-1.5 bg-white/70 hover:bg-white'
-                }`}
-                title={`স্লাইড ${idx + 1}`}
-              />
-            ))}
-          </div>
+          {totalSlides > 1 && (
+            <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-10 bg-black/25 backdrop-blur-xs px-2.5 py-1 rounded-full">
+              {Array.from({ length: totalSlides }).map((_, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => handleDotClick(idx)}
+                  className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
+                    currentSlide === idx ? 'w-5 bg-amber-400' : 'w-1.5 bg-white/70 hover:bg-white'
+                  }`}
+                  title={`স্লাইড ${idx + 1}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

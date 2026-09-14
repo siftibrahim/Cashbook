@@ -148,6 +148,17 @@ export interface Product {
   updatedAt: number;
 }
 
+export interface StoreBanner {
+  id: string;
+  imageUrl: string;
+  title?: string;
+  subtitle?: string;
+  tag?: string;
+  discountText?: string;
+  linkUrl?: string;
+  active?: boolean;
+}
+
 export interface OnlineStoreConfig {
   isEnabled: boolean;
   storeSlug: string;
@@ -185,6 +196,7 @@ export interface OnlineStoreConfig {
   bannerTag?: string;
   bannerDiscountText?: string;
   bannerStyle?: 'neon' | 'image' | 'gradient';
+  banners?: StoreBanner[];
   logoUrl?: string;
   supportWhatsAppMessage?: string;
   supportHours?: string;

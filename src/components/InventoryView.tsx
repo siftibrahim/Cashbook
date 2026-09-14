@@ -129,7 +129,27 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   const currency = store.currencySymbol || '৳';
 
-  const categories = ['চাল ও ডাল', 'তেল ও ঘি', 'চিনি ও লবণ', 'চা ও বিস্কুট', 'সাবান ও প্রসাধন', 'অন্যান্য'];
+  const [isCustomCategoryMode, setIsCustomCategoryMode] = useState(false);
+  const [customCategoryInput, setCustomCategoryInput] = useState('');
+
+  const categories = useMemo(() => {
+    const defaultList = [
+      'চাল ও ডাল',
+      'তেল ও ঘি',
+      'চিনি ও লবণ',
+      'চা ও বিস্কুট',
+      'সাবান ও প্রসাধন',
+      'পোশাক ও ফ্যাশন',
+      'ইলেকট্রনিক্স ও গ্যাজেট',
+      'কসমেটিক্স ও বিউটি',
+      'মেডিসিন ও স্বাস্থ্য',
+      'অন্যান্য',
+    ];
+    const fromProducts = products
+      .map((p) => p.category?.trim())
+      .filter((c): c is string => Boolean(c && !defaultList.includes(c)));
+    return [...Array.from(new Set(fromProducts)), ...defaultList];
+  }, [products]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
@@ -213,14 +233,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     }
 
     const assignedSku = sku.trim() || `PRD-${Date.now().toString().slice(-6)}`;
-    const finalImageUrl = imageUrl.trim() || getFallbackProductImage(name.trim(), category);
+    const finalCategory = isCustomCategoryMode && customCategoryInput.trim()
+      ? customCategoryInput.trim()
+      : (category || 'অন্যান্য');
+    const finalImageUrl = imageUrl.trim() || getFallbackProductImage(name.trim(), finalCategory);
 
     if (editingProduct) {
       onUpdateProduct({
         ...editingProduct,
         name: name.trim(),
         sku: assignedSku,
-        category,
+        category: finalCategory,
         unit,
         buyPrice: Number(buyPrice || 0),
         salePrice: sPrice,
@@ -236,7 +259,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         id: `prod_${Date.now()}`,
         name: name.trim(),
         sku: assignedSku,
-        category,
+        category: finalCategory,
         unit,
         buyPrice: Number(buyPrice || 0),
         salePrice: sPrice,
@@ -579,18 +602,40 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">ক্যাটাগরি</label>
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full px-2.5 py-2 text-xs font-bold border border-slate-200 rounded-xl bg-slate-50"
-                  >
-                    {categories.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700">ক্যাটাগরি</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomCategoryMode(!isCustomCategoryMode);
+                        if (!isCustomCategoryMode) setCustomCategoryInput('');
+                      }}
+                      className="text-[10px] font-bold text-teal-700 hover:underline cursor-pointer"
+                    >
+                      {isCustomCategoryMode ? 'তালিকা দেখুন' : '+ নতুন লিখুন'}
+                    </button>
+                  </div>
+                  {isCustomCategoryMode ? (
+                    <input
+                      type="text"
+                      value={customCategoryInput}
+                      onChange={(e) => setCustomCategoryInput(e.target.value)}
+                      placeholder="ক্যাটাগরির নাম লিখুন..."
+                      className="w-full px-2.5 py-2 text-xs font-bold border border-teal-400 focus:ring-2 focus:ring-teal-500/40 rounded-xl bg-teal-50/40"
+                    />
+                  ) : (
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="w-full px-2.5 py-2 text-xs font-bold border border-slate-200 rounded-xl bg-slate-50"
+                    >
+                      {categories.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div>

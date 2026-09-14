@@ -84,9 +84,9 @@ export const Navbar: React.FC<NavbarProps> = ({
     <>
       <header
         id="main-app-header"
-        className="sticky top-0 left-0 right-0 z-40 w-full bg-[#004D40] text-white px-3 sm:px-5 py-2.5 sm:py-3 min-h-[58px] sm:min-h-[64px] flex items-center justify-between shadow-md shrink-0 no-print border-b border-[#00382E] select-none"
+        className="sticky top-0 left-0 right-0 z-40 w-full bg-[#004D40] text-white px-3 sm:px-5 py-2.5 sm:py-3 min-h-[56px] sm:min-h-[60px] flex items-center justify-between shadow-md shrink-0 no-print border-b border-[#00382E] select-none"
         style={{
-          paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))',
+          paddingTop: 'env(safe-area-inset-top, 0px)',
         }}
       >
         {/* Left: Store Branding with Icon & Info */}

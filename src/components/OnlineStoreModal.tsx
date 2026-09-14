@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, OnlineStoreConfig, OnlineOrder, StoreProfile } from '../types';
+import { Product, OnlineStoreConfig, OnlineOrder, StoreProfile, StoreBanner } from '../types';
 import { formatMoney } from '../utils/storage';
 import {
   X,
@@ -96,6 +96,11 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [rejectModalOrder, setRejectModalOrder] = useState<OnlineOrder | null>(null);
   const [rejectReasonInput, setRejectReasonInput] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState<string | null>(null);
+
+  // Catalog tab filter states
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [catalogCategory, setCatalogCategory] = useState('all');
+  const [catalogStatusFilter, setCatalogStatusFilter] = useState<'all' | 'published' | 'hidden'>('all');
 
   // Load unread customer messages count and listen to chat sync
   React.useEffect(() => {
@@ -224,9 +229,9 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
       return;
     }
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const img = new Image();
-      img.onload = () => {
+      img.onload = async () => {
         const canvas = document.createElement('canvas');
         const MAX_WIDTH = 1200;
         let width = img.width;
@@ -241,20 +246,101 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
           const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+          let finalUrl = dataUrl;
+          try {
+            const blob = await (await fetch(dataUrl)).blob();
+            const uploadFormData = new FormData();
+            uploadFormData.append('file', blob, file.name || 'banner.jpg');
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/media/upload', {
+              method: 'POST',
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+              body: uploadFormData,
+            });
+            if (res.ok) {
+              const resData = await res.json();
+              if (resData.url) finalUrl = resData.url;
+            }
+          } catch (err) {
+            // fallback to dataUrl
+          }
+
+          const newBannerItem: StoreBanner = {
+            id: `banner_${Date.now()}`,
+            imageUrl: finalUrl,
+            title: formData.bannerTitle || formData.storeName,
+            subtitle: formData.bannerSubtitle || '',
+            tag: formData.bannerTag || 'স্পেশাল অফার',
+            active: true,
+          };
+
+          const currentBanners = Array.isArray(formData.banners) ? [...formData.banners] : [];
+          const updatedBanners = [...currentBanners, newBannerItem];
+
           const updated = {
             ...formData,
-            bannerUrl: dataUrl,
+            bannerUrl: finalUrl,
             bannerStyle: 'image' as const,
+            banners: updatedBanners,
           };
           setFormData(updated);
           onUpdateConfig(updated);
-          setBannerUploadNotice('✅ ব্যানার ছবি সফলভাবে আপলোড ও সেভ হয়েছে!');
+          setBannerUploadNotice('✅ নতুন ব্যানার সফলভাবে আপলোড ও যুক্ত হয়েছে!');
           setTimeout(() => setBannerUploadNotice(null), 4000);
         }
       };
       img.src = e.target?.result as string;
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleRemoveBanner = (bannerId: string) => {
+    const existing = Array.isArray(formData.banners) ? [...formData.banners] : [];
+    const updatedBanners = existing.filter((b) => b.id !== bannerId);
+    const updated = {
+      ...formData,
+      banners: updatedBanners,
+      bannerUrl: updatedBanners[0]?.imageUrl || '',
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+  };
+
+  const handleToggleBannerActive = (bannerId: string) => {
+    const existing = Array.isArray(formData.banners) ? [...formData.banners] : [];
+    const updatedBanners = existing.map((b) =>
+      b.id === bannerId ? { ...b, active: b.active === false } : b
+    );
+    const updated = {
+      ...formData,
+      banners: updatedBanners,
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+  };
+
+  const handleAddPresetBanner = (presetUrl: string, presetLabel: string) => {
+    const newBannerItem: StoreBanner = {
+      id: `banner_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      imageUrl: presetUrl,
+      title: presetLabel.replace(/^[^\w\s\u0980-\u09FF]+/, '').trim() || formData.storeName,
+      subtitle: 'সেরা অফারে আকর্ষণীয় পণ্য সামগ্রী',
+      tag: 'হট অফার',
+      active: true,
+    };
+    const currentBanners = Array.isArray(formData.banners) ? [...formData.banners] : [];
+    const updatedBanners = [...currentBanners, newBannerItem];
+    const updated = {
+      ...formData,
+      bannerUrl: presetUrl,
+      bannerStyle: 'image' as const,
+      banners: updatedBanners,
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+    setBannerUploadNotice('✅ প্রিসেট ব্যানার যুক্ত হয়েছে!');
+    setTimeout(() => setBannerUploadNotice(null), 4000);
   };
 
   const handleLogoFileUpload = (file: File) => {
@@ -1344,11 +1430,11 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
                 {/* Sub-fields for Image Banner */}
                 {formData.bannerStyle === 'image' && (
-                  <div className="p-4 rounded-2xl bg-teal-50/40 border border-teal-200/60 space-y-3.5">
+                  <div className="p-4 rounded-2xl bg-teal-50/40 border border-teal-200/60 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
-                        <ImageIcon className="w-3.5 h-3.5" />
-                        <span>কাস্টম ফটো ব্যানার আপলোড ও প্রিসেট</span>
+                        <ImageIcon className="w-4 h-4 text-teal-700" />
+                        <span>মাল্টিপল ব্যানার ব্যবস্থাপনা ({Array.isArray(formData.banners) ? formData.banners.length : (formData.bannerUrl ? 1 : 0)}টি ব্যানার সক্রিয়)</span>
                       </div>
                       {bannerUploadNotice && (
                         <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
@@ -1357,50 +1443,83 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       )}
                     </div>
 
-                    {/* Direct File Upload Area */}
-                    <div className="p-4 rounded-xl bg-white border-2 border-dashed border-teal-300 hover:border-teal-500 transition text-center space-y-2.5">
-                      {formData.bannerUrl ? (
-                        <div className="space-y-2">
-                          <div className="relative rounded-lg overflow-hidden border border-slate-200 max-h-48 bg-slate-100">
-                            <img
-                              src={formData.bannerUrl}
-                              alt="Store Banner"
-                              className="w-full h-36 object-cover"
-                              referrerPolicy="no-referrer"
-                            />
-                            <div className="absolute top-2 right-2 flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setFormData({ ...formData, bannerUrl: '' })}
-                                className="px-2.5 py-1 bg-red-600/90 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-md cursor-pointer transition"
+                    {/* List of existing banners */}
+                    <div className="space-y-2.5">
+                      {((Array.isArray(formData.banners) && formData.banners.length > 0)
+                        ? formData.banners
+                        : (formData.bannerUrl ? [{ id: 'banner_init', imageUrl: formData.bannerUrl, title: formData.bannerTitle || 'ব্যানার ১', active: true }] : [])
+                      ).map((b, idx) => (
+                        <div
+                          key={b.id || idx}
+                          className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-teal-200 shadow-2xs hover:border-teal-400 transition"
+                        >
+                          <img
+                            src={b.imageUrl}
+                            alt={`Banner ${idx + 1}`}
+                            className="w-20 h-12 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-800 truncate">
+                                {b.title || `ব্যানার #${idx + 1}`}
+                              </span>
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                                  b.active !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                                }`}
                               >
-                                ছবি মুছুন
-                              </button>
+                                {b.active !== false ? 'চলমান' : 'বন্ধ'}
+                              </span>
                             </div>
+                            <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                              {b.tag ? `ট্যাগ: ${b.tag}` : 'হোমস্ক্রিন ক্যারোসেলে প্রদর্শিত'}
+                            </p>
                           </div>
-                          <p className="text-[11px] text-emerald-700 font-bold">
-                            ✓ বর্তমান ব্যানার সক্রিয় আছে
-                          </p>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleBannerActive(b.id)}
+                              className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition ${
+                                b.active !== false
+                                  ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                  : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                              }`}
+                            >
+                              {b.active !== false ? 'বন্ধ করুন' : 'চালু করুন'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveBanner(b.id)}
+                              className="p-1 text-red-500 hover:bg-red-50 rounded-lg cursor-pointer transition"
+                              title="ব্যানার মুছুন"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
-                      ) : (
-                        <div className="py-2 text-slate-500 space-y-1">
-                          <Upload className="w-8 h-8 mx-auto text-teal-600" />
-                          <p className="text-xs font-bold text-slate-700">
-                            মোবাইল গ্যালারি বা কম্পিউটার থেকে ব্যানার ছবি আপলোড করুন
-                          </p>
-                          <p className="text-[11px] text-slate-400">
-                            সুপারিশকৃত সাইজ: 1200 x 400 পিক্সেল (JPG, PNG, WebP)
-                          </p>
-                        </div>
-                      )}
+                      ))}
+                    </div>
 
-                      <div>
+                    {/* Direct File Upload Area for New Banner */}
+                    <div className="p-3.5 rounded-xl bg-white border-2 border-dashed border-teal-300 hover:border-teal-500 transition text-center space-y-2">
+                      <div className="py-1 text-slate-500 space-y-0.5">
+                        <Upload className="w-6 h-6 mx-auto text-teal-600" />
+                        <p className="text-xs font-bold text-slate-700">
+                          নতুন ব্যানার ছবি আপলোড করুন
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          সুপারিশকৃত সাইজ: 1200 x 400 পিক্সেল (JPG, PNG, WebP)
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-center gap-2">
                         <label
                           htmlFor="banner-file-picker"
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer active:scale-95"
+                          className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer active:scale-95"
                         >
-                          <Upload className="w-4 h-4" />
-                          <span>{formData.bannerUrl ? 'নতুন ব্যানার ছবি নির্বাচন করুন' : 'ব্যানার ছবি আপলোড করুন'}</span>
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>গ্যালারি থেকে ছবি নির্বাচন করুন</span>
                         </label>
                         <input
                           id="banner-file-picker"
@@ -1416,21 +1535,40 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       </div>
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-700">অথবা সরাসরি ব্যানার ছবির URL পেস্ট করুন</label>
+                    {/* Direct URL input to add new banner */}
+                    <div className="flex gap-2">
                       <input
                         type="url"
-                        value={formData.bannerUrl || ''}
-                        onChange={(e) => setFormData({ ...formData, bannerUrl: e.target.value })}
-                        placeholder="https://images.unsplash.com/..."
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                        placeholder="অথবা ব্যানার ছবির URL পেস্ট করে যুক্ত করুন..."
+                        className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            handleAddPresetBanner(val, 'নতুন প্রমোশনাল ব্যানার');
+                            (e.target as HTMLInputElement).value = '';
+                          }
+                        }}
+                        id="new-banner-url-input"
                       />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const input = document.getElementById('new-banner-url-input') as HTMLInputElement;
+                          if (input && input.value.trim()) {
+                            handleAddPresetBanner(input.value.trim(), 'নতুন প্রমোশনাল ব্যানার');
+                            input.value = '';
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold cursor-pointer transition shrink-0"
+                      >
+                        + ব্যানার যোগ করুন
+                      </button>
                     </div>
 
                     {/* Quick Preset Buttons */}
                     <div className="space-y-1.5 pt-1">
-                      <div className="text-[10px] font-bold text-slate-600">অথবা ১-ক্লিকে প্রিসেট ব্যানার নির্বাচন করুন:</div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="text-[10px] font-bold text-slate-600">১-ক্লিকে চমৎকার প্রিসেট ব্যানার যুক্ত করুন:</div>
+                      <div className="flex flex-wrap gap-1.5">
                         {[
                           {
                             label: '💄 বিউটি ও স্কিনকেয়ার',
@@ -1452,18 +1590,10 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                           <button
                             key={preset.label}
                             type="button"
-                            onClick={() => {
-                              const updated = {
-                                ...formData,
-                                bannerUrl: preset.url,
-                                bannerStyle: 'image' as const,
-                              };
-                              setFormData(updated);
-                              onUpdateConfig(updated);
-                            }}
-                            className="px-2.5 py-1.5 rounded-lg bg-white border border-teal-300 hover:border-teal-500 text-[11px] font-bold text-teal-900 cursor-pointer shadow-2xs hover:bg-teal-50"
+                            onClick={() => handleAddPresetBanner(preset.url, preset.label)}
+                            className="px-2.5 py-1 rounded-lg bg-white border border-teal-300 hover:border-teal-500 text-[10px] font-bold text-teal-900 cursor-pointer shadow-2xs hover:bg-teal-50"
                           >
-                            {preset.label}
+                            + {preset.label}
                           </button>
                         ))}
                       </div>
@@ -1796,85 +1926,230 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           )}
 
           {/* TAB 4: PRODUCT CATALOG */}
-          {activeTab === 'catalog' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200">
-                <div>
-                  <h3 className="font-bold text-sm sm:text-base text-slate-900">অনলাইন ক্যাটালগ ও পণ্য প্রকাশ</h3>
-                  <p className="text-xs text-slate-500">
-                    যে যে পণ্য অনলাইনে সক্রিয় থাকবে শুধুমাত্র সেগুলোই গ্রাহকরা ওয়েবসাইটে দেখতে পাবেন।
-                  </p>
-                </div>
+          {activeTab === 'catalog' && (() => {
+            const categories = Array.from(
+              new Set(
+                products
+                  .map((p) => p.category?.trim())
+                  .filter((c): c is string => Boolean(c))
+              )
+            );
 
-                {onNavigateToTab && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onNavigateToTab('inventory');
-                    }}
-                    className="px-3.5 py-2 bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>নতুন পণ্য যুক্ত করুন</span>
-                  </button>
-                )}
-              </div>
+            const filteredProducts = products.filter((prod) => {
+              const isPub = isProductPublished(prod.id);
+              const matchSearch =
+                !catalogSearch ||
+                prod.name.toLowerCase().includes(catalogSearch.toLowerCase()) ||
+                (prod.sku && prod.sku.toLowerCase().includes(catalogSearch.toLowerCase())) ||
+                (prod.category && prod.category.toLowerCase().includes(catalogSearch.toLowerCase()));
+              const matchCat = catalogCategory === 'all' || prod.category === catalogCategory;
+              const matchStatus =
+                catalogStatusFilter === 'all' ||
+                (catalogStatusFilter === 'published' && isPub) ||
+                (catalogStatusFilter === 'hidden' && !isPub);
+              return matchSearch && matchCat && matchStatus;
+            });
 
-              {products.length === 0 ? (
-                <div className="bg-white rounded-3xl p-10 border border-slate-200 text-center space-y-3">
-                  <Package className="w-12 h-12 text-slate-400 mx-auto" />
-                  <p className="font-bold text-slate-700">ইনভেনটরিতে কোনো পণ্য নেই</p>
-                  <p className="text-xs text-slate-500">
-                    দোকানের পণ্য স্টক ট্যাবে পণ্য যুক্ত করুন, সেগুলো এখানে চলে আসবে।
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {products.map((prod) => {
-                    const isPub = isProductPublished(prod.id);
-                    return (
-                      <div
-                        key={prod.id}
-                        className="bg-white p-3.5 rounded-2xl border border-slate-200 flex items-center justify-between gap-3 hover:border-teal-300 transition"
+            const handlePublishAll = () => {
+              const allIds = products.map((p) => p.id);
+              const updated = {
+                ...formData,
+                publishedProductIds: allIds,
+              };
+              setFormData(updated);
+              onUpdateConfig(updated);
+            };
+
+            const handleHideAll = () => {
+              const updated = {
+                ...formData,
+                publishedProductIds: [],
+              };
+              setFormData(updated);
+              onUpdateConfig(updated);
+            };
+
+            return (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200">
+                  <div>
+                    <h3 className="font-bold text-sm sm:text-base text-slate-900">অনলাইন ক্যাটালগ ও ক্যাটাগরি ব্যবস্থাপনা</h3>
+                    <p className="text-xs text-slate-500">
+                      ক্যাটাগরি ভিত্তিক পণ্য ফিল্টার করুন এবং গ্রাহকদের জন্য অনলাইনে প্রকাশ বা বন্ধ করুন।
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handlePublishAll}
+                      className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold cursor-pointer transition"
+                    >
+                      সব সক্রিয় করুন
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleHideAll}
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer transition"
+                    >
+                      সব বন্ধ করুন
+                    </button>
+                    {onNavigateToTab && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onNavigateToTab('inventory');
+                        }}
+                        className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer"
                       >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-xs sm:text-sm text-slate-900 truncate">{prod.name}</h4>
-                            <span
-                              className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
-                                isPub ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
-                              }`}
-                            >
-                              {isPub ? 'অনলাইনে সক্রিয়' : 'লুকানো'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
-                            <span className="font-bold text-teal-800">৳ {formatMoney(prod.salePrice)}</span>
-                            <span>স্টক: {prod.stock} {prod.unit || 'টি'}</span>
-                            {prod.category && <span className="text-slate-400">({prod.category})</span>}
-                          </div>
-                        </div>
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>নতুন পণ্য</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-                        {/* Toggle Button */}
+                {/* Filter and Search Bar */}
+                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={catalogSearch}
+                      onChange={(e) => setCatalogSearch(e.target.value)}
+                      placeholder="পণ্য, বারকোড বা ক্যাটাগরি দিয়ে খুঁজুন..."
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setCatalogStatusFilter('all')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          catalogStatusFilter === 'all'
+                            ? 'bg-teal-800 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        সব ({products.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCatalogStatusFilter('published')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          catalogStatusFilter === 'published'
+                            ? 'bg-emerald-700 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        সক্রিয় ({products.filter((p) => isProductPublished(p.id)).length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCatalogStatusFilter('hidden')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          catalogStatusFilter === 'hidden'
+                            ? 'bg-slate-700 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        বন্ধ ({products.filter((p) => !isProductPublished(p.id)).length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Category Pills */}
+                  {categories.length > 0 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-1 border-t border-slate-100">
+                      <span className="text-[11px] font-bold text-slate-500 shrink-0 mr-1">ক্যাটাগরি:</span>
+                      <button
+                        type="button"
+                        onClick={() => setCatalogCategory('all')}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition ${
+                          catalogCategory === 'all'
+                            ? 'bg-teal-700 text-white'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        সব ক্যাটাগরি
+                      </button>
+                      {categories.map((cat) => (
                         <button
+                          key={cat}
                           type="button"
-                          onClick={() => handleToggleProductPublish(prod.id)}
-                          className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer shrink-0 ${
-                            isPub
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
-                              : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
+                          onClick={() => setCatalogCategory(cat)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition ${
+                            catalogCategory === cat
+                              ? 'bg-teal-700 text-white'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                           }`}
                         >
-                          {isPub ? 'অনলাইন' : 'বন্ধ'}
+                          {cat} ({products.filter((p) => p.category === cat).length})
                         </button>
-                      </div>
-                    );
-                  })}
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+
+                {/* Product Grid */}
+                {filteredProducts.length === 0 ? (
+                  <div className="bg-white rounded-3xl p-10 border border-slate-200 text-center space-y-3">
+                    <Package className="w-10 h-10 text-slate-400 mx-auto" />
+                    <p className="font-bold text-slate-700 text-sm">কোনো পণ্য পাওয়া যায়নি</p>
+                    <p className="text-xs text-slate-500">
+                      অনুসন্ধান ফিল্টার পরিবর্তন করুন বা নতুন পণ্য যুক্ত করুন।
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {filteredProducts.map((prod) => {
+                      const isPub = isProductPublished(prod.id);
+                      return (
+                        <div
+                          key={prod.id}
+                          className="bg-white p-3.5 rounded-2xl border border-slate-200 flex items-center justify-between gap-3 hover:border-teal-300 transition"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-xs sm:text-sm text-slate-900 truncate">{prod.name}</h4>
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                                  isPub ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                                }`}
+                              >
+                                {isPub ? 'অনলাইনে সক্রিয়' : 'লুকানো'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
+                              <span className="font-bold text-teal-800">৳ {formatMoney(prod.salePrice)}</span>
+                              <span>স্টক: {prod.stock} {prod.unit || 'টি'}</span>
+                              {prod.category && (
+                                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded text-[10px] font-semibold">
+                                  {prod.category}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Toggle Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleProductPublish(prod.id)}
+                            className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer shrink-0 ${
+                              isPub
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                                : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
+                            }`}
+                          >
+                            {isPub ? 'অনলাইন' : 'বন্ধ'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* TAB 5: ONLINE ORDERS */}
           {activeTab === 'orders' && (() => {

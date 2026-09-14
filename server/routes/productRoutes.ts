@@ -7,6 +7,29 @@ const router = Router();
 // Protect all product routes with user authentication
 router.use(authenticateUser);
 
+function mapRowToProduct(row: any) {
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category || 'সাধারণ',
+    unit: row.unit || 'পিস',
+    buyPrice: parseFloat(row.buy_price) || 0,
+    salePrice: parseFloat(row.sale_price) || 0,
+    stock: parseFloat(row.stock) || 0,
+    minStockAlert: parseFloat(row.min_stock_alert) || 5,
+    sku: row.sku || row.id,
+    qrCode: row.qr_code || '',
+    imageUrl: row.image_url || '',
+    description: row.description || '',
+    originalPrice: row.original_price ? parseFloat(row.original_price) : undefined,
+    discountPercent: row.discount_percent ? parseFloat(row.discount_percent) : undefined,
+    isPublishedOnline: row.is_published_online !== false,
+    rating: row.rating ? parseFloat(row.rating) : 5.0,
+    reviewCount: row.review_count ? parseInt(row.review_count, 10) : 0,
+    updatedAt: Number(row.updated_at),
+  };
+}
+
 /**
  * GET /api/products - List all products for logged-in user
  */
@@ -21,19 +44,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
         'SELECT * FROM products WHERE user_id = $1 ORDER BY updated_at DESC',
         [userId]
       );
-      const products = result.rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        category: row.category || 'সাধারণ',
-        unit: row.unit || 'পিস',
-        buyPrice: parseFloat(row.buy_price) || 0,
-        salePrice: parseFloat(row.sale_price) || 0,
-        stock: parseFloat(row.stock) || 0,
-        minStockAlert: parseFloat(row.min_stock_alert) || 5,
-        sku: row.sku || row.id,
-        qrCode: row.qr_code || '',
-        updatedAt: Number(row.updated_at),
-      }));
+      const products = result.rows.map(mapRowToProduct);
       return res.json({ products });
     } else {
       const list = (inMemoryStore.products || [])
@@ -72,21 +83,7 @@ router.get('/by-code/:code', async (req: AuthenticatedRequest, res: Response) =>
         return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি' });
       }
 
-      const row = result.rows[0];
-      const product = {
-        id: row.id,
-        name: row.name,
-        category: row.category || 'সাধারণ',
-        unit: row.unit || 'পিস',
-        buyPrice: parseFloat(row.buy_price) || 0,
-        salePrice: parseFloat(row.sale_price) || 0,
-        stock: parseFloat(row.stock) || 0,
-        minStockAlert: parseFloat(row.min_stock_alert) || 5,
-        sku: row.sku || row.id,
-        qrCode: row.qr_code || '',
-        updatedAt: Number(row.updated_at),
-      };
-      return res.json({ product });
+      return res.json({ product: mapRowToProduct(result.rows[0]) });
     } else {
       const p = (inMemoryStore.products || []).find(
         x => x.userId === userId && (x.id === cleanCode || (x.sku && x.sku.toLowerCase() === cleanCode.toLowerCase()))
@@ -107,7 +104,24 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: 'লগইন করুন' });
 
-    const { id, name, category, unit, buyPrice, salePrice, stock, minStockAlert, sku, qrCode } = req.body;
+    const {
+      id,
+      name,
+      category,
+      unit,
+      buyPrice,
+      salePrice,
+      stock,
+      minStockAlert,
+      sku,
+      qrCode,
+      imageUrl,
+      description,
+      originalPrice,
+      discountPercent,
+      isPublishedOnline,
+      rating,
+    } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'পণ্যের নাম আবশ্যক' });
@@ -121,6 +135,10 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
     const cleanSale = parseFloat(salePrice) || 0;
     const cleanStock = parseFloat(stock) || 0;
     const cleanAlert = parseFloat(minStockAlert) || 5;
+    const cleanOriginal = originalPrice !== undefined && originalPrice !== null ? parseFloat(originalPrice) : null;
+    const cleanDiscount = discountPercent !== undefined && discountPercent !== null ? parseFloat(discountPercent) : null;
+    const cleanOnline = isPublishedOnline !== false;
+    const cleanRating = rating ? parseFloat(rating) : 5.0;
 
     const pool = getDbPool();
     if (pool) {
@@ -134,59 +152,37 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         }
       }
 
-      try {
-        await pool.query(`
-          INSERT INTO products (
-            id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, sku, qr_code, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-          ON CONFLICT (id) DO UPDATE SET
-            name = EXCLUDED.name,
-            category = EXCLUDED.category,
-            unit = EXCLUDED.unit,
-            buy_price = EXCLUDED.buy_price,
-            sale_price = EXCLUDED.sale_price,
-            stock = EXCLUDED.stock,
-            min_stock_alert = EXCLUDED.min_stock_alert,
-            sku = EXCLUDED.sku,
-            qr_code = EXCLUDED.qr_code,
-            updated_at = EXCLUDED.updated_at
-          WHERE products.user_id = EXCLUDED.user_id
-        `, [
-          prodId, validUserId, name.trim(), category || 'সাধারণ', unit || 'পিস',
-          cleanBuy, cleanSale, cleanStock, cleanAlert, assignedSku, qrCode || '', now
-        ]);
-      } catch (insertErr: any) {
-        if (insertErr?.message?.includes('products_user_id_fkey') || insertErr?.code === '23503') {
-          console.warn('⚠️ Foreign key constraint caught on products, auto-dropping constraint and retrying...');
-          await pool.query('ALTER TABLE products DROP CONSTRAINT IF EXISTS products_user_id_fkey;');
-          await pool.query(`
-            INSERT INTO products (
-              id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, sku, qr_code, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-            ON CONFLICT (id) DO UPDATE SET
-              name = EXCLUDED.name,
-              category = EXCLUDED.category,
-              unit = EXCLUDED.unit,
-              buy_price = EXCLUDED.buy_price,
-              sale_price = EXCLUDED.sale_price,
-              stock = EXCLUDED.stock,
-              min_stock_alert = EXCLUDED.min_stock_alert,
-              sku = EXCLUDED.sku,
-              qr_code = EXCLUDED.qr_code,
-              updated_at = EXCLUDED.updated_at
-            WHERE products.user_id = EXCLUDED.user_id
-          `, [
-            prodId, validUserId, name.trim(), category || 'সাধারণ', unit || 'পিস',
-            cleanBuy, cleanSale, cleanStock, cleanAlert, assignedSku, qrCode || '', now
-          ]);
-        } else {
-          throw insertErr;
-        }
-      }
+      await pool.query(`
+        INSERT INTO products (
+          id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, sku, qr_code,
+          image_url, description, original_price, discount_percent, is_published_online, rating, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          category = EXCLUDED.category,
+          unit = EXCLUDED.unit,
+          buy_price = EXCLUDED.buy_price,
+          sale_price = EXCLUDED.sale_price,
+          stock = EXCLUDED.stock,
+          min_stock_alert = EXCLUDED.min_stock_alert,
+          sku = EXCLUDED.sku,
+          qr_code = EXCLUDED.qr_code,
+          image_url = EXCLUDED.image_url,
+          description = EXCLUDED.description,
+          original_price = EXCLUDED.original_price,
+          discount_percent = EXCLUDED.discount_percent,
+          is_published_online = EXCLUDED.is_published_online,
+          rating = EXCLUDED.rating,
+          updated_at = EXCLUDED.updated_at
+        WHERE products.user_id = EXCLUDED.user_id
+      `, [
+        prodId, validUserId, name.trim(), category || 'সাধারণ', unit || 'পিস',
+        cleanBuy, cleanSale, cleanStock, cleanAlert, assignedSku, qrCode || '',
+        imageUrl || '', description || '', cleanOriginal, cleanDiscount, cleanOnline, cleanRating, now
+      ]);
     } else {
       if (!inMemoryStore.products) inMemoryStore.products = [];
 
-      // Multi-tenant check for in-memory
       if (id) {
         const memExisting = inMemoryStore.products.find(p => p.id === id);
         if (memExisting && memExisting.userId !== userId) {
@@ -207,6 +203,12 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         minStockAlert: cleanAlert,
         sku: assignedSku,
         qrCode: qrCode || '',
+        imageUrl: imageUrl || '',
+        description: description || '',
+        originalPrice: cleanOriginal ?? undefined,
+        discountPercent: cleanDiscount ?? undefined,
+        isPublishedOnline: cleanOnline,
+        rating: cleanRating,
         updatedAt: now,
       };
       if (idx >= 0) inMemoryStore.products[idx] = prodObj;
@@ -224,6 +226,12 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       minStockAlert: cleanAlert,
       sku: assignedSku,
       qrCode: qrCode || '',
+      imageUrl: imageUrl || '',
+      description: description || '',
+      originalPrice: cleanOriginal ?? undefined,
+      discountPercent: cleanDiscount ?? undefined,
+      isPublishedOnline: cleanOnline,
+      rating: cleanRating,
       updatedAt: now,
     };
 
@@ -247,7 +255,6 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
     if (pool) {
       const result = await pool.query('DELETE FROM products WHERE id = $1 AND user_id = $2 RETURNING id', [id, userId]);
       if (result.rows.length === 0) {
-        // Check if the product belongs to another user
         const otherCheck = await pool.query('SELECT user_id FROM products WHERE id = $1', [id]);
         if (otherCheck.rows.length > 0) {
           return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি অন্য ভেন্ডরের পণ্য মুছতে পারবেন না।' });
@@ -285,82 +292,53 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
 
     if (pool) {
       const validUserId = await ensureUserExistsInPostgres(pool, userId, req.user);
-      try {
-        for (const p of products) {
-          if (!p || !p.name) continue;
-          const prodId = p.id || 'prod_' + Math.random().toString(36).substring(2, 8);
-          const assignedSku = p.sku ? p.sku.trim() : `PRD-${Date.now().toString().slice(-6)}`;
-          await pool.query(`
-            INSERT INTO products (
-              id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, sku, qr_code, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-            ON CONFLICT (id) DO UPDATE SET
-              name = EXCLUDED.name,
-              category = EXCLUDED.category,
-              unit = EXCLUDED.unit,
-              buy_price = EXCLUDED.buy_price,
-              sale_price = EXCLUDED.sale_price,
-              stock = EXCLUDED.stock,
-              min_stock_alert = EXCLUDED.min_stock_alert,
-              sku = EXCLUDED.sku,
-              qr_code = EXCLUDED.qr_code,
-              updated_at = EXCLUDED.updated_at
-          `, [
-            prodId,
-            validUserId,
-            p.name.trim(),
-            p.category || 'সাধারণ',
-            p.unit || 'পিস',
-            parseFloat(p.buyPrice) || 0,
-            parseFloat(p.salePrice) || 0,
-            parseFloat(p.stock) || 0,
-            parseFloat(p.minStockAlert) || 5,
-            assignedSku,
-            p.qrCode || '',
-            p.updatedAt || now,
-          ]);
-        }
-      } catch (batchErr: any) {
-        if (batchErr?.message?.includes('products_user_id_fkey') || batchErr?.code === '23503') {
-          console.warn('⚠️ Foreign key constraint caught on products batch, auto-dropping constraint and retrying...');
-          await pool.query('ALTER TABLE products DROP CONSTRAINT IF EXISTS products_user_id_fkey;');
-          for (const p of products) {
-            if (!p || !p.name) continue;
-            const prodId = p.id || 'prod_' + Math.random().toString(36).substring(2, 8);
-            const assignedSku = p.sku ? p.sku.trim() : `PRD-${Date.now().toString().slice(-6)}`;
-            await pool.query(`
-              INSERT INTO products (
-                id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, sku, qr_code, updated_at
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-              ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name,
-                category = EXCLUDED.category,
-                unit = EXCLUDED.unit,
-                buy_price = EXCLUDED.buy_price,
-                sale_price = EXCLUDED.sale_price,
-                stock = EXCLUDED.stock,
-                min_stock_alert = EXCLUDED.min_stock_alert,
-                sku = EXCLUDED.sku,
-                qr_code = EXCLUDED.qr_code,
-                updated_at = EXCLUDED.updated_at
-            `, [
-              prodId,
-              validUserId,
-              p.name.trim(),
-              p.category || 'সাধারণ',
-              p.unit || 'পিস',
-              parseFloat(p.buyPrice) || 0,
-              parseFloat(p.salePrice) || 0,
-              parseFloat(p.stock) || 0,
-              parseFloat(p.minStockAlert) || 5,
-              assignedSku,
-              p.qrCode || '',
-              p.updatedAt || now,
-            ]);
-          }
-        } else {
-          throw batchErr;
-        }
+      for (const p of products) {
+        if (!p || !p.name) continue;
+        const prodId = p.id || 'prod_' + Math.random().toString(36).substring(2, 8);
+        const assignedSku = p.sku ? p.sku.trim() : `PRD-${Date.now().toString().slice(-6)}`;
+        await pool.query(`
+          INSERT INTO products (
+            id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, sku, qr_code,
+            image_url, description, original_price, discount_percent, is_published_online, rating, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            category = EXCLUDED.category,
+            unit = EXCLUDED.unit,
+            buy_price = EXCLUDED.buy_price,
+            sale_price = EXCLUDED.sale_price,
+            stock = EXCLUDED.stock,
+            min_stock_alert = EXCLUDED.min_stock_alert,
+            sku = EXCLUDED.sku,
+            qr_code = EXCLUDED.qr_code,
+            image_url = CASE WHEN EXCLUDED.image_url IS NOT NULL AND EXCLUDED.image_url != '' THEN EXCLUDED.image_url ELSE products.image_url END,
+            description = EXCLUDED.description,
+            original_price = EXCLUDED.original_price,
+            discount_percent = EXCLUDED.discount_percent,
+            is_published_online = EXCLUDED.is_published_online,
+            rating = EXCLUDED.rating,
+            updated_at = EXCLUDED.updated_at
+          WHERE products.user_id = EXCLUDED.user_id
+        `, [
+          prodId,
+          validUserId,
+          p.name.trim(),
+          p.category || 'সাধারণ',
+          p.unit || 'পিস',
+          parseFloat(p.buyPrice) || 0,
+          parseFloat(p.salePrice) || 0,
+          parseFloat(p.stock) || 0,
+          parseFloat(p.minStockAlert) || 5,
+          assignedSku,
+          p.qrCode || '',
+          p.imageUrl || '',
+          p.description || '',
+          p.originalPrice !== undefined ? parseFloat(p.originalPrice) : null,
+          p.discountPercent !== undefined ? parseFloat(p.discountPercent) : null,
+          p.isPublishedOnline !== false,
+          p.rating ? parseFloat(p.rating) : 5.0,
+          p.updatedAt || now,
+        ]);
       }
     } else {
       if (!inMemoryStore.products) inMemoryStore.products = [];

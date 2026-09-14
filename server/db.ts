@@ -771,12 +771,24 @@ export async function initializeDatabaseSchema() {
         support_hours VARCHAR(100),
         facebook_url TEXT,
         published_product_ids JSONB DEFAULT '[]'::jsonb,
+        banners JSONB DEFAULT '[]'::jsonb,
         is_enabled BOOLEAN DEFAULT TRUE,
         created_at BIGINT NOT NULL,
         updated_at BIGINT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_online_store_configs_slug ON online_store_configs(store_slug);
       CREATE INDEX IF NOT EXISTS idx_online_store_configs_domain ON online_store_configs(custom_domain);
+
+      CREATE TABLE IF NOT EXISTS media_storage (
+        id VARCHAR(128) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        mime_type VARCHAR(100) NOT NULL,
+        file_name VARCHAR(255),
+        data TEXT NOT NULL,
+        size_bytes INT,
+        created_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_media_storage_user_id ON media_storage(user_id);
     `);
 
     // Schema Evolution Safety: Ensure columns exist on already created tables
@@ -819,6 +831,13 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_balance INT DEFAULT 20;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS sku VARCHAR(100);
       ALTER TABLE products ADD COLUMN IF NOT EXISTS qr_code TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS original_price NUMERIC(12, 2);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS discount_percent NUMERIC(5, 2);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS is_published_online BOOLEAN DEFAULT TRUE;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS rating NUMERIC(3, 2);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS review_count INT DEFAULT 0;
 
       -- Drop strict foreign key constraints to ensure offline/sync/staff operations never crash
       ALTER TABLE products DROP CONSTRAINT IF EXISTS products_user_id_fkey;
@@ -864,6 +883,7 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_tag TEXT;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_discount_text TEXT;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_style VARCHAR(50) DEFAULT 'gradient';
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banners JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS logo_url TEXT;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS support_whatsapp_message TEXT;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS support_hours VARCHAR(100);

@@ -610,6 +610,9 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             bannerTag: r.banner_tag || '',
             bannerDiscountText: r.banner_discount_text || '',
             bannerStyle: r.banner_style || 'gradient',
+            banners: Array.isArray(r.banners)
+              ? r.banners
+              : (typeof r.banners === 'string' ? JSON.parse(r.banners || '[]') : []),
             logoUrl: r.logo_url || '',
             supportWhatsAppMessage: r.support_whatsapp_message || '',
             supportHours: r.support_hours || '',
@@ -793,6 +796,7 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS support_hours VARCHAR(100);
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS facebook_url TEXT;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS published_product_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banners JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT TRUE;
         ALTER TABLE online_store_configs ALTER COLUMN id DROP NOT NULL;
       `).catch(() => null);
@@ -841,8 +845,9 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             support_hours = $39,
             facebook_url = $40,
             published_product_ids = $41,
-            is_enabled = $42,
-            updated_at = $43
+            banners = $42,
+            is_enabled = $43,
+            updated_at = $44
           WHERE user_id = $1`,
           [
             userId,
@@ -886,6 +891,7 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             body.supportHours || '',
             body.facebookUrl || '',
             JSON.stringify(body.publishedProductIds || []),
+            JSON.stringify(body.banners || []),
             body.isEnabled !== false,
             now,
           ]
@@ -901,11 +907,11 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             accept_nagad, nagad_number, nagad_type, accept_rocket, rocket_number,
             rocket_type, payment_instructions, banner_url, banner_title, banner_subtitle,
             banner_tag, banner_discount_text, banner_style, logo_url, support_whatsapp_message,
-            support_hours, facebook_url, published_product_ids, is_enabled, created_at, updated_at
+            support_hours, facebook_url, published_product_ids, banners, is_enabled, created_at, updated_at
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34,
-            $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45
+            $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46
           )`,
           [
             'cfg_' + userId,
@@ -950,6 +956,7 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             body.supportHours || '',
             body.facebookUrl || '',
             JSON.stringify(body.publishedProductIds || []),
+            JSON.stringify(body.banners || []),
             body.isEnabled !== false,
             now,
             now,

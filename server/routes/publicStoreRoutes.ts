@@ -39,6 +39,11 @@ function sanitizePublicConfig(row: any, fallbackStoreProfile?: any) {
     bannerTag: row.banner_tag || row.bannerTag || '',
     bannerDiscountText: row.banner_discount_text || row.bannerDiscountText || '',
     bannerStyle: row.banner_style || row.bannerStyle || 'gradient',
+    banners: Array.isArray(row.banners)
+      ? row.banners
+      : (typeof row.banners === 'string'
+          ? JSON.parse(row.banners || '[]')
+          : (row.banners || [])),
     logoUrl: row.logo_url || row.logoUrl || '',
     supportWhatsAppMessage: row.support_whatsapp_message || row.supportWhatsAppMessage || '',
     supportHours: row.support_hours || row.supportHours || 'সকাল ৯টা - রাত ১০টা',

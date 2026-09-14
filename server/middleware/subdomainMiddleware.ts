@@ -155,19 +155,47 @@ export async function dynamicSubdomainMiddleware(
   try {
     /**
      * DATABASE LOOKUP:
-     * Query your database for this tenant/store.
-     * Replace this query with your ORM (e.g., Prisma, Mongoose, Drizzle, TypeORM, or pg pool).
+     * Query online_store_configs (primary store configuration table)
+     * and fallback to store_profiles or users table.
      */
-    const storeRes = await query(
-      `SELECT id, name, shop_name, phone, email, store_slug, custom_domain, status, created_at 
-       FROM users 
-       WHERE store_slug = $1 
+    let storeRes = await query(
+      `SELECT osc.user_id as id, osc.store_name, osc.store_slug, osc.custom_domain, osc.phone, osc.is_enabled,
+              u.name, u.shop_name, u.email, u.status, osc.created_at 
+       FROM online_store_configs osc 
+       LEFT JOIN users u ON u.id = osc.user_id 
+       WHERE LOWER(osc.store_slug) = $1 
        LIMIT 1`,
       [slug]
-    );
+    ).catch(() => null as any);
 
     if (!storeRes || !storeRes.rows || storeRes.rows.length === 0) {
-      // 5. Fallback 404 response when subdomain store does not exist
+      // Fallback 1: check store_profiles
+      storeRes = await query(
+        `SELECT sp.user_id as id, sp.name as store_name, sp.slug as store_slug, sp.phone,
+                u.name, u.shop_name, u.email, u.status, sp.created_at 
+         FROM store_profiles sp 
+         LEFT JOIN users u ON u.id = sp.user_id 
+         WHERE LOWER(sp.slug) = $1 
+         LIMIT 1`,
+        [slug]
+      ).catch(() => null as any);
+    }
+
+    if (!storeRes || !storeRes.rows || storeRes.rows.length === 0) {
+      // Fallback 2: check users table by id, name or shop_name
+      storeRes = await query(
+        `SELECT id, name, shop_name, phone, email, status, created_at 
+         FROM users 
+         WHERE LOWER(REPLACE(COALESCE(shop_name, ''), ' ', '')) = $1 
+            OR LOWER(REPLACE(COALESCE(name, ''), ' ', '')) = $1 
+            OR id = $1
+         LIMIT 1`,
+        [slug]
+      ).catch(() => null as any);
+    }
+
+    if (!storeRes || !storeRes.rows || storeRes.rows.length === 0) {
+      // Fallback 404 response when subdomain store does not exist
       return res.status(404).json({
         error: 'Store Not Found',
         message: `The requested store "${slug}.${BASE_DOMAIN}" does not exist or has been disabled.`,

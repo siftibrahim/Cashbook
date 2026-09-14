@@ -327,7 +327,7 @@ export const App: React.FC = () => {
     const user = getStoredUser();
     const userId = uid || user?.id || 'guest';
     try {
-      const [storeData, custList, txMap, expList, prodList, subStatus, smsData] = await Promise.all([
+      const [storeData, custList, txMap, expList, prodList, subStatus, smsData, remoteStoreConfig, remoteOrders] = await Promise.all([
         storeApi.getProfile().catch(() => null),
         customerApi.getAll().catch(() => []),
         transactionApi.getAll().catch(() => ({ map: {} })),
@@ -335,6 +335,8 @@ export const App: React.FC = () => {
         productApi.getAll().catch(() => []),
         subscriptionApi.getMyStatus().catch(() => null),
         userSmsApi.getBalance().catch(() => ({ balance: 0, totalSent: 0, hasPendingPurchase: false, pendingPurchase: null, latestConfirmed: null })),
+        storeApi.getOnlineConfig().catch(() => null),
+        storeApi.getOrders().catch(() => []),
       ]);
 
       if (smsData) {
@@ -403,11 +405,21 @@ export const App: React.FC = () => {
       setProducts(loadedProds);
       saveProducts(loadedProds, userId);
 
-      const loadedStoreConfig = loadOnlineStoreConfig(userId, userShopName || storeData?.name, userPhone || storeData?.phone);
-      setOnlineStoreConfig(loadedStoreConfig);
+      if (remoteStoreConfig && remoteStoreConfig.storeSlug) {
+        setOnlineStoreConfig(remoteStoreConfig);
+        saveOnlineStoreConfig(remoteStoreConfig, userId);
+      } else {
+        const loadedStoreConfig = loadOnlineStoreConfig(userId, userShopName || storeData?.name, userPhone || storeData?.phone);
+        setOnlineStoreConfig(loadedStoreConfig);
+      }
 
-      const loadedOnlineOrders = loadOnlineOrders(userId);
-      setOnlineOrders(loadedOnlineOrders);
+      if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
+        setOnlineOrders(remoteOrders);
+        saveOnlineOrders(remoteOrders, userId);
+      } else {
+        const loadedOnlineOrders = loadOnlineOrders(userId);
+        setOnlineOrders(loadedOnlineOrders);
+      }
 
       setIsCloudSynced(true);
     } catch (err) {
@@ -1565,7 +1577,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="w-full h-full min-h-full max-h-full bg-slate-900 sm:bg-slate-100 flex flex-col items-center justify-start sm:justify-center p-0 sm:p-2 md:p-3 lg:p-4 text-slate-800 font-sans antialiased overflow-hidden selection:bg-teal-500 selection:text-white">
+    <div className="w-full h-full min-h-full flex flex-col items-center justify-start p-0 text-slate-800 font-sans antialiased overflow-hidden selection:bg-teal-500 selection:text-white bg-[#004D40]">
       {/* Toast Notifications */}
       <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none flex flex-col gap-2 no-print">
         {toasts.map((t) => (
@@ -1579,7 +1591,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* Main Container Card */}
-      <div className="w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl h-full sm:h-[98dvh] lg:h-[96dvh] max-h-full sm:max-h-[98dvh] flex flex-col bg-white sm:rounded-2xl md:rounded-3xl shadow-2xl sm:border sm:border-slate-200/80 overflow-hidden relative">
+      <div className="w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl h-full min-h-full flex flex-col bg-white overflow-hidden relative shadow-none border-0">
         {!isLoggedIn ? (
           <AuthScreen
             store={store}
