@@ -333,28 +333,11 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
       <div
         className={
           isStandalone
-            ? 'relative w-full max-w-5xl min-h-screen bg-white shadow-xs flex flex-col border-x border-slate-200/80 pb-20'
+            ? 'relative w-full max-w-5xl min-h-screen bg-white shadow-xs flex flex-col border-x border-slate-200/80'
             : 'relative w-full max-w-5xl h-full max-h-[100dvh] sm:max-h-[96vh] sm:rounded-3xl bg-white shadow-2xl flex flex-col overflow-hidden border border-slate-200/80'
         }
       >
-        {isStandalone ? (
-          <div className="bg-slate-900 text-white px-3.5 sm:px-6 py-1.5 flex items-center justify-between text-xs shrink-0">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              <span className="text-[11px] text-slate-300 font-medium">অফিসিয়াল অনলাইন স্টোর</span>
-            </div>
-            {onMerchantLogin && (
-              <button
-                type="button"
-                onClick={onMerchantLogin}
-                className="text-teal-300 hover:text-white text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
-              >
-                <User className="w-3 h-3" />
-                <span>দোকানদার লগইন</span>
-              </button>
-            )}
-          </div>
-        ) : (
+        {isStandalone ? null : (
           /* Admin Store Bar (Top Slim Bar) */
           <div className="bg-slate-900 text-white px-3.5 sm:px-6 py-2 flex items-center justify-between text-xs shrink-0 border-b border-slate-800">
             <div className="flex items-center gap-2 truncate">
@@ -615,6 +598,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
             <StorefrontMoreTab
               config={config}
               totalProductsCount={publishedProducts.length}
+              onMerchantLogin={onMerchantLogin}
             />
           )}
         </div>
@@ -1199,32 +1183,6 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
           }}
           config={config}
         />
-
-        {/* Standalone Public Footer */}
-        {isStandalone && (
-          <footer className="mt-12 py-8 px-4 border-t border-slate-200 bg-slate-50 text-center text-xs text-slate-500 space-y-2">
-            <div className="flex items-center justify-center gap-2 font-bold text-slate-700">
-              <Store className="w-4 h-4 text-teal-600" />
-              <span>{config.storeName || 'অনলাইন শপ'}</span>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              {config.address ? `${config.address} • ` : ''}মোবাইল: {config.phone || config.whatsappPhone || 'N/A'}
-            </p>
-            <div className="pt-2 text-[11px] text-slate-400 flex items-center justify-center gap-3">
-              <span>সুরক্ষিত অনলাইন ডেলিভারি</span>
-              <span>•</span>
-              {onMerchantLogin && (
-                <button
-                  type="button"
-                  onClick={onMerchantLogin}
-                  className="text-teal-700 hover:text-teal-900 font-bold underline cursor-pointer"
-                >
-                  দোকানদার লগইন
-                </button>
-              )}
-            </div>
-          </footer>
-        )}
 
         {/* Vendor Support Drawer (Live Customer Support & Chat) */}
         <StorefrontSupportDrawer

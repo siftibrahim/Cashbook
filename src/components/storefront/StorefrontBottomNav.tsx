@@ -23,7 +23,7 @@ export const StorefrontBottomNav: React.FC<StorefrontBottomNavProps> = ({
   ];
 
   return (
-    <nav className="bg-white border-t border-slate-200/80 px-2 py-1.5 shrink-0 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.04)] sticky bottom-0">
+    <nav className="bg-white border-t border-slate-200/80 px-2 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] shrink-0 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.04)] sticky bottom-0">
       <div className="max-w-md mx-auto grid grid-cols-5 gap-1">
         {tabs.map((tab) => {
           const Icon = tab.icon;

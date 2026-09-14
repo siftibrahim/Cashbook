@@ -1,15 +1,17 @@
 import React from 'react';
-import { Store, ShieldCheck, Truck, Phone, MapPin, RefreshCw, CreditCard, ExternalLink, MessageCircle } from 'lucide-react';
+import { Store, ShieldCheck, Truck, Phone, MapPin, RefreshCw, CreditCard, ExternalLink, MessageCircle, LogIn } from 'lucide-react';
 import { OnlineStoreConfig } from '../../types';
 
 interface StorefrontMoreTabProps {
   config: OnlineStoreConfig;
   totalProductsCount: number;
+  onMerchantLogin?: () => void;
 }
 
 export const StorefrontMoreTab: React.FC<StorefrontMoreTabProps> = ({
   config,
   totalProductsCount,
+  onMerchantLogin,
 }) => {
   const storeName = config.storeName || 'bikroyhub';
   const cleanPhone = (config.phone || '').replace(/[^0-9]/g, '');
@@ -131,6 +133,19 @@ export const StorefrontMoreTab: React.FC<StorefrontMoreTabProps> = ({
           </div>
         </div>
       </div>
+
+      {onMerchantLogin && (
+        <div className="pt-2 pb-6 text-center">
+          <button
+            type="button"
+            onClick={onMerchantLogin}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 transition cursor-pointer"
+          >
+            <LogIn className="w-3.5 h-3.5 text-slate-500" />
+            <span>দোকানদার লগইন</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
