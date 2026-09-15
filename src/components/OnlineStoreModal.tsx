@@ -40,6 +40,7 @@ import {
   Filter,
   Save,
   Tag,
+  Landmark,
 } from 'lucide-react';
 import { VendorChatInboxTab } from './vendor/VendorChatInboxTab';
 import { getTotalUnreadVendorMessages, CHAT_SYNC_EVENT } from '../utils/storeChatStorage';
@@ -60,7 +61,7 @@ interface OnlineStoreModalProps {
   onShowToast?: (msg: string) => void;
 }
 
-type TabType = 'overview' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages' | 'coupons';
+type TabType = 'overview' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages' | 'coupons' | 'payments';
 
 export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   isOpen,
@@ -441,6 +442,37 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
     reader.readAsDataURL(file);
   };
 
+  const handlePaymentQrFileUpload = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 600;
+        let width = img.width;
+        let height = img.height;
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+          setFormData((prev) => ({ ...prev, vendorPaymentQrUrl: dataUrl }));
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSaveSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!formData.storeName || !formData.storeName.trim()) {
@@ -713,6 +745,19 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           >
             <Settings className="w-4 h-4 text-slate-600" />
             <span>ই-কমার্স সেটিংস</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('payments')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'payments'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <CreditCard className="w-4 h-4 text-pink-600" />
+            <span>পেমেন্ট গেটওয়ে ও মেথড</span>
           </button>
 
           <button
@@ -2498,12 +2543,18 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                       ? 'bg-orange-100 text-orange-800 border border-orange-300'
                                       : ord.paymentMethod === 'rocket'
                                       ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                                      : ord.paymentMethod === 'upay'
+                                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                      : ord.paymentMethod === 'bank'
+                                      ? 'bg-blue-100 text-blue-800 border border-blue-300'
                                       : 'bg-slate-200 text-slate-800'
                                   }`}
                                 >
                                   {ord.paymentMethod === 'bkash' && '🌸 বিকাশ (bKash)'}
                                   {ord.paymentMethod === 'nagad' && '🟠 নগদ (Nagad)'}
                                   {ord.paymentMethod === 'rocket' && '🟣 রকেট (Rocket)'}
+                                  {ord.paymentMethod === 'upay' && '🟡 উপায় (Upay)'}
+                                  {ord.paymentMethod === 'bank' && '🏛️ ব্যাংক ট্রান্সফার (Bank)'}
                                   {ord.paymentMethod === 'cod' && '🚚 ক্যাশ অন ডেলিভারি (COD)'}
                                 </span>
                               </div>
@@ -3005,6 +3056,419 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 8: VENDOR PAYMENT GATEWAYS & METHODS */}
+          {activeTab === 'payments' && (
+            <div className="space-y-6">
+              {/* Header Card */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-pink-50 text-pink-600 flex items-center justify-center shrink-0">
+                    <CreditCard className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                      ভেন্ডর পেমেন্ট গেটওয়ে ও মেথড কনফিগারেশন
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      আপনার অনলাইন স্টোরে গ্রাহকদের থেকে সরাসরি টাকা পাওয়ার জন্য নিজস্ব বিকাশ, নগদ, রকেট, উপায়, ব্যাংক হিসাব ও কিউআর কোড যুক্ত করুন।
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveSettings()}
+                  className="px-4 py-2 bg-[#004D40] hover:bg-[#00382e] text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>পেমেন্ট সেটিংস সেভ করুন</span>
+                </button>
+              </div>
+
+              {/* Grid of Payment Methods */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. bKash */}
+                <div className={`bg-white rounded-2xl p-5 border transition-all space-y-4 ${formData.acceptBkash ? 'border-pink-300 shadow-xs ring-1 ring-pink-400/20' : 'border-slate-200 opacity-80'}`}>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-pink-100 text-pink-700 font-black text-xs flex items-center justify-center">
+                        bKash
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">বিকাশ (bKash)</h4>
+                        <p className="text-[11px] text-slate-500">মোবাইল ফাইন্যান্সিয়াল সার্ভিস</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptBkash}
+                        onChange={(e) => setFormData({ ...formData, acceptBkash: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-pink-600"></div>
+                    </label>
+                  </div>
+
+                  {formData.acceptBkash && (
+                    <div className="space-y-3 text-xs animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">বিকাশ অ্যাকাউন্ট টাইপ</label>
+                        <select
+                          value={formData.bkashType || 'merchant'}
+                          onChange={(e) => setFormData({ ...formData, bkashType: e.target.value as any })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-semibold text-slate-800 bg-white"
+                        >
+                          <option value="merchant">মার্চেন্ট অ্যাকাউন্ট (Merchant Payment)</option>
+                          <option value="personal">পার্সোনাল অ্যাকাউন্ট (Send Money)</option>
+                          <option value="agent">এজেন্ট অ্যাকাউন্ট (Cash Out)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">বিকাশ নম্বর *</label>
+                        <input
+                          type="tel"
+                          value={formData.bkashNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, bkashNumber: e.target.value })}
+                          placeholder="উদাঃ 017XXXXXXXX"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Nagad */}
+                <div className={`bg-white rounded-2xl p-5 border transition-all space-y-4 ${formData.acceptNagad ? 'border-orange-300 shadow-xs ring-1 ring-orange-400/20' : 'border-slate-200 opacity-80'}`}>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-orange-100 text-orange-700 font-black text-xs flex items-center justify-center">
+                        নগদ
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">নগদ (Nagad)</h4>
+                        <p className="text-[11px] text-slate-500">ডাক বিভাগ ডিজিটাল লেনদেন</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptNagad}
+                        onChange={(e) => setFormData({ ...formData, acceptNagad: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-600"></div>
+                    </label>
+                  </div>
+
+                  {formData.acceptNagad && (
+                    <div className="space-y-3 text-xs animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">নগদ অ্যাকাউন্ট টাইপ</label>
+                        <select
+                          value={formData.nagadType || 'personal'}
+                          onChange={(e) => setFormData({ ...formData, nagadType: e.target.value as any })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-semibold text-slate-800 bg-white"
+                        >
+                          <option value="merchant">মার্চেন্ট অ্যাকাউন্ট (Merchant)</option>
+                          <option value="personal">পার্সোনাল অ্যাকাউন্ট (Personal)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">নগদ নম্বর *</label>
+                        <input
+                          type="tel"
+                          value={formData.nagadNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, nagadNumber: e.target.value })}
+                          placeholder="উদাঃ 018XXXXXXXX"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Rocket */}
+                <div className={`bg-white rounded-2xl p-5 border transition-all space-y-4 ${formData.acceptRocket ? 'border-purple-300 shadow-xs ring-1 ring-purple-400/20' : 'border-slate-200 opacity-80'}`}>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 font-black text-xs flex items-center justify-center">
+                        রকেট
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">রকেট (Rocket DBBL)</h4>
+                        <p className="text-[11px] text-slate-500">ডাচ্-বাংলা ব্যাংক মোবাইল ব্যাংকিং</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptRocket}
+                        onChange={(e) => setFormData({ ...formData, acceptRocket: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                    </label>
+                  </div>
+
+                  {formData.acceptRocket && (
+                    <div className="space-y-3 text-xs animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">রকেট ১২ ডিজিটের নম্বর *</label>
+                        <input
+                          type="tel"
+                          value={formData.rocketNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, rocketNumber: e.target.value })}
+                          placeholder="উদাঃ 019XXXXXXXXX (চেক ডিজিট সহ)"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Upay */}
+                <div className={`bg-white rounded-2xl p-5 border transition-all space-y-4 ${formData.acceptUpay ? 'border-amber-300 shadow-xs ring-1 ring-amber-400/20' : 'border-slate-200 opacity-80'}`}>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 font-black text-xs flex items-center justify-center">
+                        upay
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">উপায় (Upay UCB)</h4>
+                        <p className="text-[11px] text-slate-500">ইউসিবি ডিজিটাল পেমেন্ট</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptUpay || false}
+                        onChange={(e) => setFormData({ ...formData, acceptUpay: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+                    </label>
+                  </div>
+
+                  {formData.acceptUpay && (
+                    <div className="space-y-3 text-xs animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">উপায় নম্বর *</label>
+                        <input
+                          type="tel"
+                          value={formData.upayNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, upayNumber: e.target.value })}
+                          placeholder="উদাঃ 017XXXXXXXX"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. Bank Transfer */}
+                <div className={`bg-white rounded-2xl p-5 border transition-all space-y-4 md:col-span-2 ${formData.acceptBank ? 'border-blue-300 shadow-xs ring-1 ring-blue-400/20' : 'border-slate-200 opacity-80'}`}>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                        <Landmark className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">সরাসরি ব্যাংক ট্রান্সফার (Bank Transfer / Wire)</h4>
+                        <p className="text-[11px] text-slate-500">গ্রাহক সরাসরি আপনার ব্যবসায়িক ব্যাংক হিসাবে টাকা পাঠাতে পারবে</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptBank || false}
+                        onChange={(e) => setFormData({ ...formData, acceptBank: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {formData.acceptBank && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">ব্যাংকের নাম *</label>
+                        <input
+                          type="text"
+                          value={formData.bankName || ''}
+                          onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+                          placeholder="উদাঃ Islami Bank / DBBL / BRAC Bank"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">অ্যাকাউন্টের নাম (Account Title) *</label>
+                        <input
+                          type="text"
+                          value={formData.bankAccountName || ''}
+                          onChange={(e) => setFormData({ ...formData, bankAccountName: e.target.value })}
+                          placeholder="উদাঃ আপনার প্রতিষ্ঠানের নাম বা ব্যক্তিগত নাম"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">অ্যাকাউন্ট নম্বর *</label>
+                        <input
+                          type="text"
+                          value={formData.bankAccountNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
+                          placeholder="উদাঃ 2050XXXXXXXXXXXXX"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">শাখার নাম (Branch)</label>
+                        <input
+                          type="text"
+                          value={formData.bankBranchName || ''}
+                          onChange={(e) => setFormData({ ...formData, bankBranchName: e.target.value })}
+                          placeholder="উদাঃ মিরপুর ব্রাঞ্চ, ঢাকা"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-800 bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">রাউটিং নম্বর (Routing No)</label>
+                        <input
+                          type="text"
+                          value={formData.bankRoutingNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, bankRoutingNumber: e.target.value })}
+                          placeholder="উদাঃ 125272635"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono text-slate-800 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 6. Cash on Delivery (COD) */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center">
+                        <Truck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">ক্যাশ অন ডেলিভারি (Cash On Delivery)</h4>
+                        <p className="text-[11px] text-slate-500">পণ্য হাতে পেয়ে ডেলিভারিম্যানকে টাকা পরিশোধ</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptCOD !== false}
+                        onChange={(e) => setFormData({ ...formData, acceptCOD: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#00695C]"></div>
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    এটি সক্রিয় রাখলে গ্রাহক কোনো অগ্রিম টাকা প্রদান ছাড়াই অর্ডার করতে পারবেন। ডেলিভারির সময় কুরিয়ার থেকে টাকা আদায় হবে।
+                  </p>
+                </div>
+
+                {/* 7. Vendor QR Code Upload */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                        <QrCode className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">ভেন্ডর পেমেন্ট কিউআর কোড (QR Code)</h4>
+                        <p className="text-[11px] text-slate-500">চেকআউট পেজে কাস্টমারদের স্ক্যান করার জন্য</p>
+                      </div>
+                    </div>
+                    {formData.vendorPaymentQrUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, vendorPaymentQrUrl: undefined })}
+                        className="text-xs font-bold text-rose-600 hover:underline cursor-pointer"
+                      >
+                        মুছে ফেলুন
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    {formData.vendorPaymentQrUrl ? (
+                      <img
+                        src={formData.vendorPaymentQrUrl}
+                        alt="Vendor Payment QR"
+                        className="w-20 h-20 object-contain rounded-xl border border-slate-200 bg-slate-50 shadow-2xs"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-slate-400">
+                        <QrCode className="w-8 h-8" />
+                      </div>
+                    )}
+
+                    <div className="space-y-2 flex-1">
+                      <label className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 inline-flex items-center gap-1.5 cursor-pointer transition">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>কিউআর কোডের ছবি আপলোড</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            if (e.target.files?.[0]) handlePaymentQrFileUpload(e.target.files[0]);
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                      <p className="text-[11px] text-slate-500">
+                        বিকাশ বা নগদ মার্চেন্ট কিউআর কোডের ছবি আপলোড করুন।
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Universal Payment Instructions */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-2">
+                    <MessageCircle className="w-4 h-4 text-teal-700" />
+                    <span>গ্রাহকদের জন্য সার্বজনীন পেমেন্ট নির্দেশিকা (Payment Instructions)</span>
+                  </label>
+                </div>
+                <textarea
+                  rows={3}
+                  value={formData.paymentInstructions || ''}
+                  onChange={(e) => setFormData({ ...formData, paymentInstructions: e.target.value })}
+                  placeholder="উদাঃ অনুগ্রহ করে বিকাশ বা নগদে 'মার্চেন্ট পেমেন্ট' অপশন ব্যবহার করে টাকা পাঠান এবং ট্রানজেকশন আইডি (TrxID) দিন।"
+                  className="w-full p-3 rounded-2xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                />
+                <p className="text-[11px] text-slate-500">
+                  চেকআউট পেজে মোবাইল ব্যাংকিং বা ব্যাংক ট্রান্সফার সিলেক্ট করলে গ্রাহকরা এই নির্দেশিকা দেখতে পাবে।
+                </p>
+              </div>
+
+              {/* Bottom Save Action */}
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleSaveSettings()}
+                  className="px-6 py-3 bg-[#004D40] hover:bg-[#00382e] text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>পেমেন্ট গেটওয়ে সেটিংস সেভ করুন</span>
+                </button>
               </div>
             </div>
           )}

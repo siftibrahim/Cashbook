@@ -147,55 +147,7 @@ export class SubscriptionEngine {
         }
       }
 
-      // 1. Respect user expiry and status as stored in DB (authoritative)
-      const existingUserExpiry = Number(u.subscription_expires_at) || 0;
-      const isExplicitlyResetOrExpired = (
-        u.subscription_status === 'expired' ||
-        u.subscription_plan === 'Free' ||
-        u.subscription_plan === 'রিসেট / বন্ধ' ||
-        (u.subscription_plan && u.subscription_plan.includes('মেয়াদ শেষ'))
-      );
-      
-      let finalExpiry = existingUserExpiry;
-      let computedStatus: string = 'active';
 
-      if (isExplicitlyResetOrExpired || existingUserExpiry < now) {
-        finalExpiry = existingUserExpiry > 0 && existingUserExpiry < now ? existingUserExpiry : (now - 1000);
-        computedStatus = 'expired';
-        latestPlanName = u.subscription_plan && !u.subscription_plan.includes('ট্রায়াল')
-          ? u.subscription_plan
-          : 'মেয়াদ শেষ (রিনিউ প্রয়োজন)';
-      } else {
-        // User has valid expiry in DB: preserve admin manual extension/reduction
-        if (existingUserExpiry > 0) {
-          finalExpiry = existingUserExpiry;
-        } else {
-          finalExpiry = currentChainExpiry;
-        }
-
-        const isTrial = totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
-        computedStatus = isTrial ? (isTrialEnabled ? 'trial' : 'expired') : 'active';
-        if (u.subscription_plan && !u.subscription_plan.includes('ট্রায়াল')) {
-          latestPlanName = u.subscription_plan;
-        }
-      }
-
-      await pool.query(
-        `UPDATE users SET
-          subscription_expires_at = $1,
-          subscription_plan = $2,
-          subscription_status = $3
-        WHERE id = $4`,
-        [finalExpiry, latestPlanName, computedStatus, userId]
-      );
-
-      await pool.query(
-        `UPDATE store_profiles SET
-          subscription_expires_at = $1,
-          subscription_plan = $2
-        WHERE user_id = $3`,
-        [finalExpiry, latestPlanName, userId]
-      ).catch(() => {});
 
       return {
         subscriptionExpiresAt: finalExpiry,

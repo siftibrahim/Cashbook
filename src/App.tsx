@@ -1501,7 +1501,18 @@ export const App: React.FC = () => {
       date: getTodayDateString(),
       time: getCurrentTimeString(),
       description: `অনলাইন অর্ডার #${order.orderNumber}`,
-      paymentMethod: order.paymentMethod === 'cod' ? 'cash' : 'bkash',
+      paymentMethod:
+        order.paymentMethod === 'cod'
+          ? 'cash'
+          : order.paymentMethod === 'bkash'
+          ? 'bkash'
+          : order.paymentMethod === 'nagad'
+          ? 'nagad'
+          : order.paymentMethod === 'rocket'
+          ? 'rocket'
+          : order.paymentMethod === 'bank'
+          ? 'bank'
+          : 'other',
       items: order.items.map((it, idx) => ({
         id: it.id || it.productId || `item_${idx}_${now}`,
         name: it.productName,
@@ -1510,13 +1521,34 @@ export const App: React.FC = () => {
         total: it.total,
         unit: it.unit || 'টি',
       })),
-      discount: 0,
+      discount: order.discountAmount || 0,
       paidAmount: order.paymentMethod === 'cod' ? 0 : order.totalAmount,
       dueAmount: order.paymentMethod === 'cod' ? order.totalAmount : 0,
       deliveryCharge: order.deliveryCharge,
       createdAt: now,
       updatedAt: now,
     };
+
+    // Deduct stock from inventory for items in this online order
+    let anyStockChanged = false;
+    const updatedProducts = products.map((prod) => {
+      const matchedItem = order.items.find(
+        (it) => it.productId === prod.id || it.productName.trim().toLowerCase() === prod.name.trim().toLowerCase()
+      );
+      if (matchedItem && typeof prod.stock === 'number') {
+        anyStockChanged = true;
+        const newStock = Math.max(0, prod.stock - matchedItem.quantity);
+        const updatedProd = { ...prod, stock: newStock, updatedAt: now };
+        saveProductToCloud(updatedProd).catch(() => null);
+        return updatedProd;
+      }
+      return prod;
+    });
+
+    if (anyStockChanged) {
+      setProducts(updatedProducts);
+      saveProducts(updatedProducts, user?.id);
+    }
 
     const targetCustTxs = transactions[targetCust.id] || [];
     const updatedTxs = { ...transactions, [targetCust.id]: [newTx, ...targetCustTxs] };

@@ -33,6 +33,10 @@ import {
   Check,
   ShoppingBag,
   Trash2,
+  QrCode,
+  Landmark,
+  CreditCard,
+  Copy,
 } from 'lucide-react';
 
 interface OnlineStorefrontModalProps {
@@ -130,7 +134,7 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   const [customerAddress, setCustomerAddress] = useState(customerProfile.address || '');
   const [customerDistrict, setCustomerDistrict] = useState('ঢাকা');
   const [deliveryArea, setDeliveryArea] = useState<'inside_dhaka' | 'outside_dhaka'>('inside_dhaka');
-  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad' | 'rocket'>('cod');
+  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank'>('cod');
   const [customerTrxId, setCustomerTrxId] = useState('');
   const [customerSenderPhone, setCustomerSenderPhone] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
@@ -961,7 +965,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
 
                       <div className="space-y-2">
                         <label className="text-xs font-bold text-slate-700">পেমেন্ট পদ্ধতি নির্বাচন করুন</label>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                           {config.acceptCOD !== false && (
                             <button
                               type="button"
@@ -988,7 +992,9 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                               }`}
                             >
                               <div>বিকাশ (bKash)</div>
-                              <div className="text-[10px] text-pink-700 font-semibold truncate">{config.bkashNumber || 'বিকাশ'}</div>
+                              <div className="text-[10px] text-pink-700 font-semibold truncate">
+                                {config.bkashNumber || 'বিকাশ'} {config.bkashType ? `(${config.bkashType === 'merchant' ? 'মার্চেন্ট' : 'পার্সোনাল'})` : ''}
+                              </div>
                             </button>
                           )}
 
@@ -1003,7 +1009,9 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                               }`}
                             >
                               <div>নগদ (Nagad)</div>
-                              <div className="text-[10px] text-orange-700 font-semibold truncate">{config.nagadNumber || 'নগদ'}</div>
+                              <div className="text-[10px] text-orange-700 font-semibold truncate">
+                                {config.nagadNumber || 'নগদ'} {config.nagadType ? `(${config.nagadType === 'merchant' ? 'মার্চেন্ট' : 'পার্সোনাল'})` : ''}
+                              </div>
                             </button>
                           )}
 
@@ -1018,46 +1026,160 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                               }`}
                             >
                               <div>রকেট (Rocket)</div>
-                              <div className="text-[10px] text-purple-700 font-semibold truncate">{config.rocketNumber || 'রকেট'}</div>
+                              <div className="text-[10px] text-purple-700 font-semibold truncate">
+                                {config.rocketNumber || 'রকেট'}
+                              </div>
+                            </button>
+                          )}
+
+                          {config.acceptUpay && (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentMethod('upay')}
+                              className={`p-2.5 rounded-xl border text-xs font-bold text-left transition cursor-pointer ${
+                                paymentMethod === 'upay'
+                                  ? 'bg-amber-50 border-amber-500 text-amber-900 shadow-2xs'
+                                  : 'bg-white border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              <div>উপায় (Upay)</div>
+                              <div className="text-[10px] text-amber-700 font-semibold truncate">
+                                {config.upayNumber || 'উপায়'}
+                              </div>
+                            </button>
+                          )}
+
+                          {config.acceptBank && (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentMethod('bank')}
+                              className={`p-2.5 rounded-xl border text-xs font-bold text-left transition cursor-pointer ${
+                                paymentMethod === 'bank'
+                                  ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-2xs'
+                                  : 'bg-white border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              <div>ব্যাংক ট্রান্সফার</div>
+                              <div className="text-[10px] text-blue-700 font-semibold truncate">
+                                {config.bankName || 'ব্যাংক'}
+                              </div>
                             </button>
                           )}
                         </div>
 
-                        {/* Payment Instructions & TrxID Input for Mobile Banking */}
+                        {/* Payment Instructions & TrxID Input for Mobile / Bank Banking */}
                         {paymentMethod !== 'cod' && (
-                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 text-xs">
-                            <div className="font-bold text-slate-800 flex items-center justify-between">
-                              <span>
-                                {paymentMethod === 'bkash' && `বিকাশ নম্বর: ${config.bkashNumber || 'নম্বর নেই'}`}
-                                {paymentMethod === 'nagad' && `নগদ নম্বর: ${config.nagadNumber || 'নম্বর নেই'}`}
-                                {paymentMethod === 'rocket' && `রকেট নম্বর: ${config.rocketNumber || 'নম্বর নেই'}`}
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-3 text-xs">
+                            <div className="font-bold text-slate-800 flex flex-wrap items-center justify-between gap-1 pb-2 border-b border-slate-200">
+                              <span className="font-black text-slate-900">
+                                {paymentMethod === 'bkash' && `বিকাশ নম্বর: ${config.bkashNumber || 'নম্বর প্রদান করা হয়নি'}`}
+                                {paymentMethod === 'nagad' && `নগদ নম্বর: ${config.nagadNumber || 'নম্বর প্রদান করা হয়নি'}`}
+                                {paymentMethod === 'rocket' && `রকেট নম্বর: ${config.rocketNumber || 'নম্বর প্রদান করা হয়নি'}`}
+                                {paymentMethod === 'upay' && `উপায় নম্বর: ${config.upayNumber || 'নম্বর প্রদান করা হয়নি'}`}
+                                {paymentMethod === 'bank' && `ব্যাংক: ${config.bankName || 'ব্যাংক হিসাব'}`}
                               </span>
+
+                              {/* Copy Number Button if mobile banking */}
+                              {['bkash', 'nagad', 'rocket', 'upay'].includes(paymentMethod) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const num =
+                                      paymentMethod === 'bkash'
+                                        ? config.bkashNumber
+                                        : paymentMethod === 'nagad'
+                                        ? config.nagadNumber
+                                        : paymentMethod === 'rocket'
+                                        ? config.rocketNumber
+                                        : config.upayNumber;
+                                    if (num) {
+                                      navigator.clipboard?.writeText(num);
+                                      alert(`নম্বর কপি হয়েছে: ${num}`);
+                                    }
+                                  }}
+                                  className="text-[11px] font-bold text-[#00695C] hover:underline flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                  <span>কপি করুন</span>
+                                </button>
+                              )}
                             </div>
+
+                            {/* Bank Details Display */}
+                            {paymentMethod === 'bank' && (
+                              <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1.5 text-xs">
+                                <div className="font-bold text-slate-900 border-b border-slate-100 pb-1 flex items-center gap-1.5">
+                                  <Landmark className="w-4 h-4 text-blue-700" />
+                                  <span>ব্যাংক অ্যাকাউন্টের বিবরণ:</span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-slate-700">
+                                  <div><span className="text-slate-500">ব্যাংকের নাম:</span> <strong className="text-slate-900">{config.bankName || '-'}</strong></div>
+                                  <div><span className="text-slate-500">হিসাবধারীর নাম:</span> <strong className="text-slate-900">{config.bankAccountName || '-'}</strong></div>
+                                  <div><span className="text-slate-500">অ্যাকাউন্ট নম্বর:</span> <strong className="font-mono text-slate-900">{config.bankAccountNumber || '-'}</strong></div>
+                                  <div><span className="text-slate-500">শাখা (Branch):</span> <strong className="text-slate-900">{config.bankBranchName || '-'}</strong></div>
+                                  {config.bankRoutingNumber && (
+                                    <div><span className="text-slate-500">রাউটিং নম্বর:</span> <strong className="font-mono text-slate-900">{config.bankRoutingNumber}</strong></div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Vendor QR Code if available */}
+                            {config.vendorPaymentQrUrl && (
+                              <div className="flex items-center gap-3 bg-white p-2.5 rounded-lg border border-slate-200">
+                                <img
+                                  src={config.vendorPaymentQrUrl}
+                                  alt="Payment QR"
+                                  className="w-16 h-16 object-contain rounded-md border border-slate-100 bg-white"
+                                />
+                                <div className="space-y-1">
+                                  <div className="font-bold text-slate-900 text-xs flex items-center gap-1">
+                                    <QrCode className="w-3.5 h-3.5 text-teal-700" />
+                                    <span>ভেন্ডর কিউআর কোড (QR Code)</span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-500">
+                                    আপনার পেমেন্ট অ্যাপ থেকে সরাসরি স্ক্যান করে পেমেন্ট সম্পন্ন করতে পারেন।
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Custom Payment Instructions from Vendor */}
+                            {config.paymentInstructions && (
+                              <div className="bg-amber-50/70 border border-amber-200/80 p-2.5 rounded-lg text-amber-900 text-[11px] leading-relaxed">
+                                <span className="font-bold">দোকানদারের নির্দেশনা: </span>
+                                {config.paymentInstructions}
+                              </div>
+                            )}
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                               <div className="space-y-1">
                                 <label className="text-[11px] font-bold text-slate-700">
-                                  ট্রানজেকশন আইডি (TrxID) *
+                                  {paymentMethod === 'bank'
+                                    ? 'ট্রানজেকশন আইডি বা ডিপোজিট রেফারেন্স নং *'
+                                    : 'ট্রানজেকশন আইডি (TrxID) *'}
                                 </label>
                                 <input
                                   type="text"
                                   required
                                   value={customerTrxId}
                                   onChange={(e) => setCustomerTrxId(e.target.value)}
-                                  placeholder="উদাঃ 9J7X5K2L9"
+                                  placeholder={paymentMethod === 'bank' ? 'উদাঃ DEP-48921 বা স্লিপ নম্বর' : 'উদাঃ 9J7X5K2L9'}
                                   className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-mono font-semibold text-slate-800 focus:outline-hidden"
                                 />
                               </div>
 
                               <div className="space-y-1">
                                 <label className="text-[11px] font-bold text-slate-700">
-                                  যে নম্বর থেকে টাকা পাঠিয়েছেন
+                                  {paymentMethod === 'bank'
+                                    ? 'যে অ্যাকাউন্ট থেকে টাকা পাঠিয়েছেন'
+                                    : 'যে নম্বর থেকে টাকা পাঠিয়েছেন'}
                                 </label>
                                 <input
-                                  type="tel"
+                                  type="text"
                                   value={customerSenderPhone}
                                   onChange={(e) => setCustomerSenderPhone(e.target.value)}
-                                  placeholder={customerPhone || '017XXXXXXXX'}
+                                  placeholder={paymentMethod === 'bank' ? 'অ্যাকাউন্ট হোল্ডার বা ব্যাংক নাম' : (customerPhone || '017XXXXXXXX')}
                                   className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-hidden"
                                 />
                               </div>

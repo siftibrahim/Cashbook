@@ -189,6 +189,16 @@ export interface OnlineStoreConfig {
   acceptRocket: boolean;
   rocketNumber?: string;
   rocketType?: 'personal' | 'merchant';
+  acceptUpay?: boolean;
+  upayNumber?: string;
+  upayType?: 'personal' | 'merchant';
+  acceptBank?: boolean;
+  bankName?: string;
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankBranchName?: string;
+  bankRoutingNumber?: string;
+  vendorPaymentQrUrl?: string;
   paymentInstructions?: string;
   bannerUrl?: string;
   bannerTitle?: string;
@@ -234,7 +244,7 @@ export interface OnlineOrder {
   items: OnlineOrderItem[];
   subtotal: number;
   totalAmount: number;
-  paymentMethod: 'cod' | 'bkash' | 'nagad' | 'rocket';
+  paymentMethod: 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank';
   paymentStatus: 'unpaid' | 'paid' | 'partial' | 'pending_verification' | 'rejected';
   orderStatus: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   trxId?: string;
