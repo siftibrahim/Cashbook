@@ -197,6 +197,7 @@ export interface OnlineStoreConfig {
   bannerDiscountText?: string;
   bannerStyle?: 'neon' | 'image' | 'gradient';
   banners?: StoreBanner[];
+  coupons?: Coupon[];
   logoUrl?: string;
   supportWhatsAppMessage?: string;
   supportHours?: string;
@@ -224,6 +225,10 @@ export interface OnlineOrder {
   customerName: string;
   customerPhone: string;
   customerAddress: string;
+  district?: string;
+  area?: string;
+  couponCode?: string;
+  discountAmount?: number;
   deliveryArea: 'inside_dhaka' | 'outside_dhaka' | 'store_pickup';
   deliveryCharge: number;
   items: OnlineOrderItem[];
@@ -245,5 +250,20 @@ export interface OnlineOrder {
   collectedAt?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface Coupon {
+  id: string;
+  code: string;
+  discountType: 'percentage' | 'fixed';
+  discountValue: number;
+  minOrderAmount?: number;
+  maxDiscount?: number;
+  startDate?: string;
+  expiryDate?: string;
+  usageLimit?: number;
+  usedCount?: number;
+  isActive: boolean;
+  description?: string;
 }
 

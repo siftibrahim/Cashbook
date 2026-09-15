@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Share2,
   MessageCircle,
+  Heart,
 } from 'lucide-react';
 import { Product, OnlineStoreConfig } from '../../types';
 import { formatMoney } from '../../utils/storage';
@@ -26,6 +27,8 @@ interface StorefrontProductDetailModalProps {
   onAddToCart: (product: Product, quantity?: number) => void;
   onBuyNow: (product: Product, quantity: number) => void;
   config: OnlineStoreConfig;
+  isWishlisted?: boolean;
+  onToggleWishlist?: (productId: string) => void;
 }
 
 export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModalProps> = ({
@@ -36,6 +39,8 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
   onAddToCart,
   onBuyNow,
   config,
+  isWishlisted = false,
+  onToggleWishlist,
 }) => {
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [showCopiedToast, setShowCopiedToast] = useState(false);
@@ -107,6 +112,20 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
           </div>
 
           <div className="flex items-center gap-1.5">
+            {onToggleWishlist && (
+              <button
+                type="button"
+                onClick={() => onToggleWishlist(product.id)}
+                className="p-2 text-slate-500 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                title={isWishlisted ? 'পছন্দের তালিকা থেকে সরান' : 'পছন্দের তালিকায় রাখুন'}
+              >
+                <Heart
+                  className={`w-4 h-4 ${
+                    isWishlisted ? 'text-rose-500 fill-rose-500' : 'text-slate-500'
+                  }`}
+                />
+              </button>
+            )}
             <button
               type="button"
               onClick={handleShare}

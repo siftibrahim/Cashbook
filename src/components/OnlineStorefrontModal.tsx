@@ -3,44 +3,36 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Product, OnlineStoreConfig, OnlineOrder } from '../types';
 import { formatMoney } from '../utils/storage';
 import { StorefrontHeader } from './storefront/StorefrontHeader';
-import { StorefrontSearchBar } from './storefront/StorefrontSearchBar';
+import { StorefrontHamburgerDrawer } from './storefront/StorefrontHamburgerDrawer';
+import { StorefrontNotificationDrawer } from './storefront/StorefrontNotificationDrawer';
+import { StorefrontCustomerDrawer } from './storefront/StorefrontCustomerDrawer';
+import { StorefrontWishlistTab } from './storefront/StorefrontWishlistTab';
 import { StorefrontHeroCarousel } from './storefront/StorefrontHeroCarousel';
+import { StorefrontCategoryGrid } from './storefront/StorefrontCategoryGrid';
 import { StorefrontProductCard } from './storefront/StorefrontProductCard';
 import { StorefrontBottomNav, StorefrontTab } from './storefront/StorefrontBottomNav';
-import { StorefrontCategoryGrid } from './storefront/StorefrontCategoryGrid';
 import { StorefrontOrderTracker } from './storefront/StorefrontOrderTracker';
-import { StorefrontInboxTab } from './storefront/StorefrontInboxTab';
 import { StorefrontMoreTab } from './storefront/StorefrontMoreTab';
 import { StorefrontSupportDrawer } from './storefront/StorefrontSupportDrawer';
 import { StorefrontProductDetailModal } from './storefront/StorefrontProductDetailModal';
+import { STOREFRONT_BEST_OFFERS, STOREFRONT_RECENT_PRODUCTS } from '../data/storefrontDemoCatalog';
+import { getWishlist, toggleWishlist, removeFromWishlist, WISHLIST_SYNC_EVENT } from '../utils/wishlistStorage';
+import { validateAndApplyCoupon, CouponValidationResult } from '../utils/couponStorage';
 import { storeApi, publicStoreApi } from '../services/apiService';
 import {
   X,
-  ShoppingCart,
-  Phone,
-  MessageCircle,
-  MapPin,
-  CheckCircle2,
-  Package,
   Truck,
-  ShieldCheck,
-  Search,
-  Plus,
-  Minus,
-  Trash2,
+  Package,
   ArrowRight,
   Sparkles,
-  ExternalLink,
-  Share2,
-  Copy,
-  Clock,
-  ChevronRight,
-  Store,
-  BadgePercent,
+  Flame,
+  Star,
+  CheckCircle2,
+  MessageCircle,
+  Tag,
   Check,
-  Bell,
-  User,
   ShoppingBag,
+  Trash2,
 } from 'lucide-react';
 
 interface OnlineStorefrontModalProps {
@@ -59,6 +51,7 @@ interface CartItem {
 }
 
 const STORE_ORDERS_STORAGE_KEY = 'ibrahim_khata_online_customer_orders_v1';
+const STORE_CUSTOMER_INFO_KEY = 'twing_customer_profile_v1';
 
 export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   isOpen,
@@ -71,26 +64,71 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
 }) => {
   // Navigation tab
   const [activeTab, setActiveTab] = useState<StorefrontTab>('home');
-  const [language, setLanguage] = useState<'bn' | 'en'>('bn');
-  const [showOnlyBestPicks, setShowOnlyBestPicks] = useState(false);
+
+  // Drawers
+  const [isMenuDrawerOpen, setIsMenuDrawerOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [isCustomerDrawerOpen, setIsCustomerDrawerOpen] = useState(false);
+  const [isSupportDrawerOpen, setIsSupportDrawerOpen] = useState(false);
 
   // Search & Categories
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
 
+  // Wishlist state
+  const [wishlistIds, setWishlistIds] = useState<string[]>(() => getWishlist());
+
+  // Listen to wishlist sync events
+  useEffect(() => {
+    const handleWishlistChange = (e: any) => {
+      if (e.detail && Array.isArray(e.detail.list)) {
+        setWishlistIds(e.detail.list);
+      } else {
+        setWishlistIds(getWishlist());
+      }
+    };
+    window.addEventListener(WISHLIST_SYNC_EVENT, handleWishlistChange);
+    return () => window.removeEventListener(WISHLIST_SYNC_EVENT, handleWishlistChange);
+  }, []);
+
+  const handleToggleWishlist = (productId: string) => {
+    toggleWishlist(productId);
+    setWishlistIds(getWishlist());
+  };
+
+  const handleRemoveWishlist = (productId: string) => {
+    removeFromWishlist(productId);
+    setWishlistIds(getWishlist());
+  };
+
   // Cart & Checkout
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutStep, setIsCheckoutStep] = useState(false);
-  const [isSupportDrawerOpen, setIsSupportDrawerOpen] = useState(false);
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
 
+  // Coupon state
+  const [couponInput, setCouponInput] = useState('');
+  const [couponResult, setCouponResult] = useState<CouponValidationResult | null>(null);
+
+  // Saved customer profile info
+  const [customerProfile, setCustomerProfile] = useState<{
+    name: string;
+    phone: string;
+    address: string;
+  }>(() => {
+    try {
+      const raw = localStorage.getItem(STORE_CUSTOMER_INFO_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return { name: '', phone: '', address: '' };
+  });
+
   // Checkout form fields
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerAddress, setCustomerAddress] = useState('');
+  const [customerName, setCustomerName] = useState(customerProfile.name || '');
+  const [customerPhone, setCustomerPhone] = useState(customerProfile.phone || '');
+  const [customerAddress, setCustomerAddress] = useState(customerProfile.address || '');
+  const [customerDistrict, setCustomerDistrict] = useState('ঢাকা');
   const [deliveryArea, setDeliveryArea] = useState<'inside_dhaka' | 'outside_dhaka'>('inside_dhaka');
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad' | 'rocket'>('cod');
   const [customerTrxId, setCustomerTrxId] = useState('');
@@ -98,7 +136,6 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   const [orderNotes, setOrderNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<OnlineOrder | null>(null);
-  const [copiedLink, setCopiedLink] = useState(false);
 
   // Stored customer orders
   const [customerOrders, setCustomerOrders] = useState<OnlineOrder[]>(() => {
@@ -109,8 +146,19 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     return [];
   });
 
-  // Filter published products
-  const publishedProducts = useMemo(() => {
+  // Save profile info
+  const handleSaveCustomerProfile = (info: { name: string; phone: string; address: string }) => {
+    setCustomerProfile(info);
+    setCustomerName(info.name);
+    setCustomerPhone(info.phone);
+    setCustomerAddress(info.address);
+    try {
+      localStorage.setItem(STORE_CUSTOMER_INFO_KEY, JSON.stringify(info));
+    } catch {}
+  };
+
+  // Published products from merchant inventory
+  const merchantPublishedProducts = useMemo(() => {
     return products.filter((p) => {
       if (p.isPublishedOnline === false) return false;
       if (config.publishedProductIds && config.publishedProductIds.length > 0) {
@@ -120,19 +168,35 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     });
   }, [products, config.publishedProductIds]);
 
-  // Categories list
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    publishedProducts.forEach((p) => {
-      if (p.category) set.add(p.category);
-    });
-    return Array.from(set);
-  }, [publishedProducts]);
+  // Master product catalog: Blend authentic reference products with merchant inventory
+  const allStoreProducts = useMemo(() => {
+    const existingIds = new Set(merchantPublishedProducts.map((p) => p.id));
+    const demoItems = [...STOREFRONT_BEST_OFFERS, ...STOREFRONT_RECENT_PRODUCTS].filter(
+      (item) => !existingIds.has(item.id)
+    );
+    return [...merchantPublishedProducts, ...demoItems];
+  }, [merchantPublishedProducts]);
 
-  // Filtered by search, category & Best Picks
+  // Best offers list (Today's Best Offers)
+  const bestOffersProducts = useMemo(() => {
+    return allStoreProducts.filter(
+      (p) => (p.discountPercent && p.discountPercent > 0) || (p.originalPrice && p.originalPrice > p.salePrice)
+    );
+  }, [allStoreProducts]);
+
+  // Recent products list
+  const recentProducts = useMemo(() => {
+    return allStoreProducts.filter((p) => !bestOffersProducts.some((b) => b.id === p.id)).slice(0, 8);
+  }, [allStoreProducts, bestOffersProducts]);
+
+  // Search and Category filtered products
   const filteredProducts = useMemo(() => {
-    return publishedProducts.filter((p) => {
-      const matchCat = selectedCategory === 'all' || p.category === selectedCategory;
+    return allStoreProducts.filter((p) => {
+      const matchCat =
+        selectedCategory === 'all' ||
+        (p.category && p.category.toLowerCase().includes(selectedCategory.toLowerCase())) ||
+        (selectedCategory && selectedCategory.toLowerCase().includes(p.category?.toLowerCase() || ''));
+
       const q = searchQuery.toLowerCase().trim();
       const matchSearch =
         !q ||
@@ -140,11 +204,9 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
         (p.category && p.category.toLowerCase().includes(q)) ||
         (p.sku && p.sku.toLowerCase().includes(q));
 
-      const matchBestPicks = !showOnlyBestPicks || (p.discountPercent && p.discountPercent >= 20) || (p.rating && p.rating >= 4.8);
-
-      return matchCat && matchSearch && matchBestPicks;
+      return matchCat && matchSearch;
     });
-  }, [publishedProducts, selectedCategory, searchQuery, showOnlyBestPicks]);
+  }, [allStoreProducts, selectedCategory, searchQuery]);
 
   // Cart operations
   const addToCart = (product: Product, quantityToAdd: number = 1) => {
@@ -187,6 +249,21 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     return cart.reduce((sum, item) => sum + item.product.salePrice * item.quantity, 0);
   }, [cart]);
 
+  // Coupon handling
+  const handleApplyCoupon = (codeToApply?: string) => {
+    const code = (codeToApply || couponInput).trim();
+    if (!code) return;
+    const res = validateAndApplyCoupon(code, subtotal, config.coupons || []);
+    setCouponResult(res);
+  };
+
+  const handleRemoveCoupon = () => {
+    setCouponResult(null);
+    setCouponInput('');
+  };
+
+  const discountAmount = couponResult?.isValid ? couponResult.discountAmount : 0;
+
   // Delivery charge calculation
   const isFreeDeliveryEligible =
     config.freeDeliveryAbove && config.freeDeliveryAbove > 0 && subtotal >= config.freeDeliveryAbove;
@@ -197,12 +274,13 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     ? config.deliveryInsideDhaka || 60
     : config.deliveryOutsideDhaka || 120;
 
-  const totalAmount = subtotal + deliveryCharge;
+  const totalAmount = Math.max(0, subtotal - discountAmount) + deliveryCharge;
 
   // Checkout submission
   const handleCheckoutSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName.trim() || !customerPhone.trim() || !customerAddress.trim()) {
+      alert('অনুগ্রহ করে আপনার নাম, মোবাইল নম্বর এবং সম্পূর্ণ ঠিকানা দিন।');
       return;
     }
     if (cart.length === 0) return;
@@ -222,6 +300,9 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
 
     let combinedNotes = orderNotes.trim();
+    if (customerDistrict.trim()) {
+      combinedNotes = `জেলা: ${customerDistrict.trim()} | ${combinedNotes}`;
+    }
     if (customerTrxId.trim()) {
       combinedNotes = `${combinedNotes ? combinedNotes + ' | ' : ''}TrxID: ${customerTrxId.trim()}`;
     }
@@ -235,18 +316,21 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
       customerName: customerName.trim(),
       customerPhone: customerPhone.trim(),
       customerAddress: customerAddress.trim(),
+      district: customerDistrict.trim(),
+      deliveryArea,
+      deliveryCharge,
+      couponCode: couponResult?.isValid ? couponResult.coupon?.code : undefined,
+      discountAmount,
       items: cart.map((c) => ({
         productId: c.product.id,
         productName: c.product.name,
         unitPrice: c.product.salePrice,
         quantity: c.quantity,
-        unit: c.product.unit,
+        unit: c.product.unit || 'পিস',
         total: c.product.salePrice * c.quantity,
       })),
       subtotal,
-      deliveryCharge,
       totalAmount,
-      deliveryArea,
       paymentMethod,
       paymentStatus: paymentMethod === 'cod' ? 'unpaid' : 'pending_verification',
       orderStatus: 'pending',
@@ -258,8 +342,15 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
       updatedAt: Date.now(),
     };
 
+    // Save profile for future 1-click orders
+    handleSaveCustomerProfile({
+      name: customerName.trim(),
+      phone: customerPhone.trim(),
+      address: customerAddress.trim(),
+    });
+
     // Async sync to server database with strict tenant resolution
-    const storeIdentifier = (config.customDomainVerified && config.customDomain) ? config.customDomain : config.storeSlug;
+    const storeIdentifier = config.customDomainVerified && config.customDomain ? config.customDomain : config.storeSlug;
     if (storeIdentifier) {
       publicStoreApi.placeOrder(storeIdentifier, newOrder).catch((err) => {
         console.warn('Public store order submission error, falling back:', err);
@@ -281,15 +372,10 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
 
       setCompletedOrder(newOrder);
       setCart([]);
+      setCouponResult(null);
+      setCouponInput('');
       setIsSubmitting(false);
-    }, 600);
-  };
-
-  const copyStoreLink = () => {
-    const url = window.location.origin;
-    navigator.clipboard.writeText(url);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
+    }, 500);
   };
 
   const sendOrderToWhatsApp = (order: OnlineOrder) => {
@@ -303,6 +389,7 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
 *গ্রাহকের নাম:* ${order.customerName}
 *মোবাইল:* ${order.customerPhone}
 *ঠিকানা:* ${order.customerAddress}
+*জেলা:* ${order.district || 'ঢাকা'}
 *ডেলিভারি এরিয়া:* ${order.deliveryArea === 'inside_dhaka' ? 'ঢাকা সিটির ভেতরে' : 'ঢাকার বাইরে'}
 *পেমেন্ট পদ্ধতি:* ${order.paymentMethod.toUpperCase()}
 
@@ -310,7 +397,7 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
 ${itemsList}
 
 *পণ্য মূল্য:* ৳${order.subtotal}
-*ডেলিভারি ফি:* ৳${order.deliveryCharge}
+${order.discountAmount ? `*কুপন ছাড়:* -৳${order.discountAmount}\n` : ''}*ডেলিভারি ফি:* ৳${order.deliveryCharge}
 *সর্বমোট প্রদেয়:* ৳${order.totalAmount}
 
 _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি কনফার্ম করুন।_`;
@@ -325,287 +412,255 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
     <div
       className={
         isStandalone
-          ? 'w-full min-h-screen bg-slate-100 flex flex-col items-center justify-start'
-          : 'fixed inset-0 z-50 overflow-hidden bg-slate-950/80 backdrop-blur-xs flex flex-col justify-end sm:justify-center items-center'
+          ? 'w-full min-h-screen bg-white flex flex-col items-center justify-start'
+          : 'fixed inset-0 z-50 overflow-hidden bg-slate-950/80 backdrop-blur-2xs flex flex-col justify-end sm:justify-center items-center'
       }
     >
-      {/* Modal / Standalone Container */}
+      {/* Modal / Standalone Container - NO EMPTY GAP OR ADMIN BAR ABOVE HEADER */}
       <div
         className={
           isStandalone
-            ? 'relative w-full max-w-5xl min-h-screen bg-white shadow-xs flex flex-col border-x border-slate-200/80'
-            : 'relative w-full max-w-5xl h-full max-h-[100dvh] sm:max-h-[96vh] sm:rounded-3xl bg-white shadow-2xl flex flex-col overflow-hidden border border-slate-200/80'
+            ? 'relative w-full max-w-5xl min-h-screen bg-white flex flex-col'
+            : 'relative w-full max-w-5xl h-full max-h-[100dvh] sm:max-h-[96vh] sm:rounded-3xl bg-white shadow-2xl flex flex-col overflow-hidden border border-slate-200/90'
         }
       >
-        {isStandalone ? null : (
-          /* Admin Store Bar (Top Slim Bar) */
-          <div className="bg-slate-900 text-white px-3.5 sm:px-6 py-2 flex items-center justify-between text-xs shrink-0 border-b border-slate-800">
-            <div className="flex items-center gap-2 truncate">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              <span className="font-bold text-slate-200">লাইভ ই-কমার্স স্টোরফ্রন্ট প্রিভিউ</span>
-              <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-teal-300 font-mono">
-                bikroyhub • Verified Store
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                type="button"
-                onClick={copyStoreLink}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold flex items-center gap-1 transition cursor-pointer"
-              >
-                {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedLink ? 'কপি হয়েছে' : 'লিংক কপি'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-1 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg transition cursor-pointer"
-                title="প্রিভিউ বন্ধ করুন"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Storefront Header (Only Ecommerce Name, Support Chat Menu & Cart Menu) */}
+        {/* Storefront Header - Matching Reference Screenshot */}
         <StorefrontHeader
           storeName={config.storeName}
           logoUrl={config.logoUrl}
           cartCount={cartItemCount}
+          notificationCount={3}
+          searchQuery={searchQuery}
+          onSearchChange={(q) => {
+            setSearchQuery(q);
+            if (activeTab !== 'home') setActiveTab('home');
+          }}
           onOpenCart={() => {
             setIsCartOpen(true);
             setIsCheckoutStep(false);
           }}
-          onOpenSupport={() => setIsSupportDrawerOpen(true)}
+          onOpenMenu={() => setIsMenuDrawerOpen(true)}
+          onOpenNotifications={() => setIsNotificationsOpen(true)}
+          onOpenProfile={() => setIsCustomerDrawerOpen(true)}
+          onLogoClick={() => {
+            setActiveTab('home');
+            setSelectedCategory('all');
+            setSearchQuery('');
+          }}
         />
 
-        {/* Account Menu Dropdown */}
-        <AnimatePresence>
-          {isAccountMenuOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="absolute top-20 right-4 sm:right-6 z-40 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 text-xs space-y-1"
-            >
-              <div className="p-2 border-b border-slate-100 flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-[#00695C] text-white flex items-center justify-center font-bold">
-                  T
-                </div>
-                <div className="min-w-0">
-                  <div className="font-bold text-slate-900 truncate">গ্রাহক প্রোফাইল</div>
-                  <div className="text-[10px] text-slate-400">অনলাইন শপিং সেবা</div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('orders');
-                  setIsAccountMenuOpen(false);
-                }}
-                className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 font-bold text-slate-700 flex items-center gap-2 cursor-pointer"
-              >
-                <Package className="w-4 h-4 text-teal-700" />
-                <span>আমার অর্ডার সমূহ</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('inbox');
-                  setIsAccountMenuOpen(false);
-                }}
-                className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 font-bold text-slate-700 flex items-center gap-2 cursor-pointer"
-              >
-                <MessageCircle className="w-4 h-4 text-emerald-600" />
-                <span>কাস্টমার সাপোর্ট</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('more');
-                  setIsAccountMenuOpen(false);
-                }}
-                className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 font-bold text-slate-700 flex items-center gap-2 cursor-pointer"
-              >
-                <Store className="w-4 h-4 text-slate-500" />
-                <span>দোকানের তথ্য ও পলিসি</span>
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Storefront Main Body Container */}
+        {/* Storefront Main Scrollable Body */}
         <div className="flex-1 overflow-y-auto bg-[#F8FAFC] flex flex-col">
           {/* TAB 1: HOME TAB */}
           {activeTab === 'home' && (
-            <div className="flex flex-col space-y-2 pb-16">
-              {/* Search Bar with Mic Voice Search & Clear */}
-              <StorefrontSearchBar
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                onClear={() => setSearchQuery('')}
-                placeholder='Search "Medicine, Skincare, Panjabi..."'
-              />
-
-              {/* Hero Banner Carousel (Exact match to screenshot: Neon Best Picks Sign or Vendor Custom Banner) */}
-              <StorefrontHeroCarousel
-                config={config}
-                onExploreClick={() => {
-                  setShowOnlyBestPicks(true);
-                  setSelectedCategory('all');
-                }}
-              />
-
-              {/* Category Horizontal Chips */}
-              <div className="w-full px-3.5 sm:px-6 py-1">
-                <div className="max-w-5xl mx-auto flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCategory('all');
-                      setShowOnlyBestPicks(false);
-                    }}
-                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 cursor-pointer shadow-2xs ${
-                      selectedCategory === 'all' && !showOnlyBestPicks
-                        ? 'bg-[#004D40] text-white shadow-teal-950/20'
-                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    সকল পণ্য ({publishedProducts.length})
-                  </button>
-
-                  {categories.map((cat) => (
+            <div className="flex flex-col pb-16 space-y-2">
+              {/* If user searched or selected a single category, show filtered results directly */}
+              {searchQuery.trim() || selectedCategory !== 'all' ? (
+                <div className="p-3 sm:p-5 max-w-7xl mx-auto w-full space-y-3">
+                  <div className="flex items-center justify-between bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
+                    <div>
+                      <h2 className="text-sm sm:text-base font-black text-slate-900">
+                        {searchQuery.trim()
+                          ? `"${searchQuery}" অনুসন্ধানের ফলাফল`
+                          : `ক্যাটাগরি: ${selectedCategory}`}
+                      </h2>
+                      <p className="text-xs text-slate-500">{filteredProducts.length} টি পণ্য পাওয়া গেছে</p>
+                    </div>
                     <button
-                      key={cat}
                       type="button"
                       onClick={() => {
-                        setSelectedCategory(cat);
-                        setShowOnlyBestPicks(false);
+                        setSearchQuery('');
+                        setSelectedCategory('all');
                       }}
-                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 cursor-pointer shadow-2xs ${
-                        selectedCategory === cat
-                          ? 'bg-[#004D40] text-white shadow-teal-950/20'
-                          : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-                      }`}
+                      className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
                     >
-                      {cat}
+                      ফিল্টার রিসেট
                     </button>
-                  ))}
-                </div>
-              </div>
+                  </div>
 
-              {/* Section Header: "Best Picks" & "see all" (Exact match to screenshot) */}
-              <div className="w-full px-3.5 sm:px-6 pt-2 pb-1">
-                <div className="max-w-5xl mx-auto flex items-center justify-between">
-                  <h2 className="text-[#be185d] text-lg sm:text-xl font-black tracking-tight">
-                    {showOnlyBestPicks ? 'Best Picks (স্পেশাল অফার)' : 'Best Picks'}
-                  </h2>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowOnlyBestPicks((prev) => !prev)}
-                    className="text-[#be185d] text-xs sm:text-sm font-bold hover:underline cursor-pointer transition active:scale-95"
-                  >
-                    {showOnlyBestPicks ? 'সকল পণ্য দেখুন' : 'see all'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Product Grid (2 columns on mobile, 3-4 on desktop) */}
-              <div className="w-full px-3.5 sm:px-6 pb-8">
-                <div className="max-w-5xl mx-auto">
                   {filteredProducts.length === 0 ? (
-                    <div className="bg-white rounded-3xl border border-slate-200/80 p-8 text-center space-y-3 my-4 shadow-2xs">
-                      <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center">
+                    <div className="bg-white rounded-3xl border border-slate-200 p-8 text-center space-y-3 shadow-2xs">
+                      <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-800 mx-auto flex items-center justify-center">
                         <Package className="w-8 h-8" />
                       </div>
                       <h3 className="text-base font-bold text-slate-800">কোনো পণ্য পাওয়া যায়নি</h3>
                       <p className="text-xs text-slate-500 max-w-md mx-auto">
-                        আপনার অনুসন্ধানের সাথে মিল রেখে কোনো পণ্য পাওয়া যায়নি। অনুগ্রহ করে অন্য নাম দিয়ে খুঁজুন।
+                        অন্য কোনো নাম দিয়ে খুঁজুন অথবা সকল পণ্য ব্রাউজ করুন।
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSearchQuery('');
-                          setSelectedCategory('all');
-                          setShowOnlyBestPicks(false);
-                        }}
-                        className="px-4 py-2 bg-[#004D40] text-white text-xs font-bold rounded-xl"
-                      >
-                        সকল পণ্য দেখুন
-                      </button>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
-                      {filteredProducts.map((product) => {
-                        const inCart = cart.find((item) => item.product.id === product.id);
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-4">
+                      {filteredProducts.map((prod) => {
+                        const inCart = cart.find((i) => i.product.id === prod.id);
                         return (
                           <StorefrontProductCard
-                            key={product.id}
-                            product={product}
+                            key={prod.id}
+                            product={prod}
                             inCartQuantity={inCart ? inCart.quantity : 0}
-                            onAddToCart={(prod) => addToCart(prod, 1)}
+                            onAddToCart={(p) => addToCart(p, 1)}
                             onUpdateQuantity={updateQuantity}
-                            onViewProduct={(prod) => setSelectedProductForDetail(prod)}
+                            onViewProduct={(p) => setSelectedProductForDetail(p)}
+                            isWishlisted={wishlistIds.includes(prod.id)}
+                            onToggleWishlist={handleToggleWishlist}
                           />
                         );
                       })}
                     </div>
                   )}
                 </div>
-              </div>
+              ) : (
+                /* Default Standard Homepage matching reference image */
+                <>
+                  {/* Hero Banner Carousel */}
+                  <StorefrontHeroCarousel
+                    config={config}
+                    onExploreClick={() => {
+                      // Smooth scroll down to best offers
+                      const el = document.getElementById('storefront-best-offers-section');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                  />
+
+                  {/* 24 Categories Grid */}
+                  <StorefrontCategoryGrid
+                    selectedCategory={selectedCategory}
+                    onSelectCategory={(cat) => setSelectedCategory(cat)}
+                    products={allStoreProducts}
+                    onViewAll={() => setActiveTab('categories')}
+                  />
+
+                  {/* Section 1: 🔥 আজকের সেরা অফার (Today's Best Offers) */}
+                  <div id="storefront-best-offers-section" className="w-full px-2.5 sm:px-4 py-2">
+                    <div className="max-w-7xl mx-auto space-y-2.5">
+                      {/* Section Header */}
+                      <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-6 h-6 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center shadow-2xs">
+                            <Flame className="w-4 h-4 fill-orange-500 text-orange-600" />
+                          </div>
+                          <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
+                            আজকের সেরা অফার
+                          </h2>
+                          <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 text-[10px] font-black border border-rose-200/80">
+                            সীমিত সময়
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Best Offers Products Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3.5">
+                        {bestOffersProducts.map((prod) => {
+                          const inCart = cart.find((i) => i.product.id === prod.id);
+                          return (
+                            <StorefrontProductCard
+                              key={prod.id}
+                              product={prod}
+                              inCartQuantity={inCart ? inCart.quantity : 0}
+                              onAddToCart={(p) => addToCart(p, 1)}
+                              onUpdateQuantity={updateQuantity}
+                              onViewProduct={(p) => setSelectedProductForDetail(p)}
+                              isWishlisted={wishlistIds.includes(prod.id)}
+                              onToggleWishlist={handleToggleWishlist}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 2: ⭐ সাম্প্রতিক পণ্যসমূহ (Recent Products) */}
+                  <div className="w-full px-2.5 sm:px-4 py-2">
+                    <div className="max-w-7xl mx-auto space-y-2.5">
+                      {/* Section Header */}
+                      <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-6 h-6 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center shadow-2xs">
+                            <Star className="w-4 h-4 fill-amber-500 text-amber-600" />
+                          </div>
+                          <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
+                            সাম্প্রতিক পণ্যসমূহ
+                          </h2>
+                        </div>
+                      </div>
+
+                      {/* Recent Products Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3.5">
+                        {recentProducts.map((prod) => {
+                          const inCart = cart.find((i) => i.product.id === prod.id);
+                          return (
+                            <StorefrontProductCard
+                              key={prod.id}
+                              product={prod}
+                              inCartQuantity={inCart ? inCart.quantity : 0}
+                              onAddToCart={(p) => addToCart(p, 1)}
+                              onUpdateQuantity={updateQuantity}
+                              onViewProduct={(p) => setSelectedProductForDetail(p)}
+                              isWishlisted={wishlistIds.includes(prod.id)}
+                              onToggleWishlist={handleToggleWishlist}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
-          {/* TAB 2: ORDERS TRACKER TAB */}
-          {activeTab === 'orders' && (
-            <StorefrontOrderTracker
-              orders={customerOrders}
-              whatsappPhone={config.whatsappPhone || config.phone}
-            />
-          )}
-
-          {/* TAB 3: CATEGORIES EXPLORER TAB */}
+          {/* TAB 2: CATEGORIES TAB */}
           {activeTab === 'categories' && (
-            <StorefrontCategoryGrid
-              categories={categories}
-              selectedCategory={selectedCategory}
-              onSelectCategory={(cat) => {
-                setSelectedCategory(cat);
-                setShowOnlyBestPicks(false);
-                setActiveTab('home');
-              }}
-              products={publishedProducts}
-            />
+            <div className="p-3 sm:p-5 max-w-7xl mx-auto w-full space-y-4 pb-16">
+              <StorefrontCategoryGrid
+                selectedCategory={selectedCategory}
+                onSelectCategory={(cat) => {
+                  setSelectedCategory(cat);
+                  setActiveTab('home');
+                }}
+                products={allStoreProducts}
+              />
+            </div>
           )}
 
-          {/* TAB 4: INBOX & LIVE SUPPORT TAB */}
-          {activeTab === 'inbox' && (
-            <StorefrontInboxTab
-              storeName={config.storeName || 'bikroyhub'}
-              whatsappPhone={config.whatsappPhone}
-              storePhone={config.phone}
-            />
+          {/* TAB 3: ORDERS TAB */}
+          {activeTab === 'orders' && (
+            <div className="pb-16">
+              <StorefrontOrderTracker
+                orders={customerOrders}
+                whatsappPhone={config.whatsappPhone || config.phone}
+              />
+            </div>
           )}
 
-          {/* TAB 5: MORE INFO & STORE PROFILE TAB */}
+          {/* TAB 4: WISHLIST TAB */}
+          {activeTab === 'wishlist' && (
+            <div className="pb-16">
+              <StorefrontWishlistTab
+                products={allStoreProducts}
+                wishlistIds={wishlistIds}
+                onRemoveFromWishlist={handleRemoveWishlist}
+                onAddToCart={(prod) => addToCart(prod, 1)}
+                onViewProduct={(prod) => setSelectedProductForDetail(prod)}
+                onExplore={() => setActiveTab('home')}
+              />
+            </div>
+          )}
+
+          {/* TAB 5: MORE TAB */}
           {activeTab === 'more' && (
-            <StorefrontMoreTab
-              config={config}
-              totalProductsCount={publishedProducts.length}
-              onMerchantLogin={onMerchantLogin}
-            />
+            <div className="pb-16">
+              <StorefrontMoreTab
+                config={config}
+                totalProductsCount={allStoreProducts.length}
+                onMerchantLogin={onMerchantLogin}
+              />
+            </div>
           )}
         </div>
 
-        {/* Floating Cart CTA if items in cart and on home/categories tab */}
+        {/* Floating Cart Pill Bar when items exist */}
         {cartItemCount > 0 && !isCartOpen && (
-          <div className="sticky bottom-14 mx-4 sm:mx-6 z-20 pointer-events-auto pb-1">
+          <div className="sticky bottom-14 mx-3 sm:mx-6 z-20 pointer-events-auto pb-1">
             <div className="max-w-5xl mx-auto bg-[#004D40] text-white p-2.5 sm:p-3 rounded-2xl shadow-xl flex items-center justify-between gap-3 border border-teal-600/50">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black text-xs">
@@ -623,81 +678,57 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                   setIsCartOpen(true);
                   setIsCheckoutStep(true);
                 }}
-                className="px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-sm cursor-pointer"
+                className="px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
               >
-                <span>চেকআউট করুন</span>
+                <span>অর্ডার করুন</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
         )}
 
-        {/* Bottom Navigation Bar (Fixed 5-Tab Bar matching screenshot: হোম, অর্ডার, ক্যাটাগরি, ইনবক্স, আরও) */}
+        {/* Bottom Navigation (Fixed 5-Tab Bar) */}
         <StorefrontBottomNav
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          inboxBadge={1}
+          wishlistCount={wishlistIds.length}
+          orderCount={customerOrders.length}
         />
 
-        {/* Notification & Announcement Drawer */}
-        <AnimatePresence>
-          {isNotificationsOpen && (
-            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                className="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl space-y-4 border border-slate-200"
-              >
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
-                      <Bell className="w-4 h-4" />
-                    </div>
-                    <h3 className="font-black text-base text-slate-900">বিজ্ঞপ্তি ও বিশেষ অফার</h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsNotificationsOpen(false)}
-                    className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
+        {/* Hamburger Drawer */}
+        <StorefrontHamburgerDrawer
+          isOpen={isMenuDrawerOpen}
+          onClose={() => setIsMenuDrawerOpen(false)}
+          config={config}
+          onSelectTab={setActiveTab}
+          onOpenSupport={() => setIsSupportDrawerOpen(true)}
+          onMerchantLogin={onMerchantLogin}
+          wishlistCount={wishlistIds.length}
+        />
 
-                <div className="space-y-2.5 text-xs">
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl space-y-1">
-                    <div className="font-bold text-amber-900 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                      <span>সাপ্তাহিক ধামাকা অফার!</span>
-                    </div>
-                    <p className="text-amber-800">
-                      সেরা মানের স্কিনকেয়ার, মেডিসিন ও পাঞ্জাবিতে আকর্ষণীয় ছাড় চলছে। স্টক শেষ হওয়ার আগেই অর্ডার করুন!
-                    </p>
-                  </div>
+        {/* Notification Drawer */}
+        <StorefrontNotificationDrawer
+          isOpen={isNotificationsOpen}
+          onClose={() => setIsNotificationsOpen(false)}
+          coupons={config.coupons}
+          onApplyCoupon={(code) => {
+            setCouponInput(code);
+            handleApplyCoupon(code);
+            setIsCartOpen(true);
+          }}
+        />
 
-                  <div className="p-3 bg-teal-50 border border-teal-200 rounded-2xl space-y-1">
-                    <div className="font-bold text-teal-900 flex items-center gap-1.5">
-                      <Truck className="w-3.5 h-3.5 text-teal-600" />
-                      <span>১২-২৪ ঘণ্টায় হোম ডেলিভারি</span>
-                    </div>
-                    <p className="text-teal-800">
-                      সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি সুবিধা। নির্দিষ্ট টাকার বেশি অর্ডারে ফ্রি শিপিং সুবিধা!
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsNotificationsOpen(false)}
-                  className="w-full py-2.5 bg-[#004D40] text-white font-bold text-xs rounded-xl"
-                >
-                  বুঝেছি, কেনাকাটা চালিয়ে যান
-                </button>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
+        {/* Customer Profile Drawer */}
+        <StorefrontCustomerDrawer
+          isOpen={isCustomerDrawerOpen}
+          onClose={() => setIsCustomerDrawerOpen(false)}
+          customerOrders={customerOrders}
+          onSelectTab={setActiveTab}
+          defaultName={customerProfile.name}
+          defaultPhone={customerProfile.phone}
+          defaultAddress={customerProfile.address}
+          onSaveProfile={handleSaveCustomerProfile}
+        />
 
         {/* Sliding Cart & Checkout Drawer */}
         <AnimatePresence>
@@ -738,7 +769,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                       <p className="text-xs text-slate-400">স্টোরফ্রন্ট থেকে পছন্দের পণ্য যোগ করুন।</p>
                     </div>
                   ) : !isCheckoutStep ? (
-                    /* Step 1: Items List */
+                    /* Step 1: Items List & Coupon Code */
                     <div className="space-y-3">
                       {cart.map((item) => (
                         <div
@@ -781,7 +812,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                             <button
                               type="button"
                               onClick={() => removeFromCart(item.product.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition"
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition cursor-pointer"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -789,12 +820,65 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                         </div>
                       ))}
 
+                      {/* Coupon Code Section */}
+                      <div className="bg-white rounded-2xl border border-slate-200 p-3 space-y-2">
+                        <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <Tag className="w-3.5 h-3.5 text-amber-600" />
+                          <span>ডিসকাউন্ট কুপন কোড</span>
+                        </label>
+
+                        {couponResult?.isValid ? (
+                          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <Check className="w-4 h-4 text-emerald-600" />
+                              <span className="font-bold text-emerald-900">
+                                কুপন &apos;{couponResult.coupon?.code}&apos; যুক্ত হয়েছে (-৳{couponResult.discountAmount})
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleRemoveCoupon}
+                              className="text-rose-600 font-bold hover:underline cursor-pointer"
+                            >
+                              বাতিল
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={couponInput}
+                              onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                              placeholder="কুপন কোড দিন (উদাঃ WELCOME10)"
+                              className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:border-[#00695C] uppercase font-mono font-bold"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleApplyCoupon()}
+                              className="px-3.5 py-1.5 bg-[#00695C] text-white rounded-xl text-xs font-bold hover:bg-[#004D40] transition cursor-pointer"
+                            >
+                              প্রয়োগ করুন
+                            </button>
+                          </div>
+                        )}
+
+                        {couponResult && !couponResult.isValid && (
+                          <p className="text-[11px] text-rose-600 font-medium">{couponResult.message}</p>
+                        )}
+                      </div>
+
                       {/* Summary Box */}
                       <div className="bg-teal-50/70 rounded-2xl border border-teal-200/70 p-3.5 space-y-2 text-xs">
                         <div className="flex justify-between text-slate-600">
                           <span>পণ্য সাবটোটাল:</span>
                           <span className="font-bold text-slate-900">৳ {formatMoney(subtotal)}</span>
                         </div>
+                        {discountAmount > 0 && (
+                          <div className="flex justify-between text-emerald-700 font-bold">
+                            <span>কুপন ছাড়:</span>
+                            <span>-৳ {formatMoney(discountAmount)}</span>
+                          </div>
+                        )}
                         {isFreeDeliveryEligible && (
                           <div className="flex justify-between text-emerald-700 font-bold">
                             <span>ফ্রি ডেলিভারি অফার:</span>
@@ -803,7 +887,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                         )}
                         <div className="border-t border-teal-200 pt-2 flex justify-between font-black text-sm text-teal-950">
                           <span>মোট পরিশোধযোগ্য:</span>
-                          <span>৳ {formatMoney(subtotal)}</span>
+                          <span>৳ {formatMoney(Math.max(0, subtotal - discountAmount))}</span>
                         </div>
                       </div>
                     </div>
@@ -823,7 +907,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                           value={customerName}
                           onChange={(e) => setCustomerName(e.target.value)}
                           placeholder="উদাঃ মোঃ রাকিব হাসান"
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/40"
                         />
                       </div>
 
@@ -835,8 +919,32 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                           value={customerPhone}
                           onChange={(e) => setCustomerPhone(e.target.value)}
                           placeholder="উদাঃ 017XXXXXXXX"
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/40"
                         />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-slate-700">জেলা</label>
+                          <input
+                            type="text"
+                            value={customerDistrict}
+                            onChange={(e) => setCustomerDistrict(e.target.value)}
+                            placeholder="উদাঃ ঢাকা"
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/40"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-slate-700">ডেলিভারি এরিয়া</label>
+                          <select
+                            value={deliveryArea}
+                            onChange={(e) => setDeliveryArea(e.target.value as any)}
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-hidden"
+                          >
+                            <option value="inside_dhaka">ঢাকা সিটির ভেতরে (৳{config.deliveryInsideDhaka || 60})</option>
+                            <option value="outside_dhaka">ঢাকার বাইরে (৳{config.deliveryOutsideDhaka || 120})</option>
+                          </select>
+                        </div>
                       </div>
 
                       <div className="space-y-1">
@@ -846,50 +954,15 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                           rows={2}
                           value={customerAddress}
                           onChange={(e) => setCustomerAddress(e.target.value)}
-                          placeholder="বাসা নং, রোড, এলাকা/থানা, জেলা"
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                          placeholder="বাসা নং, রোড, এলাকা/থানা"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500/40"
                         />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-xs font-bold text-slate-700">ডেলিভারি এলাকা নির্বাচন করুন</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setDeliveryArea('inside_dhaka')}
-                            className={`p-2.5 rounded-xl border text-xs font-bold text-left transition cursor-pointer ${
-                              deliveryArea === 'inside_dhaka'
-                                ? 'bg-teal-50 border-teal-600 text-teal-900 shadow-2xs'
-                                : 'bg-white border-slate-200 text-slate-700'
-                            }`}
-                          >
-                            <div>ঢাকা সিটির ভেতরে</div>
-                            <div className="text-[11px] text-teal-700 font-black mt-0.5">
-                              {isFreeDeliveryEligible ? 'ফ্রি ডেলিভারি' : `৳${config.deliveryInsideDhaka || 60}`}
-                            </div>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setDeliveryArea('outside_dhaka')}
-                            className={`p-2.5 rounded-xl border text-xs font-bold text-left transition cursor-pointer ${
-                              deliveryArea === 'outside_dhaka'
-                                ? 'bg-teal-50 border-teal-600 text-teal-900 shadow-2xs'
-                                : 'bg-white border-slate-200 text-slate-700'
-                            }`}
-                          >
-                            <div>ঢাকার বাইরে</div>
-                            <div className="text-[11px] text-teal-700 font-black mt-0.5">
-                              {isFreeDeliveryEligible ? 'ফ্রি ডেলিভারি' : `৳${config.deliveryOutsideDhaka || 120}`}
-                            </div>
-                          </button>
-                        </div>
                       </div>
 
                       <div className="space-y-2">
                         <label className="text-xs font-bold text-slate-700">পেমেন্ট পদ্ধতি নির্বাচন করুন</label>
                         <div className="grid grid-cols-2 gap-2">
-                          {config.acceptCOD && (
+                          {config.acceptCOD !== false && (
                             <button
                               type="button"
                               onClick={() => setPaymentMethod('cod')}
@@ -914,15 +987,8 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                   : 'bg-white border-slate-200 text-slate-700'
                               }`}
                             >
-                              <div className="flex items-center justify-between">
-                                <span>বিকাশ (bKash)</span>
-                                {config.bkashType && (
-                                  <span className="text-[9px] px-1 py-0.2 bg-pink-200 text-pink-950 rounded">
-                                    {config.bkashType === 'merchant' ? 'মার্চেন্ট' : config.bkashType === 'agent' ? 'এজেন্ট' : 'পার্সোনাল'}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] text-pink-700 font-semibold truncate">{config.bkashNumber || 'বিকাশ পেমেন্ট'}</div>
+                              <div>বিকাশ (bKash)</div>
+                              <div className="text-[10px] text-pink-700 font-semibold truncate">{config.bkashNumber || 'বিকাশ'}</div>
                             </button>
                           )}
 
@@ -936,15 +1002,8 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                   : 'bg-white border-slate-200 text-slate-700'
                               }`}
                             >
-                              <div className="flex items-center justify-between">
-                                <span>নগদ (Nagad)</span>
-                                {config.nagadType && (
-                                  <span className="text-[9px] px-1 py-0.2 bg-orange-200 text-orange-950 rounded">
-                                    {config.nagadType === 'merchant' ? 'মার্চেন্ট' : 'পার্সোনাল'}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] text-orange-700 font-semibold truncate">{config.nagadNumber || 'নগদ পেমেন্ট'}</div>
+                              <div>নগদ (Nagad)</div>
+                              <div className="text-[10px] text-orange-700 font-semibold truncate">{config.nagadNumber || 'নগদ'}</div>
                             </button>
                           )}
 
@@ -958,10 +1017,8 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                   : 'bg-white border-slate-200 text-slate-700'
                               }`}
                             >
-                              <div className="flex items-center justify-between">
-                                <span>রকেট (Rocket)</span>
-                              </div>
-                              <div className="text-[10px] text-purple-700 font-semibold truncate">{config.rocketNumber || 'রকেট পেমেন্ট'}</div>
+                              <div>রকেট (Rocket)</div>
+                              <div className="text-[10px] text-purple-700 font-semibold truncate">{config.rocketNumber || 'রকেট'}</div>
                             </button>
                           )}
                         </div>
@@ -975,33 +1032,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                 {paymentMethod === 'nagad' && `নগদ নম্বর: ${config.nagadNumber || 'নম্বর নেই'}`}
                                 {paymentMethod === 'rocket' && `রকেট নম্বর: ${config.rocketNumber || 'নম্বর নেই'}`}
                               </span>
-                              {(config.bkashNumber || config.nagadNumber || config.rocketNumber) && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const num =
-                                      paymentMethod === 'bkash'
-                                        ? config.bkashNumber
-                                        : paymentMethod === 'nagad'
-                                        ? config.nagadNumber
-                                        : config.rocketNumber;
-                                    if (num) {
-                                      navigator.clipboard.writeText(num);
-                                      alert('পেমেন্ট নম্বর কপি করা হয়েছে!');
-                                    }
-                                  }}
-                                  className="text-teal-700 font-bold hover:underline cursor-pointer"
-                                >
-                                  কপি করুন
-                                </button>
-                              )}
                             </div>
-
-                            {config.paymentInstructions && (
-                              <p className="text-[11px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200">
-                                {config.paymentInstructions}
-                              </p>
-                            )}
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                               <div className="space-y-1">
@@ -1014,7 +1045,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                   value={customerTrxId}
                                   onChange={(e) => setCustomerTrxId(e.target.value)}
                                   placeholder="উদাঃ 9J7X5K2L9"
-                                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-mono font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-mono font-semibold text-slate-800 focus:outline-hidden"
                                 />
                               </div>
 
@@ -1027,7 +1058,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                   value={customerSenderPhone}
                                   onChange={(e) => setCustomerSenderPhone(e.target.value)}
                                   placeholder={customerPhone || '017XXXXXXXX'}
-                                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-hidden"
                                 />
                               </div>
                             </div>
@@ -1041,6 +1072,12 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                           <span>পণ্য মূল্য:</span>
                           <span>৳ {formatMoney(subtotal)}</span>
                         </div>
+                        {discountAmount > 0 && (
+                          <div className="flex justify-between text-emerald-700 font-bold">
+                            <span>কুপন ছাড়:</span>
+                            <span>-৳ {formatMoney(discountAmount)}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between text-slate-600">
                           <span>ডেলিভারি ফি:</span>
                           <span>{deliveryCharge === 0 ? 'ফ্রি (৳০)' : `৳ ${formatMoney(deliveryCharge)}`}</span>
@@ -1061,7 +1098,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                       <button
                         type="button"
                         onClick={() => setIsCheckoutStep(true)}
-                        className="w-full py-3 bg-[#004D40] hover:bg-[#00382E] text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm transition active:scale-95 cursor-pointer"
+                        className="w-full py-3 bg-[#004D40] hover:bg-[#00382E] text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition active:scale-95 cursor-pointer"
                       >
                         <span>এগিয়ে যান (চেকআউট)</span>
                         <ArrowRight className="w-4 h-4" />
@@ -1071,7 +1108,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                         <button
                           type="button"
                           onClick={() => setIsCheckoutStep(false)}
-                          className="px-4 py-3 bg-white border border-slate-300 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-100 transition"
+                          className="px-4 py-3 bg-white border border-slate-300 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-100 transition cursor-pointer"
                         >
                           পেছনে
                         </button>
@@ -1079,7 +1116,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                           type="submit"
                           form="store-checkout-form"
                           disabled={isSubmitting}
-                          className="flex-1 py-3 bg-[#004D40] hover:bg-[#00382E] text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm transition active:scale-95 cursor-pointer disabled:opacity-50"
+                          className="flex-1 py-3 bg-[#004D40] hover:bg-[#00382E] text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50"
                         >
                           {isSubmitting ? (
                             <span>অর্ডার প্রসেস হচ্ছে...</span>
@@ -1116,7 +1153,8 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                 <div className="space-y-1">
                   <h3 className="text-xl font-black text-slate-900">অর্ডার সফলভাবে সম্পন্ন হয়েছে!</h3>
                   <p className="text-xs text-slate-500">
-                    অর্ডার ট্র্যাকিং আইডি: <span className="font-mono font-bold text-teal-800">{completedOrder.orderNumber}</span>
+                    অর্ডার ট্র্যাকিং আইডি:{' '}
+                    <span className="font-mono font-bold text-teal-800">{completedOrder.orderNumber}</span>
                   </p>
                 </div>
 
@@ -1143,7 +1181,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                   <button
                     type="button"
                     onClick={() => sendOrderToWhatsApp(completedOrder)}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm transition active:scale-95 cursor-pointer"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition active:scale-95 cursor-pointer"
                   >
                     <MessageCircle className="w-4 h-4" />
                     <span>WhatsApp এ অর্ডার কপি পাঠান</span>
@@ -1165,6 +1203,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
             </div>
           )}
         </AnimatePresence>
+
         {/* Product Quick View / Detail Modal */}
         <StorefrontProductDetailModal
           isOpen={!!selectedProductForDetail}
@@ -1182,6 +1221,8 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
             setIsCartOpen(true);
           }}
           config={config}
+          isWishlisted={selectedProductForDetail ? wishlistIds.includes(selectedProductForDetail.id) : false}
+          onToggleWishlist={handleToggleWishlist}
         />
 
         {/* Vendor Support Drawer (Live Customer Support & Chat) */}

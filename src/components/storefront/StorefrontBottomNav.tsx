@@ -1,24 +1,26 @@
 import React from 'react';
-import { Home, FileText, LayoutGrid, MessageSquare, Menu } from 'lucide-react';
+import { Home, LayoutGrid, ShoppingBag, Heart, Menu } from 'lucide-react';
 
-export type StorefrontTab = 'home' | 'orders' | 'categories' | 'inbox' | 'more';
+export type StorefrontTab = 'home' | 'categories' | 'orders' | 'wishlist' | 'more';
 
 interface StorefrontBottomNavProps {
   activeTab: StorefrontTab;
   onTabChange: (tab: StorefrontTab) => void;
-  inboxBadge?: number;
+  wishlistCount?: number;
+  orderCount?: number;
 }
 
 export const StorefrontBottomNav: React.FC<StorefrontBottomNavProps> = ({
   activeTab,
   onTabChange,
-  inboxBadge = 1,
+  wishlistCount = 0,
+  orderCount = 0,
 }) => {
   const tabs = [
     { id: 'home' as StorefrontTab, label: 'হোম', icon: Home },
-    { id: 'orders' as StorefrontTab, label: 'অর্ডার', icon: FileText },
     { id: 'categories' as StorefrontTab, label: 'ক্যাটাগরি', icon: LayoutGrid },
-    { id: 'inbox' as StorefrontTab, label: 'ইনবক্স', icon: MessageSquare, badge: inboxBadge },
+    { id: 'orders' as StorefrontTab, label: 'অর্ডার', icon: ShoppingBag, badge: orderCount > 0 ? orderCount : undefined },
+    { id: 'wishlist' as StorefrontTab, label: 'পছন্দের তালিকা', icon: Heart, badge: wishlistCount > 0 ? wishlistCount : undefined },
     { id: 'more' as StorefrontTab, label: 'আরও', icon: Menu },
   ];
 

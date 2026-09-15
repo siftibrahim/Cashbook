@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, OnlineStoreConfig, OnlineOrder, StoreProfile, StoreBanner } from '../types';
+import { Product, OnlineStoreConfig, OnlineOrder, StoreProfile, StoreBanner, Coupon } from '../types';
 import { formatMoney } from '../utils/storage';
 import {
   X,
@@ -39,6 +39,7 @@ import {
   AlertTriangle,
   Filter,
   Save,
+  Tag,
 } from 'lucide-react';
 import { VendorChatInboxTab } from './vendor/VendorChatInboxTab';
 import { getTotalUnreadVendorMessages, CHAT_SYNC_EVENT } from '../utils/storeChatStorage';
@@ -59,7 +60,7 @@ interface OnlineStoreModalProps {
   onShowToast?: (msg: string) => void;
 }
 
-type TabType = 'overview' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages';
+type TabType = 'overview' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages' | 'coupons';
 
 export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   isOpen,
@@ -101,6 +102,67 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategory, setCatalogCategory] = useState('all');
   const [catalogStatusFilter, setCatalogStatusFilter] = useState<'all' | 'published' | 'hidden'>('all');
+
+  // Coupon management form states
+  const [newCouponCode, setNewCouponCode] = useState('');
+  const [newCouponType, setNewCouponType] = useState<'percentage' | 'fixed'>('percentage');
+  const [newCouponValue, setNewCouponValue] = useState(10);
+  const [newCouponMinSpend, setNewCouponMinSpend] = useState(500);
+  const [newCouponMaxDiscount, setNewCouponMaxDiscount] = useState<number | undefined>(200);
+  const [newCouponDescription, setNewCouponDescription] = useState('');
+
+  const handleAddCouponSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = newCouponCode.trim().toUpperCase();
+    if (!code) return;
+    const existing = formData.coupons || [];
+    if (existing.some((c) => c.code.toUpperCase() === code)) {
+      alert('এই কোডের কুপন ইতোমধ্যে বিদ্যমান আছে!');
+      return;
+    }
+    const newCoupon: Coupon = {
+      id: `cpn_${Date.now()}`,
+      code,
+      discountType: newCouponType,
+      discountValue: newCouponValue,
+      minOrderAmount: newCouponMinSpend > 0 ? newCouponMinSpend : undefined,
+      maxDiscount: newCouponType === 'percentage' && newCouponMaxDiscount ? newCouponMaxDiscount : undefined,
+      isActive: true,
+      description: newCouponDescription.trim() || undefined,
+    };
+    const updated = {
+      ...formData,
+      coupons: [...existing, newCoupon],
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+    setNewCouponCode('');
+    setNewCouponDescription('');
+    if (onShowToast) onShowToast(`✅ কুপন '${code}' সফলভাবে যুক্ত হয়েছে!`);
+  };
+
+  const handleToggleCoupon = (code: string) => {
+    const existing = formData.coupons || [];
+    const updated = {
+      ...formData,
+      coupons: existing.map((c) => (c.code === code ? { ...c, isActive: !c.isActive } : c)),
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+  };
+
+  const handleDeleteCoupon = (code: string) => {
+    if (confirm(`আপনি কি '${code}' কুপনটি ডিলিট করতে চান?`)) {
+      const existing = formData.coupons || [];
+      const updated = {
+        ...formData,
+        coupons: existing.filter((c) => c.code !== code),
+      };
+      setFormData(updated);
+      onUpdateConfig(updated);
+      if (onShowToast) onShowToast(`কুপন '${code}' মুছে ফেলা হয়েছে।`);
+    }
+  };
 
   // Load unread customer messages count and listen to chat sync
   React.useEffect(() => {
@@ -651,6 +713,19 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           >
             <Settings className="w-4 h-4 text-slate-600" />
             <span>ই-কমার্স সেটিংস</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('coupons')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'coupons'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Tag className="w-4 h-4 text-amber-600" />
+            <span>কুপন ও ডিসকাউন্ট ({(formData.coupons || []).length})</span>
           </button>
 
           <button
@@ -2746,6 +2821,191 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               </div>
 
               <VendorChatInboxTab storeName={formData.storeName} />
+            </div>
+          )}
+
+          {/* TAB 7: COUPONS & DISCOUNTS */}
+          {activeTab === 'coupons' && (
+            <div className="space-y-6">
+              {/* Header Card */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                    <Tag className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">কুপন ও প্রমো কোড ব্যবস্থাপনা</h3>
+                    <p className="text-xs text-slate-500">
+                      গ্রাহকদের জন্য বিশেষ ছাড়ের কুপন কোড তৈরি করুন যা চেকআউটের সময় স্বয়ংক্রিয়ভাবে ডিসকাউন্ট প্রযোজ্য করবে।
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Create New Coupon Form */}
+              <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-2xs space-y-4">
+                <h4 className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-teal-700" />
+                  <span>নতুন ডিসকাউন্ট কুপন তৈরি করুন</span>
+                </h4>
+
+                <form onSubmit={handleAddCouponSubmit} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700">কুপন কোড *</label>
+                      <input
+                        type="text"
+                        required
+                        value={newCouponCode}
+                        onChange={(e) => setNewCouponCode(e.target.value.toUpperCase())}
+                        placeholder="উদাঃ EID2026, SAVE50"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 uppercase font-mono font-bold text-slate-900 focus:outline-hidden focus:border-[#00695C]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700">ছাড়ের ধরণ *</label>
+                      <select
+                        value={newCouponType}
+                        onChange={(e) => setNewCouponType(e.target.value as 'percentage' | 'fixed')}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-800 focus:outline-hidden"
+                      >
+                        <option value="percentage">শতাংশ (%) ডিসকাউন্ট</option>
+                        <option value="fixed">নির্দিষ্ট টাকা (৳) ক্যাশ ডিসকাউন্ট</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700">
+                        {newCouponType === 'percentage' ? 'ছাড়ের পরিমাণ (%) *' : 'ছাড়ের পরিমাণ (৳) *'}
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min="1"
+                        value={newCouponValue}
+                        onChange={(e) => setNewCouponValue(Number(e.target.value))}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-900 focus:outline-hidden focus:border-[#00695C]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700">সর্বনিম্ন অর্ডার মূল্য (৳)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={newCouponMinSpend}
+                        onChange={(e) => setNewCouponMinSpend(Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-800 focus:outline-hidden"
+                      />
+                    </div>
+
+                    {newCouponType === 'percentage' && (
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">সর্বোচ্চ ছাড়ের সীমা (৳)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={newCouponMaxDiscount || ''}
+                          onChange={(e) => setNewCouponMaxDiscount(e.target.value ? Number(e.target.value) : undefined)}
+                          placeholder="সীমাহীন হলে খালি রাখুন"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-800 focus:outline-hidden"
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="font-bold text-slate-700">বিবরণ / অফার বার্তা</label>
+                      <input
+                        type="text"
+                        value={newCouponDescription}
+                        onChange={(e) => setNewCouponDescription(e.target.value)}
+                        placeholder="উদাঃ ঈদের বিশেষ ধামাকা অফার! ৫০০ টাকার অর্ডারে ১০% ছাড়।"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-800 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <button
+                      type="submit"
+                      className="px-5 py-2.5 bg-[#00695C] hover:bg-[#004D40] text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>কুপন সেভ করুন</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Existing Coupons List */}
+              <div className="space-y-3">
+                <h4 className="font-bold text-xs sm:text-sm text-slate-900">
+                  বিদ্যমান কুপনসমূহ ({(formData.coupons || []).length})
+                </h4>
+
+                {(formData.coupons || []).length === 0 ? (
+                  <div className="bg-white rounded-3xl p-8 border border-slate-200 text-center space-y-2 text-slate-500">
+                    <Tag className="w-8 h-8 mx-auto text-slate-300" />
+                    <p className="text-xs">এখনও কোনো কুপন তৈরি করা হয়নি। উপরের ফর্ম ব্যবহার করে প্রথম কুপন তৈরি করুন।</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {(formData.coupons || []).map((c) => (
+                      <div
+                        key={c.code}
+                        className={`bg-white rounded-2xl p-4 border transition-all space-y-2.5 ${
+                          c.isActive
+                            ? 'border-emerald-200 shadow-2xs ring-1 ring-emerald-400/20'
+                            : 'border-slate-200 opacity-70'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-black text-sm text-[#004D40] bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">
+                            {c.code}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              c.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {c.isActive ? 'সক্রিয়' : 'নিষ্ক্রিয়'}
+                          </span>
+                        </div>
+
+                        <div className="text-xs space-y-1 text-slate-600">
+                          <div className="font-bold text-slate-900">
+                            ছাড়: {c.discountType === 'percentage' ? `${c.discountValue}% ছাড়` : `৳${formatMoney(c.discountValue)} ফ্ল্যাট ছাড়`}
+                            {c.maxDiscount ? ` (সর্বোচ্চ ৳${c.maxDiscount})` : ''}
+                          </div>
+                          {c.minOrderAmount && <div>সর্বনিম্ন কেনাকাটা: ৳{formatMoney(c.minOrderAmount)}</div>}
+                          {c.description && <div className="text-slate-500 italic text-[11px]">{c.description}</div>}
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleCoupon(c.code)}
+                            className="text-xs font-bold text-teal-800 hover:underline cursor-pointer"
+                          >
+                            {c.isActive ? 'বন্ধ করুন' : 'সক্রিয় করুন'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCoupon(c.code)}
+                            className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            title="কুপন মুছুন"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
