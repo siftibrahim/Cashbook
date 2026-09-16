@@ -257,7 +257,14 @@ export async function setAndConnectDatabaseUrl(newDbUrl: string): Promise<{ succ
 export async function query(text: string, params?: any[]): Promise<pg.QueryResult<any>> {
   let p = getDbPool();
   if (!p) {
-    throw new Error('DATABASE_URL_NOT_CONFIGURED');
+    console.warn('⚠️ [AI Studio Mock] DB not connected — returning mock empty result for query');
+    return {
+      rows: [],
+      rowCount: 0,
+      command: 'SELECT',
+      oid: 0,
+      fields: [],
+    } as any;
   }
 
   try {
@@ -956,7 +963,6 @@ export async function initializeDatabaseSchema() {
 
 async function seedDefaultDataInPostgres(client: pg.PoolClient) {
   const adminEmail = process.env.ADMIN_EMAIL || 'siftibrahim@gmail.com';
-  const defaultPassHash = await bcrypt.hash('33444', 10);
   
   // Seed Super Admin in users table safely and restore correct identity
   try {
@@ -997,18 +1003,18 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
     }
 
     const existingAdminByEmail = await client.query(
-      `SELECT id, email FROM users WHERE LOWER(email) = LOWER($1) OR phone = '01306908115' OR phone = '01619665875' LIMIT 1`,
+      `SELECT id, email, password_hash FROM users WHERE LOWER(email) = LOWER($1) OR phone = '01306908115' OR phone = '01619665875' LIMIT 1`,
       [adminEmail.toLowerCase()]
     );
     if (existingAdminByEmail.rows.length > 0 && existingAdminByEmail.rows[0].id !== 'usr_super_admin') {
       try {
-        await client.query(`UPDATE users SET id = 'usr_super_admin', role = 'super_admin', phone = '01306908115', password_hash = $2 WHERE id = $1`, [existingAdminByEmail.rows[0].id, defaultPassHash]);
+        await client.query(`UPDATE users SET id = 'usr_super_admin', role = 'super_admin', phone = '01306908115' WHERE id = $1`, [existingAdminByEmail.rows[0].id]);
       } catch {
-        await client.query(`UPDATE users SET email = $1, phone = '01306908115', password_hash = $3 WHERE id = $2`, [`admin_${existingAdminByEmail.rows[0].id.slice(-6)}@twing.com`, existingAdminByEmail.rows[0].id, defaultPassHash]);
+        await client.query(`UPDATE users SET email = $1, phone = '01306908115' WHERE id = $2`, [`admin_${existingAdminByEmail.rows[0].id.slice(-6)}@twing.com`, existingAdminByEmail.rows[0].id]);
       }
     }
 
-    // 1. Ensure usr_super_admin exists with genuine super admin credentials
+    // 1. Ensure usr_super_admin exists with genuine super admin credentials without hardcoded default password
     await client.query(`
       INSERT INTO users (
         id, name, phone, email, password_hash, shop_name, business_type, address, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at, last_active_at
@@ -1017,7 +1023,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
         'ইব্রাহিম খলিল (সুপার অ্যাডমিন)',
         '01306908115',
         $1,
-        $2,
+        '',
         'TWING হিসাবি',
         'জেনারেল স্টোর',
         'ঢাকা, বাংলাদেশ',
@@ -1025,31 +1031,22 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
         'active',
         'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
         'active',
+        $2,
         $3,
-        $4,
-        $4
+        $3
       ) ON CONFLICT (id) DO UPDATE SET
         role = 'super_admin',
         name = 'ইব্রাহিম খলিল (সুপার অ্যাডমিন)',
         email = CASE WHEN users.email LIKE '%admin%' OR users.email LIKE '%siftibrahim%' THEN users.email ELSE $1 END,
         phone = '01306908115',
-        password_hash = $2,
         status = 'active';
     `, [
       adminEmail,
-      defaultPassHash,
       Date.now() + 3650 * 86400000,
       Date.now(),
     ]);
 
-    // Force update password hash and phone for usr_super_admin to ensure 33444 is active
-    await client.query(`
-      UPDATE users 
-      SET password_hash = $1, phone = '01306908115', role = 'super_admin', status = 'active'
-      WHERE id = 'usr_super_admin' OR phone = '01306908115'
-    `, [defaultPassHash]);
-
-    // Seed/Update super admin security config
+    // Seed/Update super admin security config (no default masterPin)
     await client.query(`
       INSERT INTO system_config (id, data, updated_at, updated_by)
       VALUES ('super_admin_security', $1, $2, 'usr_super_admin')
@@ -1058,7 +1055,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
       JSON.stringify({
         phone: '01306908115',
         email: adminEmail,
-        masterPin: '7860',
+        masterPin: '',
         is2FAEnabled: true,
         updatedAt: Date.now(),
       }),
@@ -1247,47 +1244,10 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
     VALUES ($1, $2, $3, $4)
     ON CONFLICT (id) DO NOTHING;
   `, ['dashboard_banner_settings', JSON.stringify(defaultBannerSettings), Date.now(), adminEmail]);
-
-  // Seed default staff member if none exists
-  try {
-    const staffCheck = await client.query('SELECT id FROM staff LIMIT 1');
-    if (staffCheck.rows.length === 0) {
-      const defaultStaffHash = await bcrypt.hash('staff123', 10);
-      const defaultPermissions = JSON.stringify([
-        'canManageUsers',
-        'canApprovePayments',
-        'canEditSubscriptions',
-        'canSendBroadcasts',
-        'canManageSupport',
-        'canViewAuditLogs',
-      ]);
-      await client.query(`
-        INSERT INTO staff (
-          id, name, phone, email, password_hash, role, status, permissions, created_by, notes, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        ON CONFLICT (id) DO NOTHING;
-      `, [
-        'staff_default_1',
-        'অফিসিয়াল স্টাফ ম্যানেজার',
-        '01900000000',
-        'staff@twing.com',
-        defaultStaffHash,
-        'manager',
-        'active',
-        defaultPermissions,
-        adminEmail,
-        'Default Master Staff Account',
-        Date.now(),
-      ]);
-    }
-  } catch (staffErr) {
-    console.warn('⚠️ Staff seed check notice:', staffErr);
-  }
 }
 
 function seedDefaultDataInMemory() {
   const adminEmail = process.env.ADMIN_EMAIL || 'siftibrahim@gmail.com';
-  const superAdminPassHash = bcrypt.hashSync('33444', 10);
 
   inMemoryStore.users = [
     {
@@ -1295,7 +1255,7 @@ function seedDefaultDataInMemory() {
       name: 'ইব্রাহিম খলিল (সুপার অ্যাডমিন)',
       phone: '01306908115',
       email: 'siftibrahim@gmail.com',
-      password_hash: superAdminPassHash, // 33444
+      password_hash: '',
       shopName: 'TWING হিসাবি',
       businessType: 'জেনারেল স্টোর',
       address: 'ঢাকা, বাংলাদেশ',
@@ -1314,7 +1274,7 @@ function seedDefaultDataInMemory() {
       name: 'ইব্রাহিম খলিল (অ্যাডমিন)',
       phone: '01306908115',
       email: 'admin@twing.com',
-      password_hash: superAdminPassHash, // 33444
+      password_hash: '',
       shopName: 'TWING হিসাবি',
       businessType: 'জেনারেল স্টোর',
       address: 'ঢাকা, বাংলাদেশ',
@@ -1334,7 +1294,7 @@ function seedDefaultDataInMemory() {
     id: 'super_admin_security',
     phone: '01306908115',
     email: 'siftibrahim@gmail.com',
-    masterPin: '7860',
+    masterPin: '',
     is2FAEnabled: true,
     updatedAt: Date.now(),
   };
@@ -1473,28 +1433,7 @@ function seedDefaultDataInMemory() {
     updatedAt: Date.now(),
   };
 
-  inMemoryStore.staff = [
-    {
-      id: 'staff_default_1',
-      name: 'অফিসিয়াল স্টাফ ম্যানেজার',
-      phone: '01306908115',
-      email: 'staff@twing.com',
-      password_hash: '$2a$10$7z7aMvJdM9QxT2eXoOq9se.r0sN9E07uFv8gE8T4B6gH9tY5u7gHy', // staff123
-      password: 'staff123',
-      role: 'manager',
-      status: 'active',
-      permissions: [
-        'canManageUsers',
-        'canApprovePayments',
-        'canEditSubscriptions',
-        'canSendBroadcasts',
-        'canManageSupport',
-        'canViewAuditLogs',
-      ],
-      createdBy: adminEmail,
-      createdAt: Date.now(),
-    },
-  ];
+  inMemoryStore.staff = [];
 }
 
 /**
@@ -1529,7 +1468,7 @@ export async function ensureUserExistsInPostgres(
     const shopName = userPayload?.shopName || (userId === 'usr_super_admin' ? 'TWING হিসাবি' : 'আমার দোকান');
     const role = userPayload?.role || (userId === 'usr_super_admin' ? 'super_admin' : 'user');
     const safeEmail = rawEmail || `user_${userId.replace(/[^a-zA-Z0-9_]/g, '')}@twing.com`;
-    const passHash = await bcrypt.hash('123456', 10);
+    const passHash = await bcrypt.hash(Math.random().toString(36) + Date.now().toString(36), 10);
 
     await poolOrClient.query(`
       INSERT INTO users (

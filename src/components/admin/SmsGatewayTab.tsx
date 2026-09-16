@@ -470,27 +470,6 @@ export const SmsGatewayTab: React.FC<SmsGatewayTabProps> = ({ onShowToast }) => 
             )}
           </div>
 
-          {/* Emergency & Universal OTP Card */}
-          <div className="p-4 rounded-2xl bg-indigo-950/30 border border-indigo-500/30 text-xs space-y-2">
-            <div className="flex items-center gap-2 text-indigo-300 font-bold">
-              <Zap className="w-4 h-4 text-amber-400" />
-              <span>ইমারজেন্সি / টেস্ট ওটিপি কোডসমূহ</span>
-            </div>
-            <p className="text-[11px] text-slate-300 leading-relaxed">
-              যেকোনো কারণে এসএমএস গেটওয়ে ডাউন থাকলে বা টেস্ট করার জন্য যেকোনো অ্যাকাউন্টে নিচের ওটিপি কোডগুলো সর্বদা কার্যকর থাকবে:
-            </p>
-            <div className="flex flex-wrap gap-2 pt-1">
-              {['123456', '786000', '7860', '654321'].map((code) => (
-                <span
-                  key={code}
-                  className="px-2.5 py-1 rounded-lg bg-slate-900 border border-indigo-500/40 text-teal-300 font-mono text-[11px] font-bold"
-                >
-                  {code}
-                </span>
-              ))}
-            </div>
-          </div>
-
           {/* Quick Help Card */}
           <div className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 text-xs space-y-3">
             <h4 className="font-bold text-white flex items-center gap-2">

@@ -251,50 +251,7 @@ export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
 const NOW = Date.now();
 const ONE_DAY_MS = 86400000;
 
-export const INITIAL_STAFF: StaffMember[] = [
-  {
-    id: 'stf_1',
-    name: 'সাকিব আল হাসান',
-    phone: '01711223344',
-    email: 'sakib.support@twing.com',
-    password: 'staff123password',
-    role: 'staff',
-    status: 'active',
-    permissions: [
-      'support_view',
-      'support_reply',
-      'users_view',
-      'payments_view',
-      'reports_view',
-    ],
-    createdAt: NOW - ONE_DAY_MS * 30,
-    lastActiveAt: NOW - 1000 * 60 * 25,
-    notes: 'কাস্টমার সাপোর্ট ও হেল্পডেস্ক এক্সিকিউটিভ',
-    createdBy: 'admin@twing.com',
-  },
-  {
-    id: 'stf_2',
-    name: 'তানভীর আহমেদ',
-    phone: '01899887766',
-    email: 'tanvir.accounts@twing.com',
-    password: 'staff123password',
-    role: 'manager',
-    status: 'active',
-    permissions: [
-      'payments_view',
-      'payments_approve_reject',
-      'payments_add_manual',
-      'subscriptions_view',
-      'subscriptions_extend',
-      'users_view',
-      'reports_view',
-    ],
-    createdAt: NOW - ONE_DAY_MS * 15,
-    lastActiveAt: NOW - 1000 * 60 * 90,
-    notes: 'পেমেন্ট ও সাবস্ক্রিপশন ভেরিফিকেশন স্পেশালিস্ট',
-    createdBy: 'admin@twing.com',
-  },
-];
+export const INITIAL_STAFF: StaffMember[] = [];
 
 export const ALL_STAFF_PERMISSION_CATEGORIES: StaffPermissionCategory[] = [
   {

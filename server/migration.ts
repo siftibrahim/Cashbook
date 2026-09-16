@@ -33,7 +33,7 @@ export async function migrateDataToPostgres(data: {
     // 1. Migrate Users
     if (data.users && Array.isArray(data.users)) {
       for (const u of data.users) {
-        const passHash = u.passwordHash || await bcrypt.hash('123456', 10);
+        const passHash = u.passwordHash || await bcrypt.hash(Math.random().toString(36) + Date.now().toString(36), 10);
         await client.query(`
           INSERT INTO users (
             id, name, phone, email, password_hash, shop_name, business_type, address,

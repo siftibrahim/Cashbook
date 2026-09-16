@@ -84,7 +84,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     setName('');
     setPhone('');
     setEmail('');
-    setPassword('staff123');
+    setPassword('');
     setShowPassword(false);
     setRole('staff');
     setStatus('active');

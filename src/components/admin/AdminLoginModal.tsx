@@ -138,11 +138,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         setShow2FAStep(true);
         setTwoFaSessionToken(res.twoFaSessionToken || '');
         setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
-        if (res.devOtp) {
-          onShowToast(`🔐 2FA OTP কোড: ${res.devOtp}`);
-        } else {
-          onShowToast('🔐 আপনার নিবন্ধিত মোবাইল নম্বরে 2FA OTP কোড পাঠানো হয়েছে!');
-        }
+        onShowToast('🔐 আপনার নিবন্ধিত মোবাইল নম্বরে 2FA OTP কোড পাঠানো হয়েছে!');
         return;
       }
 
@@ -349,7 +345,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                     required
                     value={twoFaOtp}
                     onChange={(e) => setTwoFaOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="যেমন: 123456"
+                    placeholder="৬ ডিজিটের ওটিপি লিখুন"
                     className="w-full px-3.5 py-2.5 bg-slate-50 border-2 border-teal-500 rounded-xl text-center text-lg font-black tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
                   />
                 </div>
@@ -491,13 +487,10 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                       maxLength={6}
                       value={pin}
                       onChange={(e) => setPin(e.target.value)}
-                      placeholder="PIN লিখুন (যেমন: 7860)"
+                      placeholder="PIN লিখুন"
                       className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-base tracking-widest font-mono font-black focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
                     />
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1 text-center">
-                    ডিফল্ট মাস্টার অ্যাডমিন পিন: 7860
-                  </p>
                 </div>
 
                 <button

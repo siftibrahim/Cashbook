@@ -471,7 +471,7 @@ router.post('/login', async (req, res) => {
     // ----------------------------------------------------
     // CHECK 1: SUPER ADMIN IDENTIFIER & AUTHENTICATION
     // ----------------------------------------------------
-    let customPin = '7860';
+    let customPin = '';
     let superAdminEmail = 'siftibrahim@gmail.com';
     let superAdminPhone = '01306908115';
     let superAdminHash = '';
@@ -523,28 +523,14 @@ router.post('/login', async (req, res) => {
     if (isSuperAdminIdentifier) {
       let isSuperValid = false;
 
-      // Check PIN or Password
-      if (rawPassword === customPin || rawPassword === '7860') {
+      // Check PIN or Password strictly
+      if (customPin && rawPassword === customPin) {
         isSuperValid = true;
       } else if (superAdminHash) {
         try {
           isSuperValid = await bcrypt.compare(rawPassword, superAdminHash);
         } catch {
           isSuperValid = false;
-        }
-      }
-
-      // Strong fallback & auto-sync for requested password 33444
-      if (!isSuperValid && (rawPassword === '33444' || rawPassword === 'admin123' || rawPassword === 'siftibrahim123#')) {
-        isSuperValid = true;
-        const newHash = await bcrypt.hash(rawPassword, 10);
-        if (pool) {
-          pool.query("UPDATE users SET password_hash = $1, phone = '01306908115', role = 'super_admin' WHERE id = 'usr_super_admin' OR phone = '01306908115'", [newHash]).catch(() => {});
-        }
-        const mem = inMemoryStore.users.find(u => u.id === 'usr_super_admin');
-        if (mem) {
-          mem.password_hash = newHash;
-          mem.phone = '01306908115';
         }
       }
 
@@ -655,25 +641,6 @@ router.post('/login', async (req, res) => {
       )) {
         isUserMatch = true;
       }
-      // Resilient emergency / default PIN access for shop owners
-      if (!isUserMatch) {
-        const phoneDigits = (user.phone || '').replace(/\D/g, '');
-        const last4 = phoneDigits.slice(-4);
-        const last6 = phoneDigits.slice(-6);
-        if (
-          rawPassword === '123456' ||
-          normalizedPassword === '123456' ||
-          rawPassword === '7860' ||
-          normalizedPassword === '7860' ||
-          rawPassword === '33444' ||
-          normalizedPassword === '33444' ||
-          (last4 && (rawPassword === last4 || normalizedPassword === last4)) ||
-          (last6 && (rawPassword === last6 || normalizedPassword === last6)) ||
-          (phoneDigits && (rawPassword === phoneDigits || normalizedPassword === phoneDigits))
-        ) {
-          isUserMatch = true;
-        }
-      }
     }
 
     if (user && isUserMatch) {
@@ -751,27 +718,6 @@ router.post('/login', async (req, res) => {
       );
     }
 
-    // Check demo/default staff identifier fallback only for explicit staff keywords
-    if (!staff && (cleanEmail === 'staff@twing.com' || rawIdentifier.toLowerCase() === 'staff')) {
-      staff = {
-        id: 'staff_default_1',
-        name: 'অফিসিয়াল স্টাফ ম্যানেজার',
-        phone: '01619665875',
-        email: 'staff@twing.com',
-        role: 'manager',
-        status: 'active',
-        password_hash: await bcrypt.hash('staff123', 10),
-        permissions: [
-          'canManageUsers',
-          'canApprovePayments',
-          'canEditSubscriptions',
-          'canSendBroadcasts',
-          'canManageSupport',
-          'canViewAuditLogs',
-        ],
-      };
-    }
-
     if (staff) {
       let isStaffMatch = false;
       if (staff.password_hash || staff.password) {
@@ -783,11 +729,7 @@ router.post('/login', async (req, res) => {
       }
       if (!isStaffMatch && (
         staff.password === rawPassword ||
-        staff.password_hash === rawPassword ||
-        rawPassword === 'staff123' ||
-        rawPassword === '123456' ||
-        rawPassword === customPin ||
-        rawPassword === '7860'
+        staff.password_hash === rawPassword
       )) {
         isStaffMatch = true;
       }
@@ -866,7 +808,7 @@ router.post('/admin-login', async (req, res) => {
     const pool = getDbPool();
 
     // Check system_config for custom super admin pin & email
-    let customPin = '7860';
+    let customPin = '';
     let superAdminEmail = DEFAULT_ADMIN_EMAIL;
     let superAdminName = 'সুপার অ্যাডমিন';
     let superAdminPhone = '01306908115';
@@ -925,7 +867,7 @@ router.post('/admin-login', async (req, res) => {
     // PIN Mode
     if (authType === 'pin' || (pin && !password)) {
       const cleanPin = (pin || '').trim();
-      if (cleanPin && (cleanPin === customPin || cleanPin === '7860')) {
+      if (customPin && cleanPin === customPin) {
         isCredentialValid = true;
       } else {
         return res.status(401).json({ error: '❌ ভুল অ্যাডমিন পিন কোড!' });
@@ -962,25 +904,6 @@ router.post('/admin-login', async (req, res) => {
           isCredentialValid = await bcrypt.compare(cleanPassword, superAdminHash);
         } catch {
           isCredentialValid = false;
-        }
-      }
-
-      // Explicit support & self-healing update for requested password 33444
-      if (!isCredentialValid && (cleanPassword === '33444' || cleanPassword === 'admin123' || cleanPassword === 'siftibrahim123#')) {
-        isCredentialValid = true;
-        const newHash = await bcrypt.hash(cleanPassword, 10);
-        if (pool) {
-          try {
-            await pool.query(
-              `UPDATE users SET password_hash = $1, phone = '01306908115', role = 'super_admin', status = 'active' WHERE id = 'usr_super_admin' OR phone = '01306908115'`,
-              [newHash]
-            );
-          } catch (e) {}
-        }
-        const mem = inMemoryStore.users.find(u => u.id === 'usr_super_admin');
-        if (mem) {
-          mem.password_hash = newHash;
-          mem.phone = '01306908115';
         }
       }
 
@@ -1040,7 +963,6 @@ router.post('/admin-login', async (req, res) => {
       maskedPhone,
       superAdminEmail,
       isSimulated: smsRes.isSimulated,
-      devOtp: smsRes.isSimulated || process.env.NODE_ENV !== 'production' ? otpCode : undefined,
       gatewayResponse: smsRes.gatewayResponse,
     });
   } catch (err: any) {
@@ -1098,11 +1020,6 @@ router.post('/admin-verify-2fa', async (req, res) => {
         isOtpValid = true;
         memOtp.verified = true;
       }
-    }
-
-    // Super Admin Master 2FA Backup: In case SMS is delayed or SMS gateway unavailable
-    if (!isOtpValid && !isStaff && (cleanOtp === '33444' || cleanOtp === '7860')) {
-      isOtpValid = true;
     }
 
     if (!isOtpValid) {
@@ -1263,27 +1180,7 @@ router.post('/staff-login', async (req, res) => {
     }
 
     if (!staff) {
-      // If demo or default master staff credentials are used
-      if (cleanIdentifier === 'staff@twing.com' || cleanPhone === '01619665875' || cleanIdentifier === 'staff') {
-        staff = {
-          id: 'staff_default_1',
-          name: 'অফিসিয়াল স্টাফ ম্যানেজার',
-          phone: '01619665875',
-          email: 'staff@twing.com',
-          role: 'manager',
-          status: 'active',
-          permissions: [
-            'canManageUsers',
-            'canApprovePayments',
-            'canEditSubscriptions',
-            'canSendBroadcasts',
-            'canManageSupport',
-            'canViewAuditLogs',
-          ],
-        };
-      } else {
-        return res.status(401).json({ error: '❌ স্টাফ অ্যাকাউন্ট খুঁজে পাওয়া যায়নি অথবা অ্যাকাউন্টটি নিষ্ক্রিয়।' });
-      }
+      return res.status(401).json({ error: '❌ স্টাফ অ্যাকাউন্ট খুঁজে পাওয়া যায়নি অথবা অ্যাকাউন্টটি নিষ্ক্রিয়।' });
     }
 
     let isMatch = false;
@@ -1294,7 +1191,7 @@ router.post('/staff-login', async (req, res) => {
         isMatch = false;
       }
     }
-    if (!isMatch && (password === 'staff123' || password === '123456' || password === '7860')) {
+    if (!isMatch && (staff.password === password || staff.password_hash === password)) {
       isMatch = true;
     }
 

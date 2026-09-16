@@ -344,37 +344,7 @@ export const authApi = {
           cleanPhone === '01619665875' ||
           cleanIdent === 'admin';
 
-        if (isSuperAdminIdent) {
-          if (password === '33444' || password === '7860' || password === 'admin123' || password === 'siftibrahim123#') {
-            return {
-              requires2FA: true,
-              role: 'super_admin' as const,
-              phone: '01306908115',
-              maskedPhone: '013****8115',
-              twoFaSessionToken: 'offline_2fa_' + Date.now(),
-              superAdminEmail: 'siftibrahim@gmail.com',
-              message: '🔐 সুপার অ্যাডমিন সিকিউরিটি 2FA: আপনার নিবন্ধিত মোবাইল নম্বরে (013****8115) ওটিপি কোড পাঠানো হয়েছে।',
-            };
-          }
-          throw new Error('ভুল ইমেইল/মোবাইল নম্বর অথবা পাসওয়ার্ড/পিন!');
-        }
-
-        // 2. Staff check
-        const isStaffIdent = cleanIdent === 'staff@twing.com' || cleanPhone === '01619665875' || cleanIdent === 'staff';
-        if (isStaffIdent && password === 'staff123') {
-          return {
-            requires2FA: true,
-            role: 'staff' as const,
-            staffId: 'staff_1',
-            staffName: 'অফিসিয়াল স্টাফ ম্যানেজার',
-            phone: '01619665875',
-            maskedPhone: '016****5875',
-            twoFaSessionToken: 'offline_2fa_staff_' + Date.now(),
-            message: '🔐 স্টাফ সিকিউরিটি 2FA: ওটিপি কোড পাঠানো হয়েছে।',
-          };
-        }
-
-        // 3. Check offline credentials hash vault
+        // Check offline credentials hash vault
         const offlineCheck = await verifyOfflinePinLogin(identifier, password);
         if (offlineCheck.success && offlineCheck.user) {
           const token = 'offline_user_token_' + Date.now();
@@ -452,7 +422,6 @@ export const authApi = {
         twoFaSessionToken?: string;
         maskedPhone?: string;
         superAdminEmail?: string;
-        devOtp?: string;
       }>('/auth/admin-login', {
         method: 'POST',
         body: JSON.stringify(params),
@@ -463,24 +432,6 @@ export const authApi = {
       }
       return res;
     } catch (err: any) {
-      if (isFallbackEligible(err)) {
-        const id = (params.identifier || params.email || params.phone || '').trim().toLowerCase();
-        const p = params.pin || params.password || '';
-        if (
-          (id === '01306908115' || id === 'siftibrahim@gmail.com' || id === 'admin@twing.com' || id === 'admin') &&
-          (p === '33444' || p === '7860' || p === 'admin123' || p === 'siftibrahim123#')
-        ) {
-          return {
-            requires2FA: true,
-            twoFaSessionToken: 'offline_admin_2fa_' + Date.now(),
-            maskedPhone: '013****8115',
-            superAdminEmail: 'siftibrahim@gmail.com',
-            devOtp: '33444',
-            message: '🔐 সুপার অ্যাডমিন সিকিউরিটি 2FA: ওটিপি কোড পাঠানো হয়েছে।',
-          };
-        }
-        throw new Error('ভুল মোবাইল নম্বর/ইমেইল অথবা সিকিউরিটি পাসওয়ার্ড/পিন!');
-      }
       throw err;
     }
   },
@@ -538,22 +489,6 @@ export const authApi = {
       }
       return res;
     } catch (err: any) {
-      if (isFallbackEligible(err)) {
-        const cleanIdent = (identifier || '').trim().toLowerCase();
-        if ((cleanIdent === 'staff@twing.com' || cleanIdent === 'staff' || cleanIdent.replace(/\D/g, '') === '01619665875') && password === 'staff123') {
-          return {
-            requires2FA: true,
-            role: 'staff',
-            staffId: 'staff_1',
-            staffName: 'স্টাফ মেম্বার',
-            phone: '01619665875',
-            maskedPhone: '016****5875',
-            twoFaSessionToken: 'offline_staff_2fa_' + Date.now(),
-            message: '🔐 স্টাফ সিকিউরিটি 2FA: ওটিপি কোড পাঠানো হয়েছে।',
-          };
-        }
-        throw new Error('ভুল স্টাফ ইউজারনেম অথবা পাসওয়ার্ড!');
-      }
       throw err;
     }
   },
@@ -643,14 +578,6 @@ export const authApi = {
         body: JSON.stringify({ phone, otp }),
       });
     } catch (err: any) {
-      if (isFallbackEligible(err) || otp === '123456' || otp === '1234') {
-        return {
-          success: true,
-          message: '✅ ওটিপি যাচাই সফল!',
-          resetSessionToken: 'rst_' + Date.now(),
-          phone,
-        };
-      }
       throw err;
     }
   },
@@ -666,13 +593,6 @@ export const authApi = {
         body: JSON.stringify(params),
       });
     } catch (err: any) {
-      if (isFallbackEligible(err) || params.otp === '123456' || params.otp === '1234') {
-        return {
-          success: true,
-          message: '✅ আপনার নতুন পাসওয়ার্ড সফলভাবে সেট হয়েছে! এখন লগইন করুন।',
-          phone: params.phone,
-        };
-      }
       throw err;
     }
   },
@@ -1605,7 +1525,7 @@ export const adminApi = {
     }
   },
 
-  async getSuperAdminProfile(): Promise<{ id: string; name: string; email: string; phone: string; role: string }> {
+  async getSuperAdminProfile(): Promise<{ id: string; name: string; email: string; phone: string; role: string; masterPin?: string }> {
     try {
       return await apiRequest('/admin/super-admin/profile');
     } catch {

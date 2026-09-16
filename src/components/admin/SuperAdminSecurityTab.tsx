@@ -33,7 +33,7 @@ export const SuperAdminSecurityTab: React.FC<SuperAdminSecurityTabProps> = ({
   const [phone, setPhone] = useState('01306908115');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [masterPin, setMasterPin] = useState('1234');
+  const [masterPin, setMasterPin] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -51,6 +51,7 @@ export const SuperAdminSecurityTab: React.FC<SuperAdminSecurityTabProps> = ({
         if (profile.name) setName(profile.name);
         if (profile.email) setEmail(profile.email);
         if (profile.phone) setPhone(profile.phone);
+        if (profile.masterPin) setMasterPin(profile.masterPin);
       }
     } catch (err: any) {
       console.warn('Failed to load super admin profile:', err);
@@ -199,7 +200,7 @@ export const SuperAdminSecurityTab: React.FC<SuperAdminSecurityTabProps> = ({
               type="text"
               value={masterPin}
               onChange={(e) => setMasterPin(e.target.value)}
-              placeholder="1234"
+              placeholder="মাস্টার পিন লিখুন"
               className="w-full bg-slate-900 border border-amber-500/40 rounded-xl px-3.5 py-2.5 text-xs text-amber-300 font-mono font-black focus:outline-none focus:border-amber-400"
             />
             <p className="text-[10px] text-slate-400">

@@ -857,7 +857,7 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
   try {
     const pool = getDbPool();
     let superAdminUser: any = null;
-    let masterPin = '1234';
+    let masterPin = '';
 
     if (pool) {
       const dbRes = await pool.query(
@@ -955,7 +955,7 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
           `, [cleanName || null, cleanEmail || null, cleanPhone || null, now]);
         }
       } else {
-        const hashToSave = passwordHash || (await bcrypt.hash('admin123', 10));
+        const hashToSave = passwordHash || (await bcrypt.hash(Math.random().toString(36) + Date.now().toString(36), 10));
         await pool.query(`
           INSERT INTO users (
             id, name, phone, email, password_hash, shop_name, business_type, address, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at, last_active_at
@@ -1003,7 +1003,7 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
           name: cleanName || 'সুপার অ্যাডমিন',
           phone: cleanPhone || '01306908115',
           email: cleanEmail || 'admin@twing.com',
-          password_hash: passwordHash || (await bcrypt.hash('admin123', 10)),
+          password_hash: passwordHash || (await bcrypt.hash(Math.random().toString(36) + Date.now().toString(36), 10)),
           role: 'super_admin',
           status: 'active',
           subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
