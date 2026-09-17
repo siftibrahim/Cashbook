@@ -455,6 +455,7 @@ export const App: React.FC = () => {
               });
               setUserRole('স্টাফ অ্যাকাউন্ট');
               setIsAdminPanelOpen(true);
+              setIsAuthChecking(false);
             } else if (
               (currentUser.role === 'super_admin' || currentUser.email === ADMIN_EMAIL || currentUser.email === 'siftibrahim@gmail.com') &&
               (currentUser.email === ADMIN_EMAIL || currentUser.email === 'siftibrahim@gmail.com' || currentUser.phone === '01306908115' || currentUser.phone?.replace(/\D/g, '') === '01306908115' || currentUser.phone === '01619665875' || currentUser.phone?.replace(/\D/g, '') === '01619665875' || currentUser.id === 'usr_super_admin')
@@ -465,6 +466,7 @@ export const App: React.FC = () => {
               });
               setUserRole('প্রধান সুপার অ্যাডমিন');
               setIsAdminPanelOpen(true);
+              setIsAuthChecking(false);
             } else {
               currentUser.role = 'user';
               setStoredUser(currentUser);
@@ -485,11 +487,18 @@ export const App: React.FC = () => {
           }
         } catch (err) {
           console.warn('Auth check catch:', err);
-          authApi.logout();
-          setIsLoggedIn(false);
-          setAdminSession(null);
-          setIsAdminPanelOpen(false);
-          setIsAuthChecking(false);
+          if (storedUser) {
+            // Keep active offline session on Smart TV / transient network disconnect
+            setIsLoggedIn(true);
+            setUserRole('দোকান মালিক');
+            setIsAuthChecking(false);
+          } else {
+            authApi.logout();
+            setIsLoggedIn(false);
+            setAdminSession(null);
+            setIsAdminPanelOpen(false);
+            setIsAuthChecking(false);
+          }
         }
       } else {
         // No active session: show AuthScreen
@@ -500,10 +509,10 @@ export const App: React.FC = () => {
       }
     };
 
-    // Safety fallback: guaranteed unblock after at most 2.5 seconds
+    // Safety fallback: guaranteed unblock after at most 1.5 seconds
     const safetyTimer = setTimeout(() => {
       setIsAuthChecking(false);
-    }, 2500);
+    }, 1500);
 
     checkAuth().finally(() => {
       clearTimeout(safetyTimer);
@@ -1603,6 +1612,14 @@ export const App: React.FC = () => {
             <Loader2 className="w-4 h-4 animate-spin text-[#004D40]" />
             <span>নিরাপত্তা যাচাই করা হচ্ছে...</span>
           </div>
+          <button
+            type="button"
+            tabIndex={0}
+            onClick={() => setIsAuthChecking(false)}
+            className="mt-2 text-xs font-bold text-teal-700 hover:text-teal-900 focus-visible:ring-2 focus-visible:ring-teal-500 rounded-lg px-3 py-2 cursor-pointer transition-all"
+          >
+            অপেক্ষা না করে প্রবেশ করুন &rarr;
+          </button>
         </div>
       </div>
     );

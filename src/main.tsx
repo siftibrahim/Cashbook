@@ -3,17 +3,33 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import {ErrorBoundary} from './components/ErrorBoundary';
 import './index.css';
+import { initTvRemoteNavigation, isSmartTv } from './utils/tvNavigation';
+
+// Initialize Smart TV Remote & Keyboard Spatial Navigation
+try {
+  initTvRemoteNavigation();
+} catch (e) {
+  console.debug('TV Navigation init note:', e);
+}
 
 // Progressive Web App (PWA) Service Worker Management
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  const isIframe = window.self !== window.top;
+  let isIframe = false;
+  try {
+    isIframe = window.self !== window.top;
+  } catch {
+    isIframe = true;
+  }
+
   const isDevHost =
     window.location.hostname.includes('localhost') ||
     window.location.hostname.includes('.run.app') ||
     window.location.port === '3000';
 
-  if (isIframe || isDevHost) {
-    // In iframe preview / development, unregister service worker to prevent stale caching issues
+  const isTv = isSmartTv();
+
+  // On Smart TV, iframe, or dev server: unregister service workers to avoid stale cache locks
+  if (isIframe || isDevHost || isTv) {
     navigator.serviceWorker.getRegistrations().then((registrations) => {
       for (const reg of registrations) {
         reg.unregister();
@@ -42,5 +58,19 @@ if (rootElement) {
       </ErrorBoundary>
     </StrictMode>,
   );
+
+  // Smoothly remove instant splash loader once React renders
+  try {
+    const instantLoader = document.getElementById('app-instant-loader');
+    if (instantLoader) {
+      instantLoader.style.opacity = '0';
+      instantLoader.style.pointerEvents = 'none';
+      setTimeout(() => {
+        try {
+          instantLoader.remove();
+        } catch {}
+      }, 300);
+    }
+  } catch {}
 }
 

@@ -34,6 +34,7 @@ import {
   saveOfflineCredential,
   verifyOfflinePinLogin,
 } from './offlineAuthService';
+import { safeStorage } from '../utils/safeStorage';
 
 const getEnvApiUrl = (): string => {
   try {
@@ -63,55 +64,41 @@ const TOKEN_KEY = 'twing_jwt_token';
 const USER_KEY = 'twing_user_data';
 const OFFLINE_USERS_KEY = 'twing_offline_registered_users';
 
-// Helper to get JWT token
+// Helper to get JWT token with safeStorage
 export function getAuthToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return safeStorage.getItem(TOKEN_KEY);
 }
 
 export function setAuthToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
+  safeStorage.setItem(TOKEN_KEY, token);
 }
 
 export function removeAuthToken() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+  safeStorage.removeItem(TOKEN_KEY);
+  safeStorage.removeItem(USER_KEY);
 }
 
 export function getStoredUser(): any | null {
-  const u = localStorage.getItem(USER_KEY);
-  if (!u) return null;
-  try {
-    return JSON.parse(u);
-  } catch {
-    return null;
-  }
+  return safeStorage.getJSON(USER_KEY, null);
 }
 
 export function setStoredUser(user: any) {
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
+  safeStorage.setJSON(USER_KEY, user);
 }
 
 function getOfflineUsers(): any[] {
-  try {
-    const raw = localStorage.getItem(OFFLINE_USERS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  return safeStorage.getJSON(OFFLINE_USERS_KEY, []);
 }
 
 function saveOfflineUsers(users: any[]) {
-  try {
-    localStorage.setItem(OFFLINE_USERS_KEY, JSON.stringify(users));
-  } catch (e) {
-    console.error('Failed to save offline users:', e);
-  }
+  safeStorage.setJSON(OFFLINE_USERS_KEY, users);
 }
 
-// Universal fetch wrapper with Bearer token
+// Universal fetch wrapper with Bearer token, robust timeout and smart retry
 async function apiRequest<T = any>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retryCount = 0
 ): Promise<T> {
   const token = getAuthToken();
   const headers: Record<string, string> = {
@@ -123,26 +110,51 @@ async function apiRequest<T = any>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  // Safe AbortController support for Smart TV browsers
+  let controller: AbortController | null = null;
+  let signal: AbortSignal | undefined = options.signal as AbortSignal | undefined;
+  let timeoutId: any = null;
+
+  if (typeof AbortController !== 'undefined') {
+    try {
+      controller = new AbortController();
+      signal = options.signal || controller.signal;
+      // 10s timeout gives Smart TV browsers ample time
+      timeoutId = setTimeout(() => {
+        try {
+          controller?.abort();
+        } catch {}
+      }, 10000);
+    } catch {}
+  }
 
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
       headers,
-      signal: options.signal || controller.signal,
+      signal,
     });
   } catch (networkErr: any) {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
     const isTimeout = networkErr?.name === 'AbortError';
-    const err = new Error(isTimeout ? 'সার্ভার সংযোগে সময় শেষ (Timeout)' : (networkErr?.message || 'Network request failed (offline)'));
+
+    // Auto-retry once for idempotent GET requests on network blips / cold starts
+    const isGet = !options.method || options.method.toUpperCase() === 'GET';
+    if (isGet && retryCount < 1) {
+      await new Promise((r) => setTimeout(r, 600));
+      return apiRequest<T>(endpoint, options, retryCount + 1);
+    }
+
+    const err = new Error(
+      isTimeout ? 'সার্ভার সংযোগে সময় শেষ (Timeout)' : networkErr?.message || 'নেটওয়ার্ক সংযোগ নেই (অফলাইন)'
+    );
     (err as any).status = 0;
     (err as any).isNetworkError = true;
     (err as any).isTimeout = isTimeout;
     throw err;
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
   }
 
   const contentType = response.headers.get('content-type') || '';
@@ -155,10 +167,20 @@ async function apiRequest<T = any>(
   }
 
   if (!response.ok) {
+    // Retry once on 502/503/504 gateway timeouts for GET
+    const isGet = !options.method || options.method.toUpperCase() === 'GET';
+    if (isGet && (response.status === 502 || response.status === 503 || response.status === 504) && retryCount < 1) {
+      await new Promise((r) => setTimeout(r, 800));
+      return apiRequest<T>(endpoint, options, retryCount + 1);
+    }
+
     const rawMsg = data.error || data.message;
-    const errorMsg = (rawMsg && typeof rawMsg === 'string' && rawMsg.trim())
-      ? rawMsg.trim()
-      : (typeof rawMsg === 'object' ? JSON.stringify(rawMsg) : `সার্ভার অনুরোধ ব্যর্থ হয়েছে (${response.status})`);
+    const errorMsg =
+      rawMsg && typeof rawMsg === 'string' && rawMsg.trim()
+        ? rawMsg.trim()
+        : typeof rawMsg === 'object'
+        ? JSON.stringify(rawMsg)
+        : `সার্ভার অনুরোধ ব্যর্থ হয়েছে (${response.status})`;
     const err = new Error(errorMsg);
     (err as any).status = response.status;
     (err as any).data = data;

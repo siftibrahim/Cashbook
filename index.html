@@ -25,6 +25,89 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700;800&display=swap" rel="stylesheet" crossorigin="anonymous" />
 
+    <!-- Universal Polyfills for Smart TV (Samsung Tizen, LG webOS, Android TV) & Legacy Browsers -->
+    <script>
+      (function installSmartTvPolyfills() {
+        // 1. globalThis polyfill
+        if (typeof globalThis === 'undefined') {
+          try {
+            Object.defineProperty(Object.prototype, '__magic__', {
+              get: function () { return this; },
+              configurable: true,
+            });
+            __magic__.globalThis = __magic__;
+            delete Object.prototype.__magic__;
+          } catch (e) {
+            window.globalThis = window;
+          }
+        }
+
+        // 2. String.prototype.replaceAll
+        if (!String.prototype.replaceAll) {
+          String.prototype.replaceAll = function (search, replacement) {
+            if (search instanceof RegExp) {
+              return this.replace(search, replacement);
+            }
+            return this.split(search).join(replacement);
+          };
+        }
+
+        // 3. Array.prototype.at
+        if (!Array.prototype.at) {
+          Array.prototype.at = function (n) {
+            n = Math.trunc(n) || 0;
+            if (n < 0) n += this.length;
+            if (n < 0 || n >= this.length) return undefined;
+            return this[n];
+          };
+        }
+
+        // 4. Object.hasOwn
+        if (!Object.hasOwn) {
+          Object.hasOwn = function (obj, prop) {
+            return Object.prototype.hasOwnProperty.call(obj, prop);
+          };
+        }
+
+        // 5. Promise.allSettled
+        if (!Promise.allSettled) {
+          Promise.allSettled = function (promises) {
+            return Promise.all(
+              Array.from(promises).map(function (p) {
+                return Promise.resolve(p).then(
+                  function (value) { return { status: 'fulfilled', value: value }; },
+                  function (reason) { return { status: 'rejected', reason: reason }; }
+                );
+              })
+            );
+          };
+        }
+
+        // 6. Safe localStorage protection for Smart TV private browsing
+        try {
+          var test = '__twing_tv_test__';
+          window.localStorage.setItem(test, test);
+          window.localStorage.removeItem(test);
+        } catch (e) {
+          var memStore = {};
+          try {
+            Object.defineProperty(window, 'localStorage', {
+              value: {
+                getItem: function (k) { return memStore[k] || null; },
+                setItem: function (k, v) { memStore[k] = String(v); },
+                removeItem: function (k) { delete memStore[k]; },
+                clear: function () { memStore = {}; },
+                key: function (i) { return Object.keys(memStore)[i] || null; },
+                get length() { return Object.keys(memStore).length; }
+              },
+              writable: true,
+              configurable: true
+            });
+          } catch (ex) {}
+        }
+      })();
+    </script>
+
     <style>
       html, body {
         width: 100%;
@@ -138,11 +221,11 @@
           <span style="font-size:12px;color:#f8fafc;font-weight:700;">খাতা প্রস্তুত করা হচ্ছে...</span>
         </div>
 
-        <div id="loader-fallback-actions" style="display:none;margin-top:28px;text-align:center;max-width:320px;animation:twing-fade 0.3s ease-out;">
-          <p style="font-size:12px;color:#fecaca;margin:0 0 12px 0;line-height:1.5;">অ্যাপ খুলতে দেরি হলে নিচে ট্যাপ করুন:</p>
-          <div style="display:flex;gap:8px;justify-content:center;">
-            <button type="button" onclick="window.location.reload()" style="background:#10b981;color:#022c22;border:none;padding:8px 18px;border-radius:12px;font-size:12px;font-weight:800;cursor:pointer;">রিলোড করুন</button>
-            <button type="button" onclick="(function(){try{localStorage.removeItem('twing_temp_cache');if('caches' in window){caches.keys().then(function(k){k.forEach(function(x){caches.delete(x);});});}}catch(e){}window.location.reload();})()" style="background:rgba(255,255,255,0.18);color:#ffffff;border:1px solid rgba(255,255,255,0.3);padding:8px 18px;border-radius:12px;font-size:12px;font-weight:800;cursor:pointer;">ক্যাশ ক্লিয়ার</button>
+        <div id="loader-fallback-actions" style="display:none;margin-top:28px;text-align:center;max-width:340px;animation:twing-fade 0.3s ease-out;">
+          <p style="font-size:13px;color:#fecaca;margin:0 0 14px 0;line-height:1.5;">অ্যাপ খুলতে দেরি হলে বা কোনো সমস্যা হলে:</p>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+            <button id="tv-loader-reload-btn" type="button" tabindex="0" onclick="window.location.reload()" style="background:#10b981;color:#022c22;border:none;min-height:46px;padding:10px 22px;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;outline:none;box-shadow:0 4px 12px rgba(16,185,129,0.3);">রিলোড করুন (OK)</button>
+            <button type="button" tabindex="0" onclick="(function(){try{localStorage.removeItem('twing_temp_cache');if('caches' in window){caches.keys().then(function(k){k.forEach(function(x){caches.delete(x);});});}}catch(e){}window.location.reload();})()" style="background:rgba(255,255,255,0.18);color:#ffffff;border:1px solid rgba(255,255,255,0.3);min-height:46px;padding:10px 22px;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;outline:none;">ক্যাশ ক্লিয়ার</button>
           </div>
         </div>
       </div>
@@ -154,13 +237,32 @@
           from { opacity: 0; transform: translateY(6px); }
           to { opacity: 1; transform: translateY(0); }
         }
+        #tv-loader-reload-btn:focus {
+          outline: 3px solid #34d399 !important;
+          outline-offset: 3px !important;
+          transform: scale(1.05);
+        }
       </style>
       <script>
-        // Show fallback reload action if React doesn't mount within 4 seconds
+        // Show fallback reload action if React doesn't mount within 3.5 seconds
         setTimeout(function() {
           var fb = document.getElementById('loader-fallback-actions');
-          if (fb) fb.style.display = 'block';
-        }, 4000);
+          if (fb && fb.style.display !== 'block') {
+            fb.style.display = 'block';
+            var btn = document.getElementById('tv-loader-reload-btn');
+            if (btn) btn.focus();
+          }
+        }, 3500);
+
+        // Catch unhandled script errors during initial boot and display fallback immediately
+        window.addEventListener('error', function(err) {
+          var fb = document.getElementById('loader-fallback-actions');
+          if (fb) {
+            fb.style.display = 'block';
+            var btn = document.getElementById('tv-loader-reload-btn');
+            if (btn) btn.focus();
+          }
+        });
       </script>
     </div>
     <script type="module" src="/src/main.tsx"></script>

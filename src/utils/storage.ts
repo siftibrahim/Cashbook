@@ -1,5 +1,6 @@
 import { Customer, Transaction, StoreProfile, DailyExpense, Product, OnlineStoreConfig, OnlineOrder } from '../types';
 import { getFallbackProductImage } from './productImages';
+import { safeStorage } from './safeStorage';
 
 export const DEFAULT_STORE: StoreProfile = {
   name: 'আমার দোকান',

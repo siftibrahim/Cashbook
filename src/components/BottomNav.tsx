@@ -172,8 +172,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               key={tab.id}
               type="button"
               id={`nav-tab-${tab.id}`}
+              tabIndex={0}
               onClick={() => handleTabClick(tab)}
-              className="w-full py-1 px-0.5 flex flex-col items-center justify-center relative rounded-xl transition-all duration-150 cursor-pointer active:scale-95 group focus:outline-none"
+              className="w-full py-1.5 px-0.5 min-h-[50px] flex flex-col items-center justify-center relative rounded-xl transition-all duration-150 cursor-pointer active:scale-95 group outline-none focus-visible:ring-3 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:bg-emerald-50/80"
             >
               {/* Icon Container Pill */}
               <div

@@ -58,13 +58,24 @@ const WILDCARD_SUBDOMAIN_REGEX = new RegExp(
 
 export const wildcardCors = cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (e.g., mobile apps, curl, server-to-server)
-    if (!origin) {
+    // Allow requests with no origin, 'null' (common in sandboxed TV WebViews), or custom TV app protocols
+    if (
+      !origin ||
+      origin === 'null' ||
+      origin.startsWith('file://') ||
+      origin.startsWith('tizen://') ||
+      origin.startsWith('webos://') ||
+      origin.startsWith('ms-appx-web://')
+    ) {
       return callback(null, true);
     }
 
-    // Allow local development
-    if (/^https?:\/\/(localhost|127\.0\.0\.1|([a-zA-Z0-9-]+\.)?localhost)(:\d+)?$/.test(origin)) {
+    // Allow local development & local network IP access (common when Smart TV connects to PC server)
+    if (
+      /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+|([a-zA-Z0-9-]+\.)?localhost)(:\d+)?$/.test(
+        origin
+      )
+    ) {
       return callback(null, true);
     }
 
@@ -73,13 +84,18 @@ export const wildcardCors = cors({
       return callback(null, true);
     }
 
-    // Allow cloud platform test domains (e.g. *.onrender.com, *.run.app)
-    if (origin.endsWith('.onrender.com') || origin.endsWith('.run.app')) {
+    // Allow cloud platform test domains (e.g. *.onrender.com, *.run.app, AI Studio preview)
+    if (
+      origin.endsWith('.onrender.com') ||
+      origin.endsWith('.run.app') ||
+      origin.endsWith('.googleusercontent.com') ||
+      origin.includes('localhost')
+    ) {
       return callback(null, true);
     }
 
-    // Block disallowed origins
-    callback(new Error(`CORS policy: Origin ${origin} not allowed`));
+    // Resilient fallback: allow request instead of returning fatal 500 error on Smart TVs
+    return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

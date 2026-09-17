@@ -11,6 +11,17 @@ import {
   triggerBackgroundSync,
 } from './offlineSyncService';
 
+function isOnlineSafe(): boolean {
+  if (typeof navigator === 'undefined') return true;
+  // If navigator.onLine is false, check if actually offline, but allow attempts on TV browsers
+  return navigator.onLine !== false;
+}
+
+function shouldSkipPolling(): boolean {
+  if (typeof document !== 'undefined' && document.hidden) return true;
+  return !isOnlineSafe();
+}
+
 /**
  * Real-time / Polling listener for store profile
  */
@@ -21,10 +32,7 @@ export function subscribeToStoreProfile(
   let isSubscribed = true;
 
   const fetchProfile = async () => {
-    if (!navigator.onLine) {
-      if (onError) onError(new Error('Offline'));
-      return;
-    }
+    if (shouldSkipPolling()) return;
     try {
       const profile = await storeApi.getProfile();
       if (isSubscribed && profile) {
@@ -36,7 +44,7 @@ export function subscribeToStoreProfile(
   };
 
   fetchProfile();
-  const interval = setInterval(fetchProfile, 15000); // 15s refresh interval
+  const interval = setInterval(fetchProfile, 35000); // 35s refresh interval
 
   return () => {
     isSubscribed = false;
@@ -68,10 +76,7 @@ export function subscribeToCustomers(
   let isSubscribed = true;
 
   const fetchCust = async () => {
-    if (!navigator.onLine) {
-      if (onError) onError(new Error('Offline'));
-      return;
-    }
+    if (shouldSkipPolling()) return;
     try {
       // If there are pending un-synced customer operations, avoid clobbering local state
       if (getPendingQueueCount() > 0) return;
@@ -85,7 +90,7 @@ export function subscribeToCustomers(
   };
 
   fetchCust();
-  const interval = setInterval(fetchCust, 12000); // 12s refresh
+  const interval = setInterval(fetchCust, 30000); // 30s refresh
 
   return () => {
     isSubscribed = false;
@@ -103,10 +108,7 @@ export function subscribeToTransactions(
   let isSubscribed = true;
 
   const fetchTx = async () => {
-    if (!navigator.onLine) {
-      if (onError) onError(new Error('Offline'));
-      return;
-    }
+    if (shouldSkipPolling()) return;
     try {
       if (getPendingQueueCount() > 0) return;
       const { map } = await transactionApi.getAll();
@@ -119,7 +121,7 @@ export function subscribeToTransactions(
   };
 
   fetchTx();
-  const interval = setInterval(fetchTx, 12000);
+  const interval = setInterval(fetchTx, 30000);
 
   return () => {
     isSubscribed = false;
@@ -137,10 +139,7 @@ export function subscribeToExpenses(
   let isSubscribed = true;
 
   const fetchExp = async () => {
-    if (!navigator.onLine) {
-      if (onError) onError(new Error('Offline'));
-      return;
-    }
+    if (shouldSkipPolling()) return;
     try {
       if (getPendingQueueCount() > 0) return;
       const list = await expenseApi.getAll();
@@ -153,7 +152,7 @@ export function subscribeToExpenses(
   };
 
   fetchExp();
-  const interval = setInterval(fetchExp, 15000);
+  const interval = setInterval(fetchExp, 35000);
 
   return () => {
     isSubscribed = false;
@@ -283,10 +282,7 @@ export function subscribeToProducts(
   let isSubscribed = true;
 
   const fetchProd = async () => {
-    if (!navigator.onLine) {
-      if (onError) onError(new Error('Offline'));
-      return;
-    }
+    if (shouldSkipPolling()) return;
     try {
       if (getPendingQueueCount() > 0) return;
       const list = await productApi.getAll();
@@ -299,7 +295,7 @@ export function subscribeToProducts(
   };
 
   fetchProd();
-  const interval = setInterval(fetchProd, 15000); // 15s refresh
+  const interval = setInterval(fetchProd, 35000); // 35s refresh
 
   return () => {
     isSubscribed = false;
