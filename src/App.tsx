@@ -1640,7 +1640,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* Main Container Card */}
-      <div className="w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl h-full min-h-full flex flex-col bg-white overflow-hidden relative shadow-none border-0">
+      <div className="w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[1536px] h-full min-h-full flex flex-col bg-white overflow-hidden relative shadow-2xl xl:border-x xl:border-emerald-950/20">
         {!isLoggedIn ? (
           <AuthScreen
             store={store}

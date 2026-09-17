@@ -205,5 +205,48 @@ button, [role="button"], a {
   touch-action: manipulation;
 }
 
+/* Smart TV & Large Screen Optimizations */
+body.tv-mode {
+  font-size: 108%;
+  user-select: none;
+}
+
+body.tv-mode .app-content-zoomed {
+  zoom: 1.04;
+}
+
+body.tv-mode button,
+body.tv-mode [role="button"],
+body.tv-mode input,
+body.tv-mode select {
+  min-height: 46px;
+}
+
+body.tv-mode :focus-visible,
+body.tv-mode .tv-focused {
+  outline: 4px solid #10b981 !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.4) !important;
+  transform: scale(1.02);
+  z-index: 40 !important;
+}
+
+/* Desktop & Smart TV Smooth Scrollbar & Layout Balance */
+@media (min-width: 1024px) {
+  #main-scroll-container::-webkit-scrollbar {
+    width: 8px;
+  }
+  #main-scroll-container::-webkit-scrollbar-track {
+    background: #eef8f5;
+  }
+  #main-scroll-container::-webkit-scrollbar-thumb {
+    background: #b2dfdb;
+    border-radius: 9999px;
+  }
+  #main-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: #80cbc4;
+  }
+}
+
 
 

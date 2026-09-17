@@ -83,7 +83,51 @@
           };
         }
 
-        // 6. Safe localStorage protection for Smart TV private browsing
+        // 6. Safe crypto.randomUUID fallback for Smart TV & older WebViews
+        try {
+          if (!window.crypto) window.crypto = {};
+          if (!window.crypto.randomUUID) {
+            window.crypto.randomUUID = function () {
+              return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, function (c) {
+                return (c ^ (crypto.getRandomValues ? crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)) : Math.floor(Math.random() * 16))).toString(16);
+              });
+            };
+          }
+        } catch (e) {}
+
+        // 7. structuredClone fallback
+        if (typeof window.structuredClone !== 'function') {
+          window.structuredClone = function (obj) {
+            try {
+              return JSON.parse(JSON.stringify(obj));
+            } catch (e) {
+              return Object.assign({}, obj);
+            }
+          };
+        }
+
+        // 8. Safe ResizeObserver fallback for older TV browsers
+        if (typeof window.ResizeObserver === 'undefined') {
+          window.ResizeObserver = function () {
+            return {
+              observe: function () {},
+              unobserve: function () {},
+              disconnect: function () {},
+            };
+          };
+        }
+
+        // 9. requestIdleCallback fallback
+        if (!window.requestIdleCallback) {
+          window.requestIdleCallback = function (cb) {
+            return setTimeout(function () {
+              cb({ didTimeout: false, timeRemaining: function () { return 50; } });
+            }, 1);
+          };
+          window.cancelIdleCallback = function (id) { clearTimeout(id); };
+        }
+
+        // 10. Safe localStorage protection for Smart TV private browsing
         try {
           var test = '__twing_tv_test__';
           window.localStorage.setItem(test, test);
@@ -201,70 +245,106 @@
     </script>
   </head>
   <body class="bg-slate-100 text-slate-800 antialiased">
-    <div id="root">
-      <!-- Instant pre-loader shown immediately while scripts parse & React mounts -->
-      <div id="app-instant-loader" style="position:fixed;inset:0;background:#002820;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Hind Siliguri',system-ui,-apple-system,sans-serif;color:#ffffff;padding:24px;z-index:999999;">
-        <div style="width:72px;height:72px;border-radius:22px;background:linear-gradient(135deg,#10b981,#0d9488);display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px rgba(0,0,0,0.35);margin-bottom:18px;border:2px solid rgba(255,255,255,0.2);">
-          <svg style="width:38px;height:38px;fill:none;stroke:#ffffff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24">
-            <path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>
-            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-            <path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/>
-            <path d="M2 7h20"/>
-            <path d="M22 7v3a2 2 0 0 1-2 2v0a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12v0a2 2 0 0 1-2-2V7"/>
-          </svg>
-        </div>
-        <h1 style="font-size:24px;font-weight:900;margin:0 0 6px 0;letter-spacing:-0.5px;color:#ffffff;text-shadow:0 2px 8px rgba(0,0,0,0.2);">TWING হিসাবি</h1>
-        <p style="font-size:13px;color:#a7f3d0;margin:0 0 22px 0;font-weight:600;opacity:0.95;">ডিজিটাল খাতা ও সুপার শপ ম্যানেজমেন্ট</p>
+    <!-- Main Application Mounting Point -->
+    <div id="root"></div>
 
-        <div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.08);padding:9px 20px;border-radius:999px;border:1px solid rgba(255,255,255,0.15);backdrop-filter:blur(4px);">
-          <div style="width:17px;height:17px;border:2.5px solid #34d399;border-top-color:transparent;border-radius:50%;animation:twing-spin 0.75s linear infinite;"></div>
-          <span style="font-size:12px;color:#f8fafc;font-weight:700;">খাতা প্রস্তুত করা হচ্ছে...</span>
-        </div>
+    <!-- Instant pre-loader shown immediately while scripts parse & React mounts -->
+    <div
+      id="app-instant-loader"
+      style="position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;width:100%;height:100vh;height:100%;background:#002820;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Hind Siliguri',system-ui,-apple-system,sans-serif;color:#ffffff;padding:24px;z-index:999999;box-sizing:border-box;margin:0;"
+    >
+      <div style="width:72px;height:72px;border-radius:22px;background:linear-gradient(135deg,#10b981,#0d9488);display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px rgba(0,0,0,0.35);margin-bottom:18px;border:2px solid rgba(255,255,255,0.2);">
+        <svg style="width:38px;height:38px;fill:none;stroke:#ffffff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24">
+          <path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>
+          <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+          <path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/>
+          <path d="M2 7h20"/>
+          <path d="M22 7v3a2 2 0 0 1-2 2v0a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12v0a2 2 0 0 1-2-2V7"/>
+        </svg>
+      </div>
+      <h1 style="font-size:24px;font-weight:900;margin:0 0 6px 0;letter-spacing:-0.5px;color:#ffffff;text-shadow:0 2px 8px rgba(0,0,0,0.2);">TWING হিসাবি</h1>
+      <p style="font-size:13px;color:#a7f3d0;margin:0 0 22px 0;font-weight:600;opacity:0.95;">ডিজিটাল খাতা ও সুপার শপ ম্যানেজমেন্ট</p>
 
-        <div id="loader-fallback-actions" style="display:none;margin-top:28px;text-align:center;max-width:340px;animation:twing-fade 0.3s ease-out;">
-          <p style="font-size:13px;color:#fecaca;margin:0 0 14px 0;line-height:1.5;">অ্যাপ খুলতে দেরি হলে বা কোনো সমস্যা হলে:</p>
-          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-            <button id="tv-loader-reload-btn" type="button" tabindex="0" onclick="window.location.reload()" style="background:#10b981;color:#022c22;border:none;min-height:46px;padding:10px 22px;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;outline:none;box-shadow:0 4px 12px rgba(16,185,129,0.3);">রিলোড করুন (OK)</button>
-            <button type="button" tabindex="0" onclick="(function(){try{localStorage.removeItem('twing_temp_cache');if('caches' in window){caches.keys().then(function(k){k.forEach(function(x){caches.delete(x);});});}}catch(e){}window.location.reload();})()" style="background:rgba(255,255,255,0.18);color:#ffffff;border:1px solid rgba(255,255,255,0.3);min-height:46px;padding:10px 22px;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;outline:none;">ক্যাশ ক্লিয়ার</button>
-          </div>
+      <div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.08);padding:9px 20px;border-radius:999px;border:1px solid rgba(255,255,255,0.15);backdrop-filter:blur(4px);">
+        <div style="width:17px;height:17px;border:2.5px solid #34d399;border-top-color:transparent;border-radius:50%;animation:twing-spin 0.75s linear infinite;"></div>
+        <span id="loader-status-text" style="font-size:12px;color:#f8fafc;font-weight:700;">খাতা প্রস্তুত করা হচ্ছে...</span>
+      </div>
+
+      <div id="loader-error-details" style="display:none;margin-top:14px;background:rgba(239,68,68,0.2);border:1px solid rgba(239,68,68,0.4);border-radius:10px;padding:8px 14px;color:#fca5a5;font-size:11px;max-width:320px;text-align:center;word-break:break-word;"></div>
+
+      <div id="loader-fallback-actions" style="display:none;margin-top:24px;text-align:center;max-width:340px;animation:twing-fade 0.3s ease-out;">
+        <p style="font-size:13px;color:#fecaca;margin:0 0 14px 0;line-height:1.5;">সংযোগ ধীরগতির হলে অথবা অ্যাপ লোড হতে সময় নিলে:</p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button id="tv-loader-reload-btn" type="button" tabindex="0" onclick="window.location.reload()" style="background:#10b981;color:#022c22;border:none;min-height:44px;padding:10px 22px;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;outline:none;box-shadow:0 4px 12px rgba(16,185,129,0.3);">রিলোড করুন</button>
+          <button type="button" tabindex="0" onclick="(function(){try{localStorage.removeItem('twing_temp_cache');if('caches' in window){caches.keys().then(function(k){k.forEach(function(x){caches.delete(x);});});}}catch(e){}window.location.reload();})()" style="background:rgba(255,255,255,0.18);color:#ffffff;border:1px solid rgba(255,255,255,0.3);min-height:44px;padding:10px 22px;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;outline:none;">ক্যাশ ক্লিয়ার</button>
         </div>
       </div>
-      <style>
-        @keyframes twing-spin {
-          to { transform: rotate(360deg); }
-        }
-        @keyframes twing-fade {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        #tv-loader-reload-btn:focus {
-          outline: 3px solid #34d399 !important;
-          outline-offset: 3px !important;
-          transform: scale(1.05);
-        }
-      </style>
-      <script>
-        // Show fallback reload action if React doesn't mount within 3.5 seconds
-        setTimeout(function() {
-          var fb = document.getElementById('loader-fallback-actions');
-          if (fb && fb.style.display !== 'block') {
-            fb.style.display = 'block';
-            var btn = document.getElementById('tv-loader-reload-btn');
-            if (btn) btn.focus();
-          }
-        }, 3500);
-
-        // Catch unhandled script errors during initial boot and display fallback immediately
-        window.addEventListener('error', function(err) {
-          var fb = document.getElementById('loader-fallback-actions');
-          if (fb) {
-            fb.style.display = 'block';
-            var btn = document.getElementById('tv-loader-reload-btn');
-            if (btn) btn.focus();
-          }
-        });
-      </script>
     </div>
+    <style>
+      @keyframes twing-spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes twing-fade {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      #tv-loader-reload-btn:focus {
+        outline: 3px solid #34d399 !important;
+        outline-offset: 3px !important;
+        transform: scale(1.05);
+      }
+    </style>
+    <script>
+      var twingLoaderSeconds = 0;
+      var loaderTextElem = document.getElementById('loader-status-text');
+      var twingLoaderInterval = setInterval(function() {
+        twingLoaderSeconds++;
+        if (twingLoaderSeconds === 4 && loaderTextElem) {
+          loaderTextElem.innerText = 'তথ্য লোড ও সিঙ্ক হচ্ছে...';
+        } else if (twingLoaderSeconds === 9 && loaderTextElem) {
+          loaderTextElem.innerText = 'সিস্টেম সংযোগ স্থাপন হচ্ছে...';
+        } else if (twingLoaderSeconds === 15 && loaderTextElem) {
+          loaderTextElem.innerText = 'অনুগ্রহ করে কয়েক সেকেন্ড অপেক্ষা করুন...';
+        }
+      }, 1000);
+
+      // Dismiss pre-loader cleanly once React mounts
+      window.__TWING_LOADER_DONE__ = function() {
+        clearInterval(twingLoaderInterval);
+        if (window.__twingFallbackTimeout) clearTimeout(window.__twingFallbackTimeout);
+        var instantLoader = document.getElementById('app-instant-loader');
+        if (instantLoader) {
+          instantLoader.style.transition = 'opacity 0.35s ease-out';
+          instantLoader.style.opacity = '0';
+          instantLoader.style.pointerEvents = 'none';
+          setTimeout(function() {
+            try { instantLoader.remove(); } catch(e) {}
+          }, 380);
+        }
+      };
+
+      // Show fallback action only if genuinely not mounted within 18 seconds
+      window.__twingFallbackTimeout = setTimeout(function() {
+        clearInterval(twingLoaderInterval);
+        var fb = document.getElementById('loader-fallback-actions');
+        if (fb) {
+          fb.style.display = 'block';
+        }
+      }, 18000);
+
+      // Catch unhandled script errors during initial boot and display helpful diagnostics
+      window.addEventListener('error', function(err) {
+        var errBox = document.getElementById('loader-error-details');
+        if (errBox && err && err.message) {
+          errBox.innerText = 'সিস্টেম বার্তা: ' + String(err.message).slice(0, 100);
+          errBox.style.display = 'block';
+        }
+        if (twingLoaderSeconds >= 6) {
+          var fb = document.getElementById('loader-fallback-actions');
+          if (fb) fb.style.display = 'block';
+        }
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

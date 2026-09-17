@@ -61,15 +61,19 @@ if (rootElement) {
 
   // Smoothly remove instant splash loader once React renders
   try {
-    const instantLoader = document.getElementById('app-instant-loader');
-    if (instantLoader) {
-      instantLoader.style.opacity = '0';
-      instantLoader.style.pointerEvents = 'none';
-      setTimeout(() => {
-        try {
-          instantLoader.remove();
-        } catch {}
-      }, 300);
+    if (typeof (window as any).__TWING_LOADER_DONE__ === 'function') {
+      (window as any).__TWING_LOADER_DONE__();
+    } else {
+      const instantLoader = document.getElementById('app-instant-loader');
+      if (instantLoader) {
+        instantLoader.style.opacity = '0';
+        instantLoader.style.pointerEvents = 'none';
+        setTimeout(() => {
+          try {
+            instantLoader.remove();
+          } catch {}
+        }, 300);
+      }
     }
   } catch {}
 }

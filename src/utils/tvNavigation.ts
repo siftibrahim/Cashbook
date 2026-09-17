@@ -9,7 +9,7 @@
 export function isSmartTv(): boolean {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
   const ua = (navigator.userAgent || '').toLowerCase();
-  return (
+  const isTvUa = (
     ua.includes('smart-tv') ||
     ua.includes('smarttv') ||
     ua.includes('tizen') ||
@@ -27,8 +27,26 @@ export function isSmartTv(): boolean {
     ua.includes('roku') ||
     ua.includes('crkey') || // Chromecast
     ua.includes('tv bro') ||
-    ua.includes('jiopages')
+    ua.includes('jiopages') ||
+    ua.includes('hisense') ||
+    ua.includes('general plus') ||
+    ua.includes('walton') ||
+    ua.includes('opentv') ||
+    ua.includes('dunehd') ||
+    ua.includes('boxee') ||
+    ua.includes('kylo') ||
+    ua.includes('smarthub')
   );
+  if (isTvUa) return true;
+
+  // Detect Android TV Box or TV browser that reports as Android with no touch screen and large display
+  if (ua.includes('android') && typeof window.screen !== 'undefined') {
+    const isNoTouch = navigator.maxTouchPoints === 0;
+    const isLarge = window.screen.width >= 1280 || (typeof window.innerWidth !== 'undefined' && window.innerWidth >= 1280);
+    if (isNoTouch && isLarge) return true;
+  }
+
+  return false;
 }
 
 // Selector for all interactive focusable elements

@@ -801,13 +801,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </span>
         </div>
 
-        {/* 3-Column Clean Grid with Subtle Dividers Matching the Screenshot */}
-        <div className="grid grid-cols-3">
-          {serviceItems.map((item, index) => {
+        {/* Responsive Service Grid: 3 cols on mobile, 4 cols on tablet, 6 cols on desktop/Smart TV */}
+        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 border-t border-slate-100">
+          {serviceItems.map((item) => {
             const IconComponent = item.icon;
-            // Calculate borders for clean table grid dividers
-            const isRightCol = (index + 1) % 3 === 0;
-            const isBottomRow = index >= serviceItems.length - 3;
 
             return (
               <motion.button
@@ -818,9 +815,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 whileHover={{ scale: 1.04, y: -2 }}
                 whileTap={{ scale: 0.90 }}
                 transition={{ type: 'spring', stiffness: 450, damping: 22 }}
-                className={`relative flex flex-col items-center justify-center p-3 sm:p-4 text-center cursor-pointer transition-colors duration-150 hover:bg-[#f7faf8] active:bg-[#edf5f1] ${
-                  !isRightCol ? 'border-r border-slate-100' : ''
-                } ${!isBottomRow ? 'border-b border-slate-100' : ''}`}
+                className="relative flex flex-col items-center justify-center p-3 sm:p-4 text-center cursor-pointer transition-colors duration-150 hover:bg-[#f7faf8] active:bg-[#edf5f1] border-r border-b border-slate-100"
               >
                 {/* Center Icon Illustration */}
                 <div className="relative flex items-center justify-center transition-transform group-hover:scale-105">
