@@ -54,9 +54,12 @@ function getStoredDbUrl(): string {
 // Neon PostgreSQL Database Pool
 let pool: pg.Pool | null = null;
 let isDbConnected = false;
+let isDbQuotaExceeded = false;
 let heartbeatInterval: NodeJS.Timeout | null = null;
 
-// In-memory store fallback when DATABASE_URL is not yet provided
+const LOCAL_DB_PATH = path.join(process.cwd(), 'server', 'data', 'local-db.json');
+
+// In-memory store fallback when DATABASE_URL is not yet provided or Neon quota is exceeded
 export const inMemoryStore: {
   users: any[];
   stores: any[];
@@ -98,6 +101,50 @@ export const inMemoryStore: {
   online_orders: [],
   online_store_configs: [],
 };
+
+/**
+ * Persists inMemoryStore to server/data/local-db.json for zero data-loss resilience
+ */
+export function saveInMemoryStoreToDisk() {
+  try {
+    const dir = path.dirname(LOCAL_DB_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(inMemoryStore, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('⚠️ Could not save inMemoryStore to disk:', err);
+  }
+}
+
+/**
+ * Loads persistent storage from server/data/local-db.json
+ */
+export function loadInMemoryStoreFromDisk(): boolean {
+  try {
+    if (fs.existsSync(LOCAL_DB_PATH)) {
+      const raw = fs.readFileSync(LOCAL_DB_PATH, 'utf-8');
+      const data = JSON.parse(raw);
+      if (data && typeof data === 'object') {
+        Object.keys(data).forEach((key) => {
+          if (Array.isArray((inMemoryStore as any)[key]) && Array.isArray(data[key])) {
+            (inMemoryStore as any)[key] = data[key];
+          } else if (typeof (inMemoryStore as any)[key] === 'object' && typeof data[key] === 'object') {
+            (inMemoryStore as any)[key] = { ...(inMemoryStore as any)[key], ...data[key] };
+          }
+        });
+        console.log(`✅ Loaded ${inMemoryStore.users?.length || 0} user(s) from persistent local storage.`);
+        return true;
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ Could not load inMemoryStore from disk:', err);
+  }
+  return false;
+}
+
+// Initial load on server boot
+loadInMemoryStoreFromDisk();
 
 // Helper to create an optimized, resilient pool for Neon serverless
 function createNeonPool(connectionString: string): pg.Pool {
@@ -160,7 +207,28 @@ function startDbHeartbeat() {
   }, 120000); // Every 2 minutes
 }
 
+export function markDbQuotaExceeded(err?: any) {
+  if (err?.code === '53000' || err?.message?.includes('compute time quota') || !err) {
+    if (!isDbQuotaExceeded) {
+      console.warn('⚠️ [Neon Quota Exceeded] Serverless compute quota reached (Code 53000). Routing to resilient local storage.');
+      isDbQuotaExceeded = true;
+      if (pool) {
+        try {
+          pool.end().catch(() => {});
+        } catch {}
+        pool = null;
+      }
+      isDbConnected = false;
+      saveInMemoryStoreToDisk();
+    }
+  }
+}
+
 export function getDbPool(): pg.Pool | null {
+  if (isDbQuotaExceeded) {
+    // Quota reached on Neon, fail fast to resilient local persistent store
+    return null;
+  }
   if (pool) return pool;
 
   const dbUrl = getStoredDbUrl();
@@ -231,6 +299,7 @@ export async function setAndConnectDatabaseUrl(newDbUrl: string): Promise<{ succ
     }
 
     // Initialize new pool and schemas
+    isDbQuotaExceeded = false;
     pool = createNeonPool(cleanUrl);
     startDbHeartbeat();
 
@@ -947,9 +1016,13 @@ export async function initializeDatabaseSchema() {
 
     client.release();
     console.log('✅ PostgreSQL Schema and initial seeds ready!');
-  } catch (err) {
-    console.error('❌ Failed to initialize database schema:', err);
-    console.log('ℹ️ Activating resilient in-memory storage fallback.');
+  } catch (err: any) {
+    console.error('❌ Failed to initialize database schema:', err?.message || err);
+    if (err?.code === '53000' || err?.message?.includes('compute time quota')) {
+      console.warn('⚠️ [Neon Quota Reached] Serverless compute quota exceeded (Code 53000). Activating persistent local storage fallback.');
+      isDbQuotaExceeded = true;
+    }
+    console.log('ℹ️ Activating resilient in-memory storage fallback with disk persistence.');
     if (pool) {
       try {
         await pool.end();
@@ -1249,12 +1322,13 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
 function seedDefaultDataInMemory() {
   const adminEmail = process.env.ADMIN_EMAIL || 'siftibrahim@gmail.com';
 
-  inMemoryStore.users = [
-    {
+  const existingAdmin = inMemoryStore.users.find(u => u.id === 'usr_super_admin');
+  if (!existingAdmin) {
+    inMemoryStore.users.unshift({
       id: 'usr_super_admin',
       name: 'ইব্রাহিম খলিল (সুপার অ্যাডমিন)',
       phone: '01306908115',
-      email: 'siftibrahim@gmail.com',
+      email: adminEmail,
       password_hash: '',
       shopName: 'TWING হিসাবি',
       businessType: 'জেনারেল স্টোর',
@@ -1268,27 +1342,12 @@ function seedDefaultDataInMemory() {
       lastActiveAt: Date.now(),
       totalCustomers: 0,
       totalTransactions: 0,
-    },
-    {
-      id: 'usr_super_admin_2',
-      name: 'ইব্রাহিম খলিল (অ্যাডমিন)',
-      phone: '01306908115',
-      email: 'admin@twing.com',
-      password_hash: '',
-      shopName: 'TWING হিসাবি',
-      businessType: 'জেনারেল স্টোর',
-      address: 'ঢাকা, বাংলাদেশ',
-      role: 'super_admin',
-      status: 'active',
-      subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
-      subscriptionStatus: 'active',
-      subscriptionExpiresAt: Date.now() + 3650 * 86400000,
-      registeredAt: Date.now(),
-      lastActiveAt: Date.now(),
-      totalCustomers: 0,
-      totalTransactions: 0,
-    },
-  ];
+    });
+  } else {
+    // Preserve existing admin and their real password intact!
+    existingAdmin.phone = '01306908115';
+    existingAdmin.role = 'super_admin';
+  }
 
   inMemoryStore.system_config['super_admin_security'] = {
     id: 'super_admin_security',
@@ -1434,6 +1493,7 @@ function seedDefaultDataInMemory() {
   };
 
   inMemoryStore.staff = [];
+  saveInMemoryStoreToDisk();
 }
 
 /**

@@ -491,22 +491,80 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   };
 
   return (
-    <div className="flex-1 w-full overflow-y-auto smooth-scroll-container flex flex-col justify-start sm:justify-center items-center p-3.5 sm:p-6 py-6 bg-[#030712] text-slate-100 selection:bg-emerald-500 selection:text-white">
-      <div className="w-full max-w-md my-auto">
-        {/* Main Card Container */}
-        <div className="bg-[#0B132B]/90 rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-800/80 backdrop-blur-md">
-          {/* Brand Header */}
-          <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-lg shadow-emerald-900/30 mb-3 border-2 border-emerald-300/30">
-              <Store className="w-8 h-8 text-white" />
+    <div className="flex-1 w-full min-h-[100dvh] overflow-y-auto smooth-scroll-container flex flex-col justify-start lg:justify-center items-center p-3.5 sm:p-6 lg:p-8 py-6 bg-[#030712] text-slate-100 selection:bg-emerald-500 selection:text-white">
+      <div className="w-full max-w-md lg:max-w-5xl xl:max-w-6xl my-auto grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-12 items-center">
+        {/* Left Column for Large Displays (Desktop / Laptop / Monitor) */}
+        <div className="hidden lg:flex lg:col-span-5 xl:col-span-6 flex-col justify-center space-y-6 pr-2">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <span>স্মার্ট ডিজিটাল খাতা ও POS সফটওয়্যার</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              TWING হিসাবি
+            <h1 className="text-3xl xl:text-4xl font-black text-white leading-tight tracking-tight">
+              দোকানের দৈনন্দিন হিসাব <br />
+              <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
+                ১০০% নির্ভুল ও সহজ
+              </span>
             </h1>
-            <p className="text-xs sm:text-sm text-emerald-300/90 mt-1 font-semibold">
-              সহজ, নিরাপদ ও ক্লাউড ব্যাকআপযুক্ত ডিজিটাল বাকির খাতা
+            <p className="text-sm text-slate-300 leading-relaxed">
+              বাকি খাতা, নগদ বিক্রি, কাস্টমার তালিকা ও অটোমেটিক SMS তাগাদা পাঠান নিমেষেই। মোবাইল, কম্পিউটার বা ট্যাবলেট—সব ডিসপ্লেতেই সহজে ব্যবহারযোগ্য।
             </p>
           </div>
+
+          {/* Feature List Cards */}
+          <div className="space-y-3">
+            <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                <Store className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">ডিজিটাল খাতা ও দ্রুত POS বিক্রি</h4>
+                <p className="text-xs text-slate-400 mt-0.5">খুচরা ও বাকি বিক্রি, মেমো প্রিন্ট ও দৈনিক ক্যাশ হিসাব</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800">
+              <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0 border border-teal-500/30">
+                <Smartphone className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">ফ্রি SMS বাকি তাগাদা</h4>
+                <p className="text-xs text-slate-400 mt-0.5">এক ক্লিকে বকেয়া গ্রাহকদের মোবাইলে সরাসরি SMS তাগাদা</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">১০০% ক্লাউড ডাটা নিরাপত্তা</h4>
+                <p className="text-xs text-slate-400 mt-0.5">মোবাইল হারালেও ডাটা নিরাপদ, ক্লাউডে আজীবন সংরক্ষিত</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 pt-1 text-xs text-slate-400">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>সাপোর্ট ও যেকোনো প্রয়োজনে হেল্পলাইন: <span className="font-mono text-emerald-400 font-bold">০১৩০৬ ৯০৮১১৫</span></span>
+          </div>
+        </div>
+
+        {/* Right Column: The Login / Registration Card Container */}
+        <div className="w-full lg:col-span-7 xl:col-span-6">
+          <div className="bg-[#0B132B]/95 rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-800 backdrop-blur-md">
+            {/* Brand Header */}
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-lg shadow-emerald-900/30 mb-3 border-2 border-emerald-300/30">
+                <Store className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                TWING হিসাবি
+              </h2>
+              <p className="text-xs sm:text-sm text-emerald-300/90 mt-1 font-semibold">
+                সহজ, নিরাপদ ও ক্লাউড ব্যাকআপযুক্ত ডিজিটাল বাকির খাতা
+              </p>
+            </div>
 
           {/* 2 Main Segmented Tabs (Unified Login & Registration) */}
           {activeTab !== 'reset' && (
@@ -722,7 +780,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         onFocus={handleInputFocus}
                         onChange={(e) => setIdentifier(e.target.value)}
                         placeholder="যেমন: ০১XXXXXXXXX"
-                        className="w-full pl-10 pr-4 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 transition tracking-wide"
+                        className="w-full pl-10 pr-4 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 transition tracking-wide"
                       />
                     </div>
                   </div>
@@ -754,7 +812,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         onFocus={handleInputFocus}
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="গোপন পিন লিখুন"
-                        className="w-full pl-10 pr-11 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 tracking-wider transition"
+                        className="w-full pl-10 pr-11 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 tracking-wider transition"
                       />
                       <button
                         type="button"
@@ -816,7 +874,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         onFocus={handleInputFocus}
                         onChange={(e) => setRegShopName(e.target.value)}
                         placeholder="যেমন: ভাই ভাই স্টোর / মেসার্স ট্রেডার্স"
-                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
+                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
                       />
                     </div>
                   </div>
@@ -833,7 +891,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         onFocus={handleInputFocus}
                         onChange={(e) => setRegOwnerName(e.target.value)}
                         placeholder="যেমন: মো: রফিকুল ইসলাম"
-                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
+                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
                       />
                     </div>
                   </div>
@@ -852,7 +910,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         onFocus={handleInputFocus}
                         onChange={(e) => setRegPhone(e.target.value)}
                         placeholder="০১XXXXXXXXX (১১ ডিজিট)"
-                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 font-medium tracking-wide"
+                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 font-medium tracking-wide"
                       />
                     </div>
                     <p className="text-[10px] text-slate-400 mt-1">
@@ -874,7 +932,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         onFocus={handleInputFocus}
                         onChange={(e) => setRegPin(e.target.value)}
                         placeholder="৪ থেকে ৬ সংখ্যার গোপন পিন"
-                        className="w-full pl-10 pr-11 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 tracking-wider font-medium"
+                        className="w-full pl-10 pr-11 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 tracking-wider font-medium"
                       />
                       <button
                         type="button"
@@ -913,7 +971,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         <Smartphone className="w-4 h-4" />
                         <span>SMS কোড প্রেরিত নম্বর:</span>
                       </span>
-                      <span className="font-mono text-white font-bold text-sm bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-750">
+                      <span className="font-mono text-white font-bold text-sm bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700">
                         {regMaskedPhone || regPhone}
                       </span>
                     </div>
@@ -1186,7 +1244,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         onFocus={handleInputFocus}
                         onChange={(e) => setResetNewPass(e.target.value)}
                         placeholder="৪ বা ৬ সংখ্যার নতুন পিন"
-                        className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
+                        className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
                       />
                       <button
                         type="button"
@@ -1212,7 +1270,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         onFocus={handleInputFocus}
                         onChange={(e) => setResetConfirmPass(e.target.value)}
                         placeholder="একই পিন পুনরায় লিখুন"
-                        className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-750 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
+                        className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
                       />
                       <button
                         type="button"
@@ -1305,5 +1363,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 };

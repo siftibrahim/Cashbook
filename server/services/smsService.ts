@@ -196,14 +196,24 @@ export function normalizeBanglaDigits(input: string): string {
  */
 export function normalizePhone(rawPhone: string): string {
   if (!rawPhone) return '';
-  let cleaned = normalizeBanglaDigits(rawPhone.trim());
+  let cleaned = normalizeBanglaDigits(String(rawPhone).trim());
   cleaned = cleaned.replace(/[^0-9+]/g, '');
 
   if (cleaned.startsWith('+880')) {
     cleaned = cleaned.substring(3);
   } else if (cleaned.startsWith('880')) {
     cleaned = cleaned.substring(2);
+  } else if (cleaned.startsWith('+88')) {
+    cleaned = '0' + cleaned.substring(3);
+  } else if (cleaned.startsWith('88')) {
+    cleaned = '0' + cleaned.substring(2);
+  } else if (cleaned.startsWith('+0')) {
+    cleaned = cleaned.substring(1);
+  } else if (cleaned.startsWith('+')) {
+    cleaned = '0' + cleaned.substring(1);
   }
+
+  cleaned = cleaned.replace(/\D/g, '');
 
   if (cleaned.length === 10 && !cleaned.startsWith('0')) {
     cleaned = '0' + cleaned;

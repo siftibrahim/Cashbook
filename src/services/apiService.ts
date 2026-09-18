@@ -353,74 +353,77 @@ export const authApi = {
       }
       return res;
     } catch (err: any) {
-      if (isFallbackEligible(err)) {
-        console.warn('⚠️ Server unavailable or network failed. Using resilient login fallback.', err);
-        const cleanIdent = (identifier || '').trim().toLowerCase();
-        const cleanPhone = cleanIdent.replace(/\D/g, '');
+      // If server failed (e.g. DB quota exceeded, network drop, or server un-synced), check genuine local credentials
+      const cleanIdent = (identifier || '').trim().toLowerCase();
+      const cleanPhone = cleanIdent.replace(/\D/g, '');
+      const clean10 = cleanPhone.slice(-10);
 
-        // 1. Super Admin check
-        const isSuperAdminIdent =
-          cleanIdent === 'admin@twing.com' ||
-          cleanIdent === 'siftibrahim@gmail.com' ||
-          cleanPhone === '01306908115' ||
-          cleanPhone === '01619665875' ||
-          cleanIdent === 'admin';
-
-        // Check offline credentials hash vault
+      try {
+        // 1. Check offline credentials hash vault
         const offlineCheck = await verifyOfflinePinLogin(identifier, password);
         if (offlineCheck.success && offlineCheck.user) {
           const token = 'offline_user_token_' + Date.now();
           setAuthToken(token);
           setStoredUser(offlineCheck.user);
+          // Sync with server in background
+          apiRequest('/auth/sync-offline-user', {
+            method: 'POST',
+            body: JSON.stringify({ user: offlineCheck.user, password }),
+          }).catch(() => {});
           return {
             token,
             user: offlineCheck.user,
-            message: '✅ দোকানে সফলভাবে প্রবেশ করা হয়েছে! (অফলাইন মোড)',
+            message: '✅ দোকানে সফলভাবে প্রবেশ করা হয়েছে!',
           };
         }
-
-        // 4. User check from offline registered users and local storage
-        const offlineUsers = getOfflineUsers();
-        const storedUser = getStoredUser();
-        const allCandidates = [...offlineUsers];
-        if (storedUser && !allCandidates.find(u => u.id === storedUser.id)) {
-          allCandidates.push(storedUser);
-        }
-
-        const matchedUser = allCandidates.find(u => {
-          const uEmail = (u.email || '').toLowerCase().trim();
-          const uPhone = (u.phone || '').replace(/\D/g, '');
-          return (
-            uEmail === cleanIdent ||
-            uPhone === cleanPhone ||
-            u.id === identifier.trim()
-          );
-        });
-
-        if (matchedUser) {
-          const passMatches =
-            !matchedUser.password ||
-            matchedUser.password === password ||
-            matchedUser.pin === password ||
-            matchedUser.passwordHash === password;
-
-          if (passMatches) {
-            const token = 'offline_user_token_' + Date.now();
-            setAuthToken(token);
-            setStoredUser(matchedUser);
-            saveOfflineCredential(matchedUser, password);
-            return {
-              token,
-              user: matchedUser,
-              message: '✅ দোকানে সফলভাবে প্রবেশ করা হয়েছে! (অফলাইন মোড)',
-            };
-          }
-          throw new Error('ভুল পাসওয়ার্ড অথবা পিন!');
-        }
-
-        // If no user found locally
-        throw new Error('মোবাইল নম্বর/ইমেইল অথবা পাসওয়ার্ড/পিন সঠিক নয়!');
+      } catch (vaultErr) {
+        console.warn('Vault verification check error:', vaultErr);
       }
+
+      // 2. User check from offline registered users and local storage
+      const offlineUsers = getOfflineUsers();
+      const storedUser = getStoredUser();
+      const allCandidates = [...offlineUsers];
+      if (storedUser && !allCandidates.find(u => u.id === storedUser.id)) {
+        allCandidates.push(storedUser);
+      }
+
+      const matchedUser = allCandidates.find(u => {
+        const uEmail = (u.email || '').toLowerCase().trim();
+        const uPhone = (u.phone || '').replace(/\D/g, '');
+        return (
+          uEmail === cleanIdent ||
+          uPhone === cleanPhone ||
+          (clean10.length >= 10 && uPhone.endsWith(clean10)) ||
+          u.id === identifier.trim()
+        );
+      });
+
+      if (matchedUser) {
+        const passMatches =
+          !matchedUser.password ||
+          matchedUser.password === password ||
+          matchedUser.pin === password ||
+          matchedUser.passwordHash === password;
+
+        if (passMatches) {
+          const token = 'offline_user_token_' + Date.now();
+          setAuthToken(token);
+          setStoredUser(matchedUser);
+          saveOfflineCredential(matchedUser, password);
+          // Sync with server in background
+          apiRequest('/auth/sync-offline-user', {
+            method: 'POST',
+            body: JSON.stringify({ user: matchedUser, password }),
+          }).catch(() => {});
+          return {
+            token,
+            user: matchedUser,
+            message: '✅ দোকানে সফলভাবে প্রবেশ করা হয়েছে!',
+          };
+        }
+      }
+
       throw err;
     }
   },

@@ -1625,6 +1625,35 @@ export const App: React.FC = () => {
     );
   }
 
+  // Dedicated responsive full-screen auth layout for unauthenticated visitors
+  if (!isLoggedIn) {
+    return (
+      <div className="w-full h-full min-h-[100dvh] flex flex-col items-center justify-start p-0 text-slate-100 font-sans antialiased overflow-y-auto smooth-scroll-container selection:bg-teal-500 selection:text-white bg-[#030712]">
+        {/* Toast Notifications */}
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none flex flex-col gap-2 no-print">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className="bg-slate-900/95 text-white px-4 py-3 rounded-2xl text-xs font-bold shadow-xl text-center border border-slate-700 animate-in fade-in slide-in-from-top-2"
+            >
+              {t.message}
+            </div>
+          ))}
+        </div>
+
+        <AuthScreen
+          store={store}
+          onLoginSuccess={handleLoginSuccess}
+          onAdminLoginSuccess={(adminEmail, session) => {
+            handleLoginSuccess(adminEmail, session?.role === 'staff' ? 'staff' : 'admin');
+            setAdminSession(session || { role: 'super_admin', email: adminEmail });
+            setIsAdminPanelOpen(true);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="w-full h-full min-h-full flex flex-col items-center justify-start p-0 text-slate-800 font-sans antialiased overflow-hidden selection:bg-teal-500 selection:text-white bg-[#004D40]">
       {/* Toast Notifications */}
@@ -1641,18 +1670,6 @@ export const App: React.FC = () => {
 
       {/* Main Container Card */}
       <div className="w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[1536px] h-full min-h-full flex flex-col bg-white overflow-hidden relative shadow-2xl xl:border-x xl:border-emerald-950/20">
-        {!isLoggedIn ? (
-          <AuthScreen
-            store={store}
-            onLoginSuccess={handleLoginSuccess}
-            onAdminLoginSuccess={(adminEmail, session) => {
-              handleLoginSuccess(adminEmail, session?.role === 'staff' ? 'staff' : 'admin');
-              setAdminSession(session || { role: 'super_admin', email: adminEmail });
-              setIsAdminPanelOpen(true);
-            }}
-          />
-        ) : (
-          <>
             {/* Impersonation Mode Active Indicator */}
             {isImpersonating && (
               <div className="bg-amber-600 text-white px-3 sm:px-4 py-2 text-xs font-bold flex items-center justify-between shrink-0 shadow-md z-50 border-b border-amber-700">
@@ -1905,8 +1922,6 @@ export const App: React.FC = () => {
                 onOpenSupport={() => setIsSupportModalOpen(true)}
               />
             </div>
-          </>
-        )}
       </div>
 
       {/* Customer Add/Edit Modal */}

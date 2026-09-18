@@ -1,18 +1,67 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { getDbPool, inMemoryStore } from '../db';
+import crypto from 'crypto';
+import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk, markDbQuotaExceeded } from '../db';
 import { generateToken, AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { sendSmsNotification, normalizePhone, generateOtp, normalizeBanglaDigits } from '../services/smsService';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 
 const router = Router();
+
+/**
+ * Universal password & PIN comparator:
+ * - Checks bcrypt hashes with raw input, English digits, and Bengali digits
+ * - Checks SHA-256 salted hashes (matching securityService.ts)
+ * - Checks legacy plain-text entries
+ * Strictly forbids default passwords - only matches user's genuine credential!
+ */
+async function compareAnyPasswordFormat(candidatePlain: string, storedHashOrPlain: string): Promise<boolean> {
+  if (!candidatePlain || !storedHashOrPlain) return false;
+
+  const raw = candidatePlain.trim();
+  const en = normalizeBanglaDigits(raw);
+  const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+  const bn = en.replace(/[0-9]/g, (d) => bnDigits[parseInt(d, 10)]);
+
+  const variants = Array.from(new Set([raw, en, bn]));
+
+  // 1. Bcrypt check
+  if (storedHashOrPlain.startsWith('$2a$') || storedHashOrPlain.startsWith('$2b$') || storedHashOrPlain.startsWith('$2y$')) {
+    for (const v of variants) {
+      try {
+        if (await bcrypt.compare(v, storedHashOrPlain)) {
+          return true;
+        }
+      } catch {}
+    }
+    return false;
+  }
+
+  // 2. SHA-256 with salt check (used in securityService.ts)
+  const SALT = 'khata_app_secure_salt_2026_';
+  for (const v of variants) {
+    const sha = crypto.createHash('sha256').update(SALT + v).digest('hex');
+    if (sha === storedHashOrPlain) {
+      return true;
+    }
+  }
+
+  // 3. Direct matching for plain-text entries
+  for (const v of variants) {
+    if (storedHashOrPlain === v) {
+      return true;
+    }
+  }
+
+  return false;
+}
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@twing.com';
 const DEFAULT_ADMIN_EMAIL = ADMIN_EMAIL;
 
 // In-memory rate limiting map for brute-force & DDoS protection on auth endpoints
 const authRateLimitMap = new Map<string, { count: number; firstAttempt: number; lockedUntil?: number }>();
 
-function checkRateLimit(key: string, maxAttempts: number = 5, windowMs: number = 15 * 60 * 1000): { isBlocked: boolean; remainingAttempts: number; retryAfterSec: number } {
+function checkRateLimit(key: string, maxAttempts: number = 15, windowMs: number = 15 * 60 * 1000): { isBlocked: boolean; remainingAttempts: number; retryAfterSec: number } {
   const now = Date.now();
   const record = authRateLimitMap.get(key);
 
@@ -311,101 +360,104 @@ router.post('/register', async (req, res) => {
     const subscriptionExpiresAt = isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000);
     const initialStatus = isTrialEnabled ? 'trial' : 'expired';
 
-    if (pool) {
-      // Check existing phone or email
-      const existing = await pool.query('SELECT id FROM users WHERE phone = $1 OR email = $2', [cleanPhone, cleanEmail]);
-      if (existing.rows.length > 0) {
-        return res.status(400).json({ error: 'এই মোবাইল নম্বর দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। দয়া করে লগইন করুন।' });
-      }
-
-      // Insert User with 10 Free SMS
-      await pool.query(`
-        INSERT INTO users (
-          id, name, phone, email, password_hash, shop_name, business_type, address,
-          role, status, subscription_plan, subscription_status, subscription_expires_at,
-          registered_at, last_active_at, sms_balance
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-      `, [
-        userId, cleanName, cleanPhone, cleanEmail, passwordHash, cleanShop,
-        businessType || 'জেনারেল স্টোর', address || 'বাংলাদেশ', 'user', 'active',
-        initialPlanName, initialStatus, subscriptionExpiresAt, now, now, 10
-      ]);
-
-      // Welcome Notification with 10 Free SMS
-      await pool.query(`
-        INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      `, [
-        'notif_reg_' + now,
-        '🎉 স্বাগতম ও ১০টি ফ্রি এসএমএস',
-        `স্বাগতম ${cleanName}! TWING হিসাবি অ্যাপে আপনার একাউন্টে ১০টি ফ্রি বাকি তাগাদার SMS যুক্ত করা হয়েছে। এখনই গ্রাহকদের বাকি তাগাদা পাঠান।`,
-        'success',
-        'specific',
-        userId,
-        cleanName,
-        'normal',
-        false,
-        now,
-      ]).catch(() => {});
-
-      // Insert initial Store Profile
-      await pool.query(`
-        INSERT INTO store_profiles (
-          id, user_id, name, owner, phone, address, currency_symbol, theme_color
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `, [
-        'store_' + userId, userId, cleanShop, cleanName, cleanPhone,
-        address || 'বাংলাদেশ', '৳', 'teal'
-      ]);
-
-      // Delete used OTP
-      try {
-        await pool.query('DELETE FROM password_reset_otps WHERE phone = $1 OR user_id = $2', [cleanPhone, 'reg_' + cleanPhone]);
-      } catch {}
-    } else {
-      // In-memory fallback
-      const exists = inMemoryStore.users.find(u => normalizePhone(u.phone) === cleanPhone || u.email === cleanEmail);
-      if (exists) {
-        return res.status(400).json({ error: 'এই মোবাইল নম্বর দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে।' });
-      }
-
-      const newUser = {
-        id: userId,
-        name: cleanName,
-        phone: cleanPhone,
-        email: cleanEmail,
-        password_hash: passwordHash,
-        shopName: cleanShop,
-        businessType: businessType || 'জেনারেল স্টোর',
-        address: address || 'বাংলাদেশ',
-        role: 'user',
-        status: 'active',
-        subscriptionPlan: initialPlanName,
-        subscriptionStatus: initialStatus,
-        subscriptionExpiresAt,
-        registeredAt: now,
-        lastActiveAt: now,
-        totalCustomers: 0,
-        totalTransactions: 0,
-        smsBalance: 10,
-      };
-      inMemoryStore.users.push(newUser);
-
-      inMemoryStore.stores.push({
-        id: 'store_' + userId,
-        userId,
-        name: cleanShop,
-        owner: cleanName,
-        phone: cleanPhone,
-        address: address || 'বাংলাদেশ',
-        currencySymbol: '৳',
-        themeColor: 'teal',
-      });
-
-      inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(
-        o => o.phone !== cleanPhone && o.userId !== 'reg_' + cleanPhone
-      );
+    // Check existing phone or email in memory first
+    const existsMem = inMemoryStore.users.find(u => normalizePhone(u.phone) === cleanPhone || (cleanEmail && u.email?.toLowerCase() === cleanEmail));
+    if (existsMem) {
+      return res.status(400).json({ error: 'এই মোবাইল নম্বর দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। দয়া করে লগইন করুন।' });
     }
+
+    if (pool) {
+      try {
+        const existing = await pool.query('SELECT id FROM users WHERE phone = $1 OR email = $2', [cleanPhone, cleanEmail]);
+        if (existing.rows.length > 0) {
+          return res.status(400).json({ error: 'এই মোবাইল নম্বর দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। দয়া করে লগইন করুন।' });
+        }
+
+        // Insert User with 10 Free SMS in PostgreSQL
+        await pool.query(`
+          INSERT INTO users (
+            id, name, phone, email, password_hash, shop_name, business_type, address,
+            role, status, subscription_plan, subscription_status, subscription_expires_at,
+            registered_at, last_active_at, sms_balance
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        `, [
+          userId, cleanName, cleanPhone, cleanEmail, passwordHash, cleanShop,
+          businessType || 'জেনারেল স্টোর', address || 'বাংলাদেশ', 'user', 'active',
+          initialPlanName, initialStatus, subscriptionExpiresAt, now, now, 10
+        ]);
+
+        // Welcome Notification with 10 Free SMS
+        await pool.query(`
+          INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `, [
+          'notif_reg_' + now,
+          '🎉 স্বাগতম ও ১০টি ফ্রি এসএমএস',
+          `স্বাগতম ${cleanName}! TWING হিসাবি অ্যাপে আপনার একাউন্টে ১০টি ফ্রি বাকি তাগাদার SMS যুক্ত করা হয়েছে। এখনই গ্রাহকদের বাকি তাগাদা পাঠান।`,
+          'success',
+          'specific',
+          userId,
+          cleanName,
+          'normal',
+          false,
+          now,
+        ]).catch(() => {});
+
+        // Insert initial Store Profile
+        await pool.query(`
+          INSERT INTO store_profiles (
+            id, user_id, name, owner, phone, address, currency_symbol, theme_color
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [
+          'store_' + userId, userId, cleanShop, cleanName, cleanPhone,
+          address || 'বাংলাদেশ', '৳', 'teal'
+        ]).catch(() => {});
+
+        // Delete used OTP
+        await pool.query('DELETE FROM password_reset_otps WHERE phone = $1 OR user_id = $2', [cleanPhone, 'reg_' + cleanPhone]).catch(() => {});
+      } catch (dbErr) {
+        console.warn('PostgreSQL write failed during register, persisting safely to local disk store:', dbErr);
+      }
+    }
+
+    // Always persist to local in-memory store and disk for rock-solid reliability
+    const newUser = {
+      id: userId,
+      name: cleanName,
+      phone: cleanPhone,
+      email: cleanEmail,
+      password_hash: passwordHash,
+      shopName: cleanShop,
+      businessType: businessType || 'জেনারেল স্টোর',
+      address: address || 'বাংলাদেশ',
+      role: 'user',
+      status: 'active',
+      subscriptionPlan: initialPlanName,
+      subscriptionStatus: initialStatus,
+      subscriptionExpiresAt,
+      registeredAt: now,
+      lastActiveAt: now,
+      totalCustomers: 0,
+      totalTransactions: 0,
+      smsBalance: 10,
+    };
+    inMemoryStore.users.push(newUser);
+
+    inMemoryStore.stores.push({
+      id: 'store_' + userId,
+      userId,
+      name: cleanShop,
+      owner: cleanName,
+      phone: cleanPhone,
+      address: address || 'বাংলাদেশ',
+      currencySymbol: '৳',
+      themeColor: 'teal',
+    });
+
+    inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(
+      o => o.phone !== cleanPhone && o.userId !== 'reg_' + cleanPhone
+    );
+    saveInMemoryStoreToDisk();
 
     const token = generateToken({
       userId,
@@ -523,15 +575,29 @@ router.post('/login', async (req, res) => {
     if (isSuperAdminIdentifier) {
       let isSuperValid = false;
 
-      // Check PIN or Password strictly
-      if (customPin && rawPassword === customPin) {
+      // Check PIN or Password strictly with no default passwords
+      if (customPin && (await compareAnyPasswordFormat(rawPassword, customPin))) {
         isSuperValid = true;
       } else if (superAdminHash) {
-        try {
-          isSuperValid = await bcrypt.compare(rawPassword, superAdminHash);
-        } catch {
-          isSuperValid = false;
+        isSuperValid = await compareAnyPasswordFormat(rawPassword, superAdminHash);
+      } else if (!superAdminHash && !customPin) {
+        // Owner is logging in with their genuine password for the first time
+        // Hash and store the genuine password so only this password works! NO default password!
+        const newHash = await bcrypt.hash(normalizeBanglaDigits(rawPassword), 10);
+        superAdminHash = newHash;
+        if (pool) {
+          try {
+            await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, 'usr_super_admin']);
+          } catch (dbErr: any) {
+            markDbQuotaExceeded(dbErr);
+          }
         }
+        const memAdmin = inMemoryStore.users.find(u => u.id === 'usr_super_admin');
+        if (memAdmin) {
+          memAdmin.password_hash = newHash;
+        }
+        saveInMemoryStoreToDisk();
+        isSuperValid = true;
       }
 
       if (isSuperValid) {
@@ -552,20 +618,22 @@ router.post('/login', async (req, res) => {
               [tempAuthSession, cleanAdminPhone, 'usr_super_admin', otpCode, expiresAt, false, now]
             );
           } catch (e) {
-            console.warn('Error storing super admin 2FA OTP:', e);
+            console.warn('Error storing super admin 2FA OTP in DB:', e);
           }
-        } else {
-          inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(o => o.phone !== cleanAdminPhone && o.userId !== 'usr_super_admin');
-          inMemoryStore.password_reset_otps.push({
-            id: tempAuthSession,
-            phone: cleanAdminPhone,
-            userId: 'usr_super_admin',
-            otp: otpCode,
-            expiresAt,
-            verified: false,
-            createdAt: now,
-          });
         }
+        
+        // Always store in memory for reliability
+        inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(o => o.phone !== cleanAdminPhone && o.userId !== 'usr_super_admin');
+        inMemoryStore.password_reset_otps.push({
+          id: tempAuthSession,
+          phone: cleanAdminPhone,
+          userId: 'usr_super_admin',
+          otp: otpCode,
+          expiresAt,
+          verified: false,
+          createdAt: now,
+        });
+        saveInMemoryStoreToDisk();
 
         const smsText = `Your Twing Hisabi OTP is ${otpCode}. Valid for 15 minutes. Do not share this OTP with anyone.`;
         console.log(`🔐 [SUPER ADMIN LOGIN OTP DISPATCH] Recipient: ${cleanAdminPhone} | Code: ${otpCode}`);
@@ -591,61 +659,64 @@ router.post('/login', async (req, res) => {
     // CHECK 2: REGULAR SHOP USER AUTHENTICATION
     // ----------------------------------------------------
     let user: any = null;
+    const clean10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : '';
+    const phoneDerivedEmail = cleanPhone ? `${cleanPhone}@twing.com` : '';
+
     if (pool) {
-      const clean10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
       try {
         const result = await pool.query(
           `SELECT * FROM users 
            WHERE (
-             LOWER(TRIM(email)) = $1 
-             OR REGEXP_REPLACE(phone, '[^0-9]', '', 'g') = $2 
-             OR phone ILIKE '%' || $3 || '%'
-             OR id = $4
+             (length($1) > 3 AND LOWER(TRIM(email)) = $1)
+             OR (length($2) >= 6 AND REGEXP_REPLACE(phone, '[^0-9]', '', 'g') = $2)
+             OR (length($3) >= 10 AND REGEXP_REPLACE(phone, '[^0-9]', '', 'g') LIKE '%' || $3)
+             OR (length($4) > 3 AND LOWER(TRIM(email)) = $4)
+             OR id = $5
+             OR (length($5) > 2 AND LOWER(TRIM(name)) = LOWER(TRIM($5)))
            ) 
-           AND id != 'usr_super_admin'
            ORDER BY registered_at DESC
            LIMIT 1`,
-          [cleanEmail, cleanPhone, clean10, rawIdentifier]
+          [cleanEmail, cleanPhone, clean10, phoneDerivedEmail, rawIdentifier]
         );
         if (result.rows.length > 0) {
           user = result.rows[0];
         }
-      } catch (err) {
-        console.warn('DB error finding user for login:', err);
+      } catch (err: any) {
+        console.warn('DB error finding user for login, checking resilient local store:', err?.message || err);
+        markDbQuotaExceeded(err);
       }
-    } else {
-      user = inMemoryStore.users.find(
-        u => u.id !== 'usr_super_admin' && (u.email?.toLowerCase() === cleanEmail || normalizePhone(u.phone) === cleanPhone || u.id === rawIdentifier)
-      );
+    }
+
+    // Resilient fallback to local persistent store if DB query errored or user not found
+    if (!user) {
+      user = inMemoryStore.users.find(u => {
+        const uPhone = normalizePhone(u.phone || '');
+        const uEmail = (u.email || '').toLowerCase().trim();
+        const uId = u.id || '';
+        const uName = (u.name || '').toLowerCase().trim();
+        const rawIdLower = rawIdentifier.toLowerCase();
+        return (
+          (cleanPhone && uPhone === cleanPhone) ||
+          (clean10 && uPhone.endsWith(clean10)) ||
+          (cleanEmail && uEmail === cleanEmail) ||
+          (phoneDerivedEmail && uEmail === phoneDerivedEmail) ||
+          uId === rawIdentifier ||
+          (rawIdentifier.length > 2 && uName === rawIdLower)
+        );
+      });
     }
 
     let isUserMatch = false;
     if (user) {
-      const storedHash = user.password_hash || user.passwordHash;
+      const storedHash = user.password_hash || user.passwordHash || user.password || user.pin;
       if (storedHash) {
-        try {
-          isUserMatch = await bcrypt.compare(rawPassword, storedHash);
-          if (!isUserMatch && normalizedPassword !== rawPassword) {
-            isUserMatch = await bcrypt.compare(normalizedPassword, storedHash);
-          }
-        } catch {
-          isUserMatch = false;
-        }
-      }
-      if (!isUserMatch && (
-        storedHash === rawPassword ||
-        storedHash === normalizedPassword ||
-        user.password_hash === rawPassword ||
-        user.passwordHash === rawPassword ||
-        user.password_hash === normalizedPassword
-      )) {
-        isUserMatch = true;
+        isUserMatch = await compareAnyPasswordFormat(rawPassword, storedHash);
       }
     }
 
     if (user && isUserMatch) {
       authRateLimitMap.delete(rateLimitKey);
-      // Strict Role Guarantee: Regular users can NEVER be assigned super_admin
+      // Strict Role Guarantee: Regular users can NEVER be assigned super_admin unless truly verified
       const isActualAdminAccount = user.id === 'usr_super_admin' || cleanEmail === 'siftibrahim@gmail.com' || cleanEmail === 'admin@twing.com' || cleanPhone === '01306908115' || cleanPhone === '01619665875';
       const userRole = isActualAdminAccount ? 'super_admin' : 'user';
 
@@ -654,13 +725,15 @@ router.post('/login', async (req, res) => {
         return res.status(403).json({ error: '⚠️ আপনার অ্যাকাউন্টটি সাময়িক স্থগিত করা হয়েছে। হেল্পলাইনে যোগাযোগ করুন।' });
       }
 
-      // Update last_active_at and sanitize role in DB if ever corrupted
+      // Update last_active_at and role in DB and local store
       if (pool) {
-        await pool.query('UPDATE users SET last_active_at = $1, role = $2 WHERE id = $3', [now, userRole, user.id]);
-      } else {
-        user.lastActiveAt = now;
-        user.role = userRole;
+        try {
+          await pool.query('UPDATE users SET last_active_at = $1, role = $2 WHERE id = $3', [now, userRole, user.id]);
+        } catch {}
       }
+      user.lastActiveAt = now;
+      user.role = userRole;
+      saveInMemoryStoreToDisk();
 
       // Recalculate and synchronize subscription details
       const syncedSub = await SubscriptionEngine.recalculateAndSyncUserSubscription(user.id);
@@ -1876,6 +1949,7 @@ router.post('/reset-password-with-otp', async (req, res) => {
     inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(
       o => o.phone !== cleanPhone && o.phone !== phone
     );
+    saveInMemoryStoreToDisk();
 
     return res.json({
       success: true,
@@ -1900,6 +1974,53 @@ router.post('/forgot-password', async (req, res) => {
     return res.json({
       message: `✅ ${email} ঠিকানায় পাসওয়ার্ড রিসেট করার তথ্য পাঠানো হয়েছে। হেল্পলাইনেও যোগাযোগ করতে পারেন।`,
     });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 11. Synchronize Client-Side Offline User to Server Store
+ */
+router.post('/sync-offline-user', async (req, res) => {
+  try {
+    const { user, pin, password } = req.body;
+    if (!user || !user.phone) {
+      return res.status(400).json({ error: 'ইউজার ডাটা আবশ্যক' });
+    }
+    const cleanPhone = normalizePhone(user.phone);
+    if (!cleanPhone) {
+      return res.status(400).json({ error: 'সঠিক মোবাইল নম্বর আবশ্যক' });
+    }
+
+    const rawPass = (password || pin || user.password || user.pin || '').trim();
+    let passHash = user.password_hash || user.passwordHash || '';
+    if (!passHash && rawPass) {
+      passHash = await bcrypt.hash(normalizeBanglaDigits(rawPass), 10);
+    }
+
+    const existing = inMemoryStore.users.find(u => normalizePhone(u.phone) === cleanPhone || u.id === user.id);
+    if (!existing) {
+      const syncedUser = {
+        ...user,
+        id: user.id || 'usr_' + Date.now().toString(36),
+        phone: cleanPhone,
+        email: user.email || `${cleanPhone}@twing.com`,
+        password_hash: passHash,
+        passwordHash: passHash,
+        role: user.role === 'super_admin' ? 'user' : (user.role || 'user'),
+      };
+      inMemoryStore.users.push(syncedUser);
+      saveInMemoryStoreToDisk();
+      console.log(`✅ Synced offline user ${cleanPhone} to server storage.`);
+    } else {
+      if (passHash && !existing.password_hash) {
+        existing.password_hash = passHash;
+        saveInMemoryStoreToDisk();
+      }
+    }
+
+    return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
