@@ -207,6 +207,10 @@ function startDbHeartbeat() {
   }, 120000); // Every 2 minutes
 }
 
+export function getIsDbQuotaExceeded(): boolean {
+  return isDbQuotaExceeded;
+}
+
 export function markDbQuotaExceeded(err?: any) {
   if (err?.code === '53000' || err?.message?.includes('compute time quota') || !err) {
     if (!isDbQuotaExceeded) {
@@ -233,7 +237,6 @@ export function getDbPool(): pg.Pool | null {
 
   const dbUrl = getStoredDbUrl();
   if (!dbUrl) {
-    console.warn('⚠️ [DB Warning] DATABASE_URL is not set. Using secure in-memory storage fallback.');
     return null;
   }
 
@@ -242,7 +245,7 @@ export function getDbPool(): pg.Pool | null {
     startDbHeartbeat();
     return pool;
   } catch (err) {
-    console.error('❌ Failed to initialize PostgreSQL pool:', err);
+    console.warn('⚠️ Could not initialize PostgreSQL pool:', err);
     return null;
   }
 }
@@ -315,7 +318,13 @@ export async function setAndConnectDatabaseUrl(newDbUrl: string): Promise<{ succ
     if (testPool) {
       try { await testPool.end(); } catch {}
     }
-    console.error('❌ Failed to connect to provided Neon database:', err);
+    const isQuota = err?.code === '53000' || err?.message?.includes('compute time quota');
+    if (isQuota) {
+      markDbQuotaExceeded(err);
+      console.warn('⚠️ [Neon Compute Quota] Project has exceeded compute time quota:', err?.message || err);
+      throw new Error('আপনার Neon ডাটাবেজের ফ্রি কম্পিউট সময় কোটা (Compute Time Quota) শেষ হয়ে গেছে। Neon কনসোলে গিয়ে প্ল্যান আপগ্রেড করুন অথবা নতুন ডাটাবেজ URL দিন। আপনার সব তথ্য লোকাল ব্যাকআপে সুরক্ষিত রয়েছে।');
+    }
+    console.warn('⚠️ Failed to connect to provided Neon database:', err?.message || err);
     throw new Error(`ডাটাবেজ কানেকশন ব্যর্থ হয়েছে: ${err.message}`);
   }
 }
@@ -339,6 +348,18 @@ export async function query(text: string, params?: any[]): Promise<pg.QueryResul
   try {
     return await p.query(text, params);
   } catch (err: any) {
+    if (err?.code === '53000' || err?.message?.includes('compute time quota')) {
+      markDbQuotaExceeded(err);
+      console.warn('⚠️ [Neon Quota in query] Switching to in-memory fallback.');
+      return {
+        rows: [],
+        rowCount: 0,
+        command: 'SELECT',
+        oid: 0,
+        fields: [],
+      } as any;
+    }
+
     const isTransientDisconnect =
       err?.message?.includes('Connection terminated') ||
       err?.message?.includes('terminating connection') ||
@@ -1017,10 +1038,12 @@ export async function initializeDatabaseSchema() {
     client.release();
     console.log('✅ PostgreSQL Schema and initial seeds ready!');
   } catch (err: any) {
-    console.error('❌ Failed to initialize database schema:', err?.message || err);
-    if (err?.code === '53000' || err?.message?.includes('compute time quota')) {
-      console.warn('⚠️ [Neon Quota Reached] Serverless compute quota exceeded (Code 53000). Activating persistent local storage fallback.');
-      isDbQuotaExceeded = true;
+    const isQuota = err?.code === '53000' || err?.message?.includes('compute time quota');
+    if (isQuota) {
+      console.warn('⚠️ [Neon Quota Notice] Serverless compute quota reached (Code 53000). Activating persistent local storage fallback.');
+      markDbQuotaExceeded(err);
+    } else {
+      console.warn('⚠️ Database schema initialization note:', err?.message || err);
     }
     console.log('ℹ️ Activating resilient in-memory storage fallback with disk persistence.');
     if (pool) {

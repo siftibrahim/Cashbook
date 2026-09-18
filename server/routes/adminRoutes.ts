@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { getDbPool, inMemoryStore, setAndConnectDatabaseUrl } from '../db';
+import { getDbPool, inMemoryStore, setAndConnectDatabaseUrl, getIsDbQuotaExceeded, markDbQuotaExceeded } from '../db';
 import {
   AuthenticatedRequest,
   requireAdminOrStaff,
@@ -111,13 +111,17 @@ router.post('/set-database-url', async (req: AuthenticatedRequest, res: Response
  */
 router.get('/db-status', async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const isQuota = getIsDbQuotaExceeded();
     const pool = getDbPool();
     if (!pool) {
       return res.json({
         connected: false,
-        message: 'DATABASE_URL এনভায়রনমেন্ট ভেরিয়েবল সেট করা নেই। ইন-মেমোরি মোডে চলছে।',
-        provider: 'In-Memory Fallback',
+        message: isQuota
+          ? '⚠️ Neon ডাটাবেজের ফ্রি কম্পিউট সময় কোটা (Compute Time Quota) শেষ। বর্তমানে লোকাল ডিস্ক ও ইন-মেমোরি স্টোরেজে চলছে।'
+          : 'DATABASE_URL এনভায়রনমেন্ট ভেরিয়েবল সেট করা নেই। ইন-মেমোরি মোডে চলছে।',
+        provider: isQuota ? 'Local Storage (Quota Exceeded)' : 'In-Memory Fallback',
         userCount: inMemoryStore.users.length,
+        isQuotaExceeded: isQuota,
       });
     }
 
@@ -128,13 +132,21 @@ router.get('/db-status', async (req: AuthenticatedRequest, res: Response) => {
       provider: 'Neon PostgreSQL',
       databaseName: check.rows[0]?.current_database || 'neondb',
       userCount: parseInt(check.rows[0]?.user_count || '0', 10),
+      isQuotaExceeded: false,
     });
   } catch (err: any) {
+    const isQuota = err?.code === '53000' || err?.message?.includes('compute time quota');
+    if (isQuota) {
+      markDbQuotaExceeded(err);
+    }
     return res.json({
       connected: false,
-      message: `❌ ডাটাবেজ কানেকশন এরর: ${err.message}`,
-      provider: 'Disconnected',
+      message: isQuota
+        ? '⚠️ Neon ডাটাবেজের ফ্রি কম্পিউট কোটা শেষ। বর্তমানে লোকাল নিরাপদ স্টোরেজে চলছে।'
+        : `❌ ডাটাবেজ কানেকশন এরর: ${err.message}`,
+      provider: isQuota ? 'Local Storage (Quota Exceeded)' : 'Disconnected',
       userCount: inMemoryStore.users.length,
+      isQuotaExceeded: isQuota,
     });
   }
 });
@@ -2173,6 +2185,77 @@ router.post('/dashboard-banners', async (req: AuthenticatedRequest, res: Respons
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// SUPER ADMIN: SYSTEM DATA & MASTER BACKUP/IMPORT
+// ==========================================
+
+import {
+  getSystemDataSummary,
+  exportMasterBackup,
+  importMasterBackup,
+  importSpecificTable,
+} from '../services/adminDataService';
+
+/**
+ * GET /api/admin/data/summary
+ * Retrieves record counts across active storage and Postgres
+ */
+router.get('/data/summary', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const summary = await getSystemDataSummary();
+    return res.json(summary);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'ডাটা সামারি লোড করতে ব্যর্থ' });
+  }
+});
+
+/**
+ * GET /api/admin/data/export-full
+ * Exports entire system database as master JSON
+ */
+router.get('/data/export-full', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const master = await exportMasterBackup();
+    return res.json(master);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'মাস্টার ব্যাকআপ এক্সপোর্ট ব্যর্থ' });
+  }
+});
+
+/**
+ * POST /api/admin/data/import-full
+ * Imports master backup JSON (from Neon/file/backup) into storage
+ */
+router.post('/data/import-full', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { data, mode } = req.body;
+    if (!data) {
+      return res.status(400).json({ error: 'কোনো ব্যাকআপ ডাটা পাওয়া যায়নি' });
+    }
+    const result = await importMasterBackup(data, mode || 'merge');
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'ডাটা ইমপোর্ট ব্যর্থ হয়েছে' });
+  }
+});
+
+/**
+ * POST /api/admin/data/import-table
+ * Imports a specific table (e.g. from Neon JSON table export)
+ */
+router.post('/data/import-table', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { tableName, rows, mode } = req.body;
+    if (!rows || !Array.isArray(rows)) {
+      return res.status(400).json({ error: 'টেবিল ডাটা একটি অ্যারে (Array) আকারে দিতে হবে' });
+    }
+    const result = await importSpecificTable(tableName || 'auto', rows, mode || 'merge');
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'টেবিল ডাটা ইমপোর্ট ব্যর্থ হয়েছে' });
   }
 });
 

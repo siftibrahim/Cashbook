@@ -27,10 +27,10 @@ export class SubscriptionEngine {
     if (this.intervalTimer) return;
     console.log('[SUBSCRIPTION ENGINE] Initialized & background monitor active');
     // Run immediate check
-    this.runEngineCycle().catch(err => console.error('[SUBSCRIPTION ENGINE] Error in cycle:', err));
+    this.runEngineCycle().catch(err => console.warn('[SUBSCRIPTION ENGINE] Cycle note:', err?.message || err));
     // Run every 10 minutes
     this.intervalTimer = setInterval(() => {
-      this.runEngineCycle().catch(err => console.error('[SUBSCRIPTION ENGINE] Error in cycle:', err));
+      this.runEngineCycle().catch(err => console.warn('[SUBSCRIPTION ENGINE] Cycle note:', err?.message || err));
     }, 10 * 60 * 1000);
   }
 

@@ -33,6 +33,7 @@ import {
   ArrowRight,
   Sparkles,
   ShieldAlert,
+  Database,
 } from 'lucide-react';
 import { formatMoney } from '../../utils/storage';
 
@@ -417,6 +418,19 @@ export const AdminDashboardOverview: React.FC<AdminDashboardOverviewProps> = ({
             <span className="block text-xs font-bold text-white">নোটিশ ও ব্যানার</span>
             <span className="text-[11px] text-slate-400">অ্যাপের নোটিশ</span>
           </button>
+
+          {isSuperAdmin && (
+            <button
+              type="button"
+              id="quick-action-data-management"
+              onClick={() => onNavigateTab('data_management')}
+              className="p-4 bg-slate-900/90 hover:bg-[#15233D] border border-slate-800 hover:border-emerald-500/40 rounded-2xl text-left transition group cursor-pointer"
+            >
+              <Database className="w-5 h-5 text-emerald-400 mb-2 group-hover:scale-110 transition-transform" />
+              <span className="block text-xs font-bold text-white">ডাটা ইমপোর্ট ও ব্যাকআপ</span>
+              <span className="text-[11px] text-emerald-400/80">মাস্টার ডাটা কন্ট্রোল</span>
+            </button>
+          )}
         </div>
       </div>
 

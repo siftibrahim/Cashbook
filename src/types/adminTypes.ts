@@ -483,6 +483,7 @@ export type AdminTab =
   | 'notifications'
   | 'announcements'
   | 'app_update'
+  | 'data_management'
   | 'activity_logs';
 
 

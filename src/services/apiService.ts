@@ -1514,6 +1514,51 @@ export const adminApi = {
     });
   },
 
+  async getDataSummary(): Promise<{
+    databaseConnected: boolean;
+    postgresCounts: Record<string, number> | null;
+    activeCounts: Record<string, number>;
+    timestamp: number;
+  }> {
+    return await apiRequest('/admin/data/summary');
+  },
+
+  async exportMasterBackup(): Promise<any> {
+    return await apiRequest('/admin/data/export-full');
+  },
+
+  async importMasterBackup(data: any, mode: 'merge' | 'replace' = 'merge'): Promise<{
+    success: boolean;
+    message: string;
+    imported: {
+      users: number;
+      stores: number;
+      customers: number;
+      transactions: number;
+      expenses: number;
+      products: number;
+      payments: number;
+    };
+    postgresSynced: boolean;
+  }> {
+    return await apiRequest('/admin/data/import-full', {
+      method: 'POST',
+      body: JSON.stringify({ data, mode }),
+    });
+  },
+
+  async importSpecificTable(tableName: string, rows: any[], mode: 'merge' | 'replace' = 'merge'): Promise<{
+    success: boolean;
+    message: string;
+    imported: any;
+    postgresSynced: boolean;
+  }> {
+    return await apiRequest('/admin/data/import-table', {
+      method: 'POST',
+      body: JSON.stringify({ tableName, rows, mode }),
+    });
+  },
+
   async getSupportThreads(): Promise<SupportThread[]> {
     try {
       const res = await apiRequest<{ threads: SupportThread[] }>('/admin/support/threads');

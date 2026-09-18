@@ -67,6 +67,7 @@ import { SmsGatewayTab } from './SmsGatewayTab';
 import { TagadaTemplatesTab } from './TagadaTemplatesTab';
 import { AdsManagementTab } from './AdsManagementTab';
 import { SuperAdminSecurityTab } from './SuperAdminSecurityTab';
+import { DataManagementTab } from './DataManagementTab';
 import {
   LayoutDashboard,
   Users,
@@ -369,6 +370,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       label: 'ভার্সন ও আপডেট',
       icon: DownloadCloud,
       isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'app_update_manage'),
+    },
+    {
+      id: 'data_management',
+      label: 'সিস্টেম ডাটা ও ব্যাকআপ',
+      icon: Database,
+      isAllowed: isSuperAdmin,
+      isSuperOnly: true,
     },
     {
       id: 'activity_logs',
@@ -741,6 +749,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             />
           )}
 
+          {activeTab === 'data_management' && isSuperAdmin && (
+            <DataManagementTab
+              onShowToast={showToast}
+              onRefreshAll={checkDbAndRefresh}
+            />
+          )}
+
           {activeTab === 'activity_logs' && (
             <ActivityLogTab
               logs={logs}
@@ -851,31 +866,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </p>
                 </div>
 
-                <div className="pt-2 flex items-center justify-end gap-2">
+                <div className="pt-2 flex items-center justify-between gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsDbModalOpen(false)}
-                    className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+                    onClick={() => {
+                      setIsDbModalOpen(false);
+                      setActiveTab('data_management');
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-semibold underline cursor-pointer"
                   >
-                    বন্ধ করুন
+                    <Database className="w-3.5 h-3.5" />
+                    <span>সরাসরি ডাটা ইমপোর্ট ও ব্যাকআপে যান</span>
                   </button>
-                  <button
-                    type="submit"
-                    disabled={isSavingDbUrl || !dbUrlInput.trim()}
-                    className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white text-xs font-black transition flex items-center gap-2 shadow-lg shadow-emerald-600/25 active:scale-95 cursor-pointer"
-                  >
-                    {isSavingDbUrl ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>কানেকশন চেক হচ্ছে...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Plug className="w-4 h-4" />
-                        <span>🔌 ডাটাবেজ কানেক্ট করুন</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsDbModalOpen(false)}
+                      className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+                    >
+                      বন্ধ করুন
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingDbUrl || !dbUrlInput.trim()}
+                      className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white text-xs font-black transition flex items-center gap-2 shadow-lg shadow-emerald-600/25 active:scale-95 cursor-pointer"
+                    >
+                      {isSavingDbUrl ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>কানেকশন চেক হচ্ছে...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plug className="w-4 h-4" />
+                          <span>🔌 ডাটাবেজ কানেক্ট করুন</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>
