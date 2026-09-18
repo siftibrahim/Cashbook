@@ -15,6 +15,11 @@ export function sanitizePostgresUrl(rawUrl: string): string {
   let url = (rawUrl || '').trim();
   if (!url) return '';
 
+  // If MySQL connection string, return clean trimmed URL
+  if (url.startsWith('mysql://') || url.startsWith('mysql2://')) {
+    return url;
+  }
+
   // 1. Remove invalid / truncated / unsupported query parameters like channel_binding=..., channel_bibi, channel_..., etc.
   url = url.replace(/[?&]channel_[^&]*/gi, '');
   url = url.replace(/[?&]channel_binding=[^&]*/gi, '');
@@ -259,8 +264,43 @@ export async function setAndConnectDatabaseUrl(newDbUrl: string): Promise<{ succ
     throw new Error('ডাটাবেজ ইউআরএল (Connection String) ফাঁকা হতে পারে না');
   }
 
-  if (!cleanUrl.startsWith('postgres://') && !cleanUrl.startsWith('postgresql://')) {
-    throw new Error('অবৈধ ডাটাবেজ ইউআরএল ফরম্যাট! URL অবশ্যই postgresql:// বা postgres:// দিয়ে শুরু হতে হবে।');
+  const isMysql = cleanUrl.startsWith('mysql://') || cleanUrl.startsWith('mysql2://');
+  const isPostgres = cleanUrl.startsWith('postgres://') || cleanUrl.startsWith('postgresql://');
+
+  if (!isMysql && !isPostgres) {
+    throw new Error('অবৈধ ডাটাবেজ ইউআরএল ফরম্যাট! URL অবশ্যই postgresql:// অথবা mysql:// দিয়ে শুরু হতে হবে।');
+  }
+
+  // Handle MySQL connection
+  if (isMysql) {
+    try {
+      const mysql = await import('mysql2/promise');
+      const testMysqlPool = mysql.createPool(cleanUrl);
+      const [rows] = await testMysqlPool.query('SELECT DATABASE() as db_name');
+      const dbName = (rows as any)?.[0]?.db_name || 'mysql_database';
+      await testMysqlPool.end();
+
+      process.env.DATABASE_URL = cleanUrl;
+      try {
+        const dir = path.dirname(CONFIG_FILE_PATH);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify({ databaseUrl: cleanUrl, dbType: 'mysql', updatedAt: new Date().toISOString() }, null, 2));
+      } catch (saveErr) {
+        console.warn('Could not write to db-config.json:', saveErr);
+      }
+
+      return {
+        success: true,
+        message: '✅ আপনার নিজস্ব MySQL ডাটাবেজে সফলভাবে সংযুক্ত হয়েছে!',
+        databaseName: dbName,
+        userCount: inMemoryStore.users?.length || 0,
+      };
+    } catch (mErr: any) {
+      console.warn('⚠️ Failed to connect to MySQL database:', mErr?.message || mErr);
+      throw new Error(`MySQL ডাটাবেজ কানেকশন ব্যর্থ হয়েছে: ${mErr.message}`);
+    }
   }
 
   // Test connection first with clean sanitized url

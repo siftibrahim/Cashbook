@@ -837,32 +837,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="p-4 bg-slate-900/90 rounded-2xl border border-slate-800 text-xs space-y-2 text-slate-300">
                 <div className="font-bold text-white flex items-center gap-1.5 text-xs">
                   <Sparkles className="w-4 h-4 text-amber-400" />
-                  <span>কীভাবে Neon Connection String পাবেন?</span>
+                  <span>সমর্থিত ডাটাবেজ নির্দেশিকা (PostgreSQL & MySQL)</span>
                 </div>
-                <ol className="list-decimal list-inside space-y-1 text-slate-400 leading-relaxed">
-                  <li>আপনার <strong className="text-indigo-300">console.neon.tech</strong> ড্যাশবোর্ডে যান।</li>
-                  <li>আপনার প্রজেক্টের <strong className="text-white">Connection Details</strong> থেকে <strong className="text-white">Connection string</strong> কপি করুন।</li>
-                  <li>নিচের বক্সে পেস্ট করে <strong className="text-emerald-400">"ডাটাবেজ কানেক্ট করুন"</strong> বাটনে চাপুন।</li>
-                </ol>
+                <div className="space-y-1.5 text-slate-400 leading-relaxed text-[11px]">
+                  <p>আপনার সুবিধার্থে এই সিস্টেমে <strong className="text-emerald-400">PostgreSQL</strong> এবং <strong className="text-sky-400">MySQL</strong> উভয়ই সম্পূর্ণ সমর্থিত:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li><strong className="text-emerald-400">PostgreSQL (Neon / CockroachDB / Supabase):</strong> <code className="text-emerald-300 text-[10px]">postgresql://user:pass@host:5432/dbname?sslmode=require</code></li>
+                    <li><strong className="text-sky-400">MySQL (cPanel / Personal Hosting / phpMyAdmin):</strong> <code className="text-sky-300 text-[10px]">mysql://user:pass@host:3306/dbname</code></li>
+                  </ul>
+                  <p className="text-slate-500">আপনার নিজস্ব সার্ভার বা হোস্টিংয়ের কানেকশন লিঙ্কটি নিচের বক্সে পেস্ট করে সেভ করুন।</p>
+                </div>
               </div>
 
               {/* Input Form */}
               <form onSubmit={handleConnectDatabase} className="space-y-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-300 mb-1">
-                    Neon PostgreSQL Connection URL:
+                    Database Connection URL (PostgreSQL বা MySQL):
                   </label>
                   <div className="relative">
                     <input
                       type="text"
                       value={dbUrlInput}
                       onChange={(e) => setDbUrlInput(e.target.value)}
-                      placeholder="postgresql://neondb_owner:password@ep-cold-bread-....neon.tech/neondb?sslmode=require"
+                      placeholder="postgresql://... অথবা mysql://username:password@hostname:3306/dbname"
                       className="w-full px-3.5 py-3 bg-slate-950 border border-slate-700 rounded-2xl text-xs font-mono text-emerald-400 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    নিরাপদ SSL এনক্রিপশনের মাধ্যমে এটি সংরক্ষণ হবে এবং সাথে সাথে ইউজার লোড করবে।
+                    সিস্টেম স্বয়ংক্রিয়ভাবে প্রটোকল শনাক্ত করে নিরাপদে ডাটাবেজ সিঙ্ক করবে।
                   </p>
                 </div>
 
