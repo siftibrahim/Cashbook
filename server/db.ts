@@ -1249,7 +1249,7 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
       Date.now(),
     ]);
 
-    // Seed/Update super admin security config (no default masterPin)
+    // Seed/Update super admin security config (strictly password + 2FA, no PIN)
     await client.query(`
       INSERT INTO system_config (id, data, updated_at, updated_by)
       VALUES ('super_admin_security', $1, $2, 'usr_super_admin')
@@ -1258,7 +1258,6 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
       JSON.stringify({
         phone: '01306908115',
         email: adminEmail,
-        masterPin: '',
         is2FAEnabled: true,
         updatedAt: Date.now(),
       }),
@@ -1483,7 +1482,6 @@ function seedDefaultDataInMemory() {
     id: 'super_admin_security',
     phone: '01306908115',
     email: 'siftibrahim@gmail.com',
-    masterPin: '',
     is2FAEnabled: true,
     updatedAt: Date.now(),
   };

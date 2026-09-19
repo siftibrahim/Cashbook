@@ -873,7 +873,6 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
   try {
     const pool = getDbPool();
     let superAdminUser: any = null;
-    let masterPin = '';
 
     if (pool) {
       const dbRes = await pool.query(
@@ -887,7 +886,6 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
         const secRes = await pool.query("SELECT data FROM system_config WHERE id = 'super_admin_security' LIMIT 1");
         if (secRes.rows.length > 0 && secRes.rows[0].data) {
           const cfg = typeof secRes.rows[0].data === 'string' ? JSON.parse(secRes.rows[0].data) : secRes.rows[0].data;
-          if (cfg?.masterPin) masterPin = String(cfg.masterPin);
           if (cfg?.email && !superAdminUser) {
             superAdminUser = {
               id: 'usr_super_admin',
@@ -909,9 +907,6 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
         phone: '01306908115',
         role: 'super_admin',
       };
-      if (inMemoryStore.system_config['super_admin_security']?.masterPin) {
-        masterPin = String(inMemoryStore.system_config['super_admin_security'].masterPin);
-      }
     }
 
     return res.json({
@@ -920,7 +915,6 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
       email: superAdminUser.email,
       phone: superAdminUser.phone,
       role: superAdminUser.role,
-      masterPin,
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -929,7 +923,7 @@ router.get('/super-admin/profile', requireSuperAdmin, async (req: AuthenticatedR
 
 router.put('/super-admin/credentials', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, email, phone, password, masterPin } = req.body;
+    const { name, email, phone, password } = req.body;
     const pool = getDbPool();
 
     let passwordHash: string | undefined = undefined;
@@ -940,7 +934,6 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
     const cleanEmail = email ? email.trim().toLowerCase() : undefined;
     const cleanPhone = phone ? phone.trim() : undefined;
     const cleanName = name ? name.trim() : undefined;
-    const cleanPin = masterPin ? String(masterPin).trim() : undefined;
     const now = Date.now();
 
     if (pool) {
@@ -988,14 +981,13 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
         ]);
       }
 
-      // 2. Save master pin or credentials in system_config
+      // 2. Save credentials in system_config
       const secData: any = {
         updatedAt: now,
       };
       if (cleanEmail) secData.email = cleanEmail;
       if (cleanPhone) secData.phone = cleanPhone;
       if (cleanName) secData.name = cleanName;
-      if (cleanPin) secData.masterPin = cleanPin;
 
       await pool.query(`
         INSERT INTO system_config (id, data, updated_at, updated_by)
@@ -1033,7 +1025,6 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
         email: cleanEmail,
         phone: cleanPhone,
         name: cleanName,
-        masterPin: cleanPin,
         updatedAt: now,
       };
     }
@@ -2278,6 +2269,292 @@ router.post('/data/migrate-remote', requireSuperAdmin, async (req: Authenticated
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'রিমোট ডাটা মাইগ্রেশন ব্যর্থ হয়েছে' });
+  }
+});
+
+// ============================================================================
+// LIVE DATABASE VIEWER ENDPOINTS (লাইভ ডাটাবেজ ভিউয়ার)
+// ============================================================================
+
+/**
+ * GET /api/admin/live-db/overview
+ * Real-time connection status, health, and table counts directly from CockroachDB
+ */
+router.get('/live-db/overview', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const pool = getDbPool();
+  const startTime = Date.now();
+
+  if (!pool) {
+    return res.json({
+      connected: false,
+      storageType: 'in-memory',
+      database: 'local_memory',
+      cluster: 'N/A',
+      region: 'N/A',
+      latencyMs: 0,
+      dbEngine: 'In-Memory Store (DB Disconnected)',
+      tables: [
+        { name: 'users', rowCount: inMemoryStore.users?.length || 0, columnCount: 15 },
+        { name: 'customers', rowCount: inMemoryStore.customers?.length || 0, columnCount: 10 },
+        { name: 'transactions', rowCount: inMemoryStore.transactions?.length || 0, columnCount: 12 },
+        { name: 'products', rowCount: inMemoryStore.products?.length || 0, columnCount: 11 },
+        { name: 'expenses', rowCount: inMemoryStore.expenses?.length || 0, columnCount: 9 },
+        { name: 'payments', rowCount: inMemoryStore.payments?.length || 0, columnCount: 14 },
+      ],
+      totalRows: (inMemoryStore.users?.length || 0) + (inMemoryStore.customers?.length || 0) + (inMemoryStore.transactions?.length || 0),
+      timestamp: Date.now(),
+    });
+  }
+
+  try {
+    // 1. Check latency and get DB version
+    const verRes = await pool.query('SELECT version() as ver, current_database() as db, current_user as usr');
+    const latencyMs = Date.now() - startTime;
+    const dbName = verRes.rows[0]?.db || 'defaultdb';
+    const rawVersion = verRes.rows[0]?.ver || 'CockroachDB';
+    const isCockroach = rawVersion.toLowerCase().includes('cockroach');
+
+    // 2. Fetch all public tables and their column counts
+    const tablesRes = await pool.query(`
+      SELECT 
+        t.table_name,
+        COUNT(c.column_name) as col_count
+      FROM information_schema.tables t
+      LEFT JOIN information_schema.columns c 
+        ON t.table_name = c.table_name AND t.table_schema = c.table_schema
+      WHERE t.table_schema = 'public'
+      GROUP BY t.table_name
+      ORDER BY t.table_name ASC
+    `);
+
+    const tableList = tablesRes.rows;
+
+    // 3. Query row counts for each table
+    const tablesWithCounts = await Promise.all(
+      tableList.map(async (row: any) => {
+        const tName = row.table_name;
+        try {
+          // CockroachDB supports safe count query
+          const countRes = await pool.query(`SELECT count(*) as cnt FROM "${tName}"`);
+          return {
+            name: tName,
+            rowCount: parseInt(countRes.rows[0]?.cnt || '0', 10),
+            columnCount: parseInt(row.col_count || '0', 10),
+          };
+        } catch (e: any) {
+          return {
+            name: tName,
+            rowCount: 0,
+            columnCount: parseInt(row.col_count || '0', 10),
+            error: e.message,
+          };
+        }
+      })
+    );
+
+    const totalRows = tablesWithCounts.reduce((acc, t) => acc + t.rowCount, 0);
+
+    return res.json({
+      connected: true,
+      storageType: 'cockroachdb_cloud',
+      database: dbName,
+      cluster: 'twinghisabi-32789',
+      host: 'twinghisabi-32789.j77.aws-ap-southeast-3.cockroachlabs.cloud',
+      port: 26257,
+      region: 'AWS ap-southeast-3 (Jakarta)',
+      ssl: 'TLS v1.3 Verified',
+      latencyMs,
+      dbEngine: isCockroach ? 'CockroachDB Serverless (PostgreSQL Compatible)' : 'PostgreSQL',
+      versionSummary: rawVersion.split(' ')[0] + ' ' + (rawVersion.split(' ')[1] || ''),
+      tables: tablesWithCounts,
+      totalRows,
+      timestamp: Date.now(),
+    });
+  } catch (err: any) {
+    console.error('Error fetching live-db overview:', err);
+    return res.status(500).json({
+      connected: false,
+      error: err.message || 'ডাটাবেজ ওভারভিউ লোড করতে ব্যর্থ',
+    });
+  }
+});
+
+/**
+ * GET /api/admin/live-db/table/:tableName
+ * Paginated rows, schema, and search for any table
+ */
+router.get('/live-db/table/:tableName', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const { tableName } = req.params;
+  const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
+  const limit = Math.min(100, Math.max(5, parseInt(req.query.limit as string || '25', 10)));
+  const offset = (page - 1) * limit;
+  const search = (req.query.search as string || '').trim();
+  const sortBy = (req.query.sortBy as string || '').trim();
+  const sortOrder = (req.query.sortOrder as string || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+  const pool = getDbPool();
+  if (!pool) {
+    return res.status(503).json({ error: 'CockroachDB ডাটাবেজের সাথে সংযোগ বিচ্ছিন্ন' });
+  }
+
+  try {
+    // 1. Verify that table exists in public schema (prevents SQL injection)
+    const tableVerify = await pool.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1",
+      [tableName]
+    );
+
+    if (tableVerify.rows.length === 0) {
+      return res.status(404).json({ error: `টেবিল '${tableName}' ডাটাবেজে পাওয়া যায়নি` });
+    }
+
+    // 2. Fetch table column definitions
+    const colRes = await pool.query(`
+      SELECT 
+        column_name, 
+        data_type, 
+        is_nullable,
+        column_default
+      FROM information_schema.columns 
+      WHERE table_name = $1 AND table_schema = 'public'
+      ORDER BY ordinal_position ASC
+    `, [tableName]);
+
+    const columns = colRes.rows.map((c: any) => ({
+      name: c.column_name,
+      type: c.data_type,
+      isNullable: c.is_nullable === 'YES',
+      defaultVal: c.column_default,
+    }));
+
+    const columnNames = columns.map(c => c.name);
+
+    // 3. Build search condition across text/varchar/uuid columns
+    const textColumns = columns
+      .filter(c => ['character varying', 'text', 'uuid', 'character'].some(t => c.type.includes(t)))
+      .map(c => c.name);
+
+    let whereClause = '';
+    const queryParams: any[] = [];
+
+    if (search && textColumns.length > 0) {
+      const searchConditions = textColumns.map(col => {
+        queryParams.push(`%${search}%`);
+        return `CAST("${col}" AS TEXT) ILIKE $${queryParams.length}`;
+      });
+      whereClause = `WHERE ${searchConditions.join(' OR ')}`;
+    }
+
+    // 4. Count total matching rows
+    const countSql = `SELECT count(*) as total FROM "${tableName}" ${whereClause}`;
+    const countRes = await pool.query(countSql, queryParams);
+    const totalCount = parseInt(countRes.rows[0]?.total || '0', 10);
+
+    // 5. Build order clause
+    let orderClause = '';
+    if (sortBy && columnNames.includes(sortBy)) {
+      orderClause = `ORDER BY "${sortBy}" ${sortOrder}`;
+    } else if (columnNames.includes('registered_at')) {
+      orderClause = `ORDER BY "registered_at" DESC`;
+    } else if (columnNames.includes('created_at')) {
+      orderClause = `ORDER BY "created_at" DESC`;
+    } else if (columnNames.includes('updated_at')) {
+      orderClause = `ORDER BY "updated_at" DESC`;
+    } else if (columnNames.includes('id')) {
+      orderClause = `ORDER BY "id" DESC`;
+    }
+
+    // 6. Fetch paginated rows
+    const dataSql = `SELECT * FROM "${tableName}" ${whereClause} ${orderClause} LIMIT ${limit} OFFSET ${offset}`;
+    const dataRes = await pool.query(dataSql, queryParams);
+
+    // 7. Sanitize sensitive fields (e.g. password_hash)
+    const sanitizedRows = dataRes.rows.map((r: any) => {
+      const clone = { ...r };
+      if (clone.password_hash) {
+        clone.password_hash = '🔒 [Bcrypt Hash Secured]';
+      }
+      return clone;
+    });
+
+    return res.json({
+      tableName,
+      columns,
+      rows: sanitizedRows,
+      totalCount,
+      page,
+      limit,
+      totalPages: Math.ceil(totalCount / limit) || 1,
+    });
+  } catch (err: any) {
+    console.error(`Error querying table ${tableName}:`, err);
+    return res.status(500).json({ error: err.message || 'টেবিল ডাটা ফেচ করতে সমস্যা হয়েছে' });
+  }
+});
+
+/**
+ * POST /api/admin/live-db/query
+ * Safe Read-Only SQL Query Runner (SELECT only)
+ */
+router.post('/live-db/query', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const { sql } = req.body;
+  if (!sql || typeof sql !== 'string' || !sql.trim()) {
+    return res.status(400).json({ error: 'এসকিউএল কুয়েরি লিখুন' });
+  }
+
+  const cleanSql = sql.trim();
+  const upper = cleanSql.toUpperCase();
+
+  // STRICT SAFETY ENFORCEMENT: Only allow SELECT, EXPLAIN, WITH
+  const isAllowedStart = upper.startsWith('SELECT') || upper.startsWith('EXPLAIN') || upper.startsWith('WITH');
+  const forbiddenKeywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'TRUNCATE', 'GRANT', 'REVOKE', 'CREATE', 'REPLACE', 'SET', 'COPY'];
+  
+  const containsForbidden = forbiddenKeywords.some(kw => {
+    const regex = new RegExp(`\\b${kw}\\b`, 'i');
+    return regex.test(cleanSql);
+  });
+
+  if (!isAllowedStart || containsForbidden) {
+    return res.status(403).json({
+      error: '⚠️ নিরাপত্তা সীমাবদ্ধতা: লাইভ ভিউয়ারে শুধুমাত্র পাঠযোগ্য (Read-Only) SELECT কুয়েরি চালানোর অনুমতি রয়েছে। কোনো ডাটা পরিবর্তন বা ডিলিট করা নিষিদ্ধ।',
+    });
+  }
+
+  const pool = getDbPool();
+  if (!pool) {
+    return res.status(503).json({ error: 'CockroachDB ডাটাবেজ অফলাইন' });
+  }
+
+  const startTime = Date.now();
+  try {
+    // Append limit if not present to avoid browser memory crash
+    let safeSql = cleanSql;
+    if (!upper.includes('LIMIT')) {
+      safeSql += ' LIMIT 100';
+    }
+
+    const queryRes = await pool.query(safeSql);
+    const executionTimeMs = Date.now() - startTime;
+
+    const columns = queryRes.fields?.map(f => f.name) || [];
+    const rows = queryRes.rows.map((r: any) => {
+      const clone = { ...r };
+      if (clone.password_hash) clone.password_hash = '🔒 [Bcrypt Hash Secured]';
+      return clone;
+    });
+
+    return res.json({
+      columns,
+      rows,
+      rowCount: rows.length,
+      executionTimeMs,
+    });
+  } catch (err: any) {
+    const executionTimeMs = Date.now() - startTime;
+    return res.status(400).json({
+      error: err.message || 'কুয়েরি এক্সিকিউট করতে ত্রুটি হয়েছে',
+      executionTimeMs,
+    });
   }
 });
 

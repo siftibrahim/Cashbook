@@ -33,7 +33,6 @@ export const SuperAdminSecurityTab: React.FC<SuperAdminSecurityTabProps> = ({
   const [phone, setPhone] = useState('01306908115');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [masterPin, setMasterPin] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -51,7 +50,6 @@ export const SuperAdminSecurityTab: React.FC<SuperAdminSecurityTabProps> = ({
         if (profile.name) setName(profile.name);
         if (profile.email) setEmail(profile.email);
         if (profile.phone) setPhone(profile.phone);
-        if (profile.masterPin) setMasterPin(profile.masterPin);
       }
     } catch (err: any) {
       console.warn('Failed to load super admin profile:', err);
@@ -83,7 +81,6 @@ export const SuperAdminSecurityTab: React.FC<SuperAdminSecurityTabProps> = ({
         name: name.trim(),
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
-        masterPin: masterPin.trim(),
       };
       if (password.trim()) {
         payload.password = password.trim();
@@ -188,24 +185,6 @@ export const SuperAdminSecurityTab: React.FC<SuperAdminSecurityTabProps> = ({
               placeholder="01306908115"
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
             />
-          </div>
-
-          {/* Master PIN */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-              <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-              <span>মাস্টার পিন (Emergency PIN)</span>
-            </label>
-            <input
-              type="text"
-              value={masterPin}
-              onChange={(e) => setMasterPin(e.target.value)}
-              placeholder="মাস্টার পিন লিখুন"
-              className="w-full bg-slate-900 border border-amber-500/40 rounded-xl px-3.5 py-2.5 text-xs text-amber-300 font-mono font-black focus:outline-none focus:border-amber-400"
-            />
-            <p className="text-[10px] text-slate-400">
-              জরুরি পিন দিয়ে যেকোনো সময় অ্যাডমিন প্যানেলে সরাসরি প্রবেশ করতে পারবেন।
-            </p>
           </div>
 
           {/* New Password */}

@@ -39,9 +39,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const [adminType, setAdminType] = useState<'super' | 'staff'>('super');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [pin, setPin] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [mode, setMode] = useState<'pin' | 'password'>('password');
 
   // Staff state
   const [staffIdentifier, setStaffIdentifier] = useState('');
@@ -71,42 +69,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       localStorage.setItem('twing_device_fingerprint', fp);
     }
     return fp;
-  };
-
-  const handleSuperAdminPinSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-
-    const superAdminIdentifier = 'super_admin_pin_auth';
-    const rateLimit = checkLoginRateLimit(superAdminIdentifier);
-    if (rateLimit.isLocked) {
-      setErrorMsg(`⚠️ অতিরিক্ত ভুল চেষ্টার কারণে পিন লগইন লক করা হয়েছে। দয়া করে ${rateLimit.remainingMinutes} মিনিট পর চেষ্টা করুন।`);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const cleanPin = pin.trim();
-      const res = await authApi.adminLogin({ pin: cleanPin, authType: 'pin' });
-      if (res.requires2FA) {
-        setTwoFaRole('super_admin');
-        setShow2FAStep(true);
-        setTwoFaSessionToken(res.twoFaSessionToken || '');
-        setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
-        onShowToast('🔐 আপনার নিবন্ধিত মোবাইল নম্বরে 2FA OTP কোড পাঠানো হয়েছে!');
-        return;
-      }
-      setErrorMsg('সুপার অ্যাডমিন সিকিউরিটির জন্য ২FA ওটিপি যাচাই প্রয়োজন।');
-    } catch (err: any) {
-      const attempt = recordFailedLoginAttempt(superAdminIdentifier);
-      if (attempt.isLockedNow) {
-        setErrorMsg('❌ ৫ বার ভুল পিন দেওয়ায় সিকিউরিটির জন্য ১৫ মিনিটের লক সক্রিয় করা হয়েছে!');
-      } else {
-        setErrorMsg(`ভুল অ্যাডমিন পিন কোড! সঠিক সিক্রেট পিন দিন। (বাকি সুযোগ: ${attempt.attemptsLeft} বার)`);
-      }
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleSuperAdminPasswordSubmit = async (e: React.FormEvent) => {
@@ -395,28 +357,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 </div>
               </form>
             ) : (
-              <>
-                {/* PIN vs Password Selector */}
-                <div className="flex justify-center gap-3 text-xs font-bold text-slate-500 pb-1">
-                  <button
-                    type="button"
-                    onClick={() => setMode('password')}
-                    className={`cursor-pointer ${mode === 'password' ? 'text-teal-800 underline' : 'hover:text-slate-800'}`}
-                  >
-                    মোবাইল নম্বর / ইমেইল ও পাসওয়ার্ড
-                  </button>
-                  <span>•</span>
-                  <button
-                    type="button"
-                    onClick={() => setMode('pin')}
-                    className={`cursor-pointer ${mode === 'pin' ? 'text-teal-800 underline' : 'hover:text-slate-800'}`}
-                  >
-                    মাস্টার পিন
-                  </button>
-                </div>
-
-                {mode === 'password' ? (
-                  <form onSubmit={handleSuperAdminPasswordSubmit} className="space-y-3">
+              <form onSubmit={handleSuperAdminPasswordSubmit} className="space-y-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     সুপার অ্যাডমিন মোবাইল নম্বর বা ইমেইল <span className="text-red-500">*</span>
@@ -472,40 +413,9 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                   )}
                 </button>
               </form>
-            ) : (
-              <form onSubmit={handleSuperAdminPinSubmit} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    মাস্টার পিন কোড দিন <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Key className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="password"
-                      required
-                      autoFocus
-                      maxLength={6}
-                      value={pin}
-                      onChange={(e) => setPin(e.target.value)}
-                      placeholder="PIN লিখুন"
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-center text-base tracking-widest font-mono font-black focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs sm:text-sm cursor-pointer"
-                >
-                  <span>পিন যাচাই ও প্রবেশ</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </form>
             )}
-          </>
+          </div>
         )}
-      </div>
-    )}
 
     {/* STAFF FORM */}
         {adminType === 'staff' && (

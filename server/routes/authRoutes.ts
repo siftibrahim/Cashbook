@@ -523,7 +523,6 @@ router.post('/login', async (req, res) => {
     // ----------------------------------------------------
     // CHECK 1: SUPER ADMIN IDENTIFIER & AUTHENTICATION
     // ----------------------------------------------------
-    let customPin = '';
     let superAdminEmail = 'siftibrahim@gmail.com';
     let superAdminPhone = '01306908115';
     let superAdminHash = '';
@@ -543,12 +542,6 @@ router.post('/login', async (req, res) => {
           }
           if (row.password_hash) superAdminHash = row.password_hash;
         }
-
-        const secRes = await pool.query("SELECT data FROM system_config WHERE id = 'super_admin_security' LIMIT 1");
-        if (secRes.rows.length > 0 && secRes.rows[0].data) {
-          const cfg = typeof secRes.rows[0].data === 'string' ? JSON.parse(secRes.rows[0].data) : secRes.rows[0].data;
-          if (cfg?.masterPin) customPin = String(cfg.masterPin).trim();
-        }
       } catch (e) {
         console.warn('DB error checking super admin info:', e);
       }
@@ -558,9 +551,6 @@ router.post('/login', async (req, res) => {
         if (memAdmin.email) superAdminEmail = memAdmin.email.toLowerCase();
         if (memAdmin.phone) superAdminPhone = memAdmin.phone;
         if (memAdmin.password_hash) superAdminHash = memAdmin.password_hash;
-      }
-      if (inMemoryStore.system_config['super_admin_security']?.masterPin) {
-        customPin = String(inMemoryStore.system_config['super_admin_security'].masterPin).trim();
       }
     }
 
@@ -575,12 +565,10 @@ router.post('/login', async (req, res) => {
     if (isSuperAdminIdentifier) {
       let isSuperValid = false;
 
-      // Check PIN or Password strictly with no default passwords
-      if (customPin && (await compareAnyPasswordFormat(rawPassword, customPin))) {
-        isSuperValid = true;
-      } else if (superAdminHash) {
+      // Check Password strictly with NO default passwords and NO master pins
+      if (superAdminHash) {
         isSuperValid = await compareAnyPasswordFormat(rawPassword, superAdminHash);
-      } else if (!superAdminHash && !customPin) {
+      } else {
         // Owner is logging in with their genuine password for the first time
         // Hash and store the genuine password so only this password works! NO default password!
         const newHash = await bcrypt.hash(normalizeBanglaDigits(rawPassword), 10);
@@ -877,11 +865,9 @@ router.post('/login', async (req, res) => {
  */
 router.post('/admin-login', async (req, res) => {
   try {
-    const { email, password, pin, authType, identifier, phone } = req.body;
+    const { email, password, identifier, phone } = req.body;
     const pool = getDbPool();
 
-    // Check system_config for custom super admin pin & email
-    let customPin = '';
     let superAdminEmail = DEFAULT_ADMIN_EMAIL;
     let superAdminName = 'সুপার অ্যাডমিন';
     let superAdminPhone = '01306908115';
@@ -906,7 +892,6 @@ router.post('/admin-login', async (req, res) => {
         if (secRes.rows.length > 0) {
           const rawVal = secRes.rows[0].data;
           const cfg = typeof rawVal === 'string' ? JSON.parse(rawVal) : rawVal;
-          if (cfg?.masterPin) customPin = String(cfg.masterPin).trim();
           if (cfg?.email && !adminRes.rows.length) superAdminEmail = cfg.email.toLowerCase();
           if (cfg?.phone && !adminRes.rows.length) superAdminPhone = cfg.phone;
         }
@@ -921,9 +906,6 @@ router.post('/admin-login', async (req, res) => {
         if (memAdmin.phone) superAdminPhone = memAdmin.phone;
         if (memAdmin.password_hash) superAdminHash = memAdmin.password_hash;
       }
-      if (inMemoryStore.system_config['super_admin_security']?.masterPin) {
-        customPin = String(inMemoryStore.system_config['super_admin_security'].masterPin).trim();
-      }
     }
 
     // Rate Limiting Protection on Super Admin Login
@@ -937,17 +919,8 @@ router.post('/admin-login', async (req, res) => {
 
     let isCredentialValid = false;
 
-    // PIN Mode
-    if (authType === 'pin' || (pin && !password)) {
-      const cleanPin = (pin || '').trim();
-      if (customPin && cleanPin === customPin) {
-        isCredentialValid = true;
-      } else {
-        return res.status(401).json({ error: '❌ ভুল অ্যাডমিন পিন কোড!' });
-      }
-    } else {
-      // Password Mode - Supports both phone (01306908115) and email (siftibrahim@gmail.com)
-      const rawId = (identifier || email || phone || '').trim();
+    // Password Mode (No default PIN, no master PIN) - Supports both phone and email
+    const rawId = (identifier || email || phone || '').trim();
       const cleanId = rawId.toLowerCase();
       const cleanPhone = normalizePhone(rawId);
       const cleanPassword = (password || '').trim();
@@ -983,7 +956,6 @@ router.post('/admin-login', async (req, res) => {
       if (!isCredentialValid) {
         return res.status(401).json({ error: '❌ সুপার অ্যাডমিন পাসওয়ার্ড সঠিক নয়।' });
       }
-    }
 
     clearRateLimit(rateLimitKey);
 

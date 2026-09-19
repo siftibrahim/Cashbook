@@ -68,6 +68,7 @@ import { TagadaTemplatesTab } from './TagadaTemplatesTab';
 import { AdsManagementTab } from './AdsManagementTab';
 import { SuperAdminSecurityTab } from './SuperAdminSecurityTab';
 import { DataManagementTab } from './DataManagementTab';
+import { LiveDbViewerTab } from './LiveDbViewerTab';
 import {
   LayoutDashboard,
   Users,
@@ -97,6 +98,7 @@ import {
   Sliders,
   Wallet,
   Database,
+  Layers,
   Plug,
   AlertTriangle,
   ExternalLink,
@@ -372,9 +374,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'app_update_manage'),
     },
     {
+      id: 'live_db_viewer',
+      label: 'লাইভ ডাটাবেজ ভিউয়ার',
+      icon: Database,
+      badgeColor: 'bg-emerald-600 text-white',
+      isAllowed: isSuperAdmin,
+      isSuperOnly: true,
+    },
+    {
       id: 'data_management',
       label: 'সিস্টেম ডাটা ও ব্যাকআপ',
-      icon: Database,
+      icon: Layers,
       isAllowed: isSuperAdmin,
       isSuperOnly: true,
     },
@@ -424,21 +434,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         {/* Right Section: Super Admin Gold Pill, Store Switch & Logout */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-          {/* Neon DB Status & Connect/Refresh Button */}
+          {/* Neon / CockroachDB Status & Connect/Refresh Button */}
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() => setIsDbModalOpen(true)}
+              onClick={() => {
+                if (isSuperAdmin) {
+                  setActiveTab('live_db_viewer');
+                } else {
+                  setIsDbModalOpen(true);
+                }
+              }}
               className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl text-[10px] sm:text-xs font-bold border flex items-center gap-1.5 transition cursor-pointer active:scale-95 shrink-0 ${
                 dbStatus?.connected
                   ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25'
                   : 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30 animate-pulse'
               }`}
-              title="Neon PostgreSQL ডাটাবেজ কনফিগারেশন"
+              title="লাইভ ডাটাবেজ ভিউয়ার ও কনফিগারেশন"
             >
               <Database className="w-3.5 h-3.5 text-emerald-400" />
               <span className="font-bold">
-                {dbStatus?.connected ? `Neon PG (${users.length})` : '🔌 ডাটাবেজ কানেক্ট'}
+                {dbStatus?.connected ? `CockroachDB (${users.length})` : '🔌 ডাটাবেজ কানেক্ট'}
               </span>
             </button>
 
@@ -749,10 +765,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             />
           )}
 
+          {activeTab === 'live_db_viewer' && isSuperAdmin && (
+            <LiveDbViewerTab onShowToast={showToast} />
+          )}
+
           {activeTab === 'data_management' && isSuperAdmin && (
             <DataManagementTab
               onShowToast={showToast}
               onRefreshAll={checkDbAndRefresh}
+              onNavigateToLiveDb={() => setActiveTab('live_db_viewer')}
             />
           )}
 
@@ -869,18 +890,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </p>
                 </div>
 
-                <div className="pt-2 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsDbModalOpen(false);
-                      setActiveTab('data_management');
-                    }}
-                    className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-semibold underline cursor-pointer"
-                  >
-                    <Database className="w-3.5 h-3.5" />
-                    <span>সরাসরি ডাটা ইমপোর্ট ও ব্যাকআপে যান</span>
-                  </button>
+                <div className="pt-2 flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDbModalOpen(false);
+                        setActiveTab('live_db_viewer');
+                      }}
+                      className="flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-bold underline cursor-pointer"
+                    >
+                      <Database className="w-3.5 h-3.5" />
+                      <span>লাইভ ডাটাবেজ ভিউয়ার দেখুন</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDbModalOpen(false);
+                        setActiveTab('data_management');
+                      }}
+                      className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-300 font-semibold underline cursor-pointer"
+                    >
+                      <span>ব্যাকআপ ও ইমপোর্ট</span>
+                    </button>
+                  </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"

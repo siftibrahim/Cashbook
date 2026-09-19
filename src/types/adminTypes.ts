@@ -483,6 +483,7 @@ export type AdminTab =
   | 'notifications'
   | 'announcements'
   | 'app_update'
+  | 'live_db_viewer'
   | 'data_management'
   | 'activity_logs';
 

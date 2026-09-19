@@ -1570,6 +1570,60 @@ export const adminApi = {
     });
   },
 
+  // ---------------- LIVE DB VIEWER API ----------------
+  async getLiveDbOverview(): Promise<{
+    connected: boolean;
+    storageType?: string;
+    database: string;
+    cluster?: string;
+    host?: string;
+    port?: number;
+    region?: string;
+    ssl?: string;
+    latencyMs: number;
+    dbEngine: string;
+    versionSummary?: string;
+    tables: Array<{ name: string; rowCount: number; columnCount: number; error?: string }>;
+    totalRows: number;
+    timestamp: number;
+    error?: string;
+  }> {
+    return await apiRequest('/admin/live-db/overview');
+  },
+
+  async getLiveDbTable(
+    tableName: string,
+    params: { page?: number; limit?: number; search?: string; sortBy?: string; sortOrder?: 'ASC' | 'DESC' } = {}
+  ): Promise<{
+    tableName: string;
+    columns: Array<{ name: string; type: string; isNullable: boolean; defaultVal?: any }>;
+    rows: any[];
+    totalCount: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.search) query.set('search', params.search);
+    if (params.sortBy) query.set('sortBy', params.sortBy);
+    if (params.sortOrder) query.set('sortOrder', params.sortOrder);
+    return await apiRequest(`/admin/live-db/table/${encodeURIComponent(tableName)}?${query.toString()}`);
+  },
+
+  async runLiveDbQuery(sql: string): Promise<{
+    columns: string[];
+    rows: any[];
+    rowCount: number;
+    executionTimeMs: number;
+  }> {
+    return await apiRequest('/admin/live-db/query', {
+      method: 'POST',
+      body: JSON.stringify({ sql }),
+    });
+  },
+
   async getSupportThreads(): Promise<SupportThread[]> {
     try {
       const res = await apiRequest<{ threads: SupportThread[] }>('/admin/support/threads');
@@ -1606,7 +1660,7 @@ export const adminApi = {
     }
   },
 
-  async getSuperAdminProfile(): Promise<{ id: string; name: string; email: string; phone: string; role: string; masterPin?: string }> {
+  async getSuperAdminProfile(): Promise<{ id: string; name: string; email: string; phone: string; role: string }> {
     try {
       return await apiRequest('/admin/super-admin/profile');
     } catch {
@@ -1625,7 +1679,6 @@ export const adminApi = {
     email?: string;
     phone?: string;
     password?: string;
-    masterPin?: string;
   }): Promise<{ message: string; updatedEmail?: string }> {
     return await apiRequest('/admin/super-admin/credentials', {
       method: 'PUT',

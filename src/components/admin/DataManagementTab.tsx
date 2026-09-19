@@ -22,11 +22,13 @@ import {
 interface DataManagementTabProps {
   onShowToast: (msg: string) => void;
   onRefreshAll?: () => void;
+  onNavigateToLiveDb?: () => void;
 }
 
 export const DataManagementTab: React.FC<DataManagementTabProps> = ({
   onShowToast,
   onRefreshAll,
+  onNavigateToLiveDb,
 }) => {
   const [summary, setSummary] = useState<any>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
@@ -295,10 +297,37 @@ export const DataManagementTab: React.FC<DataManagementTabProps> = ({
               স্টোরেজ মোড
             </div>
             <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300 truncate">
-              {summary?.databaseConnected ? 'PostgreSQL Active' : 'স্থানীয় ডিস্ক সুরক্ষিত'}
+              {summary?.databaseConnected ? 'CockroachDB লাইভ' : 'ক্লাউড সুরক্ষিত'}
             </div>
           </div>
         </div>
+
+        {/* Live DB Viewer Callout Banner */}
+        {onNavigateToLiveDb && (
+          <div className="mt-4 p-3.5 bg-gradient-to-r from-teal-50 via-emerald-50 to-teal-50 border border-teal-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-teal-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                <Database className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-black text-teal-950">
+                  সরাসরি ডাটাবেজ রেকর্ড দেখতে চান? (Live DB Viewer)
+                </h4>
+                <p className="text-[11px] text-teal-700">
+                  CockroachDB-এর ২৫টি টেবিল, সকল ইউজার ও ট্রানজেকশন রো বাই রো দেখতে লাইভ ভিউয়ার ব্যবহার করুন।
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onNavigateToLiveDb}
+              className="px-3.5 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer"
+            >
+              <span>লাইভ ভিউয়ার খুলুন</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Success Notification Card */}
