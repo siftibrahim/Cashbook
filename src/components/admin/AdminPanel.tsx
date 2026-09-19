@@ -618,35 +618,59 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   showToast('⚠️ পেমেন্ট অনুমোদনের পারমিশন আপনার অ্যাকাউন্টে নেই');
                   return;
                 }
+                setPayments((prev) =>
+                  prev.map((p) =>
+                    p.id === id
+                      ? { ...p, status: 'approved', approvedAt: Date.now(), adminNotes: note || p.adminNotes }
+                      : p
+                  )
+                );
                 await approvePayment(id, note);
+                showToast('✅ পেমেন্ট সফলভাবে অনুমোদিত হয়েছে');
               }}
               onRejectPayment={async (id, reason) => {
                 if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
                   showToast('⚠️ পেমেন্ট বাতিলের পারমিশন আপনার অ্যাকাউন্টে নেই');
                   return;
                 }
+                setPayments((prev) =>
+                  prev.map((p) => (p.id === id ? { ...p, status: 'rejected', rejectedReason: reason } : p))
+                );
                 await rejectPayment(id, reason);
+                showToast('✅ পেমেন্ট বাতিল করা হয়েছে');
               }}
               onProcessRefund={async (id, status, reason, amount) => {
                 if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
                   showToast('⚠️ রিফান্ড প্রসেস করার পারমিশন আপনার অ্যাকাউন্টে নেই');
                   return;
                 }
+                setPayments((prev) =>
+                  prev.map((p) =>
+                    p.id === id
+                      ? { ...p, refundStatus: status as any, refundReason: reason, refundAmount: amount }
+                      : p
+                  )
+                );
                 await processPaymentRefund(id, status, reason, amount);
+                showToast('✅ রিফান্ড সফলভাবে সম্পন্ন হয়েছে');
               }}
               onAddManualPayment={async (payment) => {
                 if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
                   showToast('⚠️ অফলাইন পেমেন্ট এন্ট্রি করার পারমিশন নেই');
                   return;
                 }
+                setPayments((prev) => [payment, ...prev.filter((p) => p.id !== payment.id)]);
                 await savePaymentRecord(payment);
+                showToast('✅ অফলাইন পেমেন্ট সফলভাবে সংরক্ষিত হয়েছে');
               }}
               onDeletePayment={async (id) => {
                 if (!isSuperAdmin) {
                   showToast('⚠️ শুধুমাত্র সুপার অ্যাডমিন পেমেন্ট রেকর্ড মুছতে পারবেন');
                   return;
                 }
+                setPayments((prev) => prev.filter((p) => p.id !== id));
                 await deletePaymentRecord(id);
+                showToast('✅ পেমেন্ট রেকর্ড মুছে ফেলা হয়েছে');
               }}
               onSavePaymentSettings={async (newSettings) => {
                 if (!isSuperAdmin) {

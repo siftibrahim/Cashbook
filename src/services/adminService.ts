@@ -296,43 +296,29 @@ export const ALL_STAFF_PERMISSION_CATEGORIES: StaffPermissionCategory[] = [
 
 export const INITIAL_USERS: AppUser[] = [];
 
-export const INITIAL_PAYMENTS: PaymentRecord[] = [
-  {
-    id: 'pay_101',
-    userId: 'usr_2',
-    userName: 'মোঃ তারিকুল ইসলাম',
-    userPhone: '01712345678',
-    shopName: 'বিসমিল্লাহ ভ্যারাইটিজ স্টোর',
-    planId: 'monthly',
-    planName: 'মাসিক স্ট্যান্ডার্ড প্যাক (৩০ দিন)',
-    durationDays: 30,
-    amount: 199,
-    paymentMethod: 'bkash',
-    trxId: 'BK89X77Q12',
-    senderNumber: '01712345678',
-    status: 'approved',
-    createdAt: NOW - ONE_DAY_MS * 12,
-    approvedAt: NOW - ONE_DAY_MS * 12,
-    adminNotes: 'বিকাশ স্টেটমেন্ট চেক করে অনুমোদিত করা হয়েছে।',
-  },
-  {
-    id: 'pay_102',
-    userId: 'usr_3',
-    userName: 'আব্দুল কাদের',
-    userPhone: '01898765432',
-    shopName: 'কাদের ট্রেডার্স ও পাইকারি আড়ত',
-    planId: 'yearly',
-    planName: '১ বছরের প্রো প্যাক (৩৬৫ দিন)',
-    durationDays: 365,
-    amount: 1699,
-    paymentMethod: 'nagad',
-    trxId: 'NG44P90L66',
-    senderNumber: '01898765432',
-    status: 'pending',
-    createdAt: NOW - 1000 * 60 * 45,
-    adminNotes: 'নতুন পেমেন্ট সাবমিশন। নগদ ভেরিফিকেশন প্রয়োজন।',
-  },
-];
+export const INITIAL_PAYMENTS: PaymentRecord[] = [];
+
+// Automatic purge of mock/demo payments from localStorage if any exist
+try {
+  const pKey = 'twing_admin_payments';
+  const rawP = localStorage.getItem(pKey);
+  if (rawP) {
+    const list = JSON.parse(rawP);
+    if (Array.isArray(list)) {
+      const filtered = list.filter(
+        (p: any) =>
+          p &&
+          p.id !== 'pay_101' &&
+          p.id !== 'pay_102' &&
+          p.trxId !== 'BK89X77Q12' &&
+          p.trxId !== 'NG44P90L66'
+      );
+      if (filtered.length !== list.length) {
+        localStorage.setItem(pKey, JSON.stringify(filtered));
+      }
+    }
+  }
+} catch {}
 
 export const INITIAL_NOTIFICATIONS: AdminNotification[] = [
   {
@@ -574,20 +560,49 @@ export async function triggerUserPasswordReset(email: string, userName?: string)
 // ----------------------------------------------------
 // 2. PAYMENTS MANAGEMENT
 // ----------------------------------------------------
+
+const paymentSubscribers = new Set<(payments: PaymentRecord[]) => void>();
+
+function sanitizePaymentList(list: PaymentRecord[]): PaymentRecord[] {
+  if (!Array.isArray(list)) return [];
+  return list.filter(
+    (p) =>
+      p &&
+      p.id !== 'pay_101' &&
+      p.id !== 'pay_102' &&
+      p.trxId !== 'BK89X77Q12' &&
+      p.trxId !== 'NG44P90L66'
+  );
+}
+
+function notifyPaymentSubscribers(payments: PaymentRecord[]) {
+  const clean = sanitizePaymentList(payments);
+  paymentSubscribers.forEach((cb) => {
+    try {
+      cb(clean);
+    } catch (e) {
+      console.error('Error in payment subscriber:', e);
+    }
+  });
+}
+
 export function subscribeToPayments(
   onUpdate: (payments: PaymentRecord[]) => void,
   onError?: (err: Error) => void
 ) {
-  const cached = getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS);
+  paymentSubscribers.add(onUpdate);
+  const rawCached = getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS);
+  const cached = sanitizePaymentList(rawCached);
   onUpdate(cached);
 
   let isSubscribed = true;
   const fetchPayments = async () => {
     try {
       const payments = await adminApi.getPayments();
-      if (isSubscribed && payments.length > 0) {
-        setCached(STORAGE_KEYS.PAYMENTS, payments);
-        onUpdate(payments);
+      if (isSubscribed) {
+        const clean = sanitizePaymentList(payments || []);
+        setCached(STORAGE_KEYS.PAYMENTS, clean);
+        notifyPaymentSubscribers(clean);
       }
     } catch (err: any) {
       if (onError) onError(err);
@@ -595,9 +610,10 @@ export function subscribeToPayments(
   };
 
   fetchPayments();
-  const interval = setInterval(fetchPayments, 8000);
+  const interval = setInterval(fetchPayments, 6000);
   return () => {
     isSubscribed = false;
+    paymentSubscribers.delete(onUpdate);
     clearInterval(interval);
   };
 }
@@ -605,6 +621,11 @@ export function subscribeToPayments(
 export const subscribeToAdminPayments = subscribeToPayments;
 
 export async function savePaymentRecord(record: PaymentRecord): Promise<void> {
+  const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
+  const updated = [record, ...list.filter((p) => p.id !== record.id)];
+  setCached(STORAGE_KEYS.PAYMENTS, updated);
+  notifyPaymentSubscribers(updated);
+
   try {
     await subscriptionApi.submitPayment(record);
   } catch (err) {
@@ -613,11 +634,34 @@ export async function savePaymentRecord(record: PaymentRecord): Promise<void> {
 }
 
 export async function deletePaymentRecord(paymentId: string): Promise<void> {
-  const list = getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS);
-  setCached(STORAGE_KEYS.PAYMENTS, list.filter((p) => p.id !== paymentId));
+  const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
+  const updated = list.filter((p) => p.id !== paymentId);
+  setCached(STORAGE_KEYS.PAYMENTS, updated);
+  notifyPaymentSubscribers(updated);
+
+  try {
+    await adminApi.deletePayment(paymentId);
+  } catch (err) {
+    console.error('Failed to delete payment on backend:', err);
+  }
 }
 
 export async function approvePayment(paymentId: string, adminNotes?: string): Promise<void> {
+  const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
+  const updated = list.map((p) => {
+    if (p.id === paymentId) {
+      return {
+        ...p,
+        status: 'approved' as const,
+        approvedAt: Date.now(),
+        adminNotes: adminNotes || p.adminNotes || 'অনুমোদিত করা হয়েছে',
+      };
+    }
+    return p;
+  });
+  setCached(STORAGE_KEYS.PAYMENTS, updated);
+  notifyPaymentSubscribers(updated);
+
   try {
     await adminApi.approvePayment(paymentId, adminNotes);
   } catch (err) {
@@ -626,6 +670,20 @@ export async function approvePayment(paymentId: string, adminNotes?: string): Pr
 }
 
 export async function rejectPayment(paymentId: string, rejectedReason: string): Promise<void> {
+  const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
+  const updated = list.map((p) => {
+    if (p.id === paymentId) {
+      return {
+        ...p,
+        status: 'rejected' as const,
+        rejectedReason: rejectedReason || 'বাতিল করা হয়েছে',
+      };
+    }
+    return p;
+  });
+  setCached(STORAGE_KEYS.PAYMENTS, updated);
+  notifyPaymentSubscribers(updated);
+
   try {
     await adminApi.rejectPayment(paymentId, rejectedReason);
   } catch (err) {
@@ -639,6 +697,27 @@ export async function processPaymentRefund(
   refundReason?: string,
   refundAmount?: number
 ): Promise<void> {
+  const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
+  const updated = list.map((p) => {
+    if (p.id === paymentId) {
+      return {
+        ...p,
+        refundStatus: refundStatus as any,
+        refundReason,
+        refundAmount: refundAmount || p.amount,
+      };
+    }
+    return p;
+  });
+  setCached(STORAGE_KEYS.PAYMENTS, updated);
+  notifyPaymentSubscribers(updated);
+
+  try {
+    await adminApi.refundPayment(paymentId, refundStatus, refundReason, refundAmount);
+  } catch (err) {
+    console.error('Failed to refund payment on backend:', err);
+  }
+
   await logAdminActivity('PAYMENT_REFUND', 'Payment', `পেমেন্ট রিফান্ড: ${refundReason || refundStatus}`, paymentId);
 }
 

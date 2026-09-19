@@ -1117,6 +1117,35 @@ export async function initializeDatabaseSchema() {
     // Seed default admin and system configs if not present
     await seedDefaultDataInPostgres(client);
 
+    // Sync all database users to inMemoryStore so local cache is always pristine and identical to DB
+    try {
+      const dbUsersRes = await client.query('SELECT * FROM users');
+      if (dbUsersRes.rows.length > 0) {
+        inMemoryStore.users = dbUsersRes.rows.map(u => ({
+          id: u.id,
+          name: u.name,
+          phone: u.phone,
+          email: u.email,
+          password_hash: u.password_hash,
+          shop_name: u.shop_name,
+          business_type: u.business_type,
+          address: u.address,
+          role: u.role,
+          status: u.status,
+          subscriptionPlan: u.subscription_plan,
+          subscriptionStatus: u.subscription_status,
+          subscriptionExpiresAt: Number(u.subscription_expires_at) || 0,
+          registered_at: Number(u.registered_at) || 0,
+          last_active_at: Number(u.last_active_at) || 0,
+          notes: u.notes,
+        }));
+        saveInMemoryStoreToDisk();
+        console.log(`✅ Synced ${dbUsersRes.rows.length} real database user(s) into local store cache.`);
+      }
+    } catch (syncErr) {
+      console.warn('⚠️ Sync DB users to local store warning:', syncErr);
+    }
+
     client.release();
     client = null;
     isDbConnected = true;

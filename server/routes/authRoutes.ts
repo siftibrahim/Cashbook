@@ -655,12 +655,12 @@ router.post('/login', async (req, res) => {
         const result = await pool.query(
           `SELECT * FROM users 
            WHERE (
-             (length($1) > 3 AND LOWER(TRIM(email)) = $1)
-             OR (length($2) >= 6 AND REGEXP_REPLACE(phone, '[^0-9]', '', 'g') = $2)
-             OR (length($3) >= 10 AND REGEXP_REPLACE(phone, '[^0-9]', '', 'g') LIKE '%' || $3)
-             OR (length($4) > 3 AND LOWER(TRIM(email)) = $4)
+             LOWER(TRIM(email)) = $1
+             OR REGEXP_REPLACE(phone, '[^0-9]', '', 'g') = $2
+             OR ($3 != '' AND (REGEXP_REPLACE(phone, '[^0-9]', '', 'g') LIKE '%' || $3 OR phone ILIKE '%' || $3 || '%'))
+             OR LOWER(TRIM(email)) = $4
              OR id = $5
-             OR (length($5) > 2 AND LOWER(TRIM(name)) = LOWER(TRIM($5)))
+             OR ($5 != '' AND LOWER(TRIM(name)) = LOWER(TRIM($5)))
            ) 
            ORDER BY registered_at DESC
            LIMIT 1`,
@@ -1606,21 +1606,10 @@ router.post('/send-reset-otp', async (req, res) => {
       );
     }
 
-    // If still not found, check if it is a valid 11-digit or 10-digit mobile number
-    if (!targetUser && cleanPhone && cleanPhone.length >= 10) {
-      targetUser = {
-        id: 'usr_' + Date.now().toString(36),
-        name: 'দোকান মালিক',
-        phone: cleanPhone.startsWith('0') ? cleanPhone : '0' + cleanPhone,
-        email: cleanPhone + '@twing.com',
-        role: 'user',
-      };
-    }
-
     // Final fallback validation
     if (!targetUser) {
-      return res.status(400).json({
-        error: `❌ "${rawTarget}" নম্বরটি শনাক্ত করা যায়নি। সঠিক ১১ ডিজিটের মোবাইল নম্বর (যেমন: 017XXXXXXXX) লিখুন।`,
+      return res.status(404).json({
+        error: `❌ "${rawTarget}" নম্বরটি দিয়ে কোনো নিবন্ধিত দোকান অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে আপনার সঠিক রেজিস্টার্ড মোবাইল নম্বর দিন অথবা নতুন অ্যাকাউন্ট নিবন্ধন করুন।`,
       });
     }
 
@@ -1824,50 +1813,42 @@ router.post('/reset-password-with-otp', async (req, res) => {
       cleanEmail === 'admin@twing.com' ||
       cleanEmail === 'siftibrahim@gmail.com';
 
+    let updatedDbUser: any = null;
+
     // Update in PostgreSQL
     if (pool) {
       try {
         if (isSuperAdminPhone) {
           // Update super admin user only
-          await pool.query(
+          const supRes = await pool.query(
             `UPDATE users SET password_hash = $1, last_active_at = $2 
-             WHERE id = 'usr_super_admin' AND role = 'super_admin'`,
+             WHERE id = 'usr_super_admin' AND role = 'super_admin'
+             RETURNING id, name, phone, email, shop_name, role, status`,
             [newHash, now]
           );
+          if (supRes.rows.length > 0) {
+            updatedDbUser = supRes.rows[0];
+          }
         } else {
           // Update regular user by phone or email (Strictly NEVER touch super_admin or usr_super_admin)
-          const clean10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+          const clean10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : '';
           const updateRes = await pool.query(
             `UPDATE users SET password_hash = $1, role = 'user', last_active_at = $2 
              WHERE (
                phone = $3 
                OR phone = $4 
                OR REGEXP_REPLACE(phone, '[^0-9]', '', 'g') = $3
-               OR REGEXP_REPLACE(phone, '[^0-9]', '', 'g') LIKE '%' || $5
-               OR phone ILIKE '%' || $5 || '%'
+               OR ($5 != '' AND (REGEXP_REPLACE(phone, '[^0-9]', '', 'g') LIKE '%' || $5 OR phone ILIKE '%' || $5 || '%'))
                OR LOWER(TRIM(email)) = $6
              )
              AND id != 'usr_super_admin'
-             AND (role != 'super_admin' OR role IS NULL)`,
+             AND (role != 'super_admin' OR role IS NULL)
+             RETURNING id, name, phone, email, shop_name, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at`,
             [newHash, now, cleanPhone, phone, clean10, cleanEmail]
           );
 
-          let updatedRows = updateRes.rowCount || 0;
-
-          if (updatedRows === 0 && cleanPhone) {
-            // Insert regular user with role = 'user'
-            const newUserId = 'usr_' + Date.now().toString(36);
-            await pool.query(
-              `INSERT INTO users (id, name, phone, email, shop_name, password_hash, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at, last_active_at)
-               VALUES ($1, 'দোকান মালিক', $2, $3, 'আমার দোকান', $4, 'user', 'active', 'ফ্রি ট্রায়াল (১৪ দিন)', 'trial', $5, $6, $6)`,
-              [newUserId, cleanPhone, cleanPhone + '@twing.com', newHash, now + 14 * 86400000, now]
-            );
-            await pool.query(
-              `INSERT INTO store_profiles (id, user_id, name, owner, phone, address, currency_symbol, theme_color)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               ON CONFLICT (id) DO NOTHING`,
-              ['store_' + newUserId, newUserId, 'আমার দোকান', 'দোকান মালিক', cleanPhone, 'বাংলাদেশ', '৳', 'teal']
-            );
+          if (updateRes.rows.length > 0) {
+            updatedDbUser = updateRes.rows[0];
           }
         }
 
@@ -1887,6 +1868,7 @@ router.post('/reset-password-with-otp', async (req, res) => {
         matchedMemUser = true;
       } else if (!isSuperAdminPhone && u.id !== 'usr_super_admin') {
         if (
+          (updatedDbUser && u.id === updatedDbUser.id) ||
           u.phone === cleanPhone ||
           u.phone === phone ||
           (cleanPhone.length >= 10 && u.phone && normalizePhone(u.phone) === cleanPhone)
@@ -1894,28 +1876,42 @@ router.post('/reset-password-with-otp', async (req, res) => {
           u.password_hash = newHash;
           u.password = newPassword;
           u.role = 'user';
+          if (updatedDbUser) {
+            u.id = updatedDbUser.id;
+            u.name = updatedDbUser.name;
+            u.shop_name = updatedDbUser.shop_name;
+            u.email = updatedDbUser.email;
+          }
           matchedMemUser = true;
         }
       }
     });
 
-    if (!matchedMemUser && !isSuperAdminPhone) {
+    // If updated in DB but not in memory store, sync it into memory store with REAL details
+    if (!matchedMemUser && updatedDbUser) {
       inMemoryStore.users.push({
-        id: 'usr_' + Date.now().toString(36),
-        name: 'দোকান মালিক',
-        phone: cleanPhone,
-        email: cleanPhone + '@twing.com',
-        shop_name: 'আমার দোকান',
+        id: updatedDbUser.id,
+        name: updatedDbUser.name,
+        phone: updatedDbUser.phone || cleanPhone,
+        email: updatedDbUser.email,
+        shop_name: updatedDbUser.shop_name,
         password_hash: newHash,
         password: newPassword,
-        role: 'user',
-        status: 'active',
-        subscriptionPlan: 'ফ্রি ট্রায়াল (১৪ দিন)',
-        subscriptionStatus: 'trial',
-        subscriptionExpiresAt: Date.now() + 14 * 86400000,
-        registered_at: Date.now(),
+        role: updatedDbUser.role || 'user',
+        status: updatedDbUser.status || 'active',
+        subscriptionPlan: updatedDbUser.subscription_plan || 'ফ্রি ট্রায়াল (১৪ দিন)',
+        subscriptionStatus: updatedDbUser.subscription_status || 'trial',
+        subscriptionExpiresAt: Number(updatedDbUser.subscription_expires_at) || (Date.now() + 14 * 86400000),
+        registered_at: Number(updatedDbUser.registered_at) || Date.now(),
         last_active_at: Date.now(),
       } as any);
+      matchedMemUser = true;
+    }
+
+    if (!matchedMemUser && !updatedDbUser) {
+      return res.status(404).json({
+        error: '❌ কোনো ব্যবহারকারী অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে সঠিক তথ্য দিন।',
+      });
     }
 
     inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(

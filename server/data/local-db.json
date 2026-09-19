@@ -1,0 +1,69 @@
+{
+  "users": [
+    {
+      "id": "usr_mu7v0ixqnql8",
+      "name": "Eva",
+      "phone": "01355358890",
+      "email": "01355358890@twing.com",
+      "password_hash": "$2b$10$j.CTQl21FXVUStn/WNGsTOVeGhp6ylzwipRQ1L3bffg2HnM9S0n/m",
+      "shop_name": "Eva stor",
+      "business_type": "জেনারেল স্টোর",
+      "address": "বাংলাদেশ",
+      "role": "user",
+      "status": "active",
+      "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
+      "subscriptionStatus": "trial",
+      "subscriptionExpiresAt": 1791000035262,
+      "registered_at": 1789790435262,
+      "last_active_at": 1789822577484,
+      "notes": "অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে",
+      "password": "123456"
+    },
+    {
+      "id": "usr_super_admin",
+      "name": "ইব্রাহিম খলিল (সুপার অ্যাডমিন)",
+      "phone": "01306908115",
+      "email": "siftibrahim@gmail.com",
+      "password_hash": "$2b$10$lZKejmjxA6MrREGW.2TudOFb1MLioYkHcJnlCP.yvGc05yID6NThi",
+      "shop_name": "TWING হিসাবি",
+      "business_type": "জেনারেল স্টোর",
+      "address": "ঢাকা, বাংলাদেশ",
+      "role": "super_admin",
+      "status": "active",
+      "subscriptionPlan": "আজীবন আনলিমিটেড (সুপার অ্যাডমিন)",
+      "subscriptionStatus": "active",
+      "subscriptionExpiresAt": 2105147647299,
+      "registered_at": 1789787647299,
+      "last_active_at": 1789792127578,
+      "notes": null
+    }
+  ],
+  "stores": [],
+  "customers": [],
+  "transactions": [],
+  "expenses": [],
+  "products": [],
+  "payments": [],
+  "notifications": [],
+  "announcements": [],
+  "staff": [],
+  "support_messages": [],
+  "system_config": {},
+  "admin_activity_logs": [],
+  "password_reset_otps": [
+    {
+      "id": "2fa_mu8dz0xhmcx0vu",
+      "phone": "01306908115",
+      "userId": "usr_super_admin",
+      "otp": "529445",
+      "expiresAt": 1789823178773,
+      "verified": false,
+      "createdAt": 1789822278773
+    }
+  ],
+  "trusted_devices": [],
+  "sms_logs": [],
+  "sms_purchases": [],
+  "online_orders": [],
+  "online_store_configs": []
+}

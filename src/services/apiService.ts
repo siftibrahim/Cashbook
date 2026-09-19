@@ -1434,6 +1434,23 @@ export const adminApi = {
     } catch {}
   },
 
+  async deletePayment(paymentId: string): Promise<void> {
+    try {
+      await apiRequest(`/admin/payments/${paymentId}`, {
+        method: 'DELETE',
+      });
+    } catch {}
+  },
+
+  async refundPayment(paymentId: string, refundStatus: any, refundReason?: string, refundAmount?: number): Promise<void> {
+    try {
+      await apiRequest(`/admin/payments/${paymentId}/refund`, {
+        method: 'POST',
+        body: JSON.stringify({ refundStatus, refundReason, refundAmount }),
+      });
+    } catch {}
+  },
+
   async getPaymentSettings(): Promise<SystemPaymentSettings> {
     try {
       const res = await apiRequest<{ settings: SystemPaymentSettings }>('/admin/payment-settings');

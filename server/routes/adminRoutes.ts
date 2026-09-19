@@ -650,6 +650,63 @@ router.post('/payments/:id/reject', async (req: AuthenticatedRequest, res: Respo
 });
 
 /**
+ * 7.1 DELETE /api/admin/payments/:id - Delete payment record
+ */
+router.delete('/payments/:id', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const paymentId = req.params.id;
+    const pool = getDbPool();
+
+    if (pool) {
+      await pool.query('DELETE FROM payments WHERE id = $1', [paymentId]);
+    } else {
+      inMemoryStore.payments = (inMemoryStore.payments || []).filter(x => x.id !== paymentId);
+    }
+
+    return res.json({ success: true, message: 'পেমেন্ট রেকর্ড মুছে ফেলা হয়েছে' });
+  } catch (err: any) {
+    console.error('Error deleting payment:', err);
+    return res.status(500).json({ error: err.message || 'পেমেন্ট মুছতে ব্যর্থ হয়েছে' });
+  }
+});
+
+/**
+ * 7.2 POST /api/admin/payments/:id/refund - Process refund for payment
+ */
+router.post('/payments/:id/refund', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const paymentId = req.params.id;
+    const { refundStatus, refundReason, refundAmount } = req.body;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      await pool.query(`
+        UPDATE payments SET
+          refund_status = $1,
+          refund_reason = $2,
+          refund_amount = $3,
+          updated_at = $4
+        WHERE id = $5
+      `, [refundStatus || 'completed', refundReason || 'এডমিন কর্তৃক রিফান্ড', refundAmount || 0, now, paymentId]);
+    } else {
+      const p = (inMemoryStore.payments || []).find(x => x.id === paymentId);
+      if (p) {
+        p.refundStatus = refundStatus || 'completed';
+        p.refundReason = refundReason;
+        p.refundAmount = refundAmount;
+        p.updatedAt = now;
+      }
+    }
+
+    return res.json({ success: true, message: 'রিফান্ড সফলভাবে সম্পন্ন হয়েছে' });
+  } catch (err: any) {
+    console.error('Error processing refund:', err);
+    return res.status(500).json({ error: err.message || 'রিফান্ড প্রক্রিয়াকরণ ব্যর্থ হয়েছে' });
+  }
+});
+
+/**
  * 8. GET & PUT /api/admin/payment-settings
  */
 router.get('/payment-settings', async (req: AuthenticatedRequest, res: Response) => {
