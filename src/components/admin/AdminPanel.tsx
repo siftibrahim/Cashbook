@@ -778,7 +778,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-black text-white leading-tight flex items-center gap-2">
-                    Neon PostgreSQL ডাটাবেজ সেটিংস
+                    ক্লাউড ডাটাবেজ সেটিংস (PostgreSQL / CockroachDB / MySQL)
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     আপনার আসল ইউজার ও লাইভ ডাটা লোড করার জন্য কানেক্ট করুন

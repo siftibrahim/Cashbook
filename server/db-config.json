@@ -1,5 +1,4 @@
 {
-  "databaseUrl": "",
-  "updatedAt": ""
+  "databaseUrl": "postgresql://siftibrahim:egDElcWkzlGHoNLJLbsNdA@twinghisabi-32789.j77.aws-ap-southeast-3.cockroachlabs.cloud:26257/defaultdb",
+  "updatedAt": "2026-09-19T03:10:56.271Z"
 }
-

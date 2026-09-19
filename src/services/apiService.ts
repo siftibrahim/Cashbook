@@ -1559,6 +1559,17 @@ export const adminApi = {
     });
   },
 
+  async migrateRemoteDatabase(sourceUrl: string): Promise<{
+    success: boolean;
+    message: string;
+    summary: Record<string, number>;
+  }> {
+    return await apiRequest('/admin/data/migrate-remote', {
+      method: 'POST',
+      body: JSON.stringify({ sourceUrl }),
+    });
+  },
+
   async getSupportThreads(): Promise<SupportThread[]> {
     try {
       const res = await apiRequest<{ threads: SupportThread[] }>('/admin/support/threads');

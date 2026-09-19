@@ -125,12 +125,16 @@ router.get('/db-status', async (req: AuthenticatedRequest, res: Response) => {
       });
     }
 
+    const dbUrl = process.env.DATABASE_URL || '';
+    const isCockroach = dbUrl.includes('cockroachlabs.cloud');
+    const providerName = isCockroach ? 'CockroachDB Cloud' : (dbUrl.includes('neon.tech') ? 'Neon PostgreSQL' : 'PostgreSQL');
+
     const check = await pool.query('SELECT current_database(), count(*) as user_count FROM users');
     return res.json({
       connected: true,
-      message: '✅ Neon PostgreSQL ডাটাবেজে সফলভাবে সংযুক্ত রয়েছে!',
-      provider: 'Neon PostgreSQL',
-      databaseName: check.rows[0]?.current_database || 'neondb',
+      message: `✅ ${providerName} ডাটাবেজে সফলভাবে সংযুক্ত রয়েছে!`,
+      provider: providerName,
+      databaseName: check.rows[0]?.current_database || 'defaultdb',
       userCount: parseInt(check.rows[0]?.user_count || '0', 10),
       isQuotaExceeded: false,
     });
@@ -2197,6 +2201,7 @@ import {
   exportMasterBackup,
   importMasterBackup,
   importSpecificTable,
+  migrateFromRemoteDatabase,
 } from '../services/adminDataService';
 
 /**
@@ -2256,6 +2261,23 @@ router.post('/data/import-table', requireSuperAdmin, async (req: AuthenticatedRe
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'টেবিল ডাটা ইমপোর্ট ব্যর্থ হয়েছে' });
+  }
+});
+
+/**
+ * POST /api/admin/data/migrate-remote
+ * Direct 1-Click Migration from remote Neon / PostgreSQL to CockroachDB
+ */
+router.post('/data/migrate-remote', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { sourceUrl } = req.body;
+    if (!sourceUrl || typeof sourceUrl !== 'string') {
+      return res.status(400).json({ error: 'সোর্স ডাটাবেজের (Neon) কানেকশন লিঙ্ক প্রদান করুন' });
+    }
+    const result = await migrateFromRemoteDatabase(sourceUrl);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'রিমোট ডাটা মাইগ্রেশন ব্যর্থ হয়েছে' });
   }
 });
 

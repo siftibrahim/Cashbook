@@ -20,20 +20,22 @@ export function sanitizePostgresUrl(rawUrl: string): string {
     return url;
   }
 
-  // 1. Remove invalid / truncated / unsupported query parameters like channel_binding=..., channel_bibi, channel_..., etc.
+  // 1. Remove invalid / truncated / unsupported query parameters
   url = url.replace(/[?&]channel_[^&]*/gi, '');
   url = url.replace(/[?&]channel_binding=[^&]*/gi, '');
   
-  // 2. Clean up dangling ? or & or ?& or &&
+  // 2. Remove broken or repetitive verify-full strings
+  url = url.replace(/verify-full[a-zA-Z0-9_\-]*/gi, 'no-verify');
+
+  // 3. Remove sslmode parameters from query string to avoid node-postgres parsing conflict
+  // We handle SSL directly in Pool config with { rejectUnauthorized: false }
+  url = url.replace(/[?&]sslmode=[^&]*/gi, '');
+
+  // 4. Clean up dangling ? or & or ?& or &&
   url = url.replace(/\?&/g, '?');
   url = url.replace(/&&+/g, '&');
   if (url.endsWith('?') || url.endsWith('&')) {
     url = url.slice(0, -1);
-  }
-
-  // 3. Ensure sslmode=require for neon.tech if missing
-  if (url.includes('neon.tech') && !url.includes('sslmode=')) {
-    url += (url.includes('?') ? '&' : '?') + 'sslmode=require';
   }
 
   return url;
@@ -154,11 +156,12 @@ loadInMemoryStoreFromDisk();
 // Helper to create an optimized, resilient pool for Neon serverless
 function createNeonPool(connectionString: string): pg.Pool {
   const sanitized = sanitizePostgresUrl(connectionString);
-  const isNeonOrCloud = sanitized.includes('neon.tech') || sanitized.includes('sslmode=require') || process.env.NODE_ENV === 'production';
+  const isLocal = sanitized.includes('@localhost') || sanitized.includes('@127.0.0.1');
+  const isCloudOrSsl = !isLocal || sanitized.includes('cockroachlabs.cloud') || sanitized.includes('neon.tech') || sanitized.includes('supabase') || sanitized.includes('sslmode');
 
   const newPool = new Pool({
     connectionString: sanitized,
-    ssl: isNeonOrCloud ? { rejectUnauthorized: false } : false,
+    ssl: isCloudOrSsl ? { rejectUnauthorized: false } : false,
     max: 10, // Optimized connection limit for Neon PgBouncer
     min: 0,
     idleTimeoutMillis: 10000, // Recycle idle connections in 10s so dead sockets don't linger
@@ -210,6 +213,9 @@ function startDbHeartbeat() {
       }
     }
   }, 120000); // Every 2 minutes
+  if (heartbeatInterval.unref) {
+    heartbeatInterval.unref();
+  }
 }
 
 export function getIsDbQuotaExceeded(): boolean {
@@ -348,10 +354,13 @@ export async function setAndConnectDatabaseUrl(newDbUrl: string): Promise<{ succ
 
     await initializeDatabaseSchema();
 
+    const isCockroach = cleanUrl.includes('cockroachlabs.cloud');
+    const dbType = isCockroach ? 'CockroachDB' : (cleanUrl.includes('neon.tech') ? 'Neon PostgreSQL' : 'PostgreSQL');
+
     return {
       success: true,
-      message: '✅ Neon PostgreSQL ডাটাবেজে সফলভাবে সংযুক্ত হয়েছে!',
-      databaseName: res.rows[0]?.db_name || 'neondb',
+      message: `✅ ${dbType} ডাটাবেজে সফলভাবে সংযুক্ত হয়েছে!`,
+      databaseName: res.rows[0]?.db_name || 'defaultdb',
       userCount,
     };
   } catch (err: any) {
@@ -438,8 +447,9 @@ export async function initializeDatabaseSchema() {
     return;
   }
 
+  let client: pg.PoolClient | null = null;
   try {
-    const client = await p.connect();
+    client = await p.connect();
     isDbConnected = true;
     console.log('✅ Connected to Neon PostgreSQL Database successfully!');
 
@@ -976,6 +986,38 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE products ADD COLUMN IF NOT EXISTS rating NUMERIC(3, 2);
       ALTER TABLE products ADD COLUMN IF NOT EXISTS review_count INT DEFAULT 0;
 
+      -- SMS Logs Table
+      CREATE TABLE IF NOT EXISTS sms_logs (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        customer_name VARCHAR(255),
+        customer_phone VARCHAR(50),
+        message TEXT,
+        sms_type VARCHAR(50) DEFAULT 'tagada',
+        status VARCHAR(50) DEFAULT 'sent',
+        cost_sms INT DEFAULT 1,
+        created_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_sms_logs_user_id ON sms_logs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_sms_logs_created_at ON sms_logs(created_at DESC);
+
+      -- SMS Purchases Table
+      CREATE TABLE IF NOT EXISTS sms_purchases (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(255),
+        user_phone VARCHAR(50),
+        shop_name VARCHAR(255),
+        sms_count INT NOT NULL,
+        amount NUMERIC(12, 2) NOT NULL,
+        payment_method VARCHAR(50) DEFAULT 'bkash',
+        trx_id VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'approved',
+        created_at BIGINT NOT NULL,
+        approved_at BIGINT
+      );
+      CREATE INDEX IF NOT EXISTS idx_sms_purchases_user_id ON sms_purchases(user_id);
+
       -- Drop strict foreign key constraints to ensure offline/sync/staff operations never crash
       ALTER TABLE products DROP CONSTRAINT IF EXISTS products_user_id_fkey;
       ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_user_id_fkey;
@@ -1076,15 +1118,40 @@ export async function initializeDatabaseSchema() {
     await seedDefaultDataInPostgres(client);
 
     client.release();
+    client = null;
+    isDbConnected = true;
     console.log('✅ PostgreSQL Schema and initial seeds ready!');
   } catch (err: any) {
+    if (client) {
+      try { client.release(); } catch {}
+      client = null;
+    }
     const isQuota = err?.code === '53000' || err?.message?.includes('compute time quota');
     if (isQuota) {
       console.warn('⚠️ [Neon Quota Notice] Serverless compute quota reached (Code 53000). Activating persistent local storage fallback.');
       markDbQuotaExceeded(err);
-    } else {
-      console.warn('⚠️ Database schema initialization note:', err?.message || err);
+      if (pool) {
+        try { await pool.end(); } catch {}
+        pool = null;
+      }
+      isDbConnected = false;
+      seedDefaultDataInMemory();
+      return;
     }
+    
+    console.warn('⚠️ Database schema initialization note (non-fatal):', err?.message || err);
+    // Verify if database connection is still working
+    try {
+      if (pool) {
+        await pool.query('SELECT 1');
+        isDbConnected = true;
+        console.log('✅ PostgreSQL connection verified healthy despite minor schema notice.');
+        return;
+      }
+    } catch (testErr) {
+      console.warn('Database health check failed:', testErr);
+    }
+
     console.log('ℹ️ Activating resilient in-memory storage fallback with disk persistence.');
     if (pool) {
       try {

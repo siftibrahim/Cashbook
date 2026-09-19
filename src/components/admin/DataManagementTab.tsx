@@ -47,6 +47,35 @@ export const DataManagementTab: React.FC<DataManagementTabProps> = ({
   // Last Result
   const [lastResult, setLastResult] = useState<any>(null);
 
+  // Direct Remote Neon / PostgreSQL Migration
+  const [remoteNeonUrl, setRemoteNeonUrl] = useState('');
+  const [isMigratingRemote, setIsMigratingRemote] = useState(false);
+
+  const handleRemoteMigration = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!remoteNeonUrl.trim()) {
+      onShowToast('অনুগ্রহ করে আপনার আগের Neon Connection URL দিন');
+      return;
+    }
+
+    setIsMigratingRemote(true);
+    try {
+      const res = await adminApi.migrateRemoteDatabase(remoteNeonUrl.trim());
+      onShowToast(res.message || '✅ মাইগ্রেশন সফল হয়েছে!');
+      setLastResult({
+        message: res.message,
+        imported: res.summary,
+      });
+      setRemoteNeonUrl('');
+      await loadSummary();
+      if (onRefreshAll) onRefreshAll();
+    } catch (err: any) {
+      onShowToast(`❌ মাইগ্রেশন ব্যর্থ: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsMigratingRemote(false);
+    }
+  };
+
   const loadSummary = async () => {
     setLoadingSummary(true);
     try {
@@ -297,6 +326,53 @@ export const DataManagementTab: React.FC<DataManagementTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* Direct 1-Click Neon to CockroachDB Migration Box */}
+      <div className="bg-gradient-to-r from-purple-900/20 via-indigo-900/20 to-blue-900/20 border border-purple-500/30 rounded-2xl p-6 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-purple-600/20 text-purple-400 flex items-center justify-center border border-purple-500/30 shrink-0">
+              <Database className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                Neon থেকে ১-ক্লিকে সরাসরি ডাটা মাইগ্রেশন
+                <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-500/30 font-bold">
+                  স্বয়ংক্রিয়
+                </span>
+              </h3>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                আপনার পূর্বের Neon Database Connection URL পেস্ট করে সরাসরি সব ইউজার, কাস্টমার ও হিসাব CockroachDB-তে নিয়ে আসুন।
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleRemoteMigration} className="space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="text"
+              id="input-neon-migration-url"
+              value={remoteNeonUrl}
+              onChange={(e) => setRemoteNeonUrl(e.target.value)}
+              placeholder="postgresql://user:password@ep-xyz.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+              className="flex-1 px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs sm:text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 font-mono outline-none focus:ring-2 focus:ring-purple-500"
+            />
+            <button
+              type="submit"
+              id="btn-run-neon-migration"
+              disabled={isMigratingRemote || !remoteNeonUrl.trim()}
+              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 whitespace-nowrap"
+            >
+              <RefreshCw className={`w-4 h-4 ${isMigratingRemote ? 'animate-spin' : ''}`} />
+              {isMigratingRemote ? 'মাইগ্রেশন হচ্ছে...' : 'Neon ডাটা ট্রান্সফার করুন'}
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-400 dark:text-gray-400">
+            💡 এটি আপনার Neon ডাটাবেজ থেকে টেবিলগুলো পড়ে এনে কোনো ডাটা নষ্ট না করে নতুন ডাটাবেজের সাথে মার্জ করে দেবে।
+          </p>
+        </form>
+      </div>
 
       {/* Two Columns: 1. Full Master Backup & Import, 2. Neon / SQL Table Importer */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

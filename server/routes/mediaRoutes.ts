@@ -4,8 +4,11 @@ import { authenticateUser, AuthenticatedRequest } from '../authMiddleware';
 
 const router = express.Router();
 
+// Fallback in-memory media cache for when database pool is not connected
+const localMediaCache = new Map<string, { mimeType: string; data: string }>();
+
 /**
- * POST /api/media/upload - Upload an image permanently to PostgreSQL
+ * POST /api/media/upload - Upload an image permanently to PostgreSQL or local storage
  */
 router.post('/upload', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -41,6 +44,9 @@ router.post('/upload', authenticateUser, async (req: AuthenticatedRequest, res: 
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [mediaId, userId, detectedMime, fileName || 'upload.jpg', base64Data, sizeBytes, now]
       );
+    } else {
+      // Store in memory cache
+      localMediaCache.set(mediaId, { mimeType: detectedMime, data: base64Data });
     }
 
     const permanentUrl = `/api/media/${mediaId}`;
@@ -64,23 +70,33 @@ router.get('/:id', async (req, res) => {
     const { id } = req.params;
     const pool = getDbPool();
 
-    if (!pool) {
-      return res.status(404).send('Database unavailable');
+    let mimeType = 'image/jpeg';
+    let rawBase64 = '';
+
+    if (pool) {
+      const result = await pool.query(
+        `SELECT mime_type, data FROM media_storage WHERE id = $1 LIMIT 1`,
+        [id]
+      );
+      if (result.rows.length > 0) {
+        mimeType = result.rows[0].mime_type || 'image/jpeg';
+        rawBase64 = result.rows[0].data;
+      }
     }
 
-    const result = await pool.query(
-      `SELECT mime_type, data FROM media_storage WHERE id = $1 LIMIT 1`,
-      [id]
-    );
+    if (!rawBase64 && localMediaCache.has(id)) {
+      const cached = localMediaCache.get(id)!;
+      mimeType = cached.mimeType;
+      rawBase64 = cached.data;
+    }
 
-    if (result.rows.length === 0) {
+    if (!rawBase64) {
       return res.status(404).send('Media not found');
     }
 
-    const row = result.rows[0];
-    const imageBuffer = Buffer.from(row.data, 'base64');
+    const imageBuffer = Buffer.from(rawBase64, 'base64');
 
-    res.setHeader('Content-Type', row.mime_type || 'image/jpeg');
+    res.setHeader('Content-Type', mimeType || 'image/jpeg');
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.setHeader('Content-Length', imageBuffer.length);
 

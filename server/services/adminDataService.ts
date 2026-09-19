@@ -445,3 +445,195 @@ export async function importSpecificTable(
   payload[detectedTable] = rawRows;
   return await importMasterBackup(payload, mode);
 }
+
+/**
+ * Direct Live Database-to-Database Migration (e.g. from Neon PostgreSQL to CockroachDB)
+ */
+export async function migrateFromRemoteDatabase(sourceUrl: string) {
+  const { Pool } = await import('pg');
+  const { sanitizePostgresUrl } = await import('../db');
+  const cleanUrl = sanitizePostgresUrl(sourceUrl);
+  if (!cleanUrl) {
+    throw new Error('বৈধ Database Connection URL প্রদান করুন');
+  }
+
+  const isLocal = cleanUrl.includes('@localhost') || cleanUrl.includes('@127.0.0.1');
+  const srcPool = new Pool({
+    connectionString: cleanUrl,
+    ssl: !isLocal ? { rejectUnauthorized: false } : false,
+    connectionTimeoutMillis: 20000,
+  });
+
+  const destPool = getDbPool();
+  if (!destPool) {
+    throw new Error('বর্তমান ডাটাবেজ (Destination Database) সংযুক্ত নেই');
+  }
+
+  const srcClient = await srcPool.connect();
+  const summary: Record<string, number> = {
+    users: 0,
+    customers: 0,
+    transactions: 0,
+    products: 0,
+    expenses: 0,
+    payments: 0,
+  };
+
+  try {
+    // 1. Users
+    try {
+      const uRes = await srcClient.query('SELECT * FROM users');
+      for (const u of uRes.rows) {
+        await destPool.query(`
+          INSERT INTO users (
+            id, name, phone, email, password_hash, shop_name, business_type, address,
+            role, status, subscription_plan, subscription_status, subscription_expires_at,
+            registered_at, last_active_at, total_customers, total_transactions, sms_balance
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            phone = EXCLUDED.phone,
+            email = EXCLUDED.email,
+            password_hash = CASE WHEN EXCLUDED.password_hash != '' THEN EXCLUDED.password_hash ELSE users.password_hash END,
+            shop_name = EXCLUDED.shop_name,
+            business_type = EXCLUDED.business_type,
+            address = EXCLUDED.address,
+            subscription_plan = EXCLUDED.subscription_plan,
+            subscription_status = EXCLUDED.subscription_status,
+            subscription_expires_at = EXCLUDED.subscription_expires_at,
+            sms_balance = EXCLUDED.sms_balance
+        `, [
+          u.id, u.name, u.phone, u.email, u.password_hash || '', u.shop_name, u.business_type, u.address,
+          u.role, u.status, u.subscription_plan, u.subscription_status, u.subscription_expires_at,
+          u.registered_at, u.last_active_at, u.total_customers || 0, u.total_transactions || 0, u.sms_balance || 20
+        ]);
+        summary.users++;
+      }
+    } catch (e: any) {
+      console.warn('Source users fetch note:', e.message);
+    }
+
+    // 2. Customers
+    try {
+      const cRes = await srcClient.query('SELECT * FROM customers');
+      for (const c of cRes.rows) {
+        await destPool.query(`
+          INSERT INTO customers (
+            id, user_id, name, phone, address, balance, category, credit_limit, notes, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            phone = EXCLUDED.phone,
+            address = EXCLUDED.address,
+            balance = EXCLUDED.balance,
+            category = EXCLUDED.category,
+            credit_limit = EXCLUDED.credit_limit,
+            notes = EXCLUDED.notes,
+            updated_at = EXCLUDED.updated_at
+        `, [
+          c.id, c.user_id, c.name, c.phone, c.address, c.balance, c.category, c.credit_limit, c.notes, c.created_at, c.updated_at
+        ]);
+        summary.customers++;
+      }
+    } catch (e: any) {
+      console.warn('Source customers fetch note:', e.message);
+    }
+
+    // 3. Transactions
+    try {
+      const tRes = await srcClient.query('SELECT * FROM transactions');
+      for (const t of tRes.rows) {
+        await destPool.query(`
+          INSERT INTO transactions (
+            id, user_id, customer_id, type, amount, description, date, time, balance_after, payment_method, items, receipt_no, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          ON CONFLICT (id) DO UPDATE SET
+            amount = EXCLUDED.amount,
+            description = EXCLUDED.description,
+            balance_after = EXCLUDED.balance_after
+        `, [
+          t.id, t.user_id, t.customer_id, t.type, t.amount, t.description, t.date, t.time, t.balance_after, t.payment_method, JSON.stringify(t.items || []), t.receipt_no, t.created_at
+        ]);
+        summary.transactions++;
+      }
+    } catch (e: any) {
+      console.warn('Source transactions fetch note:', e.message);
+    }
+
+    // 4. Products
+    try {
+      const pRes = await srcClient.query('SELECT * FROM products');
+      for (const p of pRes.rows) {
+        await destPool.query(`
+          INSERT INTO products (
+            id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            buy_price = EXCLUDED.buy_price,
+            sale_price = EXCLUDED.sale_price,
+            stock = EXCLUDED.stock,
+            updated_at = EXCLUDED.updated_at
+        `, [
+          p.id, p.user_id, p.name, p.category, p.unit, p.buy_price || 0, p.sale_price || 0, p.stock || 0, p.min_stock_alert || 5, p.updated_at || Date.now()
+        ]);
+        summary.products++;
+      }
+    } catch (e: any) {
+      console.warn('Source products fetch note:', e.message);
+    }
+
+    // 5. Expenses
+    try {
+      const exRes = await srcClient.query('SELECT * FROM expenses');
+      for (const ex of exRes.rows) {
+        await destPool.query(`
+          INSERT INTO expenses (
+            id, user_id, type, category, amount, description, date, time, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT (id) DO UPDATE SET
+            amount = EXCLUDED.amount,
+            description = EXCLUDED.description
+        `, [
+          ex.id, ex.user_id, ex.type, ex.category, ex.amount, ex.description, ex.date, ex.time, ex.created_at
+        ]);
+        summary.expenses++;
+      }
+    } catch (e: any) {
+      console.warn('Source expenses fetch note:', e.message);
+    }
+
+    // 6. Payments
+    try {
+      const payRes = await srcClient.query('SELECT * FROM payments');
+      for (const pay of payRes.rows) {
+        await destPool.query(`
+          INSERT INTO payments (
+            id, user_id, user_name, user_phone, sender_phone, sender_number, shop_name, plan_id, plan_name,
+            duration_days, bonus_days, amount, payment_method, payment_mode, trx_id, bank_details, status,
+            created_at, approved_at, admin_notes
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+          ON CONFLICT (id) DO NOTHING
+        `, [
+          pay.id, pay.user_id, pay.user_name, pay.user_phone, pay.sender_phone, pay.sender_number, pay.shop_name,
+          pay.plan_id, pay.plan_name, pay.duration_days || 30, pay.bonus_days || 0, pay.amount, pay.payment_method,
+          pay.payment_mode, pay.trx_id, JSON.stringify(pay.bank_details || {}), pay.status, pay.created_at,
+          pay.approved_at, pay.admin_notes
+        ]);
+        summary.payments++;
+      }
+    } catch (e: any) {
+      console.warn('Source payments fetch note:', e.message);
+    }
+
+  } finally {
+    srcClient.release();
+    try { await srcPool.end(); } catch {}
+  }
+
+  return {
+    success: true,
+    message: `মাইগ্রেশন সফল! ${summary.users} ইউজার, ${summary.customers} কাস্টমার, ${summary.transactions} লেনদেন, ${summary.products} পণ্য, ${summary.expenses} খরচ CockroachDB-তে স্থানান্তরিত হয়েছে।`,
+    summary,
+  };
+}
