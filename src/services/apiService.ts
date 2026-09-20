@@ -920,6 +920,19 @@ export const storeApi = {
     }
   },
 
+  async requestOnlineStoreActivation(note?: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await apiRequest<{ message: string; onlineStoreStatus: string }>('/store/request-activation', {
+        method: 'POST',
+        body: JSON.stringify({ note }),
+      });
+      return { success: true, message: res.message };
+    } catch (err: any) {
+      console.error('Failed to request online store activation:', err);
+      return { success: false, message: err.message || 'অনলাইন স্টোর চালুর আবেদন ব্যর্থ হয়েছে' };
+    }
+  },
+
   async saveOnlineConfig(config: OnlineStoreConfig): Promise<OnlineStoreConfig> {
     try {
       const res = await apiRequest<{ message: string; config: OnlineStoreConfig }>('/store/online-config', {
@@ -1416,13 +1429,60 @@ export const adminApi = {
     }
   },
 
-  async approvePayment(paymentId: string, adminNotes?: string): Promise<void> {
+  async approvePayment(paymentId: string, adminNotes?: string, activateOnlineStore?: boolean): Promise<void> {
     try {
       await apiRequest(`/admin/payments/${paymentId}/approve`, {
         method: 'POST',
-        body: JSON.stringify({ adminNotes }),
+        body: JSON.stringify({ adminNotes, activateOnlineStore }),
       });
     } catch {}
+  },
+
+  async toggleOnlineStore(userId: string, isAllowed: boolean, note?: string): Promise<{ success: boolean; message: string; isOnlineStoreAllowed: boolean; onlineStoreStatus: string }> {
+    try {
+      const res = await apiRequest<{ message: string; isOnlineStoreAllowed: boolean; onlineStoreStatus: string }>(`/admin/users/${userId}/toggle-online-store`, {
+        method: 'POST',
+        body: JSON.stringify({ isAllowed, note }),
+      });
+      return { success: true, ...res };
+    } catch (err: any) {
+      console.error('Failed to toggle online store:', err);
+      throw err;
+    }
+  },
+
+  async approveStoreRequest(userId: string): Promise<{ success: boolean; message: string; isOnlineStoreAllowed: boolean; onlineStoreStatus: string }> {
+    try {
+      const res = await apiRequest<{ message: string; isOnlineStoreAllowed: boolean; onlineStoreStatus: string }>(`/admin/users/${userId}/approve-store-request`, {
+        method: 'POST',
+      });
+      return { success: true, ...res };
+    } catch (err: any) {
+      console.error('Failed to approve online store request:', err);
+      throw err;
+    }
+  },
+
+  async rejectStoreRequest(userId: string, reason?: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await apiRequest<{ message: string }>(`/admin/users/${userId}/reject-store-request`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      });
+      return { success: true, message: res.message };
+    } catch (err: any) {
+      console.error('Failed to reject online store request:', err);
+      throw err;
+    }
+  },
+
+  async getOnlineStoreRequests(): Promise<any[]> {
+    try {
+      const res = await apiRequest<{ requests: any[] }>('/admin/online-store-requests');
+      return res.requests || [];
+    } catch {
+      return [];
+    }
   },
 
   async rejectPayment(paymentId: string, rejectedReason?: string): Promise<void> {

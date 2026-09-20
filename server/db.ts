@@ -945,6 +945,10 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS notes TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS device_info TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS app_version TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online_store_allowed BOOLEAN DEFAULT TRUE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'active';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_requested_at BIGINT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_note TEXT;
       
       ALTER TABLE products ADD COLUMN IF NOT EXISTS is_published_online BOOLEAN DEFAULT TRUE;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
@@ -1069,6 +1073,9 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS facebook_url TEXT;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS published_product_ids JSONB DEFAULT '[]'::jsonb;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT TRUE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS is_store_allowed_by_admin BOOLEAN DEFAULT TRUE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS admin_store_status VARCHAR(50) DEFAULT 'active';
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS admin_store_note TEXT;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS created_at BIGINT;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS updated_at BIGINT;
       ALTER TABLE sms_purchases DROP CONSTRAINT IF EXISTS sms_purchases_user_id_fkey;

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import { query } from '../db';
+import { query, inMemoryStore } from '../db';
 
 // Extend Express Request interface to include tenant information
 declare global {
@@ -211,7 +211,31 @@ export async function dynamicSubdomainMiddleware(
     }
 
     if (!storeRes || !storeRes.rows || storeRes.rows.length === 0) {
-      // Fallback 404 response when subdomain store does not exist
+      // Fallback 3: check inMemoryStore configs
+      const memConfig = (inMemoryStore.online_store_configs || []).find(
+        (c) => (c.storeSlug || c.store_slug || '').toLowerCase() === slug
+      );
+      if (memConfig) {
+        const memUser = (inMemoryStore.users || []).find(
+          (u) => u.id === (memConfig.userId || memConfig.user_id)
+        );
+        req.tenant = {
+          id: memConfig.userId || memConfig.user_id,
+          store_name: memConfig.storeName || memConfig.store_name,
+          store_slug: memConfig.storeSlug || memConfig.store_slug,
+          phone: memConfig.phone,
+          status: memUser?.status || 'active',
+        };
+        return next();
+      }
+
+      // If this is a page visit (HTML / assets), do NOT return raw JSON!
+      // Let it pass through to the frontend router/PublicStorefrontPage
+      if (!req.path.startsWith('/api/')) {
+        return next();
+      }
+
+      // Fallback 404 response for API requests when subdomain store does not exist
       return res.status(404).json({
         error: 'Store Not Found',
         message: `The requested store "${slug}.${BASE_DOMAIN}" does not exist or has been disabled.`,

@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "TWING হিসাবি — ডিজিটাল ক্যাশ ও বাকির খাতা",
-  "short_name": "TWING হিসাবি",
-  "description": "TWING হিসাবি - আধুনিক অফলাইন-ফার্স্ট কাস্টমার বাকি, দেনা-পাওনা ও পিওএস খাতা সফটওয়্যার।",
+  "name": "TwingHisabi – টুইংহিসাবি | সহজ হিসাব ও ব্যবসা ব্যবস্থাপনা",
+  "short_name": "TwingHisabi",
+  "description": "TwingHisabi হলো সহজ ও আধুনিক হিসাব এবং ব্যবসা ব্যবস্থাপনার প্ল্যাটফর্ম।",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

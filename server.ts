@@ -20,7 +20,7 @@ import mediaRoutes from './server/routes/mediaRoutes';
 import { migrateDataToPostgres } from './server/migration';
 import { requireSuperAdmin } from './server/authMiddleware';
 import { SubscriptionEngine } from './server/services/subscriptionEngine';
-import { wildcardCors } from './server/middleware/subdomainMiddleware';
+import { wildcardCors, dynamicSubdomainMiddleware } from './server/middleware/subdomainMiddleware';
 
 dotenv.config();
 
@@ -41,6 +41,7 @@ async function startServer() {
 
   // Dynamic Wildcard CORS for *.twinghisabi.site, root domain & dev environments
   app.use(wildcardCors);
+  app.use(dynamicSubdomainMiddleware);
   app.use(express.json({ limit: '20mb' }));
   app.use(express.urlencoded({ extended: true, limit: '20mb' }));
   app.use(express.static(path.join(process.cwd(), 'public')));
@@ -94,8 +95,9 @@ async function startServer() {
   // SEO: Sitemap.xml & Robots.txt
   app.get('/sitemap.xml', (req, res) => {
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
-    const host = req.headers.host || 'twinghisabi.site';
-    const baseUrl = `${protocol}://${host}`;
+    const rawHost = req.headers.host || 'twinghisabi.site';
+    const isLocalOrDev = rawHost.includes('localhost') || rawHost.includes('.run.app') || rawHost.includes('127.0.0.1');
+    const baseUrl = isLocalOrDev ? `${protocol}://${rawHost}` : 'https://twinghisabi.site';
     const today = new Date().toISOString().split('T')[0];
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -126,10 +128,16 @@ async function startServer() {
 
   app.get('/robots.txt', (req, res) => {
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
-    const host = req.headers.host || 'twinghisabi.site';
-    const baseUrl = `${protocol}://${host}`;
+    const rawHost = req.headers.host || 'twinghisabi.site';
+    const isLocalOrDev = rawHost.includes('localhost') || rawHost.includes('.run.app') || rawHost.includes('127.0.0.1');
+    const baseUrl = isLocalOrDev ? `${protocol}://${rawHost}` : 'https://twinghisabi.site';
 
-    const txt = `User-agent: *
+    const txt = `User-agent: Googlebot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+
+User-agent: *
 Allow: /
 Disallow: /api/
 Disallow: /admin/

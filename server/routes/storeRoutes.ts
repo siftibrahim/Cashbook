@@ -1,8 +1,9 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStoreToDisk } from '../db';
 import { AuthenticatedRequest, authenticateUser, optionalAuth } from '../authMiddleware';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { validateStoreSlug, cleanDomainString } from '../utils/domainResolver';
+import { realtimeEvents } from '../services/realtimeEvents';
 
 const router = Router();
 
@@ -569,19 +570,28 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
     const pool = getDbPool();
 
     if (pool) {
-      const result = await pool.query('SELECT * FROM online_store_configs WHERE user_id = $1', [userId]);
+      const [result, uRes] = await Promise.all([
+        pool.query('SELECT * FROM online_store_configs WHERE user_id = $1', [userId]),
+        pool.query('SELECT shop_name, phone, address, name, is_online_store_allowed, online_store_status, online_store_requested_at, online_store_note, store_slug FROM users WHERE id = $1', [userId]),
+      ]);
+
+      const u = uRes.rows[0] || {};
+      const isAllowed = u.is_online_store_allowed !== false;
+      const adminStatus = u.online_store_status || (isAllowed ? 'active' : 'disabled');
+      const adminNote = u.online_store_note || '';
+
       if (result.rows.length > 0) {
         const r = result.rows[0];
         return res.json({
           config: {
             isEnabled: r.is_enabled !== false,
-            storeSlug: r.store_slug,
-            storeName: r.store_name,
+            storeSlug: r.store_slug || u.store_slug,
+            storeName: r.store_name || u.shop_name || 'আমার দোকান',
             tagline: r.tagline || '',
             category: r.category || 'general',
-            phone: r.phone || '',
-            whatsappPhone: r.whatsapp_phone || '',
-            address: r.address || '',
+            phone: r.phone || u.phone || '',
+            whatsappPhone: r.whatsapp_phone || u.phone || '',
+            address: r.address || u.address || '',
             customDomain: r.custom_domain || '',
             customDomainVerified: Boolean(r.custom_domain_verified),
             customDomainStatus: r.custom_domain_status || 'pending',
@@ -620,6 +630,9 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             publishedProductIds: Array.isArray(r.published_product_ids)
               ? r.published_product_ids
               : (typeof r.published_product_ids === 'string' ? JSON.parse(r.published_product_ids) : []),
+            isStoreAllowedByAdmin: isAllowed,
+            adminStoreStatus: adminStatus,
+            adminStoreNote: adminNote,
             createdAt: Number(r.created_at),
             updatedAt: Number(r.updated_at),
           },
@@ -627,10 +640,8 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
       }
 
       // Default if not saved yet
-      const uRes = await pool.query('SELECT shop_name, phone, address, name FROM users WHERE id = $1', [userId]);
-      const u = uRes.rows[0] || {};
       const defShop = u.shop_name || req.user?.shopName || 'আমার দোকান';
-      const autoSlug = (defShop.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `store-${userId?.slice(-4)}`);
+      const autoSlug = u.store_slug || (defShop.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `store-${userId?.slice(-4)}`);
 
       return res.json({
         config: {
@@ -651,16 +662,31 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
           acceptRocket: false,
           bannerStyle: 'gradient',
           publishedProductIds: [],
+          isStoreAllowedByAdmin: isAllowed,
+          adminStoreStatus: adminStatus,
+          adminStoreNote: adminNote,
         },
       });
     } else {
+      const memUser = inMemoryStore.users.find((u) => u.id === userId);
+      const isAllowed = memUser?.isOnlineStoreAllowed !== false;
+      const adminStatus = memUser?.onlineStoreStatus || (isAllowed ? 'active' : 'disabled');
+      const adminNote = memUser?.onlineStoreNote || '';
+
       const found = (inMemoryStore.online_store_configs || []).find((c) => (c.userId || c.user_id) === userId);
       if (found) {
-        return res.json({ config: found });
+        return res.json({
+          config: {
+            ...found,
+            isStoreAllowedByAdmin: isAllowed,
+            adminStoreStatus: adminStatus,
+            adminStoreNote: adminNote,
+          }
+        });
       }
-      const memUser = inMemoryStore.users.find((u) => u.id === userId);
+
       const defShop = memUser?.shopName || req.user?.shopName || 'আমার দোকান';
-      const autoSlug = (defShop.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `store-${userId?.slice(-4)}`);
+      const autoSlug = memUser?.storeSlug || (defShop.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `store-${userId?.slice(-4)}`);
 
       return res.json({
         config: {
@@ -681,11 +707,84 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
           acceptRocket: false,
           bannerStyle: 'gradient',
           publishedProductIds: [],
+          isStoreAllowedByAdmin: isAllowed,
+          adminStoreStatus: adminStatus,
+          adminStoreNote: adminNote,
         },
       });
     }
   } catch (err: any) {
     console.error('Error fetching online store config:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/request-activation
+ * User requests Super Admin to activate their Online Store
+ */
+router.post('/request-activation', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { note } = req.body || {};
+    const pool = getDbPool();
+    const now = Date.now();
+    const userNote = note ? String(note).trim().slice(0, 500) : 'ইউজার অনলাইন স্টোর চালুর আবেদন করেছেন';
+
+    if (pool) {
+      const uRes = await pool.query('SELECT name, shop_name, phone FROM users WHERE id = $1', [userId]);
+      const u = uRes.rows[0] || {};
+
+      await pool.query(`
+        UPDATE users SET
+          online_store_status = 'requested',
+          online_store_requested_at = $1,
+          online_store_note = $2
+        WHERE id = $3
+      `, [now, userNote, userId]);
+
+      await pool.query(`
+        UPDATE online_store_configs SET
+          admin_store_status = 'requested',
+          admin_store_note = $1
+        WHERE user_id = $2
+      `, [userNote, userId]).catch(() => {});
+
+      // Create Admin Notification
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        'notif_store_req_' + now,
+        '🛍️ নতুন অনলাইন স্টোর অ্যাক্টিভেশন রিকোয়েস্ট!',
+        `${u.shop_name || u.name || 'একজন ইউজার'} (${u.phone || userId}) অনলাইন স্টোর চালুর আবেদন করেছেন। নোট: ${userNote}`,
+        'system',
+        'admin',
+        'high',
+        false,
+        now,
+      ]).catch(() => {});
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u) {
+        u.onlineStoreStatus = 'requested';
+        u.onlineStoreRequestedAt = now;
+        u.onlineStoreNote = userNote;
+      }
+      const c = (inMemoryStore.online_store_configs || []).find(x => (x.userId || x.user_id) === userId);
+      if (c) {
+        c.adminStoreStatus = 'requested';
+        c.adminStoreNote = userNote;
+      }
+    }
+
+    return res.json({
+      message: '✅ আপনার অনলাইন স্টোর চালুর রিকোয়েস্ট সফলভাবে সুপার অ্যাডমিনের কাছে পাঠানো হয়েছে! পর্যালোচনার পর এটি সক্রিয় করা হবে।',
+      onlineStoreStatus: 'requested',
+      onlineStoreRequestedAt: now,
+    });
+  } catch (err: any) {
+    console.error('Error requesting online store activation:', err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -962,6 +1061,29 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             now,
           ]
         );
+
+        // Dual-sync store_slug into users and store_profiles table
+        await pool.query('UPDATE users SET store_slug = $1 WHERE id = $2', [rawSlug, userId]).catch(() => {});
+        await pool.query('UPDATE store_profiles SET store_slug = $1 WHERE user_id = $2', [rawSlug, userId]).catch(() => {});
+
+        // Keep inMemoryStore synchronized for fast middleware lookups
+        if (!inMemoryStore.online_store_configs) inMemoryStore.online_store_configs = [];
+        const idx = inMemoryStore.online_store_configs.findIndex((c) => (c.userId || c.user_id) === userId);
+        const confObj = {
+          ...body,
+          userId,
+          storeSlug: rawSlug,
+          customDomain: cleanDomain || undefined,
+          updatedAt: now,
+        };
+        if (idx >= 0) inMemoryStore.online_store_configs[idx] = confObj;
+        else inMemoryStore.online_store_configs.push(confObj);
+
+        const memUser = (inMemoryStore.users || []).find(u => u.id === userId);
+        if (memUser) memUser.storeSlug = rawSlug;
+        const memStore = (inMemoryStore.stores || []).find(s => s.userId === userId);
+        if (memStore) memStore.storeSlug = rawSlug;
+        saveInMemoryStoreToDisk();
       }
     } else {
       if (!inMemoryStore.online_store_configs) inMemoryStore.online_store_configs = [];
@@ -991,6 +1113,12 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
       };
       if (idx >= 0) inMemoryStore.online_store_configs[idx] = confObj;
       else inMemoryStore.online_store_configs.push(confObj);
+
+      const memUser = (inMemoryStore.users || []).find(u => u.id === userId);
+      if (memUser) memUser.storeSlug = rawSlug;
+      const memStore = (inMemoryStore.stores || []).find(s => s.userId === userId);
+      if (memStore) memStore.storeSlug = rawSlug;
+      saveInMemoryStoreToDisk();
     }
 
     const canonicalUrl = body.customDomainVerified && cleanDomain

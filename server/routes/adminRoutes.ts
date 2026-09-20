@@ -17,6 +17,7 @@ import {
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { DEFAULT_SMS_PACKAGES, getDynamicSmsPackages, DEFAULT_TAGADA_TEMPLATES, getDynamicTagadaTemplates } from './smsRoutes';
 import { DEFAULT_PAYMENTLY_CONFIG, normalizePaymentlyKey } from '../services/paymentlyService';
+import { realtimeEvents } from '../services/realtimeEvents';
 
 const router = Router();
 
@@ -74,13 +75,23 @@ router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
         notes: row.notes || '',
         deviceInfo: row.device_info || '',
         appVersion: row.app_version || '2.5.0',
+        isOnlineStoreAllowed: row.is_online_store_allowed !== false,
+        onlineStoreStatus: row.online_store_status || 'active',
+        onlineStoreRequestedAt: Number(row.online_store_requested_at) || 0,
+        onlineStoreNote: row.online_store_note || '',
       }));
 
       return res.json({ users, isPostgresConnected: true, totalCount: users.length });
     } else {
-      const filteredInMemory = inMemoryStore.users.filter(
-        u => u.role !== 'super_admin' && u.id !== 'usr_super_admin' && u.email !== 'siftibrahim@gmail.com' && u.email !== 'admin@twing.com'
-      );
+      const filteredInMemory = inMemoryStore.users
+        .filter(u => u.role !== 'super_admin' && u.id !== 'usr_super_admin' && u.email !== 'siftibrahim@gmail.com' && u.email !== 'admin@twing.com')
+        .map(u => ({
+          ...u,
+          isOnlineStoreAllowed: u.isOnlineStoreAllowed !== false,
+          onlineStoreStatus: u.onlineStoreStatus || 'active',
+          onlineStoreRequestedAt: Number(u.onlineStoreRequestedAt) || 0,
+          onlineStoreNote: u.onlineStoreNote || '',
+        }));
       return res.json({ users: filteredInMemory, isPostgresConnected: false, totalCount: filteredInMemory.length });
     }
   } catch (err: any) {
@@ -497,7 +508,7 @@ router.get('/payments', async (req: AuthenticatedRequest, res: Response) => {
 router.post('/payments/:id/approve', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const paymentId = req.params.id;
-    const { adminNotes } = req.body;
+    const { adminNotes, activateOnlineStore } = req.body;
     const now = Date.now();
     const pool = getDbPool();
 
@@ -522,6 +533,31 @@ router.post('/payments/:id/approve', async (req: AuthenticatedRequest, res: Resp
 
       // Automatically recalculate and synchronize exact user subscription timeline
       const synced = await SubscriptionEngine.recalculateAndSyncUserSubscription(p.user_id);
+
+      // If online store activation requested with payment
+      if (activateOnlineStore) {
+        await pool.query(`
+          UPDATE users SET
+            is_online_store_allowed = true,
+            online_store_status = 'active',
+            online_store_note = COALESCE(online_store_note, 'পেমেন্ট অনুমোদনের সাথে অনলাইন স্টোর সক্রিয় করা হয়েছে')
+          WHERE id = $1
+        `, [p.user_id]).catch(() => {});
+
+        await pool.query(`
+          UPDATE online_store_configs SET
+            is_store_allowed_by_admin = true,
+            admin_store_status = 'active',
+            admin_store_note = 'পেমেন্ট অনুমোদনের সাথে অনলাইন স্টোর সক্রিয় করা হয়েছে'
+          WHERE user_id = $1
+        `, [p.user_id]).catch(() => {});
+
+        realtimeEvents.broadcastToUser(p.user_id, 'online_store_status_changed', {
+          isAllowed: true,
+          status: 'active',
+          note: 'পেমেন্ট অনুমোদনের সাথে অনলাইন স্টোর সক্রিয় করা হয়েছে',
+        });
+      }
 
       // Notify User specifically (Targeted Notification)
       await pool.query(`
@@ -575,6 +611,13 @@ router.post('/payments/:id/approve', async (req: AuthenticatedRequest, res: Resp
           isRead: false,
           createdAt: now,
         });
+
+        realtimeEvents.broadcastToUser(p.userId, 'payment_approved', {
+          paymentId,
+          amount: p.amount,
+          trxId: p.trxId,
+          status: 'approved',
+        });
       }
     }
 
@@ -621,6 +664,14 @@ router.post('/payments/:id/reject', async (req: AuthenticatedRequest, res: Respo
           false,
           now,
         ]);
+
+        realtimeEvents.broadcastToUser(p.user_id, 'payment_rejected', {
+          paymentId,
+          amount: p.amount,
+          trxId: p.trx_id,
+          status: 'rejected',
+          reason: rejectedReason || 'ভুল বা অসঙ্গতিপূর্ণ ট্রানজেকশন আইডি',
+        });
       }
     } else {
       const p = inMemoryStore.payments.find(x => x.id === paymentId);
@@ -639,6 +690,14 @@ router.post('/payments/:id/reject', async (req: AuthenticatedRequest, res: Respo
           priority: 'high',
           isRead: false,
           createdAt: now,
+        });
+
+        realtimeEvents.broadcastToUser(p.userId, 'payment_rejected', {
+          paymentId,
+          amount: p.amount,
+          trxId: p.trxId,
+          status: 'rejected',
+          reason: rejectedReason || 'ভুল তথ্য',
         });
       }
     }
@@ -1510,12 +1569,290 @@ router.post('/users/:id/reset-subscription', async (req: AuthenticatedRequest, r
       });
     }
 
+    // Broadcast subscription reset in real-time
+    realtimeEvents.broadcastToUser(userId, 'subscription_reset', {
+      subscriptionExpiresAt: newExpiry,
+      subscriptionPlan: newPlan,
+      subscriptionStatus: newStatus,
+      isExpired: newStatus === 'expired',
+      daysLeft: Math.max(0, Math.ceil((newExpiry - Date.now()) / 86400000)),
+    });
+
     return res.json({
       message: '✅ ইউজারের সাবস্ক্রিপশন সফলভাবে রিসেট করা হয়েছে',
       subscriptionExpiresAt: newExpiry,
       subscriptionPlan: newPlan,
       subscriptionStatus: newStatus,
     });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/users/:id/toggle-online-store
+ * Super Admin switch to enable or disable Online Store for a user
+ */
+router.post('/users/:id/toggle-online-store', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const { isAllowed, note } = req.body;
+    const pool = getDbPool();
+    const allowed = isAllowed !== false;
+    const newStatus = allowed ? 'active' : 'disabled';
+    const now = Date.now();
+
+    if (pool) {
+      await pool.query(`
+        UPDATE users SET
+          is_online_store_allowed = $1,
+          online_store_status = $2,
+          online_store_note = COALESCE($3, online_store_note)
+        WHERE id = $4
+      `, [allowed, newStatus, note || (allowed ? 'সুপার অ্যাডমিন কর্তৃক অনলাইন স্টোর সক্রিয়' : 'সুপার অ্যাডমিন কর্তৃক অনলাইন স্টোর নিষ্ক্রিয়'), userId]);
+
+      await pool.query(`
+        UPDATE online_store_configs SET
+          is_store_allowed_by_admin = $1,
+          admin_store_status = $2,
+          admin_store_note = COALESCE($3, admin_store_note)
+        WHERE user_id = $4
+      `, [allowed, newStatus, note || (allowed ? 'সুপার অ্যাডমিন কর্তৃক অনলাইন স্টোর সক্রিয়' : 'সুপার অ্যাডমিন কর্তৃক অনলাইন স্টোর নিষ্ক্রিয়'), userId]).catch(() => {});
+
+      // In-app Notification to user
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, target_user_id, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `, [
+        'notif_store_status_' + now,
+        allowed ? '🛍️ অনলাইন স্টোর সক্রিয় করা হয়েছে!' : '⚠️ অনলাইন স্টোর সাময়িকভাবে স্থগিত',
+        allowed
+          ? 'সুপার অ্যাডমিন আপনার অনলাইন স্টোর সার্ভিস সফলভাবে অনুমোদন ও চালু করেছেন। এখন আপনি লাইভ সাব-ডোমেন ও ই-কমার্স অর্ডার সেবা ব্যবহার করতে পারবেন।'
+          : `সুপার অ্যাডমিন আপনার অনলাইন স্টোর সাময়িকভাবে নিষ্ক্রিয় করেছেন${note ? ': ' + note : '।' }`,
+        'system',
+        'specific',
+        userId,
+        'high',
+        false,
+        now,
+      ]).catch(() => {});
+
+      // Admin activity log
+      await pool.query(`
+        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, details, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [
+        'log_' + now,
+        req.user?.email || 'admin',
+        'TOGGLE_ONLINE_STORE',
+        'User',
+        userId,
+        `অনলাইন স্টোর স্ট্যাটাস পরিবর্তন: ${allowed ? 'চালু (Active)' : 'বন্ধ (Disabled)'}${note ? ', নোট: ' + note : ''}`,
+        now,
+      ]).catch(() => {});
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u) {
+        u.isOnlineStoreAllowed = allowed;
+        u.onlineStoreStatus = newStatus;
+        u.onlineStoreNote = note || (allowed ? 'সুপার অ্যাডমিন কর্তৃক সক্রিয়' : 'সুপার অ্যাডমিন কর্তৃক নিষ্ক্রিয়');
+      }
+      const c = (inMemoryStore.online_store_configs || []).find(x => (x.userId || x.user_id) === userId);
+      if (c) {
+        c.isStoreAllowedByAdmin = allowed;
+        c.adminStoreStatus = newStatus;
+        c.adminStoreNote = note || '';
+      }
+    }
+
+    // Broadcast instant update to user's frontend session
+    realtimeEvents.broadcastToUser(userId, 'online_store_status_changed', {
+      isAllowed: allowed,
+      status: newStatus,
+      note: note || '',
+    });
+
+    return res.json({
+      message: allowed ? '✅ অনলাইন স্টোর সফলভাবে সক্রিয় করা হয়েছে' : '⚠️ অনলাইন স্টোর নিষ্ক্রিয় করা হয়েছে',
+      isOnlineStoreAllowed: allowed,
+      onlineStoreStatus: newStatus,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/users/:id/approve-store-request
+ * Super Admin approves user's online store request
+ */
+router.post('/users/:id/approve-store-request', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      await pool.query(`
+        UPDATE users SET
+          is_online_store_allowed = true,
+          online_store_status = 'active',
+          online_store_note = 'সুপার অ্যাডমিন রিকোয়েস্ট অনুমোদন করেছেন'
+        WHERE id = $1
+      `, [userId]);
+
+      await pool.query(`
+        UPDATE online_store_configs SET
+          is_store_allowed_by_admin = true,
+          admin_store_status = 'active',
+          admin_store_note = 'সুপার অ্যাডমিন রিকোয়েস্ট অনুমোদন করেছেন'
+        WHERE user_id = $1
+      `, [userId]).catch(() => {});
+
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, target_user_id, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `, [
+        'notif_store_approved_' + now,
+        '🎉 আপনার অনলাইন স্টোর রিকোয়েস্ট অনুমোদিত হয়েছে!',
+        'সুপার অ্যাডমিন আপনার অনলাইন স্টোর ব্যবহারের আবেদন সফলভাবে অনুমোদন করেছেন। আপনার ই-কমার্স স্টোর এখন সম্পূর্ণ সক্রিয়!',
+        'system',
+        'specific',
+        userId,
+        'high',
+        false,
+        now,
+      ]).catch(() => {});
+
+      await pool.query(`
+        INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, details, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, ['log_' + now, req.user?.email || 'admin', 'APPROVE_STORE_REQUEST', 'User', userId, 'অনলাইন স্টোর রিকোয়েস্ট অনুমোদন করা হয়েছে', now]).catch(() => {});
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u) {
+        u.isOnlineStoreAllowed = true;
+        u.onlineStoreStatus = 'active';
+        u.onlineStoreNote = 'সুপার অ্যাডমিন রিকোয়েস্ট অনুমোদন করেছেন';
+      }
+      const c = (inMemoryStore.online_store_configs || []).find(x => (x.userId || x.user_id) === userId);
+      if (c) {
+        c.isStoreAllowedByAdmin = true;
+        c.adminStoreStatus = 'active';
+      }
+    }
+
+    realtimeEvents.broadcastToUser(userId, 'online_store_status_changed', {
+      isAllowed: true,
+      status: 'active',
+      note: 'সুপার অ্যাডমিন রিকোয়েস্ট অনুমোদন করেছেন',
+    });
+
+    return res.json({
+      message: '✅ অনলাইন স্টোর রিকোয়েস্ট সফলভাবে অনুমোদন করা হয়েছে',
+      isOnlineStoreAllowed: true,
+      onlineStoreStatus: 'active',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/users/:id/reject-store-request
+ * Super Admin rejects user's online store request
+ */
+router.post('/users/:id/reject-store-request', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const { reason } = req.body;
+    const pool = getDbPool();
+    const rejectReason = reason || 'সুপার অ্যাডমিন কর্তৃক আবেদন বাতিল করা হয়েছে';
+    const now = Date.now();
+
+    if (pool) {
+      await pool.query(`
+        UPDATE users SET
+          is_online_store_allowed = false,
+          online_store_status = 'disabled',
+          online_store_note = $1
+        WHERE id = $2
+      `, [rejectReason, userId]);
+
+      await pool.query(`
+        UPDATE online_store_configs SET
+          is_store_allowed_by_admin = false,
+          admin_store_status = 'disabled',
+          admin_store_note = $1
+        WHERE user_id = $2
+      `, [rejectReason, userId]).catch(() => {});
+
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, target_user_id, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `, [
+        'notif_store_rejected_' + now,
+        'অনলাইন স্টোর আবেদন সংক্রান্ত নোটিশ',
+        `আপনার অনলাইন স্টোর অ্যাক্টিভেশন রিকোয়েস্ট পর্যালোচনা শেষে বাতিল করা হয়েছে। কারণ: ${rejectReason}`,
+        'system',
+        'specific',
+        userId,
+        'normal',
+        false,
+        now,
+      ]).catch(() => {});
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u) {
+        u.isOnlineStoreAllowed = false;
+        u.onlineStoreStatus = 'disabled';
+        u.onlineStoreNote = rejectReason;
+      }
+      const c = (inMemoryStore.online_store_configs || []).find(x => (x.userId || x.user_id) === userId);
+      if (c) {
+        c.isStoreAllowedByAdmin = false;
+        c.adminStoreStatus = 'disabled';
+        c.adminStoreNote = rejectReason;
+      }
+    }
+
+    realtimeEvents.broadcastToUser(userId, 'online_store_status_changed', {
+      isAllowed: false,
+      status: 'disabled',
+      note: rejectReason,
+    });
+
+    return res.json({
+      message: 'অনলাইন স্টোর রিকোয়েস্ট বাতিল করা হয়েছে',
+      isOnlineStoreAllowed: false,
+      onlineStoreStatus: 'disabled',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/admin/online-store-requests
+ * List users who requested online store activation
+ */
+router.get('/online-store-requests', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const pool = getDbPool();
+    if (pool) {
+      const result = await pool.query(`
+        SELECT id, name, shop_name, phone, email, online_store_status,
+               online_store_requested_at, online_store_note, is_online_store_allowed,
+               subscription_plan, subscription_expires_at
+        FROM users
+        WHERE online_store_status = 'requested'
+        ORDER BY online_store_requested_at DESC NULLS LAST
+      `);
+      return res.json({ requests: result.rows });
+    } else {
+      const list = (inMemoryStore.users || []).filter(u => u.onlineStoreStatus === 'requested');
+      return res.json({ requests: list });
+    }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

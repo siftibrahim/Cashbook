@@ -23,6 +23,10 @@ export interface AppUser {
   notes?: string;
   deviceInfo?: string;
   appVersion?: string;
+  isOnlineStoreAllowed?: boolean;
+  onlineStoreStatus?: 'active' | 'disabled' | 'requested';
+  onlineStoreRequestedAt?: number;
+  onlineStoreNote?: string;
 }
 
 export interface SubscriptionPlan {

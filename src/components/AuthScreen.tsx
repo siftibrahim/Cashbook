@@ -500,12 +500,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <Sparkles className="w-4 h-4 text-emerald-400" />
               <span>স্মার্ট ডিজিটাল খাতা ও POS সফটওয়্যার</span>
             </div>
-            <h1 className="text-3xl xl:text-4xl font-black text-white leading-tight tracking-tight">
+            <h2 className="text-3xl xl:text-4xl font-black text-white leading-tight tracking-tight">
               দোকানের দৈনন্দিন হিসাব <br />
               <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
                 ১০০% নির্ভুল ও সহজ
               </span>
-            </h1>
+            </h2>
             <p className="text-sm text-slate-300 leading-relaxed">
               বাকি খাতা, নগদ বিক্রি, কাস্টমার তালিকা ও অটোমেটিক SMS তাগাদা পাঠান নিমেষেই। মোবাইল, কম্পিউটার বা ট্যাবলেট—সব ডিসপ্লেতেই সহজে ব্যবহারযোগ্য।
             </p>
@@ -558,11 +558,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <div className="inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-lg shadow-emerald-900/30 mb-3 border-2 border-emerald-300/30">
                 <Store className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
               </div>
-              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                TWING হিসাবি
-              </h2>
-              <p className="text-xs sm:text-sm text-emerald-300/90 mt-1 font-semibold">
-                সহজ, নিরাপদ ও ক্লাউড ব্যাকআপযুক্ত ডিজিটাল বাকির খাতা
+              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                TwingHisabi – সহজ হিসাব ও ব্যবসা ব্যবস্থাপনা
+              </h1>
+              <p className="text-xs sm:text-sm text-emerald-300/90 mt-1.5 font-medium">
+                TwingHisabi হলো সহজ ও আধুনিক হিসাব এবং ব্যবসা ব্যবস্থাপনার প্ল্যাটফর্ম।
               </p>
             </div>
 

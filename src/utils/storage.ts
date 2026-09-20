@@ -665,12 +665,15 @@ export function saveProducts(products: Product[], userId?: string): void {
 
 export function getDefaultOnlineStoreConfig(storeName?: string, phone?: string): OnlineStoreConfig {
   const cleanName = (storeName && storeName !== 'আমার দোকান' ? storeName : 'আমার অনলাইন স্টোর').trim();
-  // generate slug
-  const baseSlug = cleanName
+  // generate slug from latin chars or phone suffix
+  const latinSlug = cleanName
     .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
     .replace(/\s+/g, '-')
-    .substring(0, 25) || 'twing-shop';
+    .substring(0, 25);
+  const phoneSuffix = phone ? phone.replace(/[^0-9]/g, '').slice(-4) : Math.random().toString(36).substring(2, 6);
+  const baseSlug = latinSlug || `shop-${phoneSuffix}`;
 
   return {
     isEnabled: true,
@@ -713,6 +716,8 @@ export function getDefaultOnlineStoreConfig(storeName?: string, phone?: string):
     supportHours: 'সকাল ৯:০০ - রাত ১০:০০',
     facebookUrl: '',
     publishedProductIds: [],
+    isStoreAllowedByAdmin: true,
+    adminStoreStatus: 'active',
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -727,9 +732,11 @@ export function loadOnlineStoreConfig(userId?: string, storeName?: string, phone
       return getDefaultOnlineStoreConfig(storeName, phone);
     }
     const parsed = JSON.parse(raw);
+    const def = getDefaultOnlineStoreConfig(storeName, phone);
     return {
-      ...getDefaultOnlineStoreConfig(storeName, phone),
+      ...def,
       ...parsed,
+      storeSlug: parsed.storeSlug || def.storeSlug,
     };
   } catch (e) {
     console.error('Error loading online store config:', e);

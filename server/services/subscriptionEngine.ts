@@ -1,4 +1,5 @@
 import { getDbPool, inMemoryStore } from '../db';
+import { realtimeEvents } from './realtimeEvents';
 
 export interface SubscriptionStatusResult {
   subscriptionExpiresAt: number;
@@ -147,37 +148,22 @@ export class SubscriptionEngine {
         }
       }
 
-      // 1. Respect user expiry and status as stored in DB (authoritative)
+      // 1. Calculate effective expiry:
+      // If user has approved payments or valid registration trial, currentChainExpiry gives their valid end date.
+      // If admin manually extended their validity further, preserve existingUserExpiry.
       const existingUserExpiry = Number(u.subscription_expires_at) || 0;
-      const isExplicitlyResetOrExpired = (
-        u.subscription_status === 'expired' ||
-        u.subscription_plan === 'Free' ||
-        u.subscription_plan === 'রিসেট / বন্ধ' ||
-        (u.subscription_plan && u.subscription_plan.includes('মেয়াদ শেষ'))
-      );
-      
-      let finalExpiry = existingUserExpiry;
+      let finalExpiry = Math.max(currentChainExpiry, existingUserExpiry > now ? existingUserExpiry : 0);
       let computedStatus: string = 'active';
 
-      if (isExplicitlyResetOrExpired || existingUserExpiry < now) {
-        finalExpiry = existingUserExpiry > 0 && existingUserExpiry < now ? existingUserExpiry : (now - 1000);
+      if (finalExpiry > now) {
+        const isTrial = totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
+        computedStatus = isTrial ? (isTrialEnabled ? 'trial' : 'expired') : 'active';
+      } else {
+        finalExpiry = now - 1000;
         computedStatus = 'expired';
         latestPlanName = u.subscription_plan && !u.subscription_plan.includes('ট্রায়াল')
           ? u.subscription_plan
           : 'মেয়াদ শেষ (রিনিউ প্রয়োজন)';
-      } else {
-        // User has valid expiry in DB: preserve admin manual extension/reduction
-        if (existingUserExpiry > 0) {
-          finalExpiry = existingUserExpiry;
-        } else {
-          finalExpiry = currentChainExpiry;
-        }
-
-        const isTrial = totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
-        computedStatus = isTrial ? (isTrialEnabled ? 'trial' : 'expired') : 'active';
-        if (u.subscription_plan && !u.subscription_plan.includes('ট্রায়াল')) {
-          latestPlanName = u.subscription_plan;
-        }
       }
 
       await pool.query(
@@ -196,6 +182,14 @@ export class SubscriptionEngine {
         WHERE user_id = $3`,
         [finalExpiry, latestPlanName, userId]
       ).catch(() => {});
+
+      // Broadcast real-time event to user panel
+      realtimeEvents.broadcastToUser(userId, 'subscription_updated', {
+        subscriptionExpiresAt: finalExpiry,
+        subscriptionPlan: latestPlanName,
+        subscriptionStatus: computedStatus,
+        isSubscriptionSystemEnabled,
+      });
 
       return {
         subscriptionExpiresAt: finalExpiry,
@@ -281,39 +275,18 @@ export class SubscriptionEngine {
         }
       }
 
-      const existingUserExpiry = Number(u.subscriptionExpiresAt || u.subscription_expires_at) || 0;
-      const isExplicitlyResetOrExpired = (
-        u.subscriptionStatus === 'expired' ||
-        u.subscription_status === 'expired' ||
-        u.subscriptionPlan === 'Free' ||
-        u.subscription_plan === 'Free' ||
-        u.subscriptionPlan === 'রিসেট / বন্ধ' ||
-        u.subscription_plan === 'রিসেট / বন্ধ' ||
-        (u.subscriptionPlan && u.subscriptionPlan.includes('মেয়াদ শেষ'))
-      );
-      
-      let finalExpiry = existingUserExpiry;
+      let finalExpiry = Math.max(currentChainExpiry, existingUserExpiry > now ? existingUserExpiry : 0);
       let computedStatus: string = 'active';
 
-      if (isExplicitlyResetOrExpired || existingUserExpiry < now) {
-        finalExpiry = existingUserExpiry > 0 && existingUserExpiry < now ? existingUserExpiry : (now - 1000);
+      if (finalExpiry > now) {
+        const isTrial = totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
+        computedStatus = isTrial ? (isTrialEnabled ? 'trial' : 'expired') : 'active';
+      } else {
+        finalExpiry = now - 1000;
         computedStatus = 'expired';
         latestPlanName = (u.subscriptionPlan || u.subscription_plan) && !(u.subscriptionPlan || u.subscription_plan).includes('ট্রায়াল')
           ? (u.subscriptionPlan || u.subscription_plan)
           : 'মেয়াদ শেষ (রিনিউ প্রয়োজন)';
-      } else {
-        if (existingUserExpiry > 0) {
-          finalExpiry = existingUserExpiry;
-        } else {
-          finalExpiry = currentChainExpiry;
-        }
-
-        const isTrial = totalApprovedDays === 0 && finalExpiry <= (regAt + (isTrialEnabled ? trialDays : 0) * 86400000 + 1000);
-        computedStatus = isTrial ? (isTrialEnabled ? 'trial' : 'expired') : 'active';
-        const existingPlan = u.subscriptionPlan || u.subscription_plan;
-        if (existingPlan && !existingPlan.includes('ট্রায়াল')) {
-          latestPlanName = existingPlan;
-        }
       }
 
       u.subscriptionExpiresAt = finalExpiry;
@@ -322,6 +295,14 @@ export class SubscriptionEngine {
       u.subscription_plan = latestPlanName;
       u.subscriptionStatus = computedStatus;
       u.subscription_status = computedStatus;
+
+      // Broadcast real-time event to user panel
+      realtimeEvents.broadcastToUser(userId, 'subscription_updated', {
+        subscriptionExpiresAt: finalExpiry,
+        subscriptionPlan: latestPlanName,
+        subscriptionStatus: computedStatus,
+        isSubscriptionSystemEnabled,
+      });
 
       return {
         subscriptionExpiresAt: finalExpiry,

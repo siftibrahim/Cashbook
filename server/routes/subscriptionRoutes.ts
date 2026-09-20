@@ -1,12 +1,49 @@
-import { Router, Response } from 'express';
+import { Router, Response, Request } from 'express';
 import { getDbPool, inMemoryStore } from '../db';
-import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
+import { AuthenticatedRequest, authenticateUser, verifyToken } from '../authMiddleware';
 import { DEFAULT_PLANS } from '../../src/services/adminService';
 import { PaymentGatewayManager } from '../services/paymentProviders';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { PaymentlyService } from '../services/paymentlyService';
+import { realtimeEvents } from '../services/realtimeEvents';
 
 const router = Router();
+
+/**
+ * GET /api/subscription/events (Server-Sent Events)
+ * Provides real-time synchronization between Super Admin approval and User Panel
+ */
+router.get('/events', (req: Request, res: Response) => {
+  const token = (req.query.token as string) || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.split(' ')[1] : '');
+  const decoded = token ? verifyToken(token) : null;
+  if (!decoded) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  const clientId = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  realtimeEvents.addClient(clientId, decoded.userId, res, decoded.role);
+
+  res.write(`event: connected\ndata: ${JSON.stringify({ status: 'connected', userId: decoded.userId })}\n\n`);
+
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch {
+      clearInterval(keepAlive);
+    }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    realtimeEvents.removeClient(clientId);
+  });
+});
 
 /**
  * GET /api/subscription/plans (Public / Authenticated)
