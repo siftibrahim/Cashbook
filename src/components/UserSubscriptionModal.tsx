@@ -36,6 +36,7 @@ import {
   Zap,
   ExternalLink,
   RefreshCw,
+  Globe,
 } from 'lucide-react';
 import { formatMoney } from '../utils/storage';
 import { StoreProfile } from '../types';
@@ -77,6 +78,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
   const [senderNumber, setSenderNumber] = useState<string>('');
   const [trxId, setTrxId] = useState<string>('');
   const [userNote, setUserNote] = useState<string>('');
+  const [requestStoreActive, setRequestStoreActive] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
@@ -267,7 +269,10 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
         trxId: cleanTrx,
         durationDays: selectedPlan.durationDays,
         status: 'pending',
-        adminNotes: userNote ? `গ্রাহক নোট: ${userNote}` : undefined,
+        adminNotes: [
+          userNote ? `গ্রাহক নোট: ${userNote}` : '',
+          requestStoreActive ? '[অনলাইন স্টোর সক্রিয় করার অনুরোধ]' : '',
+        ].filter(Boolean).join(' | ') || undefined,
         bankDetails:
           paymentMethod === 'bank' && settings.bankTransfer?.accounts[selectedBankAccountIndex]
             ? settings.bankTransfer.accounts[selectedBankAccountIndex]
@@ -1254,6 +1259,25 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
                         onChange={(e) => setUserNote(e.target.value)}
                         placeholder="কোনো বিশেষ মন্তব্য থাকলে লিখুন"
                         className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-slate-800"
+                      />
+                    </div>
+
+                    {/* Online Store Activation Request Checkbox */}
+                    <div className="p-3 bg-teal-50/80 border border-teal-200 rounded-2xl flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-teal-600/15 text-teal-700 flex items-center justify-center shrink-0">
+                          <Globe className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-teal-950 block">অনলাইন ই-কমার্স স্টোর সুবিধা সক্রিয়করণ</span>
+                          <span className="text-[11px] text-teal-800">পেমেন্ট অনুমোদনের সাথে অনলাইন স্টোর সক্রিয় করতে অনুরোধ জানান</span>
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={requestStoreActive}
+                        onChange={(e) => setRequestStoreActive(e.target.checked)}
+                        className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 cursor-pointer accent-teal-600 shrink-0"
                       />
                     </div>
                   </div>

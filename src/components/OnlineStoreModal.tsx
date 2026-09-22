@@ -59,9 +59,10 @@ interface OnlineStoreModalProps {
   onNavigateToTab?: (tab: 'customers' | 'pos' | 'inventory' | 'cashbook') => void;
   onConvertOrderToSale?: (order: OnlineOrder) => void;
   onShowToast?: (msg: string) => void;
+  onOpenSubscriptionModal?: () => void;
 }
 
-type TabType = 'overview' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages' | 'coupons' | 'payments';
+type TabType = 'overview' | 'activation_request' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages' | 'coupons' | 'payments';
 
 export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   isOpen,
@@ -76,11 +77,15 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   onNavigateToTab,
   onConvertOrderToSale,
   onShowToast,
+  onOpenSubscriptionModal,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
 
   // Form states initialized with config
   const [formData, setFormData] = useState<OnlineStoreConfig>(config);
+  const [requestNoteInput, setRequestNoteInput] = useState('');
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [requestSuccessMessage, setRequestSuccessMessage] = useState<string | null>(null);
   const [customDomainInput, setCustomDomainInput] = useState(config.customDomain || '');
   const [isVerifyingDomain, setIsVerifyingDomain] = useState(false);
   const [domainVerifySuccess, setDomainVerifySuccess] = useState<string | null>(null);
@@ -111,6 +116,46 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [newCouponMinSpend, setNewCouponMinSpend] = useState(500);
   const [newCouponMaxDiscount, setNewCouponMaxDiscount] = useState<number | undefined>(200);
   const [newCouponDescription, setNewCouponDescription] = useState('');
+
+  const handleRequestStoreActivation = async () => {
+    try {
+      setIsSubmittingRequest(true);
+      const res = await storeApi.requestOnlineStoreActivation(requestNoteInput.trim() || undefined);
+      setRequestSuccessMessage(res?.message || 'অনলাইন স্টোর চালুর আবেদন সফলভাবে জমা হয়েছে!');
+      const updated = {
+        ...formData,
+        adminStoreStatus: 'requested' as const,
+        adminStoreNote: requestNoteInput.trim() || undefined,
+      };
+      setFormData(updated);
+      onUpdateConfig(updated);
+      if (onShowToast) onShowToast('✅ অনলাইন স্টোর চালুর আবেদন সফলভাবে জমা হয়েছে!');
+    } catch (err: any) {
+      alert(`রিকোয়েস্ট জমা দিতে সমস্যা হয়েছে: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  };
+
+  const handleCancelStoreActivation = async () => {
+    try {
+      setIsSubmittingRequest(true);
+      await storeApi.cancelOnlineStoreActivation();
+      setRequestSuccessMessage(null);
+      const updated = {
+        ...formData,
+        adminStoreStatus: 'disabled' as const,
+        adminStoreNote: 'আবেদন প্রত্যাহার করা হয়েছে',
+      };
+      setFormData(updated);
+      onUpdateConfig(updated);
+      if (onShowToast) onShowToast('অনলাইন স্টোর আবেদন প্রত্যাহার করা হয়েছে');
+    } catch (err: any) {
+      alert(`বাতিল করতে সমস্যা হয়েছে: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  };
 
   const handleAddCouponSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -623,6 +668,10 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
     return formData.publishedProductIds.includes(prodId);
   };
 
+  const isStoreDisabledByAdmin = formData.isStoreAllowedByAdmin === false || formData.adminStoreStatus === 'disabled';
+  const isStorePendingReview = formData.adminStoreStatus === 'requested';
+  const shouldShowActivationGate = isStoreDisabledByAdmin || isStorePendingReview;
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex justify-center items-center p-2 sm:p-4 overflow-y-auto">
       <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden">
@@ -636,13 +685,23 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base sm:text-lg font-black tracking-tight">অনলাইন ই-কমার্স স্টোর ও ডোমেন</h2>
                 <span
-                  className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                    formData.isEnabled
+                  className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                    isStorePendingReview
+                      ? 'bg-amber-300 text-slate-950 animate-pulse'
+                      : isStoreDisabledByAdmin
+                      ? 'bg-rose-500 text-white'
+                      : formData.isEnabled
                       ? 'bg-emerald-400 text-slate-950'
                       : 'bg-red-400 text-slate-950'
                   }`}
                 >
-                  {formData.isEnabled ? '● স্টোর লাইভ' : '○ অফলাইন'}
+                  {isStorePendingReview
+                    ? '⏳ আবেদন পর্যালোচনায়'
+                    : isStoreDisabledByAdmin
+                    ? '🔒 অ্যাডমিন অনুমোদন প্রয়োজন'
+                    : formData.isEnabled
+                    ? '● স্টোর লাইভ'
+                    : '○ অফলাইন'}
                 </span>
               </div>
               <p className="text-xs text-teal-100 font-medium mt-0.5">
@@ -654,8 +713,36 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onOpenStorefront}
-              className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm"
+              onClick={() => setActiveTab('activation_request')}
+              className={`px-3 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm ${
+                activeTab === 'activation_request'
+                  ? 'bg-amber-400 text-slate-950 font-black'
+                  : 'bg-white/15 hover:bg-white/25 text-white'
+              }`}
+              title="অনলাইন স্টোর রিকোয়েস্ট অপশন ও স্ট্যাটাস"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">রিকোয়েস্ট অপশন</span>
+              {isStorePendingReview && (
+                <span className="w-2 h-2 rounded-full bg-amber-300 animate-ping" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (shouldShowActivationGate) {
+                  alert('অ্যাডমিন অনুমোদন না দেওয়া পর্যন্ত অনলাইন স্টোর পাবলিকলি লাইভ হবে না। আপনি রিকোয়েস্ট অপশন থেকে আবেদন পাঠাতে বা স্ট্যাটাস দেখতে পারেন।');
+                  setActiveTab('activation_request');
+                  return;
+                }
+                onOpenStorefront();
+              }}
+              className={`px-3 py-1.5 font-black text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm ${
+                shouldShowActivationGate
+                  ? 'bg-slate-700/60 text-slate-300 border border-slate-600/40'
+                  : 'bg-amber-400 hover:bg-amber-300 text-slate-950'
+              }`}
               title="ওয়েবসাইট দেখুন"
             >
               <Eye className="w-3.5 h-3.5" />
@@ -685,6 +772,32 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           >
             <Store className="w-4 h-4 text-teal-700" />
             <span>ওভারভিউ ও শেয়ার</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('activation_request')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'activation_request'
+                ? 'border-amber-500 text-amber-950 bg-white shadow-2xs rounded-t-xl font-black'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Send className="w-4 h-4 text-amber-600" />
+            <span>রিকোয়েস্ট অপশন</span>
+            {isStorePendingReview ? (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black animate-pulse">
+                পেন্ডিং
+              </span>
+            ) : isStoreDisabledByAdmin ? (
+              <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-black">
+                আবেদন
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white text-[10px] font-black">
+                সক্রিয়
+              </span>
+            )}
           </button>
 
           <button
@@ -808,9 +921,322 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
             </div>
           )}
 
+          {/* Persistent Store Status Notice Banner across all tabs when not fully approved */}
+          {(isStoreDisabledByAdmin || isStorePendingReview) && activeTab !== 'activation_request' && (
+            <div className="mb-4 p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs bg-amber-50 border-amber-300 text-amber-950">
+              <div className="flex items-center gap-2.5">
+                {isStorePendingReview ? (
+                  <Clock className="w-5 h-5 text-amber-700 animate-spin shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                )}
+                <div className="text-xs">
+                  <span className="font-bold">
+                    {isStorePendingReview
+                      ? 'অনলাইন স্টোর চালুর আবেদন জমা হয়েছে (পর্যালোচনায় রয়েছে)'
+                      : 'অনলাইন স্টোর সুবিধাটি নিষ্ক্রিয় রয়েছে'}
+                  </span>
+                  <p className="text-slate-700 text-[11px] mt-0.5">
+                    {isStorePendingReview
+                      ? 'সুপার অ্যাডমিন অনুমোদন দিলে আপনার অনলাইন শপটি পাবলিকলি সক্রিয় হয়ে যাবে।'
+                      : 'অনলাইন শপ চালু করতে সুপার অ্যাডমিনের কাছে আবেদন পাঠান।'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('activation_request')}
+                className="px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shrink-0 flex items-center gap-1.5 shadow-2xs"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>রিকোয়েস্ট অপশন দেখুন</span>
+              </button>
+            </div>
+          )}
+
+          {/* TAB: ACTIVATION REQUEST & STATUS */}
+          {activeTab === 'activation_request' && (
+            <div className="space-y-6">
+              {/* Request Status Card */}
+              <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/90 shadow-sm space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                        isStorePendingReview
+                          ? 'bg-amber-100 text-amber-700'
+                          : isStoreDisabledByAdmin
+                          ? 'bg-rose-100 text-rose-700'
+                          : 'bg-emerald-100 text-emerald-700'
+                      }`}
+                    >
+                      {isStorePendingReview ? (
+                        <Clock className="w-6 h-6 animate-spin" />
+                      ) : isStoreDisabledByAdmin ? (
+                        <AlertTriangle className="w-6 h-6" />
+                      ) : (
+                        <ShieldCheck className="w-6 h-6" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-base sm:text-lg font-black text-slate-900">
+                          অনলাইন স্টোর অনুমোদন ও রিকোয়েস্ট অপশন
+                        </h3>
+                        <span
+                          className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                            isStorePendingReview
+                              ? 'bg-amber-200 text-amber-900 animate-pulse'
+                              : isStoreDisabledByAdmin
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {isStorePendingReview
+                            ? '⏳ আবেদন পর্যালোচনায় (Pending)'
+                            : isStoreDisabledByAdmin
+                            ? '🔒 নিষ্ক্রিয় / অনুমোদন প্রয়োজন'
+                            : '✅ অনুমোদিত ও লাইভ (Active)'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        সুপার অ্যাডমিনের অনুমোদন সাপেক্ষে আপনার অনলাইন শপ পাবলিকলি চালু বা বন্ধ থাকে।
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {isStorePendingReview ? (
+                  <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 space-y-4">
+                    <div className="flex items-start gap-3">
+                      <Clock className="w-5 h-5 text-amber-700 mt-0.5 shrink-0" />
+                      <div className="space-y-1">
+                        <h4 className="font-bold text-amber-900 text-sm">
+                          আপনার অনলাইন স্টোর চালুর আবেদন সুপার অ্যাডমিনের পর্যালোচনায় রয়েছে
+                        </h4>
+                        <p className="text-xs text-amber-800">
+                          সুপার অ্যাডমিন আপনার স্টোরের তথ্য যাচাই করে অনুমোদন দিলেই ওয়েবসাইটটি ইন্টারনেট ব্যবহারকারীদের জন্য উন্মুক্ত হয়ে যাবে।
+                        </p>
+                        {formData.adminStoreNote && (
+                          <div className="mt-2.5 p-3 rounded-xl bg-white/90 border border-amber-300/80 text-xs text-amber-950 font-medium">
+                            <span className="font-bold">আপনার পাঠানো নোট:</span> &ldquo;{formData.adminStoreNote}&rdquo;
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2.5 pt-3 border-t border-amber-200">
+                      <button
+                        type="button"
+                        disabled={isSubmittingRequest}
+                        onClick={handleCancelStoreActivation}
+                        className="px-4 py-2 rounded-xl bg-white hover:bg-rose-50 text-rose-700 font-bold text-xs border border-rose-200 transition cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                      >
+                        <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                        <span>{isSubmittingRequest ? 'বাতিল হচ্ছে...' : 'আবেদন প্রত্যাহার / বাতিল করুন'}</span>
+                      </button>
+                      {onOpenSubscriptionModal && (
+                        <button
+                          type="button"
+                          onClick={onOpenSubscriptionModal}
+                          className="px-4 py-2 rounded-xl bg-[#004D40] hover:bg-[#00382e] text-white font-bold text-xs transition cursor-pointer flex items-center gap-1.5"
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>সাবস্ক্রিপশন প্যাকেজ দেখুন ও পেমেন্ট করুন</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : isStoreDisabledByAdmin ? (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-950 space-y-2">
+                      <h4 className="font-bold text-sm text-rose-900 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-600" />
+                        <span>অনলাইন স্টোর সুবিধাটি বর্তমানে নিষ্ক্রিয় রয়েছে</span>
+                      </h4>
+                      <p className="text-xs text-rose-800">
+                        আপনার অনলাইন স্টোর সুবিধাটি চালু করতে নিচে আপনার প্রয়োজনীয়তা বা বার্তা লিখে সুপার অ্যাডমিনের কাছে আবেদন পাঠান।
+                      </p>
+                    </div>
+
+                    {/* Submission Form */}
+                    <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                      <label className="block text-xs font-bold text-slate-800">
+                        সুপার অ্যাডমিনের জন্য নোট বা বার্তা লিখুন (ঐচ্ছিক):
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={requestNoteInput}
+                        onChange={(e) => setRequestNoteInput(e.target.value)}
+                        placeholder="যেমন: আমার মুদি / কাপড়ের দোকানের জন্য অনলাইন স্টোর চালু করতে চাই। ডোমেন ও পেমেন্ট চালু করতে হবে।"
+                        className="w-full p-3 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+                      />
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                        <p className="text-[11px] text-slate-500">
+                          আবেদন পাঠানোর পর সুপার অ্যাডমিন প্যানেলে নোটিফিকেশন পাবেন এবং এটি সক্রিয় করবেন।
+                        </p>
+                        <button
+                          type="button"
+                          disabled={isSubmittingRequest}
+                          onClick={handleRequestStoreActivation}
+                          className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition shadow active:scale-95 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 shrink-0"
+                        >
+                          <Send className="w-4 h-4" />
+                          <span>{isSubmittingRequest ? 'পাঠানো হচ্ছে...' : 'অনলাইন স্টোর চালুর আবেদন পাঠান'}</span>
+                        </button>
+                      </div>
+                      {requestSuccessMessage && (
+                        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>{requestSuccessMessage}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* Active Status View */
+                  <div className="space-y-4">
+                    <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 space-y-2">
+                      <div className="flex items-center gap-2 text-emerald-800 font-black text-sm">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                        <span>অভিনন্দন! আপনার অনলাইন স্টোর সুপার অ্যাডমিন অনুমোদিত ও সক্রিয়</span>
+                      </div>
+                      <p className="text-xs text-emerald-900">
+                        আপনার অনলাইন স্টোরটি সফলভাবে লাইভ আছে। যে কেউ যেকোনো স্থান থেকে আপনার দোকানে ভিজিট করে অর্ডার দিতে পারবে।
+                      </p>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+                      <div className="space-y-0.5 text-left w-full sm:w-auto">
+                        <span className="text-[11px] text-slate-500 font-bold uppercase">ওয়েবসাইট লিংক</span>
+                        <div className="font-mono text-xs sm:text-sm font-bold text-slate-800">
+                          https://{currentDomainDisplay}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(`https://${currentDomainDisplay}`)}
+                          className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>{copiedLink ? 'কপি হয়েছে' : 'লিংক কপি'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onOpenStorefront}
+                          className="px-3.5 py-1.5 bg-[#004D40] hover:bg-[#00382e] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>ভিজিট করুন</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Feature Highlights Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-1 shadow-2xs">
+                  <div className="flex items-center gap-2 text-teal-800 font-bold text-xs">
+                    <Globe className="w-4 h-4" />
+                    <span>নিজস্ব ফ্রি সাবডোমেন ও কাস্টম ডোমেন</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    {formData.storeSlug || 'shop'}.twinghisabi.site বা আপনার নিজস্ব ডোমেন যুক্ত করার সুবিধা।
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-1 shadow-2xs">
+                  <div className="flex items-center gap-2 text-indigo-800 font-bold text-xs">
+                    <Package className="w-4 h-4" />
+                    <span>আনলিমিটেড পণ্য ও ছবি</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    দোকানের সব পণ্য ছবি ও ক্যাটাগরিসহ অনলাইনে প্রদর্শন এবং কাস্টমার অর্ডার গ্রহণ।
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-1 shadow-2xs">
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                    <CreditCard className="w-4 h-4" />
+                    <span>বিকাশ, নগদ ও ক্যাশ অন ডেলিভারি</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    কাস্টমাররা সরাসরি বিকাশ বা নগদে পে করে TrxID দিয়ে অর্ডার নিশ্চিত করতে পারে।
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-1 shadow-2xs">
+                  <div className="flex items-center gap-2 text-purple-800 font-bold text-xs">
+                    <MessageCircle className="w-4 h-4" />
+                    <span>লাইভ চ্যাট ও অর্ডার অ্যালার্ট</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    গ্রাহকদের সাথে ওয়েবসাইটে সরাসরি চ্যাট করুন এবং সাথে সাথে নতুন অর্ডারের নোটিফিকেশন পান।
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* TAB 1: OVERVIEW & SHARE */}
           {activeTab === 'overview' && (
             <div className="space-y-5">
+              {/* Super Admin Approval & Request Banner */}
+              <div
+                className={`p-4 sm:p-5 rounded-3xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm ${
+                  isStorePendingReview
+                    ? 'bg-amber-50 border-amber-300 text-amber-950'
+                    : isStoreDisabledByAdmin
+                    ? 'bg-rose-50 border-rose-200 text-rose-950'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                      isStorePendingReview
+                        ? 'bg-amber-200 text-amber-800'
+                        : isStoreDisabledByAdmin
+                        ? 'bg-rose-200 text-rose-800'
+                        : 'bg-emerald-200 text-emerald-800'
+                    }`}
+                  >
+                    {isStorePendingReview ? (
+                      <Clock className="w-5 h-5 animate-spin" />
+                    ) : isStoreDisabledByAdmin ? (
+                      <AlertTriangle className="w-5 h-5" />
+                    ) : (
+                      <ShieldCheck className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div>
+                    <h4 className="font-black text-sm">
+                      {isStorePendingReview
+                        ? 'অনলাইন স্টোর চালুর আবেদন সুপার অ্যাডমিনের পর্যালোচনায় রয়েছে'
+                        : isStoreDisabledByAdmin
+                        ? 'অনলাইন স্টোর বর্তমানে নিষ্ক্রিয় (অনুমোদন প্রয়োজন)'
+                        : 'অনলাইন স্টোর সুপার অ্যাডমিন কর্তৃক অনুমোদিত ও সক্রিয়'}
+                    </h4>
+                    <p className="text-xs opacity-90 mt-0.5">
+                      {isStorePendingReview
+                        ? 'সুপার অ্যাডমিন অনুমোদন দিলে আপনার অনলাইন স্টোরটি লাইভ হবে।'
+                        : isStoreDisabledByAdmin
+                        ? 'অনলাইন স্টোর সক্রিয় করতে রিকোয়েস্ট অপশন থেকে সুপার অ্যাডমিনের কাছে আবেদন পাঠান।'
+                        : 'আপনার শপটি সফলভাবে সক্রিয় আছে এবং কাস্টমাররা অনলাইনে অর্ডার দিতে পারবে।'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('activation_request')}
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition active:scale-95 cursor-pointer shrink-0 flex items-center gap-1.5 shadow-xs"
+                >
+                  <Send className="w-3.5 h-3.5 text-amber-400" />
+                  <span>রিকোয়েস্ট অপশন দেখুন</span>
+                </button>
+              </div>
+
               {/* Store Status Banner */}
               <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/90 shadow-sm space-y-4">
                 {/* Header row: Status and Live toggle */}

@@ -36,6 +36,8 @@ import {
   RotateCcw,
   Smartphone,
   LogIn,
+  Globe,
+  ShoppingBag,
 } from 'lucide-react';
 import { adminApi } from '../../services/apiService';
 import { formatMoney } from '../../utils/storage';
@@ -70,6 +72,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | UserStatus>('all');
   const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all');
+  const [storeFilter, setStoreFilter] = useState<'all' | 'allowed' | 'disabled' | 'requested'>('all');
 
   // Modals
   const [viewUser, setViewUser] = useState<AppUser | null>(null);
@@ -116,14 +119,24 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
 
     const matchesStatus = statusFilter === 'all' || u.status === statusFilter;
     const matchesRole = roleFilter === 'all' || u.role === roleFilter;
+    const matchesStore =
+      storeFilter === 'all'
+        ? true
+        : storeFilter === 'allowed'
+        ? u.isOnlineStoreAllowed !== false
+        : storeFilter === 'disabled'
+        ? u.isOnlineStoreAllowed === false
+        : u.onlineStoreStatus === 'requested';
 
-    return matchesSearch && matchesStatus && matchesRole;
+    return matchesSearch && matchesStatus && matchesRole && matchesStore;
   });
 
   const activeCount = users.filter((u) => u.status === 'active').length;
   const expiredCount = users.filter((u) => u.status === 'expired' || (u.subscriptionExpiresAt && u.subscriptionExpiresAt <= Date.now())).length;
   const suspendedCount = users.filter((u) => u.status === 'suspended').length;
   const pendingCount = users.filter((u) => u.status === 'pending').length;
+  const requestedStoreCount = users.filter((u) => u.onlineStoreStatus === 'requested').length;
+  const allowedStoreCount = users.filter((u) => u.isOnlineStoreAllowed !== false).length;
 
   const openAddUser = () => {
     setFormData({
@@ -238,6 +251,37 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
       onShowToast(`❌ ব্যর্থ: ${err.message || 'ত্রুটি'}`);
     } finally {
       setImpersonatingUserId(null);
+    }
+  };
+
+  const handleToggleStore = async (userId: string, isAllowed: boolean) => {
+    try {
+      await adminApi.toggleOnlineStore(userId, isAllowed);
+      onShowToast(isAllowed ? '✅ ইউজারের অনলাইন স্টোর সক্রিয় করা হয়েছে' : '⚠️ ইউজারের অনলাইন স্টোর নিষ্ক্রিয় করা হয়েছে');
+      if (onRefreshDb) onRefreshDb();
+    } catch (err: any) {
+      onShowToast(`❌ ত্রুটি: ${err.message || 'সমস্যা হয়েছে'}`);
+    }
+  };
+
+  const handleApproveStore = async (userId: string) => {
+    try {
+      await adminApi.approveStoreRequest(userId);
+      onShowToast('✅ অনলাইন স্টোর রিকোয়েস্ট সফলভাবে অনুমোদন করা হয়েছে!');
+      if (onRefreshDb) onRefreshDb();
+    } catch (err: any) {
+      onShowToast(`❌ ত্রুটি: ${err.message || 'অনুমোদন ব্যর্থ হয়েছে'}`);
+    }
+  };
+
+  const handleRejectStore = async (userId: string) => {
+    const reason = window.prompt('রিকোয়েস্ট বাতিলের কারণ লিখুন (ঐচ্ছিক):');
+    try {
+      await adminApi.rejectStoreRequest(userId, reason || undefined);
+      onShowToast('অনলাইন স্টোর রিকোয়েস্ট বাতিল করা হয়েছে');
+      if (onRefreshDb) onRefreshDb();
+    } catch (err: any) {
+      onShowToast(`❌ ত্রুটি: ${err.message || 'বাতিল ব্যর্থ হয়েছে'}`);
     }
   };
 
@@ -518,6 +562,43 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
               </span>
             </button>
           ))}
+
+          <button
+            type="button"
+            onClick={() => {
+              setStoreFilter(storeFilter === 'requested' ? 'all' : 'requested');
+              setStatusFilter('all');
+            }}
+            className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer shrink-0 flex items-center gap-1.5 ${
+              storeFilter === 'requested'
+                ? 'bg-amber-500 text-slate-950 shadow-md font-black'
+                : 'bg-slate-900/80 text-amber-300 hover:bg-slate-800 hover:text-amber-200 border border-amber-500/30'
+            }`}
+          >
+            <span>🛍️ স্টোর রিকোয়েস্ট</span>
+            <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-black ${
+              requestedStoreCount > 0 ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-950/60 text-slate-400'
+            }`}>
+              {requestedStoreCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setStoreFilter(storeFilter === 'allowed' ? 'all' : 'allowed');
+            }}
+            className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer shrink-0 flex items-center gap-1.5 ${
+              storeFilter === 'allowed'
+                ? 'bg-emerald-600 text-white shadow-md font-black'
+                : 'bg-slate-900/80 text-emerald-400 hover:bg-slate-800 hover:text-emerald-300 border border-emerald-500/30'
+            }`}
+          >
+            <span>🌐 স্টোর সক্রিয়</span>
+            <span className="px-1.5 py-0.2 rounded-md bg-slate-950/60 text-[10px] text-emerald-300">
+              {allowedStoreCount}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -706,6 +787,77 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                         • কাস্টমার: <strong className="text-white">{user.totalCustomers || 0}</strong> জন | হিসাব: <strong className="text-white">{user.totalTransactions || 0}</strong> টি
                       </span>
                     </div>
+
+                    {/* Line 5: Online Store Toggle & Status */}
+                    <div className="flex flex-wrap items-center gap-2.5 text-xs pt-2 border-t border-slate-800/80 mt-1">
+                      <div className="flex items-center gap-2 bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-800 shadow-xs">
+                        <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="font-bold text-slate-300">অনলাইন স্টোর:</span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStore(user.id, !(user.isOnlineStoreAllowed !== false))}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            user.isOnlineStoreAllowed !== false ? 'bg-emerald-500' : 'bg-slate-700'
+                          }`}
+                          title={user.isOnlineStoreAllowed !== false ? 'অনলাইন স্টোর বন্ধ করতে ক্লিক করুন' : 'অনলাইন স্টোর চালু করতে ক্লিক করুন'}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                              user.isOnlineStoreAllowed !== false ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                        <span className={`text-[11px] font-black ${user.isOnlineStoreAllowed !== false ? 'text-emerald-400' : 'text-slate-500'}`}>
+                          {user.isOnlineStoreAllowed !== false ? 'সক্রিয় (Active)' : 'নিষ্ক্রিয় (Disabled)'}
+                        </span>
+                      </div>
+
+                      {user.isOnlineStoreAllowed !== false && (
+                        <a
+                          href={`https://${user.storeSlug || 'shop'}.twinghisabi.site`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 font-mono text-[11px] text-teal-300 hover:text-teal-200 bg-teal-950/40 hover:bg-teal-950/70 px-2.5 py-1.5 rounded-xl border border-teal-500/30 transition"
+                          title="লাইভ অনলাইন স্টোর ভিজিট করুন"
+                        >
+                          <ExternalLink className="w-3 h-3 text-teal-400" />
+                          <span>{user.storeSlug || 'shop'}.twinghisabi.site</span>
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Online Store Pending Activation Request Banner */}
+                    {user.onlineStoreStatus === 'requested' && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-2xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs mt-1.5 shadow-sm">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-amber-400 animate-pulse shrink-0" />
+                          <div>
+                            <span className="font-black text-amber-300">🛍️ অনলাইন স্টোর চালুর আবেদন জমা হয়েছে</span>
+                            {user.onlineStoreNote && (
+                              <p className="text-[11px] text-slate-300 italic">নোট: "{user.onlineStoreNote}"</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 ml-auto">
+                          <button
+                            type="button"
+                            onClick={() => handleApproveStore(user.id)}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition shadow cursor-pointer flex items-center gap-1"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>অনুমোদন করুন</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRejectStore(user.id)}
+                            className="px-3 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-500/40 font-bold text-xs transition cursor-pointer flex items-center gap-1"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            <span>বাতিল</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1226,6 +1378,50 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                 </div>
               </div>
 
+              {/* Online Store Status & Switch */}
+              <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-emerald-400" />
+                    <span className="font-bold text-white text-xs">অনলাইন স্টোর সুবিধা</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const newStatus = !(viewUser.isOnlineStoreAllowed !== false);
+                      await handleToggleStore(viewUser.id, newStatus);
+                      setViewUser({ ...viewUser, isOnlineStoreAllowed: newStatus, onlineStoreStatus: newStatus ? 'active' : 'disabled' });
+                    }}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      viewUser.isOnlineStoreAllowed !== false ? 'bg-emerald-500' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        viewUser.isOnlineStoreAllowed !== false ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <div className="text-[11px] text-slate-400 flex items-center justify-between pt-1 border-t border-slate-800">
+                  <span>স্ট্যাটাস: <strong className={viewUser.isOnlineStoreAllowed !== false ? 'text-emerald-400' : 'text-slate-500'}>{viewUser.isOnlineStoreAllowed !== false ? 'সক্রিয়' : 'নিষ্ক্রিয়'}</strong></span>
+                  {viewUser.onlineStoreStatus === 'requested' && (
+                    <span className="text-amber-400 font-bold">রিকোয়েস্ট পেন্ডিং</span>
+                  )}
+                </div>
+                {viewUser.isOnlineStoreAllowed !== false && (
+                  <a
+                    href={`https://${viewUser.storeSlug || 'shop'}.twinghisabi.site`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between text-[11px] text-teal-300 hover:text-teal-200 bg-teal-950/30 p-2 rounded-xl border border-teal-500/30"
+                  >
+                    <span className="font-mono">{viewUser.storeSlug || 'shop'}.twinghisabi.site</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+
               {viewUser.notes && (
                 <div className="p-3.5 bg-amber-950/40 rounded-2xl border border-amber-500/30 text-amber-200">
                   <span className="font-bold block text-[11px]">অ্যাডমিন নোট:</span>
@@ -1372,6 +1568,32 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                     <option value="আজীবন লাইফটাইম প্যাক">আজীবন লাইফটাইম প্যাক (৳500)</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Online Store Permission Toggle */}
+              <div className="flex items-center justify-between p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center font-bold">
+                    <Globe className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-white block text-xs">অনলাইন স্টোর সুবিধা</span>
+                    <span className="text-[11px] text-slate-400">ইউজার কাস্টমারদের জন্য অনলাইন স্টোর চালাতে পারবেন</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, isOnlineStoreAllowed: !(formData.isOnlineStoreAllowed !== false) })}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    formData.isOnlineStoreAllowed !== false ? 'bg-emerald-500' : 'bg-slate-700'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                      formData.isOnlineStoreAllowed !== false ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
               </div>
 
               <div>

@@ -570,12 +570,43 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
     const pool = getDbPool();
 
     if (pool) {
-      const [result, uRes] = await Promise.all([
-        pool.query('SELECT * FROM online_store_configs WHERE user_id = $1', [userId]),
-        pool.query('SELECT shop_name, phone, address, name, is_online_store_allowed, online_store_status, online_store_requested_at, online_store_note, store_slug FROM users WHERE id = $1', [userId]),
-      ]);
+      // Auto-heal schema if missing on older DBs
+      await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online_store_allowed BOOLEAN DEFAULT TRUE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'active';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_requested_at BIGINT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_note TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_name VARCHAR(255) DEFAULT 'আমার দোকান';
+      `).catch(() => {});
 
-      const u = uRes.rows[0] || {};
+      let result: any = { rows: [] };
+      try {
+        result = await pool.query('SELECT * FROM online_store_configs WHERE user_id = $1', [userId]);
+      } catch (err: any) {
+        console.warn('Warning querying online_store_configs:', err?.message);
+      }
+
+      let u: any = {};
+      try {
+        const uRes = await pool.query(
+          'SELECT shop_name, phone, address, name, is_online_store_allowed, online_store_status, online_store_requested_at, online_store_note, store_slug FROM users WHERE id = $1',
+          [userId]
+        );
+        u = uRes.rows[0] || {};
+      } catch {
+        try {
+          const uRes = await pool.query(
+            'SELECT shop_name, phone, address, name, is_online_store_allowed, online_store_status, online_store_requested_at, online_store_note FROM users WHERE id = $1',
+            [userId]
+          );
+          u = uRes.rows[0] || {};
+        } catch {
+          const uRes = await pool.query('SELECT shop_name, phone, address, name FROM users WHERE id = $1', [userId]).catch(() => ({ rows: [] }));
+          u = uRes.rows[0] || {};
+        }
+      }
       const isAllowed = u.is_online_store_allowed !== false;
       const adminStatus = u.online_store_status || (isAllowed ? 'active' : 'disabled');
       const adminNote = u.online_store_note || '';
@@ -790,6 +821,52 @@ router.post('/request-activation', authenticateUser, async (req: AuthenticatedRe
 });
 
 /**
+ * POST /api/store/cancel-request
+ * User cancels their pending store activation request
+ */
+router.post('/cancel-request', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+
+    if (pool) {
+      await pool.query(`
+        UPDATE users SET
+          online_store_status = 'disabled',
+          online_store_note = 'ইউজার আবেদন প্রত্যাহার করেছেন'
+        WHERE id = $1 AND online_store_status = 'requested'
+      `, [userId]);
+
+      await pool.query(`
+        UPDATE online_store_configs SET
+          admin_store_status = 'disabled',
+          admin_store_note = 'ইউজার আবেদন প্রত্যাহার করেছেন'
+        WHERE user_id = $1
+      `, [userId]).catch(() => {});
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u && u.onlineStoreStatus === 'requested') {
+        u.onlineStoreStatus = 'disabled';
+        u.onlineStoreNote = 'ইউজার আবেদন প্রত্যাহার করেছেন';
+      }
+      const c = (inMemoryStore.online_store_configs || []).find(x => (x.userId || x.user_id) === userId);
+      if (c) {
+        c.adminStoreStatus = 'disabled';
+        c.adminStoreNote = 'ইউজার আবেদন প্রত্যাহার করেছেন';
+      }
+    }
+
+    return res.json({
+      message: 'অনলাইন স্টোর আবেদন প্রত্যাহার করা হয়েছে',
+      onlineStoreStatus: 'disabled',
+    });
+  } catch (err: any) {
+    console.error('Error cancelling online store request:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * PUT /api/store/online-config - Save or update logged-in vendor's online store configuration
  */
 router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
@@ -821,34 +898,7 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
 
     const pool = getDbPool();
     if (pool) {
-      // Check slug collision with another user
-      const slugCheck = await pool.query(
-        'SELECT user_id FROM online_store_configs WHERE store_slug = $1 AND user_id != $2',
-        [rawSlug, userId]
-      );
-      if (slugCheck.rows.length > 0) {
-        if (body.storeSlug && body.storeSlug.trim()) {
-          return res.status(409).json({
-            error: `সাব-ডোমেন "${rawSlug}.twinghisabi.site" ইতিমধ্যে অন্য একজন ভেন্ডর নিবন্ধন করেছেন। অনুগ্রহ করে একটি ইউনিক সাব-ডোমেন নাম দিন (যেমন: ${rawSlug}-bd)।`,
-          });
-        }
-        rawSlug = `${rawSlug}-${userId.slice(-4)}`;
-      }
-
-      // Check custom domain collision with another user
-      if (cleanDomain) {
-        const domainCheck = await pool.query(
-          'SELECT user_id FROM online_store_configs WHERE LOWER(custom_domain) = $1 AND user_id != $2',
-          [cleanDomain, userId]
-        );
-        if (domainCheck.rows.length > 0) {
-          return res.status(409).json({
-            error: 'এই কাস্টম ডোমেনটি ইতিমধ্যে অন্য একটি স্টোরে যুক্ত রয়েছে। একই ডোমেন একাধিক ভেন্ডর ব্যবহার করতে পারবেন না।',
-          });
-        }
-      }
-
-      // Ensure table columns exist
+      // Ensure table columns exist first
       await pool.query(`
         CREATE TABLE IF NOT EXISTS online_store_configs (
           user_id VARCHAR(100) PRIMARY KEY,
@@ -857,6 +907,8 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
           created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL
         );
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_name VARCHAR(255) DEFAULT 'আমার দোকান';
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS theme_color VARCHAR(50) DEFAULT 'teal';
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS tagline TEXT;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS category VARCHAR(100);
@@ -898,7 +950,36 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banners JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT TRUE;
         ALTER TABLE online_store_configs ALTER COLUMN id DROP NOT NULL;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+        ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
       `).catch(() => null);
+
+      // Check slug collision with another user
+      const slugCheck = await pool.query(
+        'SELECT user_id FROM online_store_configs WHERE store_slug = $1 AND user_id != $2',
+        [rawSlug, userId]
+      ).catch(() => ({ rows: [] }));
+      if (slugCheck.rows.length > 0) {
+        if (body.storeSlug && body.storeSlug.trim()) {
+          return res.status(409).json({
+            error: `সাব-ডোমেন "${rawSlug}.twinghisabi.site" ইতিমধ্যে অন্য একজন ভেন্ডর নিবন্ধন করেছেন। অনুগ্রহ করে একটি ইউনিক সাব-ডোমেন নাম দিন (যেমন: ${rawSlug}-bd)।`,
+          });
+        }
+        rawSlug = `${rawSlug}-${userId.slice(-4)}`;
+      }
+
+      // Check custom domain collision with another user
+      if (cleanDomain) {
+        const domainCheck = await pool.query(
+          'SELECT user_id FROM online_store_configs WHERE LOWER(custom_domain) = $1 AND user_id != $2',
+          [cleanDomain, userId]
+        ).catch(() => ({ rows: [] }));
+        if (domainCheck.rows.length > 0) {
+          return res.status(409).json({
+            error: 'এই কাস্টম ডোমেনটি ইতিমধ্যে অন্য একটি স্টোরে যুক্ত রয়েছে। একই ডোমেন একাধিক ভেন্ডর ব্যবহার করতে পারবেন না।',
+          });
+        }
+      }
 
       const existing = await pool.query('SELECT user_id FROM online_store_configs WHERE user_id = $1', [userId]);
       if (existing.rows.length > 0) {

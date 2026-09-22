@@ -2216,6 +2216,10 @@ export const App: React.FC = () => {
         }}
         onConvertOrderToSale={handleConvertOnlineOrderToSale}
         onShowToast={showToast}
+        onOpenSubscriptionModal={() => {
+          setIsOnlineStoreModalOpen(false);
+          setIsSubscriptionModalOpen(true);
+        }}
       />
 
       {/* Live Interactive E-commerce Storefront Website */}

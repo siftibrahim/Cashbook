@@ -949,6 +949,7 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'active';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_requested_at BIGINT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_note TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
       
       ALTER TABLE products ADD COLUMN IF NOT EXISTS is_published_online BOOLEAN DEFAULT TRUE;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
@@ -960,6 +961,8 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS show_qr_on_invoice BOOLEAN DEFAULT TRUE;
       ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS default_credit_limit NUMERIC(12, 2) DEFAULT 10000;
       ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS enable_sound_effects BOOLEAN DEFAULT TRUE;
+      ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+      ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS slug VARCHAR(100);
       
       ALTER TABLE transactions ADD COLUMN IF NOT EXISTS receipt_no VARCHAR(100);
       ALTER TABLE transactions ADD COLUMN IF NOT EXISTS subtotal NUMERIC(12, 2);
@@ -1033,6 +1036,8 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE online_store_configs DROP CONSTRAINT IF EXISTS online_store_configs_user_id_fkey;
 
       -- Ensure all multi-tenant columns exist on online_store_configs
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_name VARCHAR(255) DEFAULT 'আমার দোকান';
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS theme_color VARCHAR(50) DEFAULT 'teal';
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS tagline TEXT;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS category VARCHAR(100);

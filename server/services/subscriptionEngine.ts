@@ -235,6 +235,7 @@ export class SubscriptionEngine {
       }
 
       const regAt = Number(u.registeredAt || u.registered_at) || (now - (isTrialEnabled ? trialDays : 0) * 86400000);
+      const existingUserExpiry = Number(u.subscriptionExpiresAt || u.subscription_expires_at) || 0;
       let currentChainExpiry = isTrialEnabled ? (regAt + trialDays * 86400000) : regAt;
       let latestPlanName = defaultTrialPlanName;
       let totalApprovedDays = 0;

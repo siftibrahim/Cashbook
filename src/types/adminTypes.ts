@@ -27,6 +27,7 @@ export interface AppUser {
   onlineStoreStatus?: 'active' | 'disabled' | 'requested';
   onlineStoreRequestedAt?: number;
   onlineStoreNote?: string;
+  storeSlug?: string;
 }
 
 export interface SubscriptionPlan {
@@ -469,6 +470,39 @@ export interface DashboardBannerSettings {
   updatedAt: number;
 }
 
+export interface AdminOnlineStoreItem {
+  userId: string;
+  userName: string;
+  shopName: string;
+  phone: string;
+  email: string;
+  subscriptionPlan: string;
+  subscriptionExpiresAt: number;
+  isOnlineStoreAllowed: boolean;
+  onlineStoreStatus: 'active' | 'disabled' | 'requested';
+  onlineStoreRequestedAt: number;
+  onlineStoreNote: string;
+  storeSlug: string;
+  customDomain?: string;
+  customDomainVerified?: boolean;
+  isEnabled: boolean;
+  themeColor: string;
+  category: string;
+  bannerTitle: string;
+  acceptCod: boolean;
+  acceptBkash: boolean;
+  acceptNagad: boolean;
+  acceptRocket: boolean;
+  bkashNumber?: string;
+  nagadNumber?: string;
+  rocketNumber?: string;
+  deliveryInsideDhaka: number;
+  deliveryOutsideDhaka: number;
+  logoUrl?: string;
+  publishedProductsCount: number;
+  updatedAt: number;
+}
+
 export type AdminTab =
   | 'dashboard'
   | 'dashboard_banners'
@@ -480,6 +514,7 @@ export type AdminTab =
   | 'super_admin_security'
   | 'staff_management'
   | 'users'
+  | 'online_stores'
   | 'subscriptions'
   | 'payments'
   | 'expired'

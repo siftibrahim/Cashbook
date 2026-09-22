@@ -646,7 +646,7 @@ export async function deletePaymentRecord(paymentId: string): Promise<void> {
   }
 }
 
-export async function approvePayment(paymentId: string, adminNotes?: string): Promise<void> {
+export async function approvePayment(paymentId: string, adminNotes?: string, activateOnlineStore?: boolean): Promise<void> {
   const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
   const updated = list.map((p) => {
     if (p.id === paymentId) {
@@ -663,7 +663,7 @@ export async function approvePayment(paymentId: string, adminNotes?: string): Pr
   notifyPaymentSubscribers(updated);
 
   try {
-    await adminApi.approvePayment(paymentId, adminNotes);
+    await adminApi.approvePayment(paymentId, adminNotes, activateOnlineStore);
   } catch (err) {
     console.error('Failed to approve payment on backend:', err);
   }

@@ -1859,6 +1859,152 @@ router.get('/online-store-requests', async (req: AuthenticatedRequest, res: Resp
 });
 
 /**
+ * GET /api/admin/online-stores
+ * Returns comprehensive list of all online stores for Super Admin
+ */
+router.get('/online-stores', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const pool = getDbPool();
+    if (pool) {
+      // Auto-heal schema if missing on older DBs
+      await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online_store_allowed BOOLEAN DEFAULT TRUE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'active';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_requested_at BIGINT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_note TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_name VARCHAR(255) DEFAULT 'আমার দোকান';
+      `).catch(() => {});
+
+      const query = `
+        SELECT 
+          u.id as "userId",
+          u.name as "userName",
+          u.shop_name as "shopName",
+          u.phone,
+          u.email,
+          u.subscription_plan as "subscriptionPlan",
+          u.subscription_expires_at as "subscriptionExpiresAt",
+          u.is_online_store_allowed as "isOnlineStoreAllowed",
+          u.online_store_status as "onlineStoreStatus",
+          u.online_store_requested_at as "onlineStoreRequestedAt",
+          u.online_store_note as "onlineStoreNote",
+          c.store_slug as "storeSlug",
+          c.custom_domain as "customDomain",
+          c.custom_domain_verified as "customDomainVerified",
+          c.is_enabled as "isEnabled",
+          c.theme_color as "themeColor",
+          c.category as "category",
+          c.banner_title as "bannerTitle",
+          c.accept_cod as "acceptCod",
+          c.accept_bkash as "acceptBkash",
+          c.accept_nagad as "acceptNagad",
+          c.accept_rocket as "acceptRocket",
+          c.bkash_number as "bkashNumber",
+          c.nagad_number as "nagadNumber",
+          c.rocket_number as "rocketNumber",
+          c.delivery_inside_dhaka as "deliveryInsideDhaka",
+          c.delivery_outside_dhaka as "deliveryOutsideDhaka",
+          c.logo_url as "logoUrl",
+          COALESCE(jsonb_array_length(c.published_product_ids), 0) as "publishedProductsCount",
+          c.updated_at as "updatedAt"
+        FROM users u
+        LEFT JOIN online_store_configs c ON c.user_id = u.id
+        WHERE u.role != 'super_admin' AND u.id != 'usr_super_admin'
+          AND LOWER(TRIM(u.email)) NOT IN ('siftibrahim@gmail.com', 'admin@twing.com')
+        ORDER BY 
+          CASE WHEN u.online_store_status = 'requested' THEN 0 ELSE 1 END,
+          COALESCE(u.online_store_requested_at, 0) DESC,
+          u.registered_at DESC
+      `;
+      const result = await pool.query(query);
+      return res.json({ stores: result.rows });
+    } else {
+      const stores = (inMemoryStore.users || [])
+        .filter(u => u.role !== 'super_admin' && u.id !== 'usr_super_admin')
+        .map(u => {
+          const c = (inMemoryStore.online_store_configs || []).find(x => (x.userId || x.user_id) === u.id) || {};
+          return {
+            userId: u.id,
+            userName: u.name,
+            shopName: u.shopName || u.name,
+            phone: u.phone,
+            email: u.email,
+            subscriptionPlan: u.subscriptionPlan,
+            subscriptionExpiresAt: u.subscriptionExpiresAt,
+            isOnlineStoreAllowed: u.isOnlineStoreAllowed !== false,
+            onlineStoreStatus: u.onlineStoreStatus || 'active',
+            onlineStoreRequestedAt: u.onlineStoreRequestedAt || 0,
+            onlineStoreNote: u.onlineStoreNote || '',
+            storeSlug: c.storeSlug || `store-${u.id.slice(-4)}`,
+            customDomain: c.customDomain || '',
+            customDomainVerified: Boolean(c.customDomainVerified),
+            isEnabled: c.isEnabled !== false,
+            themeColor: c.themeColor || 'teal',
+            category: c.category || 'জেনারেল',
+            bannerTitle: c.bannerTitle || '',
+            acceptCod: c.acceptCod !== false,
+            acceptBkash: Boolean(c.acceptBkash),
+            acceptNagad: Boolean(c.acceptNagad),
+            acceptRocket: Boolean(c.acceptRocket),
+            bkashNumber: c.bkashNumber || '',
+            nagadNumber: c.nagadNumber || '',
+            rocketNumber: c.rocketNumber || '',
+            deliveryInsideDhaka: c.deliveryInsideDhaka || 60,
+            deliveryOutsideDhaka: c.deliveryOutsideDhaka || 120,
+            logoUrl: c.logoUrl || '',
+            publishedProductsCount: Array.isArray(c.publishedProductIds) ? c.publishedProductIds.length : 0,
+            updatedAt: c.updatedAt || Date.now(),
+          };
+        });
+      return res.json({ stores });
+    }
+  } catch (err: any) {
+    console.error('Error fetching online stores for admin:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/online-stores/:userId/update
+ * Super Admin updates custom domain or store slug or settings
+ */
+router.post('/online-stores/:userId/update', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { storeSlug, customDomain, customDomainVerified } = req.body || {};
+    const pool = getDbPool();
+
+    if (pool) {
+      if (storeSlug) {
+        await pool.query('UPDATE online_store_configs SET store_slug = $1 WHERE user_id = $2', [storeSlug.toLowerCase().trim(), userId]);
+      }
+      if (customDomain !== undefined) {
+        await pool.query('UPDATE online_store_configs SET custom_domain = $1, custom_domain_verified = $2 WHERE user_id = $3', [
+          customDomain ? customDomain.toLowerCase().trim() : null,
+          Boolean(customDomainVerified),
+          userId
+        ]);
+      }
+    } else {
+      const c = (inMemoryStore.online_store_configs || []).find(x => (x.userId || x.user_id) === userId);
+      if (c) {
+        if (storeSlug) c.storeSlug = storeSlug.toLowerCase().trim();
+        if (customDomain !== undefined) {
+          c.customDomain = customDomain ? customDomain.toLowerCase().trim() : '';
+          c.customDomainVerified = Boolean(customDomainVerified);
+        }
+      }
+    }
+
+    return res.json({ success: true, message: 'অনলাইন স্টোর তথ্য সফলভাবে আপডেট হয়েছে' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * 14. POST /api/admin/impersonate/:userId
  * Allow Super Admin & authorized Staff to login as any user
  */

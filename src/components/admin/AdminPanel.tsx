@@ -69,6 +69,7 @@ import { AdsManagementTab } from './AdsManagementTab';
 import { SuperAdminSecurityTab } from './SuperAdminSecurityTab';
 import { DataManagementTab } from './DataManagementTab';
 import { LiveDbViewerTab } from './LiveDbViewerTab';
+import { OnlineStoreManagementTab } from './OnlineStoreManagementTab';
 import {
   LayoutDashboard,
   Users,
@@ -93,6 +94,7 @@ import {
   Sparkles,
   Zap,
   Store,
+  Globe,
   Smartphone,
   KeyRound,
   Sliders,
@@ -256,6 +258,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const pendingSmsPurchasesCount = smsPurchases.filter((p) => p.status === 'pending').length;
   const expiredCount = clientUsers.filter((u) => u.subscriptionExpiresAt <= Date.now() || u.status === 'expired').length;
   const unreadSupportCount = supportThreads.reduce((acc, t) => acc + (t.unreadAdminCount || 0), 0);
+  const pendingStoreRequestsCount = clientUsers.filter((u) => u.onlineStoreStatus === 'requested').length;
 
   // Horizontal Tab Bar Items
   const navTabs: TabNavItem[] = [
@@ -315,6 +318,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       icon: Users,
       badge: clientUsers.length > 0 ? clientUsers.length : undefined,
       badgeColor: 'bg-indigo-600 text-white',
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'users_view'),
+    },
+    {
+      id: 'online_stores',
+      label: 'অনলাইন স্টোর ম্যানেজমেন্ট',
+      icon: Globe,
+      badge: pendingStoreRequestsCount > 0 ? pendingStoreRequestsCount : undefined,
+      badgeColor: 'bg-amber-400 text-slate-950 font-black animate-pulse',
       isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'users_view'),
     },
     {
@@ -599,6 +610,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             />
           )}
 
+          {activeTab === 'online_stores' && (
+            <OnlineStoreManagementTab
+              users={clientUsers}
+              onRefreshUsers={checkDbAndRefresh}
+              showToast={showToast}
+            />
+          )}
+
           {activeTab === 'subscriptions' && (
             <SubscriptionManagementTab
               users={clientUsers}
@@ -613,7 +632,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               payments={payments}
               users={clientUsers}
               paymentSettings={paymentSettings}
-              onApprovePayment={async (id, note) => {
+              onApprovePayment={async (id, note, activateOnlineStore) => {
                 if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {
                   showToast('⚠️ পেমেন্ট অনুমোদনের পারমিশন আপনার অ্যাকাউন্টে নেই');
                   return;
@@ -625,8 +644,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       : p
                   )
                 );
-                await approvePayment(id, note);
-                showToast('✅ পেমেন্ট সফলভাবে অনুমোদিত হয়েছে');
+                await approvePayment(id, note, activateOnlineStore);
+                showToast('✅ পেমেন্ট সফলভাবে অনুমোদিত হয়েছে' + (activateOnlineStore ? ' এবং অনলাইন স্টোর সক্রিয় হয়েছে' : ''));
+                checkDbAndRefresh();
               }}
               onRejectPayment={async (id, reason) => {
                 if (!isSuperAdmin && !hasStaffPermission(effectiveSession, 'payments_approve_reject')) {

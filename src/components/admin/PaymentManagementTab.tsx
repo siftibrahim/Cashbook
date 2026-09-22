@@ -13,6 +13,7 @@ import {
   Building2,
   Smartphone,
   ShieldAlert,
+  Globe,
 } from 'lucide-react';
 import { formatMoney } from '../../utils/storage';
 import { PaymentSettingsModal } from './PaymentSettingsModal';
@@ -22,7 +23,7 @@ interface PaymentManagementTabProps {
   payments: PaymentRecord[];
   users: AppUser[];
   paymentSettings?: SystemPaymentSettings;
-  onApprovePayment: (paymentId: string, note?: string) => Promise<void>;
+  onApprovePayment: (paymentId: string, note?: string, activateOnlineStore?: boolean) => Promise<void>;
   onRejectPayment: (paymentId: string, reason: string) => Promise<void>;
   onProcessRefund?: (paymentId: string, status: RefundStatus, reason?: string, amount?: number) => Promise<void>;
   onAddManualPayment: (payment: PaymentRecord) => Promise<void>;
@@ -48,6 +49,10 @@ export const PaymentManagementTab: React.FC<PaymentManagementTabProps> = ({
   const [methodFilter, setMethodFilter] = useState<'all' | AdminPaymentMethod>('all');
 
   // Modals
+  const [approveModalPayment, setApproveModalPayment] = useState<PaymentRecord | null>(null);
+  const [approveNote, setApproveNote] = useState('');
+  const [activateStoreOnApprove, setActivateStoreOnApprove] = useState(true);
+  const [isApproving, setIsApproving] = useState(false);
   const [rejectModalPayment, setRejectModalPayment] = useState<PaymentRecord | null>(null);
   const [rejectReason, setRejectReason] = useState('টাকা জমা হয়নি বা TrxID ভুল');
   const [refundModalPayment, setRefundModalPayment] = useState<PaymentRecord | null>(null);
@@ -419,9 +424,10 @@ export const PaymentManagementTab: React.FC<PaymentManagementTabProps> = ({
                     <>
                       <button
                         type="button"
-                        onClick={async () => {
-                          await onApprovePayment(payment.id);
-                          onShowToast(`✅ ${payment.shopName}-এর পেমেন্ট অনুমোদিত হয়েছে!`);
+                        onClick={() => {
+                          setApproveModalPayment(payment);
+                          setApproveNote('');
+                          setActivateStoreOnApprove(true);
                         }}
                         className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-md"
                       >
@@ -468,6 +474,104 @@ export const PaymentManagementTab: React.FC<PaymentManagementTabProps> = ({
           ))
         )}
       </div>
+
+      {/* 0. APPROVE PAYMENT MODAL WITH ONLINE STORE TOGGLE */}
+      {approveModalPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-[#0F172A] w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-800 space-y-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">পেমেন্ট অনুমোদন ও প্যাকেজ প্রদান</h3>
+                <p className="text-xs text-slate-400">সাবস্ক্রিপশন মেয়াদ ও সুবিধা সক্রিয় করা হবে</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-400">দোকান / ইউজার:</span>
+                <strong className="text-white">{approveModalPayment.shopName} ({approveModalPayment.userName})</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">প্যাকেজ:</span>
+                <strong className="text-amber-300">{approveModalPayment.planName}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">টাকার পরিমাণ:</span>
+                <strong className="text-emerald-400">৳{approveModalPayment.amount}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">TrxID:</span>
+                <span className="font-mono text-slate-200">{approveModalPayment.trxId}</span>
+              </div>
+            </div>
+
+            {/* Online Store Activation Checkbox */}
+            <div className="p-3.5 bg-teal-950/30 rounded-2xl border border-teal-500/30 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Globe className="w-4 h-4 text-teal-400 shrink-0" />
+                <div>
+                  <span className="text-xs font-bold text-teal-200 block">অনলাইন স্টোর (E-commerce) সুবিধা</span>
+                  <span className="text-[11px] text-slate-400">এই ইউজারের অনলাইন স্টোর চালু রাখুন</span>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={activateStoreOnApprove}
+                onChange={(e) => setActivateStoreOnApprove(e.target.checked)}
+                className="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 cursor-pointer accent-teal-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                অ্যাডমিন অনুমোদন মন্তব্য / নোট (ঐচ্ছিক):
+              </label>
+              <input
+                type="text"
+                value={approveNote}
+                onChange={(e) => setApproveNote(e.target.value)}
+                placeholder="যেমন: টাকা বিকাশ একাউন্টে পেয়েছি"
+                className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={isApproving}
+                onClick={() => setApproveModalPayment(null)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold cursor-pointer disabled:opacity-50"
+              >
+                ফিরে যান
+              </button>
+              <button
+                type="button"
+                disabled={isApproving}
+                onClick={async () => {
+                  if (!approveModalPayment) return;
+                  setIsApproving(true);
+                  try {
+                    await onApprovePayment(approveModalPayment.id, approveNote || undefined, activateStoreOnApprove);
+                    onShowToast(`✅ ${approveModalPayment.shopName}-এর পেমেন্ট অনুমোদিত হয়েছে!`);
+                    setApproveModalPayment(null);
+                  } catch (err: any) {
+                    onShowToast(`❌ অনুমোদন ব্যর্থ: ${err.message || 'ত্রুটি'}`);
+                  } finally {
+                    setIsApproving(false);
+                  }
+                }}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold cursor-pointer shadow-md flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{isApproving ? 'অনুমোদন হচ্ছে...' : 'অনুমোদন নিশ্চিত করুন'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 1. REJECT REASON MODAL */}
       {rejectModalPayment && (

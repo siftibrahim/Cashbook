@@ -933,6 +933,18 @@ export const storeApi = {
     }
   },
 
+  async cancelOnlineStoreActivation(): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await apiRequest<{ message: string; onlineStoreStatus: string }>('/store/cancel-request', {
+        method: 'POST',
+      });
+      return { success: true, message: res.message };
+    } catch (err: any) {
+      console.error('Failed to cancel online store request:', err);
+      return { success: false, message: err.message || 'আবেদন প্রত্যাহার ব্যর্থ হয়েছে' };
+    }
+  },
+
   async saveOnlineConfig(config: OnlineStoreConfig): Promise<OnlineStoreConfig> {
     try {
       const res = await apiRequest<{ message: string; config: OnlineStoreConfig }>('/store/online-config', {
@@ -1482,6 +1494,28 @@ export const adminApi = {
       return res.requests || [];
     } catch {
       return [];
+    }
+  },
+
+  async getOnlineStores(): Promise<any[]> {
+    try {
+      const res = await apiRequest<{ stores: any[] }>('/admin/online-stores');
+      return res.stores || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async updateOnlineStore(userId: string, data: { storeSlug?: string; customDomain?: string; customDomainVerified?: boolean }): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await apiRequest<{ success: boolean; message: string }>(`/admin/online-stores/${userId}/update`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+      return res;
+    } catch (err: any) {
+      console.error('Failed to update online store:', err);
+      throw err;
     }
   },
 
