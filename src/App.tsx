@@ -257,11 +257,13 @@ export const App: React.FC = () => {
   });
 
   // Toast state
-  const [toasts, setToasts] = useState<Array<{ id: number; message: string }>>([]);
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string }>>([]);
   const isInitialSyncDone = useRef(false);
+  const toastSeqRef = useRef(0);
 
   const showToast = (message: string) => {
-    const id = Date.now();
+    toastSeqRef.current += 1;
+    const id = `toast_${Date.now()}_${toastSeqRef.current}_${Math.random().toString(36).substring(2, 7)}`;
     setToasts((prev) => [...prev, { id, message }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -1038,7 +1040,7 @@ export const App: React.FC = () => {
     const newBal = txType === 'sale' ? currentBal + data.amount : currentBal - data.amount;
 
     const newTx: Transaction = {
-      id: 'tx_' + Date.now(),
+      id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       customerId: activeCustomerId,
       type: txType,
       amount: data.amount,
@@ -1631,9 +1633,9 @@ export const App: React.FC = () => {
       <div className="w-full h-full min-h-[100dvh] flex flex-col items-center justify-start p-0 text-slate-100 font-sans antialiased overflow-y-auto smooth-scroll-container selection:bg-teal-500 selection:text-white bg-[#030712]">
         {/* Toast Notifications */}
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none flex flex-col gap-2 no-print">
-          {toasts.map((t) => (
+          {toasts.map((t, idx) => (
             <div
-              key={t.id}
+              key={t.id || `toast-${idx}`}
               className="bg-slate-900/95 text-white px-4 py-3 rounded-2xl text-xs font-bold shadow-xl text-center border border-slate-700 animate-in fade-in slide-in-from-top-2"
             >
               {t.message}
@@ -1658,9 +1660,9 @@ export const App: React.FC = () => {
     <div className="w-full h-full min-h-full flex flex-col items-center justify-start p-0 text-slate-800 font-sans antialiased overflow-hidden selection:bg-teal-500 selection:text-white bg-[#004D40]">
       {/* Toast Notifications */}
       <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none flex flex-col gap-2 no-print">
-        {toasts.map((t) => (
+        {toasts.map((t, idx) => (
           <div
-            key={t.id}
+            key={t.id || `toast-${idx}`}
             className="bg-slate-900/95 text-white px-4 py-3 rounded-2xl text-xs font-bold shadow-xl text-center border border-slate-700 animate-in fade-in slide-in-from-top-2"
           >
             {t.message}
@@ -1789,6 +1791,7 @@ export const App: React.FC = () => {
                       onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
                       onOpenSettings={() => setIsSettingsModalOpen(true)}
                       onOpenOnlineStore={() => setIsOnlineStoreModalOpen(true)}
+                      onlineStoreConfig={onlineStoreConfig}
                       expenses={expenses}
                       products={products}
                       onOpenSms={() => handleOpenSms()}
@@ -1848,7 +1851,7 @@ export const App: React.FC = () => {
                             : (data.prevBalance || 0) + data.dueAmount;
 
                         setInvoiceTx({
-                          id: `tx_${Date.now()}`,
+                          id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
                           customerId: data.customerId || 'pos_instant',
                           type: 'sale',
                           amount: data.netAmount,
@@ -2209,7 +2212,13 @@ export const App: React.FC = () => {
         orders={onlineOrders}
         onUpdateOrders={handleUpdateOnlineOrders}
         store={store}
-        onOpenStorefront={() => setIsOnlineStorefrontOpen(true)}
+        onOpenStorefront={() => {
+          if (!onlineStoreConfig?.isStoreAllowedByAdmin || onlineStoreConfig?.adminStoreStatus !== 'active') {
+            showToast('⚠️ সুপার অ্যাডমিনের অনুমতি ছাড়া অনলাইন স্টোর বা ওয়েবসাইটে প্রবেশ করা যাবে না।');
+            return;
+          }
+          setIsOnlineStorefrontOpen(true);
+        }}
         onNavigateToTab={(tab) => {
           setIsOnlineStoreModalOpen(false);
           setActiveTab(tab);

@@ -313,14 +313,14 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           </div>
         ) : (
           <>
-            {filtered.map((customer) => {
+            {filtered.map((customer, idx) => {
               const balance = Number(customer.balance || 0);
               const isDue = balance > 0;
               const isHighDue = balance >= highDueLimit;
 
               return (
                 <div
-                  key={customer.id}
+                  key={customer.id ? `${customer.id}_${idx}` : `cust_${idx}`}
                   onClick={() => onSelectCustomer(customer.id)}
                   className="bg-white p-3.5 sm:p-4 hover:bg-teal-50/50 active:bg-teal-100/60 transition cursor-pointer flex items-center justify-between group gap-3.5 border-b border-slate-100 last:border-b-0"
                 >

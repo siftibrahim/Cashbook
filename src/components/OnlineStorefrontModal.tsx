@@ -37,6 +37,8 @@ import {
   Landmark,
   CreditCard,
   Copy,
+  Lock,
+  Clock,
 } from 'lucide-react';
 
 interface OnlineStorefrontModalProps {
@@ -411,6 +413,46 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
   };
 
   if (!isOpen) return null;
+
+  const isStoreDisabled = config.isStoreAllowedByAdmin === false || config.adminStoreStatus === 'disabled';
+  const isStorePending = config.adminStoreStatus === 'requested';
+
+  if (isStoreDisabled || isStorePending) {
+    return (
+      <div
+        className={
+          isStandalone
+            ? 'w-full min-h-screen bg-slate-100 flex items-center justify-center p-4'
+            : 'fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-2xs flex items-center justify-center p-4'
+        }
+      >
+        <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-4 shadow-xl border border-slate-200">
+          <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-700 mx-auto flex items-center justify-center shadow-inner border border-amber-200">
+            {isStorePending ? (
+              <Clock className="w-8 h-8 animate-spin text-amber-600" />
+            ) : (
+              <Lock className="w-8 h-8 text-rose-600" />
+            )}
+          </div>
+          <h3 className="text-lg font-black text-slate-900">
+            {isStorePending ? 'আবেদন পর্যালোচনায় রয়েছে' : 'অনলাইন স্টোরে প্রবেশাধিকার নেই'}
+          </h3>
+          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+            {isStorePending
+              ? 'এই অনলাইন স্টোরটির চালুর আবেদনটি বর্তমানে সুপার অ্যাডমিনের পর্যালোচনায় রয়েছে। অনুমোদন পাওয়ার পর ওয়েবসাইটটি চালু হবে।'
+              : 'ইউজার ড্যাশবোর্ড থেকে অনলাইন স্টোর ব্যবহার করতে হলে প্রথমে সুপার অ্যাডমিনের কাছে ই-কমার্স অপশন ব্যবহারের অনুমতি নিতে হবে।'}
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition cursor-pointer"
+          >
+            বন্ধ করুন
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

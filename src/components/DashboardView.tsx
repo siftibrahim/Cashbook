@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Customer, Transaction, StoreProfile, DailyExpense, Product } from '../types';
+import { Customer, Transaction, StoreProfile, DailyExpense, Product, OnlineStoreConfig } from '../types';
 import { formatMoney, getTodayDateString, formatBanglaDate } from '../utils/storage';
 import { DateWiseReportModal } from './DateWiseReportModal';
 import heroBannerImg from '../assets/images/store_banner_hero_1788852324640.jpg';
@@ -59,6 +59,7 @@ interface DashboardViewProps {
   onOpenSubscription?: () => void;
   onOpenSettings?: () => void;
   onOpenOnlineStore?: () => void;
+  onlineStoreConfig?: OnlineStoreConfig;
   onOpenNewProduct?: () => void;
   onOpenSms?: () => void;
   smsBalance?: number;
@@ -82,8 +83,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenSalesHistory,
   onOpenSettings,
   onOpenOnlineStore,
+  onlineStoreConfig,
   onOpenSms,
 }) => {
+  const isOnlineStoreAllowed = onlineStoreConfig?.isStoreAllowedByAdmin === true && onlineStoreConfig?.adminStoreStatus === 'active';
+  const isOnlineStorePending = onlineStoreConfig?.adminStoreStatus === 'requested';
+  const onlineStoreBadge = isOnlineStorePending ? 'পেন্ডিং' : isOnlineStoreAllowed ? 'সক্রিয়' : 'অনুমতি';
+  const onlineStoreBadgeClass = isOnlineStorePending
+    ? 'bg-amber-400 text-slate-950 font-black animate-pulse'
+    : isOnlineStoreAllowed
+    ? 'bg-emerald-500 text-white font-bold'
+    : 'bg-rose-500 text-white font-bold';
+
   const today = getTodayDateString();
   const [isDateReportModalOpen, setIsDateReportModalOpen] = useState(false);
   const [metricViewMode, setMetricViewMode] = useState<'today' | 'date_range'>('today');
@@ -325,7 +336,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       title: 'অনলাইন স্টোর',
       icon: OnlineStoreIcon,
       action: onOpenOnlineStore ? onOpenOnlineStore : () => onNavigateToTab('inventory'),
-      badge: '৫',
+      badge: onlineStoreBadge,
+      badgeClass: onlineStoreBadgeClass,
     },
     {
       id: 'pos_sale',
@@ -817,6 +829,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 transition={{ type: 'spring', stiffness: 450, damping: 22 }}
                 className="relative flex flex-col items-center justify-center p-3 sm:p-4 text-center cursor-pointer transition-colors duration-150 hover:bg-[#f7faf8] active:bg-[#edf5f1] border-r border-b border-slate-100"
               >
+                {item.badge && (
+                  <span
+                    className={`absolute top-2 right-2 text-[9.5px] font-black px-1.5 py-0.5 rounded-full shadow-2xs leading-none z-10 ${
+                      (item as any).badgeClass || 'bg-amber-400 text-slate-950'
+                    }`}
+                  >
+                    {item.badge}
+                  </span>
+                )}
+
                 {/* Center Icon Illustration */}
                 <div className="relative flex items-center justify-center transition-transform group-hover:scale-105">
                   <IconComponent className="w-12 h-12 sm:w-14 sm:h-14 drop-shadow-xs" />

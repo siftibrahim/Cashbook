@@ -945,11 +945,15 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS notes TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS device_info TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS app_version TEXT;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online_store_allowed BOOLEAN DEFAULT TRUE;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'active';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online_store_allowed BOOLEAN DEFAULT FALSE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'disabled';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_requested_at BIGINT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_note TEXT;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+
+      -- Ensure Super Admin always has online store access enabled
+      UPDATE users SET is_online_store_allowed = TRUE, online_store_status = 'active'
+      WHERE role = 'super_admin' OR id = 'usr_super_admin' OR LOWER(email) IN ('siftibrahim@gmail.com', 'admin@twing.com');
       
       ALTER TABLE products ADD COLUMN IF NOT EXISTS is_published_online BOOLEAN DEFAULT TRUE;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;

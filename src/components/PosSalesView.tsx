@@ -515,7 +515,7 @@ export const PosSalesView: React.FC<PosSalesViewProps> = ({
               <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
                 {items.map((item, idx) => (
                   <div
-                    key={item.id || idx}
+                    key={item.id ? `${item.id}_${idx}` : `item_${idx}`}
                     className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50/80"
                   >
                     <div className="min-w-0 flex-1">

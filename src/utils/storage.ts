@@ -716,8 +716,8 @@ export function getDefaultOnlineStoreConfig(storeName?: string, phone?: string):
     supportHours: 'সকাল ৯:০০ - রাত ১০:০০',
     facebookUrl: '',
     publishedProductIds: [],
-    isStoreAllowedByAdmin: true,
-    adminStoreStatus: 'active',
+    isStoreAllowedByAdmin: false,
+    adminStoreStatus: 'disabled',
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -728,14 +728,37 @@ export function loadOnlineStoreConfig(userId?: string, storeName?: string, phone
     const uid = userId || getActiveUserId();
     const key = getUserStorageKey('online_store_config', uid);
     const raw = localStorage.getItem(key);
+    
+    // Check if user is super admin
+    let isSuperAdmin = uid === 'usr_super_admin';
+    try {
+      const userRaw = localStorage.getItem('twing_user_data') || localStorage.getItem('twing_auth_user');
+      if (userRaw) {
+        const u = JSON.parse(userRaw);
+        if (u?.role === 'super_admin' || u?.email === 'siftibrahim@gmail.com') isSuperAdmin = true;
+      }
+    } catch {}
+
+    const def = getDefaultOnlineStoreConfig(storeName, phone);
+    if (isSuperAdmin) {
+      def.isStoreAllowedByAdmin = true;
+      def.adminStoreStatus = 'active';
+    }
+
     if (!raw) {
-      return getDefaultOnlineStoreConfig(storeName, phone);
+      return def;
     }
     const parsed = JSON.parse(raw);
-    const def = getDefaultOnlineStoreConfig(storeName, phone);
+    const resolvedIsAllowed = isSuperAdmin ? true : (parsed.isStoreAllowedByAdmin === true);
+    const resolvedStatus = isSuperAdmin
+      ? 'active'
+      : (parsed.adminStoreStatus || (resolvedIsAllowed ? 'active' : 'disabled'));
+
     return {
       ...def,
       ...parsed,
+      isStoreAllowedByAdmin: resolvedIsAllowed,
+      adminStoreStatus: resolvedStatus,
       storeSlug: parsed.storeSlug || def.storeSlug,
     };
   } catch (e) {

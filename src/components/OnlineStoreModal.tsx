@@ -22,6 +22,7 @@ import {
   HelpCircle,
   Sparkles,
   RefreshCw,
+  Lock,
   Phone,
   MessageCircle,
   QrCode,
@@ -83,6 +84,57 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
   // Form states initialized with config
   const [formData, setFormData] = useState<OnlineStoreConfig>(config);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+
+  // Sync with incoming config prop
+  React.useEffect(() => {
+    if (config) {
+      setFormData(config);
+      setCustomDomainInput(config.customDomain || '');
+    }
+  }, [config]);
+
+  // When modal opens, refresh latest status from server
+  React.useEffect(() => {
+    if (isOpen) {
+      storeApi.getOnlineConfig().then((res) => {
+        if (res) {
+          setFormData((prev) => ({
+            ...prev,
+            ...res,
+          }));
+          onUpdateConfig(res);
+          if (res.isStoreAllowedByAdmin && res.adminStoreStatus === 'active') {
+            setActiveTab('overview');
+          }
+        }
+      }).catch(() => {});
+    }
+  }, [isOpen]);
+
+  const handleCheckStatus = async () => {
+    try {
+      setIsCheckingStatus(true);
+      const res = await storeApi.getOnlineConfig();
+      if (res) {
+        setFormData(res);
+        onUpdateConfig(res);
+        if (res.isStoreAllowedByAdmin && res.adminStoreStatus === 'active') {
+          if (onShowToast) onShowToast('🎉 সুপার অ্যাডমিন আপনার অনলাইন স্টোর ব্যবহারের অনুমোদন দিয়েছেন!');
+          setActiveTab('overview');
+        } else if (res.adminStoreStatus === 'requested') {
+          if (onShowToast) onShowToast('আপনার আবেদনটি এখনো সুপার অ্যাডমিনের পর্যালোচনায় রয়েছে।');
+        } else {
+          if (onShowToast) onShowToast('অনলাইন স্টোর বর্তমানে সক্রিয় নয়। আবেদন পাঠাতে নিচে ফর্মটি পূরণ করুন।');
+        }
+      }
+    } catch {
+      if (onShowToast) onShowToast('স্ট্যাটাস রিফ্রেশ করতে সমস্যা হয়েছে');
+    } finally {
+      setIsCheckingStatus(false);
+    }
+  };
+
   const [requestNoteInput, setRequestNoteInput] = useState('');
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
   const [requestSuccessMessage, setRequestSuccessMessage] = useState<string | null>(null);
@@ -683,7 +735,9 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base sm:text-lg font-black tracking-tight">অনলাইন ই-কমার্স স্টোর ও ডোমেন</h2>
+                <h2 className="text-base sm:text-lg font-black tracking-tight">
+                  {shouldShowActivationGate ? 'অনলাইন ই-কমার্স স্টোর' : 'অনলাইন ই-কমার্স স্টোর ও ডোমেন'}
+                </h2>
                 <span
                   className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
                     isStorePendingReview
@@ -698,56 +752,43 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                   {isStorePendingReview
                     ? '⏳ আবেদন পর্যালোচনায়'
                     : isStoreDisabledByAdmin
-                    ? '🔒 অ্যাডমিন অনুমোদন প্রয়োজন'
+                    ? '🔒 সুপার অ্যাডমিন অনুমতি প্রয়োজন'
                     : formData.isEnabled
                     ? '● স্টোর লাইভ'
                     : '○ অফলাইন'}
                 </span>
               </div>
               <p className="text-xs text-teal-100 font-medium mt-0.5">
-                আপনার নিজস্ব ওয়েবসাইট ও ডোমেনে ২৪/৭ অনলাইন ব্যবসা পরিচালনা করুন
+                {shouldShowActivationGate
+                  ? 'ই-কমার্স অপশন ব্যবহারের জন্য সুপার অ্যাডমিনের অনুমতি প্রয়োজন'
+                  : 'আপনার নিজস্ব ওয়েবসাইট ও ডোমেনে ২৪/৭ অনলাইন ব্যবসা পরিচালনা করুন'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab('activation_request')}
-              className={`px-3 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm ${
-                activeTab === 'activation_request'
-                  ? 'bg-amber-400 text-slate-950 font-black'
-                  : 'bg-white/15 hover:bg-white/25 text-white'
-              }`}
-              title="অনলাইন স্টোর রিকোয়েস্ট অপশন ও স্ট্যাটাস"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">রিকোয়েস্ট অপশন</span>
-              {isStorePendingReview && (
-                <span className="w-2 h-2 rounded-full bg-amber-300 animate-ping" />
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (shouldShowActivationGate) {
-                  alert('অ্যাডমিন অনুমোদন না দেওয়া পর্যন্ত অনলাইন স্টোর পাবলিকলি লাইভ হবে না। আপনি রিকোয়েস্ট অপশন থেকে আবেদন পাঠাতে বা স্ট্যাটাস দেখতে পারেন।');
-                  setActiveTab('activation_request');
-                  return;
-                }
-                onOpenStorefront();
-              }}
-              className={`px-3 py-1.5 font-black text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm ${
-                shouldShowActivationGate
-                  ? 'bg-slate-700/60 text-slate-300 border border-slate-600/40'
-                  : 'bg-amber-400 hover:bg-amber-300 text-slate-950'
-              }`}
-              title="ওয়েবসাইট দেখুন"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">স্টোর দেখুন</span>
-            </button>
+            {shouldShowActivationGate ? (
+              <button
+                type="button"
+                onClick={handleCheckStatus}
+                disabled={isCheckingStatus}
+                className="px-3.5 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs bg-white/20 hover:bg-white/30 text-white disabled:opacity-50"
+                title="সুপার অ্যাডমিন অনুমতি দিয়েছেন কিনা রিফ্রেশ করুন"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">{isCheckingStatus ? 'যাচাই হচ্ছে...' : 'স্ট্যাটাস রিফ্রেশ'}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenStorefront}
+                className="px-3 py-1.5 font-black text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm bg-amber-400 hover:bg-amber-300 text-slate-950"
+                title="ওয়েবসাইট দেখুন"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">স্টোর দেখুন</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -759,7 +800,8 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           </div>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tab Navigation - Only visible when permission is granted by Super Admin */}
+        {!shouldShowActivationGate && (
         <div className="flex border-b border-slate-200 bg-slate-50 px-3 sm:px-5 gap-1.5 overflow-x-auto no-scrollbar shrink-0">
           <button
             type="button"
@@ -904,9 +946,264 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
             )}
           </button>
         </div>
+        )}
 
         {/* Tab Content Area */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">
+          {shouldShowActivationGate ? (
+            <div className="max-w-2xl mx-auto py-4 sm:py-6 space-y-6">
+              {isStorePendingReview ? (
+                /* Pending Review State */
+                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-200 shadow-sm space-y-6 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-700 mx-auto flex items-center justify-center border border-amber-200 shadow-inner">
+                    <Clock className="w-8 h-8 animate-spin text-amber-600" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-black">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                      আবেদন পর্যালোচনায় রয়েছে (Pending Review)
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900">
+                      আপনার অনলাইন স্টোর চালুর আবেদন জমা হয়েছে
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-lg mx-auto">
+                      অনলাইন স্টোর ব্যবহার করার জন্য আপনার রিকোয়েস্টটি সুপার অ্যাডমিনের নিকট জমা রয়েছে। সুপার অ্যাডমিন তথ্য যাচাই করে অনুমোদন দিলেই আপনি এখান থেকে আপনার অনলাইন শপ ও ই-কমার্স ব্যবসা সম্পূর্ণ পরিচালনা করতে পারবেন।
+                    </p>
+                  </div>
+
+                  {/* Submitted Info Card */}
+                  <div className="bg-amber-50/80 rounded-2xl p-4 sm:p-5 border border-amber-200/90 text-left space-y-3">
+                    <div className="text-xs font-bold text-amber-900 border-b border-amber-200 pb-2">
+                      আবেদনের বিবরণ:
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">প্রতিষ্ঠানের নাম:</span>
+                        <span className="font-bold text-slate-800">{formData.storeName || store.name || 'আমার দোকান'}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">যোগাযোগ নম্বর:</span>
+                        <span className="font-bold text-slate-800">{formData.phone || store.phone || 'দেওয়া হয়নি'}</span>
+                      </div>
+                    </div>
+                    {formData.adminStoreNote && (
+                      <div className="text-xs pt-1">
+                        <span className="text-slate-500 block text-[11px]">আপনার প্রেরিত নোট:</span>
+                        <p className="font-medium text-amber-950 bg-white/80 p-2.5 rounded-xl border border-amber-200 mt-1">
+                          &ldquo;{formData.adminStoreNote}&rdquo;
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      disabled={isCheckingStatus}
+                      onClick={handleCheckStatus}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#004D40] hover:bg-[#00382e] text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2 active:scale-95 shadow-sm disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                      <span>{isCheckingStatus ? 'যাচাই করা হচ্ছে...' : 'স্ট্যাটাস রিফ্রেশ করুন'}</span>
+                    </button>
+
+                    <a
+                      href={`https://wa.me/8801306908115?text=${encodeURIComponent(
+                        `হ্যালো সুপার অ্যাডমিন, আমি "${formData.storeName || store.name}" এর জন্য ক্যাশবুক ড্যাশবোর্ড থেকে অনলাইন স্টোর ও ই-কমার্স ব্যবহারের আবেদন করেছি। দয়া করে আমার আবেদনটি যাচাই করে অনুমোদন দিন।`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2 active:scale-95 shadow-sm"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>সুপার অ্যাডমিনকে হোয়াটসঅ্যাপে জানান</span>
+                    </a>
+
+                    <button
+                      type="button"
+                      disabled={isSubmittingRequest}
+                      onClick={handleCancelStoreActivation}
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 font-bold text-xs border border-slate-200 hover:border-rose-200 transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
+                    >
+                      <XCircle className="w-4 h-4 text-rose-500" />
+                      <span>আবেদন বাতিল করুন</span>
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500">
+                    জরুরি প্রয়োজনে কল করুন: <span className="font-bold text-slate-700">01306908115</span>
+                  </p>
+                </div>
+              ) : (
+                /* Disabled / Need Permission State */
+                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
+                  {/* Security Lock Header */}
+                  <div className="text-center space-y-3">
+                    <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center border border-rose-200 shadow-inner">
+                      <Lock className="w-8 h-8 text-rose-600" />
+                    </div>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-100 text-rose-800 text-xs font-bold">
+                      🔒 সুপার অ্যাডমিন অনুমতি প্রয়োজন
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900">
+                      অনলাইন স্টোর ব্যবহারের পূর্বে অনুমতি নিন
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-lg mx-auto">
+                      ইউজার ড্যাশবোর্ড থেকে অনলাইন স্টোর ব্যবহার করতে চাইলে আগে সুপার অ্যাডমিনের কাছে ই-কমার্স অপশন ব্যবহারের অনুমতি নিতে হবে। সুপার অ্যাডমিন অনুমতি দিলে ইউজার এখান থেকে ই-কমার্স ব্যবসা পরিচালনা করতে পারবে।
+                    </p>
+                  </div>
+
+                  {formData.adminStoreNote && (
+                    <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold">পূর্ববর্তী নোট:</span> {formData.adminStoreNote}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Highlights Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <div className="p-3.5 rounded-2xl bg-teal-50/60 border border-teal-100 flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-teal-600 text-white flex items-center justify-center shrink-0">
+                        <Globe className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-teal-950">নিজস্ব ওয়েবসাইট ও ডোমেন</h4>
+                        <p className="text-[11px] text-teal-800 mt-0.5">
+                          কাস্টম ডোমেন অথবা ফ্রি সাবডোমেনে ২৪/৭ আপনার অনলাইন দোকান চলবে।
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-indigo-50/60 border border-indigo-100 flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                        <ShoppingBag className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-indigo-950">অনলাইন অর্ডার ম্যানেজমেন্ট</h4>
+                        <p className="text-[11px] text-indigo-800 mt-0.5">
+                          কাস্টমাররা সরাসরি অর্ডার করতে পারবে এবং এক ক্লিকেই ক্যাশবুকে যুক্ত হবে।
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-100 flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                        <CreditCard className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-emerald-950">বিকাশ / নগদ পেমেন্ট</h4>
+                        <p className="text-[11px] text-emerald-800 mt-0.5">
+                          ক্যাশ অন ডেলিভারি ও ডিজিটাল পেমেন্ট ট্রানজেকশন ভেরিফিকেশন সুবিধা।
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-100 flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0">
+                        <Package className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-amber-950">পণ্য ক্যাটালগ ও ডিসকাউন্ট</h4>
+                        <p className="text-[11px] text-amber-800 mt-0.5">
+                          ছবিসহ আনলিমিটেড পণ্য প্রদর্শন ও কুপন কোড দিয়ে ছাড় দেওয়ার সুবিধা।
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Permission Application Form */}
+                  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+                    <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-slate-800 font-bold text-xs">
+                      <Send className="w-4 h-4 text-teal-700" />
+                      <span>অনুমতির জন্য সুপার অ্যাডমিনের নিকট আবেদন ফর্ম</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                          দোকান / ব্যবসার নাম:
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.storeName || store.name || ''}
+                          readOnly
+                          className="w-full p-2.5 rounded-xl border border-slate-300 text-xs bg-white text-slate-800 font-medium"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                          যোগাযোগের মোবাইল নম্বর:
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.phone || store.phone || ''}
+                          readOnly
+                          className="w-full p-2.5 rounded-xl border border-slate-300 text-xs bg-white text-slate-800 font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        সুপার অ্যাডমিনের উদ্দেশ্যে বার্তা বা বিবরণ (ঐচ্ছিক):
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={requestNoteInput}
+                        onChange={(e) => setRequestNoteInput(e.target.value)}
+                        placeholder="যেমন: আমি আমার দোকানের জন্য অনলাইন স্টোর ও ই-কমার্স সুবিধা চালু করতে চাই। অনুগ্রহ করে ব্যবহারের অনুমতি দিন।"
+                        className="w-full p-3 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+                      />
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+                      <button
+                        type="button"
+                        disabled={isCheckingStatus}
+                        onClick={handleCheckStatus}
+                        className="text-xs text-teal-700 hover:text-teal-900 font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                        <span>অনুমোদনের স্ট্যাটাস রিফ্রেশ</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isSubmittingRequest}
+                        onClick={handleRequestStoreActivation}
+                        className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition shadow active:scale-95 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        <Send className="w-4 h-4" />
+                        <span>{isSubmittingRequest ? 'আবেদন পাঠানো হচ্ছে...' : 'সুপার অ্যাডমিনের কাছে অনুমতির আবেদন পাঠান'}</span>
+                      </button>
+                    </div>
+
+                    {requestSuccessMessage && (
+                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{requestSuccessMessage}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick Support Footnote */}
+                  <div className="pt-2 text-center text-xs text-slate-500 space-y-1">
+                    <p>
+                      সুপার অ্যাডমিন হেল্পলাইন: <span className="font-bold text-slate-800">01306908115</span>
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      সুপার অ্যাডমিন অনুমোদন দিলে আপনি স্বয়ংক্রিয়ভাবে অনলাইন স্টোর পরিচালনা করার সম্পূর্ণ অ্যাক্সেস পাবেন।
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
           {saveSuccessNotice && (
             <div className="mb-4 bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-2.5 rounded-2xl flex items-center gap-2 text-xs sm:text-sm font-bold shadow-xs">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -3897,6 +4194,8 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                 </button>
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
       </div>

@@ -267,8 +267,8 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-800">
-                  {transactions.map((t) => (
-                    <tr key={t.id} className="hover:bg-teal-50/40 transition">
+                  {transactions.map((t, idx) => (
+                    <tr key={t.id ? `${t.id}_${idx}` : `tx_${idx}`} className="hover:bg-teal-50/40 transition">
                       <td className="p-3 text-slate-600 whitespace-nowrap">
                         <div className="font-bold text-slate-700">{formatBanglaDate(t.date)}</div>
                         <div className="text-[10px] text-slate-400 font-medium">{t.time}</div>

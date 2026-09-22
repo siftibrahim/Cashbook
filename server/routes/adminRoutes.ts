@@ -1869,8 +1869,8 @@ router.get('/online-stores', async (req: AuthenticatedRequest, res: Response) =>
       // Auto-heal schema if missing on older DBs
       await pool.query(`
         ALTER TABLE users ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online_store_allowed BOOLEAN DEFAULT TRUE;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'active';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online_store_allowed BOOLEAN DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'disabled';
         ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_requested_at BIGINT;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_note TEXT;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
@@ -1933,8 +1933,8 @@ router.get('/online-stores', async (req: AuthenticatedRequest, res: Response) =>
             email: u.email,
             subscriptionPlan: u.subscriptionPlan,
             subscriptionExpiresAt: u.subscriptionExpiresAt,
-            isOnlineStoreAllowed: u.isOnlineStoreAllowed !== false,
-            onlineStoreStatus: u.onlineStoreStatus || 'active',
+            isOnlineStoreAllowed: u.isOnlineStoreAllowed === true,
+            onlineStoreStatus: u.onlineStoreStatus || (u.isOnlineStoreAllowed === true ? 'active' : 'disabled'),
             onlineStoreRequestedAt: u.onlineStoreRequestedAt || 0,
             onlineStoreNote: u.onlineStoreNote || '',
             storeSlug: c.storeSlug || `store-${u.id.slice(-4)}`,

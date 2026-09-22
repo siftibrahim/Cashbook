@@ -573,8 +573,8 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
       // Auto-heal schema if missing on older DBs
       await pool.query(`
         ALTER TABLE users ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online_store_allowed BOOLEAN DEFAULT TRUE;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'active';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online_store_allowed BOOLEAN DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'disabled';
         ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_requested_at BIGINT;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_note TEXT;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
@@ -591,24 +591,25 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
       let u: any = {};
       try {
         const uRes = await pool.query(
-          'SELECT shop_name, phone, address, name, is_online_store_allowed, online_store_status, online_store_requested_at, online_store_note, store_slug FROM users WHERE id = $1',
+          'SELECT shop_name, phone, address, name, role, is_online_store_allowed, online_store_status, online_store_requested_at, online_store_note, store_slug FROM users WHERE id = $1',
           [userId]
         );
         u = uRes.rows[0] || {};
       } catch {
         try {
           const uRes = await pool.query(
-            'SELECT shop_name, phone, address, name, is_online_store_allowed, online_store_status, online_store_requested_at, online_store_note FROM users WHERE id = $1',
+            'SELECT shop_name, phone, address, name, role, is_online_store_allowed, online_store_status, online_store_requested_at, online_store_note FROM users WHERE id = $1',
             [userId]
           );
           u = uRes.rows[0] || {};
         } catch {
-          const uRes = await pool.query('SELECT shop_name, phone, address, name FROM users WHERE id = $1', [userId]).catch(() => ({ rows: [] }));
+          const uRes = await pool.query('SELECT shop_name, phone, address, name, role FROM users WHERE id = $1', [userId]).catch(() => ({ rows: [] }));
           u = uRes.rows[0] || {};
         }
       }
-      const isAllowed = u.is_online_store_allowed !== false;
-      const adminStatus = u.online_store_status || (isAllowed ? 'active' : 'disabled');
+      const isSuperAdmin = (u.role === 'super_admin' || req.user?.role === 'super_admin' || userId === 'usr_super_admin');
+      const isAllowed = isSuperAdmin ? true : (u.is_online_store_allowed === true);
+      const adminStatus = isSuperAdmin ? 'active' : (u.online_store_status || (isAllowed ? 'active' : 'disabled'));
       const adminNote = u.online_store_note || '';
 
       if (result.rows.length > 0) {
@@ -700,8 +701,9 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
       });
     } else {
       const memUser = inMemoryStore.users.find((u) => u.id === userId);
-      const isAllowed = memUser?.isOnlineStoreAllowed !== false;
-      const adminStatus = memUser?.onlineStoreStatus || (isAllowed ? 'active' : 'disabled');
+      const isSuperAdmin = (memUser?.role === 'super_admin' || req.user?.role === 'super_admin' || userId === 'usr_super_admin');
+      const isAllowed = isSuperAdmin ? true : (memUser?.isOnlineStoreAllowed === true);
+      const adminStatus = isSuperAdmin ? 'active' : (memUser?.onlineStoreStatus || (isAllowed ? 'active' : 'disabled'));
       const adminNote = memUser?.onlineStoreNote || '';
 
       const found = (inMemoryStore.online_store_configs || []).find((c) => (c.userId || c.user_id) === userId);

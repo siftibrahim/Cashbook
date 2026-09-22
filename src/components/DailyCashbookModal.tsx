@@ -383,8 +383,8 @@ export const DailyCashbookModal: React.FC<DailyCashbookModalProps> = ({
                   এই তারিখে এখনো কোনো খরচ বা অন্যান্য আয়ের এন্ট্রি করা হয়নি।
                 </div>
               ) : (
-                dateExpenses.map((exp) => (
-                  <div key={exp.id} className="p-3 sm:p-3.5 hover:bg-slate-50 flex items-center justify-between transition">
+                dateExpenses.map((exp, idx) => (
+                  <div key={exp.id ? `${exp.id}_${idx}` : `exp_${idx}`} className="p-3 sm:p-3.5 hover:bg-slate-50 flex items-center justify-between transition">
                     <div className="flex items-center gap-3">
                       <div
                         className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs ${

@@ -378,12 +378,13 @@ router.post('/register', async (req, res) => {
           INSERT INTO users (
             id, name, phone, email, password_hash, shop_name, business_type, address,
             role, status, subscription_plan, subscription_status, subscription_expires_at,
-            registered_at, last_active_at, sms_balance
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            registered_at, last_active_at, sms_balance, is_online_store_allowed, online_store_status
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         `, [
           userId, cleanName, cleanPhone, cleanEmail, passwordHash, cleanShop,
           businessType || 'জেনারেল স্টোর', address || 'বাংলাদেশ', 'user', 'active',
-          initialPlanName, initialStatus, subscriptionExpiresAt, now, now, 10
+          initialPlanName, initialStatus, subscriptionExpiresAt, now, now, 10,
+          false, 'disabled'
         ]);
 
         // Welcome Notification with 10 Free SMS
@@ -440,6 +441,8 @@ router.post('/register', async (req, res) => {
       totalCustomers: 0,
       totalTransactions: 0,
       smsBalance: 10,
+      isOnlineStoreAllowed: false,
+      onlineStoreStatus: 'disabled',
     };
     inMemoryStore.users.push(newUser);
 

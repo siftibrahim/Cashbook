@@ -5,19 +5,20 @@
       "name": "Eva",
       "phone": "01355358890",
       "email": "01355358890@twing.com",
-      "password_hash": "$2b$10$j.CTQl21FXVUStn/WNGsTOVeGhp6ylzwipRQ1L3bffg2HnM9S0n/m",
+      "password_hash": "$2b$10$3ricMJu7jioZxVB2ryC3cu.PsNPgmpHwoYSGLblwa9pYglitbbHL2",
       "shop_name": "Eva stor",
       "business_type": "জেনারেল স্টোর",
       "address": "বাংলাদেশ",
       "role": "user",
-      "status": "active",
-      "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
-      "subscriptionStatus": "trial",
-      "subscriptionExpiresAt": 1791000035262,
+      "status": "expired",
+      "subscriptionPlan": "১ মাসের স্টার্টার প্যাক",
+      "subscriptionStatus": "active",
+      "subscriptionExpiresAt": 1792496045173,
       "registered_at": 1789790435262,
-      "last_active_at": 1789822577484,
+      "last_active_at": 1790068907418,
       "notes": "অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে",
-      "password": "123456"
+      "isOnlineStoreAllowed": false,
+      "onlineStoreStatus": "disabled"
     },
     {
       "id": "usr_super_admin",
@@ -35,7 +36,9 @@
       "subscriptionExpiresAt": 2105147647299,
       "registered_at": 1789787647299,
       "last_active_at": 1789792127578,
-      "notes": null
+      "notes": null,
+      "isOnlineStoreAllowed": true,
+      "onlineStoreStatus": "active"
     }
   ],
   "stores": [],
