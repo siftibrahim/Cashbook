@@ -216,6 +216,8 @@ export interface OnlineStoreConfig {
   estimatedDeliveryDays?: string;
   facebookUrl?: string;
   publishedProductIds?: string[];
+  deletedDemoProductIds?: string[];
+  includeDemoProducts?: boolean;
   vendorId?: string;
   isStoreAllowedByAdmin?: boolean;
   adminStoreStatus?: 'active' | 'disabled' | 'requested';

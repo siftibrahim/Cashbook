@@ -87,6 +87,7 @@ export const inMemoryStore: {
   sms_purchases: any[];
   online_orders: any[];
   online_store_configs: any[];
+  store_chat_messages: any[];
 } = {
   users: [],
   stores: [],
@@ -107,6 +108,7 @@ export const inMemoryStore: {
   sms_purchases: [],
   online_orders: [],
   online_store_configs: [],
+  store_chat_messages: [],
 };
 
 /**
@@ -936,10 +938,31 @@ export async function initializeDatabaseSchema() {
         created_at BIGINT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_media_storage_user_id ON media_storage(user_id);
+
+      -- Storefront Live Customer-Vendor Chat Messages Table
+      CREATE TABLE IF NOT EXISTS store_chat_messages (
+        id VARCHAR(100) PRIMARY KEY,
+        vendor_id VARCHAR(100) NOT NULL,
+        thread_id VARCHAR(100) NOT NULL,
+        customer_name VARCHAR(150),
+        customer_phone VARCHAR(50),
+        sender VARCHAR(20) NOT NULL,
+        sender_name VARCHAR(150),
+        sender_phone VARCHAR(50),
+        text TEXT NOT NULL,
+        is_read_by_vendor BOOLEAN DEFAULT FALSE,
+        is_read_by_customer BOOLEAN DEFAULT TRUE,
+        created_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_store_chat_vendor ON store_chat_messages(vendor_id);
+      CREATE INDEX IF NOT EXISTS idx_store_chat_thread ON store_chat_messages(vendor_id, thread_id);
+      CREATE INDEX IF NOT EXISTS idx_store_chat_created ON store_chat_messages(created_at ASC);
     `);
 
     // Schema Evolution Safety: Ensure columns exist on already created tables
     await client.query(`
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS deleted_demo_product_ids JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS include_demo_products BOOLEAN DEFAULT TRUE;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS total_customers INT DEFAULT 0;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS total_transactions INT DEFAULT 0;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS notes TEXT;

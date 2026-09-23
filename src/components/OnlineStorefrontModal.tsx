@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, OnlineStoreConfig, OnlineOrder } from '../types';
 import { formatMoney } from '../utils/storage';
@@ -154,14 +154,31 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     return [];
   });
 
+  const customerOrdersRef = useRef<OnlineOrder[]>(customerOrders);
+  useEffect(() => {
+    customerOrdersRef.current = customerOrders;
+  }, [customerOrders]);
+
+  const isFetchingOrdersRef = useRef<boolean>(false);
   const [enlargedQrUrl, setEnlargedQrUrl] = useState<string | null>(null);
   const [isRefreshingOrders, setIsRefreshingOrders] = useState<boolean>(false);
 
   // Live order status refresh function
-  const refreshCustomerOrders = useCallback(async () => {
+  const refreshCustomerOrders = useCallback(async (isManual: boolean = false) => {
+    if (isFetchingOrdersRef.current) return;
+
     try {
-      const raw = localStorage.getItem(STORE_ORDERS_STORAGE_KEY);
-      const currentList: OnlineOrder[] = raw ? JSON.parse(raw) : customerOrders;
+      const currentList: OnlineOrder[] = customerOrdersRef.current && customerOrdersRef.current.length > 0
+        ? customerOrdersRef.current
+        : (() => {
+            try {
+              const raw = localStorage.getItem(STORE_ORDERS_STORAGE_KEY);
+              return raw ? JSON.parse(raw) : [];
+            } catch {
+              return [];
+            }
+          })();
+
       const orderNums = currentList.map((o) => o.orderNumber).filter(Boolean);
       const identifier =
         config.storeSlug ||
@@ -172,7 +189,11 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
 
       if (!identifier || (orderNums.length === 0 && !customerPhone)) return;
 
-      setIsRefreshingOrders(true);
+      isFetchingOrdersRef.current = true;
+      if (isManual) {
+        setIsRefreshingOrders(true);
+      }
+
       const freshOrders = await publicStoreApi.batchTrackOrders(
         identifier,
         orderNums,
@@ -181,12 +202,31 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
 
       if (freshOrders && freshOrders.length > 0) {
         setCustomerOrders((prev) => {
+          let hasDiff = false;
           const map = new Map<string, OnlineOrder>();
           prev.forEach((o) => map.set(o.orderNumber || o.id, o));
+
           freshOrders.forEach((f) => {
             const key = f.orderNumber || f.id;
-            map.set(key, { ...map.get(key), ...f });
+            const existing = map.get(key);
+            if (!existing) {
+              map.set(key, f);
+              hasDiff = true;
+            } else if (
+              existing.orderStatus !== f.orderStatus ||
+              existing.paymentStatus !== f.paymentStatus ||
+              existing.courierName !== f.courierName ||
+              existing.courierTrackingCode !== f.courierTrackingCode ||
+              existing.paymentRejectReason !== f.paymentRejectReason ||
+              existing.updatedAt !== f.updatedAt
+            ) {
+              map.set(key, { ...existing, ...f });
+              hasDiff = true;
+            }
           });
+
+          if (!hasDiff) return prev; // Avoid unnecessary re-rendering and layout flicker
+
           const merged = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
           try {
             localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(merged));
@@ -197,22 +237,32 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     } catch (e) {
       console.warn('Real-time order sync error:', e);
     } finally {
-      setIsRefreshingOrders(false);
+      isFetchingOrdersRef.current = false;
+      if (isManual) {
+        setIsRefreshingOrders(false);
+      }
     }
-  }, [customerOrders, config.storeSlug, config.customDomain, config.vendorId, customerPhone]);
+  }, [config.storeSlug, config.customDomain, config.vendorId, customerPhone]);
 
   // Real-time polling & global events listener
   useEffect(() => {
-    refreshCustomerOrders();
-    const interval = setInterval(refreshCustomerOrders, 5000);
+    // Initial silent refresh
+    refreshCustomerOrders(false);
+
+    // Calm 15s background polling without flickering
+    const interval = setInterval(() => {
+      refreshCustomerOrders(false);
+    }, 15000);
 
     const handleOrderEvent = (e: any) => {
       // Immediate local state update if event has order details
       if (e?.detail) {
         const { orderId, orderNumber, orderStatus, courierName, courierTrackingCode, updatedAt } = e.detail;
         setCustomerOrders((prev) => {
+          let updatedAny = false;
           const updated = prev.map((ord) => {
             if (ord.id === orderId || ord.orderNumber === orderNumber || ord.orderNumber === orderId) {
+              updatedAny = true;
               return {
                 ...ord,
                 orderStatus: orderStatus || ord.orderStatus,
@@ -223,13 +273,14 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
             }
             return ord;
           });
+          if (!updatedAny) return prev;
           try {
             localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(updated));
           } catch {}
           return updated;
         });
       }
-      refreshCustomerOrders();
+      refreshCustomerOrders(false);
     };
 
     const handleStorageEvent = (e: StorageEvent) => {
@@ -239,7 +290,7 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
           if (raw) setCustomerOrders(JSON.parse(raw));
         } catch {}
       }
-      refreshCustomerOrders();
+      refreshCustomerOrders(false);
     };
 
     window.addEventListener('twing_order_updated', handleOrderEvent);
@@ -277,11 +328,15 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   // Master product catalog: Blend authentic reference products with merchant inventory
   const allStoreProducts = useMemo(() => {
     const existingIds = new Set(merchantPublishedProducts.map((p) => p.id));
-    const demoItems = [...STOREFRONT_BEST_OFFERS, ...STOREFRONT_RECENT_PRODUCTS].filter(
-      (item) => !existingIds.has(item.id)
-    );
+    const deletedDemos = new Set(config.deletedDemoProductIds || []);
+    const allowDemos = config.includeDemoProducts !== false;
+    const demoItems = allowDemos
+      ? [...STOREFRONT_BEST_OFFERS, ...STOREFRONT_RECENT_PRODUCTS].filter(
+          (item) => !existingIds.has(item.id) && !deletedDemos.has(item.id)
+        )
+      : [];
     return [...merchantPublishedProducts, ...demoItems];
-  }, [merchantPublishedProducts]);
+  }, [merchantPublishedProducts, config.deletedDemoProductIds, config.includeDemoProducts]);
 
   // Best offers list (Today's Best Offers)
   const bestOffersProducts = useMemo(() => {
@@ -558,7 +613,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
     <div
       className={
         isStandalone
-          ? 'w-full min-h-screen bg-white flex flex-col items-center justify-start'
+          ? 'w-full h-[100dvh] bg-white flex flex-col items-center justify-start overflow-hidden'
           : 'fixed inset-0 z-50 overflow-hidden bg-slate-950/80 backdrop-blur-2xs flex flex-col justify-end sm:justify-center items-center'
       }
     >
@@ -566,7 +621,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
       <div
         className={
           isStandalone
-            ? 'relative w-full max-w-5xl min-h-screen bg-white flex flex-col'
+            ? 'relative w-full max-w-5xl h-full bg-white flex flex-col overflow-hidden'
             : 'relative w-full max-w-5xl h-full max-h-[100dvh] sm:max-h-[96vh] sm:rounded-3xl bg-white shadow-2xl flex flex-col overflow-hidden border border-slate-200/90'
         }
       >
@@ -774,7 +829,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
               <StorefrontOrderTracker
                 orders={customerOrders}
                 whatsappPhone={config.whatsappPhone || config.phone}
-                onRefresh={refreshCustomerOrders}
+                onRefresh={() => refreshCustomerOrders(true)}
                 isRefreshing={isRefreshingOrders}
               />
             </div>

@@ -57,16 +57,19 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
 
   return (
     <div className="p-4 sm:p-6 space-y-4 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg sm:text-xl font-black text-slate-900">অর্ডার ট্র্যাকিং ও হিস্ট্রি</h2>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-              <span>রিয়েল-টাইম লাইভ</span>
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-base sm:text-xl font-black text-slate-900 truncate">অর্ডার ট্র্যাকিং ও হিস্ট্রি</h2>
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200 shrink-0">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span>লাইভ</span>
             </span>
           </div>
-          <p className="text-xs text-slate-500">আপনার মোবাইল নম্বর বা অর্ডার নম্বর দিয়ে সরাসরি ট্র্যাক করুন</p>
+          <p className="text-xs text-slate-500 truncate mt-0.5">আপনার মোবাইল নম্বর বা অর্ডার নম্বর দিয়ে সরাসরি ট্র্যাক করুন</p>
         </div>
 
         {onRefresh && (
@@ -74,11 +77,11 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
             type="button"
             onClick={() => onRefresh()}
             disabled={isRefreshing}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs transition cursor-pointer disabled:opacity-60"
+            className="shrink-0 w-24 h-8 justify-center rounded-xl border border-slate-200 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-60"
             title="লাইভ স্ট্যাটাস রিফ্রেশ করুন"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-teal-700 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span>{isRefreshing ? 'আপডেট হচ্ছে...' : 'রিফ্রেশ'}</span>
+            <RefreshCw className={`w-3.5 h-3.5 text-teal-700 shrink-0 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span className="truncate">{isRefreshing ? 'আপডেট...' : 'রিফ্রেশ'}</span>
           </button>
         )}
       </div>

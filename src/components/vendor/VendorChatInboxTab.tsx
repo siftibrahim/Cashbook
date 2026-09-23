@@ -20,6 +20,7 @@ import {
   StoreChatThread,
   CHAT_SYNC_EVENT,
 } from '../../utils/storeChatStorage';
+import { storeApi } from '../../services/apiService';
 
 interface VendorChatInboxTabProps {
   storeName?: string;
@@ -30,8 +31,24 @@ export const VendorChatInboxTab: React.FC<VendorChatInboxTabProps> = ({ storeNam
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [replyText, setReplyText] = useState('');
+  const [isSending, setIsSending] = useState(false);
 
-  const loadThreads = () => {
+  const loadThreads = async () => {
+    try {
+      const serverThreads = await storeApi.getChatThreads();
+      if (serverThreads && serverThreads.length > 0) {
+        setThreads(serverThreads);
+        saveStoreChatThreads(serverThreads);
+        if (!selectedThreadId && serverThreads.length > 0) {
+          setSelectedThreadId(serverThreads[0].id);
+          storeApi.markChatRead(serverThreads[0].id).catch(() => {});
+        }
+        return;
+      }
+    } catch (err) {
+      console.warn('Failed to load server chat threads, falling back to local:', err);
+    }
+
     const list = getStoreChatThreads();
     setThreads(list);
     if (!selectedThreadId && list.length > 0) {
@@ -42,30 +59,48 @@ export const VendorChatInboxTab: React.FC<VendorChatInboxTabProps> = ({ storeNam
 
   useEffect(() => {
     loadThreads();
+    const interval = setInterval(loadThreads, 3500);
+
     const handleSync = () => {
-      const list = getStoreChatThreads();
-      setThreads(list);
+      loadThreads();
     };
     window.addEventListener(CHAT_SYNC_EVENT, handleSync);
-    return () => window.removeEventListener(CHAT_SYNC_EVENT, handleSync);
-  }, []);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener(CHAT_SYNC_EVENT, handleSync);
+    };
+  }, [selectedThreadId]);
 
   const selectedThread = threads.find((t) => t.id === selectedThreadId) || (threads.length > 0 ? threads[0] : null);
 
   const handleSelectThread = (threadId: string) => {
     setSelectedThreadId(threadId);
     markThreadAsReadByVendor(threadId);
+    storeApi.markChatRead(threadId).catch(() => {});
     const updated = threads.map((t) => (t.id === threadId ? { ...t, unreadByVendor: 0 } : t));
     setThreads(updated);
   };
 
-  const handleSendReply = (e: React.FormEvent) => {
+  const handleSendReply = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedThread || !replyText.trim()) return;
+    if (!selectedThread || !replyText.trim() || isSending) return;
 
-    sendVendorReply(selectedThread.id, replyText, storeName);
+    const textToSend = replyText.trim();
     setReplyText('');
+    setIsSending(true);
+
+    // Optimistically update local
+    sendVendorReply(selectedThread.id, textToSend, storeName);
     loadThreads();
+
+    try {
+      await storeApi.sendChatReply(selectedThread.id, textToSend, storeName);
+      await loadThreads();
+    } catch (err) {
+      console.error('Failed to send vendor chat reply:', err);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleOpenWhatsApp = (customerPhone: string, lastMsg: string) => {
@@ -78,13 +113,18 @@ export const VendorChatInboxTab: React.FC<VendorChatInboxTabProps> = ({ storeNam
     window.open(`https://wa.me/88${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  const handleDeleteThread = (threadId: string) => {
+  const handleDeleteThread = async (threadId: string) => {
     if (confirm('আপনি কি এই কাস্টমার চ্যাট হিস্টোরি মুছে ফেলতে চান?')) {
       const remaining = threads.filter((t) => t.id !== threadId);
       saveStoreChatThreads(remaining);
       setThreads(remaining);
       if (selectedThreadId === threadId) {
         setSelectedThreadId(remaining.length > 0 ? remaining[0].id : null);
+      }
+      try {
+        await storeApi.deleteChatThread(threadId);
+      } catch (err) {
+        console.error('Failed to delete thread on server:', err);
       }
     }
   };

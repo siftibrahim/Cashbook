@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -12,6 +12,7 @@ import {
   Store,
   ShieldCheck,
   User,
+  RefreshCw,
 } from 'lucide-react';
 import { OnlineStoreConfig } from '../../types';
 import {
@@ -21,6 +22,7 @@ import {
   StoreChatMessage,
   CHAT_SYNC_EVENT,
 } from '../../utils/storeChatStorage';
+import { publicStoreApi } from '../../services/apiService';
 
 interface StorefrontSupportDrawerProps {
   isOpen: boolean;
@@ -33,62 +35,79 @@ export const StorefrontSupportDrawer: React.FC<StorefrontSupportDrawerProps> = (
   onClose,
   config,
 }) => {
+  const identifier = config.storeSlug || config.vendorId || 'store';
   const phone = (config.whatsappPhone || config.phone || '').replace(/[^0-9]/g, '');
+
   const [customerName, setCustomerName] = useState(() => {
     return localStorage.getItem('ibrahim_khata_customer_name') || 'সম্মানিত ক্রেতা';
   });
   const [customerPhone, setCustomerPhone] = useState(() => {
     return localStorage.getItem('ibrahim_khata_customer_phone') || '';
   });
-  const [threadId, setThreadId] = useState(() => {
-    return localStorage.getItem('ibrahim_khata_customer_thread_id') || `th_${Date.now()}`;
+  const [threadId] = useState(() => {
+    let saved = localStorage.getItem('ibrahim_khata_customer_thread_id');
+    if (!saved) {
+      saved = `th_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      localStorage.setItem('ibrahim_khata_customer_thread_id', saved);
+    }
+    return saved;
   });
 
   const [messages, setMessages] = useState<StoreChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
   const [showPhonePrompt, setShowPhonePrompt] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Sync thread messages from storage
-  const syncMessages = () => {
+  // Default welcome message
+  const defaultWelcomeMessage: StoreChatMessage = {
+    id: 'welcome',
+    sender: 'vendor',
+    senderName: config.storeName || 'আমাদের অনলাইন স্টোর',
+    text: `আসসালামু আলাইকুম! ${config.storeName || 'আমাদের অনলাইন স্টোরে'} স্বাগতম। আপনার যেকোনো প্রশ্ন, পণ্যের অর্ডার বা তথ্য জানতে এখানে লিখুন অথবা সরাসরি WhatsApp এ যোগাযোগ করুন।`,
+    timestamp: Date.now(),
+  };
+
+  // Sync messages from server and fallback to local
+  const fetchMessages = useCallback(async () => {
+    if (!threadId) return;
+    try {
+      const res = await publicStoreApi.getChatMessages(identifier, threadId, customerPhone);
+      if (res?.messages && res.messages.length > 0) {
+        setMessages(res.messages);
+        return;
+      }
+    } catch (err) {
+      console.warn('public getChatMessages error, using local fallback:', err);
+    }
+
+    // Local fallback
     const threads = getStoreChatThreads();
     const current = threads.find((t) => t.id === threadId || (customerPhone && t.customerPhone === customerPhone));
-    if (current && current.messages) {
+    if (current && current.messages && current.messages.length > 0) {
       setMessages(current.messages);
       markThreadAsReadByCustomer(current.id);
     } else {
-      // Default welcome message
-      setMessages([
-        {
-          id: 'welcome',
-          sender: 'vendor',
-          senderName: config.storeName || 'আমাদের অনলাইন স্টোর',
-          text: `আসসালামু আলাইকুম! ${config.storeName || 'আমাদের অনলাইন স্টোরে'} স্বাগতম। আপনার যেকোনো প্রশ্ন, পণ্যের অর্ডার বা তথ্য জানতে এখানে লিখুন অথবা সরাসরি WhatsApp এ যোগাযোগ করুন।`,
-          timestamp: Date.now(),
-        },
-      ]);
+      setMessages([defaultWelcomeMessage]);
     }
-  };
-
-  useEffect(() => {
-    if (!localStorage.getItem('ibrahim_khata_customer_thread_id')) {
-      localStorage.setItem('ibrahim_khata_customer_thread_id', threadId);
-    }
-  }, [threadId]);
+  }, [identifier, threadId, customerPhone, config.storeName]);
 
   useEffect(() => {
     if (isOpen) {
-      syncMessages();
+      fetchMessages();
+      // Poll every 3.5 seconds to receive real-time vendor replies!
+      const interval = setInterval(fetchMessages, 3500);
+      return () => clearInterval(interval);
     }
-  }, [isOpen, threadId, customerPhone]);
+  }, [isOpen, fetchMessages]);
 
   useEffect(() => {
     const handleSync = () => {
-      syncMessages();
+      fetchMessages();
     };
     window.addEventListener(CHAT_SYNC_EVENT, handleSync);
     return () => window.removeEventListener(CHAT_SYNC_EVENT, handleSync);
-  }, [threadId, customerPhone]);
+  }, [fetchMessages]);
 
   useEffect(() => {
     if (isOpen) {
@@ -98,15 +117,37 @@ export const StorefrontSupportDrawer: React.FC<StorefrontSupportDrawerProps> = (
 
   if (!isOpen) return null;
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const txt = inputMessage.trim();
-    if (!txt) return;
+    if (!txt || isSending) return;
 
-    // Send customer message to shared storage
-    sendCustomerMessage(threadId, customerName, customerPhone, txt);
     setInputMessage('');
-    syncMessages();
+    setIsSending(true);
+
+    // Optimistic customer message
+    const tempMsg: StoreChatMessage = {
+      id: `msg_${Date.now()}`,
+      sender: 'customer',
+      senderName: customerName || 'আপনি',
+      senderPhone: customerPhone || '',
+      text: txt,
+      timestamp: Date.now(),
+    };
+    setMessages((prev) => [...prev.filter((m) => m.id !== 'welcome'), tempMsg]);
+
+    // Send to local cache
+    sendCustomerMessage(threadId, customerName, customerPhone, txt);
+
+    // Send to backend server
+    try {
+      await publicStoreApi.sendChatMessage(identifier, threadId, customerName, customerPhone, txt);
+      await fetchMessages();
+    } catch (err) {
+      console.error('Failed to send chat message to server:', err);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleSaveContactInfo = (e: React.FormEvent) => {
@@ -114,6 +155,7 @@ export const StorefrontSupportDrawer: React.FC<StorefrontSupportDrawerProps> = (
     if (customerName) localStorage.setItem('ibrahim_khata_customer_name', customerName);
     if (customerPhone) localStorage.setItem('ibrahim_khata_customer_phone', customerPhone);
     setShowPhonePrompt(false);
+    fetchMessages();
   };
 
   const handleOpenWhatsApp = (customText?: string) => {

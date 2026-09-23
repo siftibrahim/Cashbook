@@ -65,6 +65,12 @@ function sanitizePublicConfig(row: any, fallbackStoreProfile?: any) {
       : (typeof row.published_product_ids === 'string'
           ? JSON.parse(row.published_product_ids || '[]')
           : (row.publishedProductIds || [])),
+    deletedDemoProductIds: Array.isArray(row.deleted_demo_product_ids)
+      ? row.deleted_demo_product_ids
+      : (typeof row.deleted_demo_product_ids === 'string'
+          ? JSON.parse(row.deleted_demo_product_ids || '[]')
+          : (row.deletedDemoProductIds || [])),
+    includeDemoProducts: row.include_demo_products !== false && row.includeDemoProducts !== false,
     customDomain: row.custom_domain || row.customDomain || '',
     customDomainVerified: Boolean(row.custom_domain_verified ?? row.customDomainVerified),
     isEnabled: row.is_enabled !== false && row.isEnabled !== false,
@@ -884,6 +890,176 @@ router.get('/:identifier/orders/track/:orderNumber', async (req: Request, res: R
     }
   } catch (err: any) {
     console.error('Error tracking customer order:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/public/store/:identifier/chat/messages
+ * Customer sends a message to the vendor
+ */
+router.post('/:identifier/chat/messages', async (req: Request, res: Response) => {
+  try {
+    const { identifier } = req.params;
+    const ctx = await getVerifiedStoreContext(req, identifier);
+    if (ctx.error || !ctx.resolved) {
+      return res.status(ctx.status || 404).json({ error: ctx.error || 'অনলাইন স্টোর পাওয়া যায়নি।' });
+    }
+
+    const targetUserId = ctx.resolved.userId;
+    const { threadId, customerName, customerPhone, text } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'মেসেজ টেক্সট আবশ্যক।' });
+    }
+
+    const cleanThreadId = (threadId || `th_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`).trim();
+    const cleanCustomerName = (customerName || 'সম্মানিত কাস্টমার').trim();
+    const cleanCustomerPhone = (customerPhone || '').trim();
+    const cleanText = text.trim();
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = Date.now();
+
+    const pool = getDbPool();
+    if (pool) {
+      await pool.query(
+        `INSERT INTO store_chat_messages (
+          id, vendor_id, thread_id, customer_name, customer_phone, sender, sender_name, sender_phone, text, is_read_by_vendor, is_read_by_customer, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          msgId,
+          targetUserId,
+          cleanThreadId,
+          cleanCustomerName,
+          cleanCustomerPhone,
+          'customer',
+          cleanCustomerName,
+          cleanCustomerPhone,
+          cleanText,
+          false,
+          true,
+          now,
+        ]
+      );
+    } else {
+      if (!inMemoryStore.store_chat_messages) inMemoryStore.store_chat_messages = [];
+      inMemoryStore.store_chat_messages.push({
+        id: msgId,
+        vendor_id: targetUserId,
+        thread_id: cleanThreadId,
+        customer_name: cleanCustomerName,
+        customer_phone: cleanCustomerPhone,
+        sender: 'customer',
+        sender_name: cleanCustomerName,
+        sender_phone: cleanCustomerPhone,
+        text: cleanText,
+        is_read_by_vendor: false,
+        is_read_by_customer: true,
+        created_at: now,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: {
+        id: msgId,
+        threadId: cleanThreadId,
+        sender: 'customer',
+        senderName: cleanCustomerName,
+        senderPhone: cleanCustomerPhone,
+        text: cleanText,
+        timestamp: now,
+      },
+    });
+  } catch (err: any) {
+    console.error('Error sending customer chat message:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/public/store/:identifier/chat/messages
+ * Customer fetches messages for their isolated conversation
+ * Note: Customer A CANNOT see Customer B's messages (isolated by threadId)
+ */
+router.get('/:identifier/chat/messages', async (req: Request, res: Response) => {
+  try {
+    const { identifier } = req.params;
+    const ctx = await getVerifiedStoreContext(req, identifier);
+    if (ctx.error || !ctx.resolved) {
+      return res.status(ctx.status || 404).json({ error: ctx.error || 'অনলাইন স্টোর পাওয়া যায়নি।' });
+    }
+
+    const targetUserId = ctx.resolved.userId;
+    const threadId = (req.query.threadId as string || '').trim();
+    const customerPhone = (req.query.customerPhone as string || '').trim();
+
+    if (!threadId && !customerPhone) {
+      return res.json({ messages: [] });
+    }
+
+    const pool = getDbPool();
+    if (pool) {
+      const result = await pool.query(
+        `SELECT * FROM store_chat_messages
+         WHERE vendor_id = $1 AND (
+           thread_id = $2
+           ${customerPhone ? 'OR (customer_phone = $3 AND customer_phone != \'\')' : ''}
+         )
+         ORDER BY created_at ASC`,
+        customerPhone ? [targetUserId, threadId, customerPhone] : [targetUserId, threadId]
+      );
+
+      // Mark messages from vendor as read by this customer
+      if (customerPhone) {
+        await pool.query(
+          `UPDATE store_chat_messages SET is_read_by_customer = TRUE
+           WHERE vendor_id = $1 AND (thread_id = $2 OR (customer_phone = $3 AND customer_phone != '')) AND sender = 'vendor'`,
+          [targetUserId, threadId, customerPhone]
+        ).catch(() => {});
+      } else {
+        await pool.query(
+          `UPDATE store_chat_messages SET is_read_by_customer = TRUE
+           WHERE vendor_id = $1 AND thread_id = $2 AND sender = 'vendor'`,
+          [targetUserId, threadId]
+        ).catch(() => {});
+      }
+
+      const messages = result.rows.map((r: any) => ({
+        id: r.id,
+        sender: r.sender,
+        senderName: r.sender_name || (r.sender === 'vendor' ? 'ভেন্ডর' : 'আপনি'),
+        senderPhone: r.sender_phone || '',
+        text: r.text,
+        timestamp: Number(r.created_at),
+      }));
+
+      return res.json({ messages });
+    } else {
+      const list = (inMemoryStore.store_chat_messages || []).filter((m: any) => {
+        const matchVendor = m.vendor_id === targetUserId;
+        const matchThread = (threadId && m.thread_id === threadId) || (customerPhone && m.customer_phone === customerPhone && customerPhone !== '');
+        return matchVendor && matchThread;
+      }).sort((a: any, b: any) => Number(a.created_at) - Number(b.created_at));
+
+      // Mark read by customer
+      list.forEach((m: any) => {
+        if (m.sender === 'vendor') m.is_read_by_customer = true;
+      });
+
+      const messages = list.map((r: any) => ({
+        id: r.id,
+        sender: r.sender,
+        senderName: r.sender_name || (r.sender === 'vendor' ? 'ভেন্ডর' : 'আপনি'),
+        senderPhone: r.sender_phone || '',
+        text: r.text,
+        timestamp: Number(r.created_at),
+      }));
+
+      return res.json({ messages });
+    }
+  } catch (err: any) {
+    console.error('Error fetching customer chat messages:', err);
     return res.status(500).json({ error: err.message });
   }
 });

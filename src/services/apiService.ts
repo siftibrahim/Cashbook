@@ -35,6 +35,7 @@ import {
   verifyOfflinePinLogin,
 } from './offlineAuthService';
 import { safeStorage } from '../utils/safeStorage';
+import { StoreChatMessage, StoreChatThread } from '../utils/storeChatStorage';
 
 const getEnvApiUrl = (): string => {
   try {
@@ -976,6 +977,46 @@ export const storeApi = {
   async disconnectCustomDomain(): Promise<void> {
     await apiRequest('/store/custom-domain', { method: 'DELETE' });
   },
+
+  async getChatThreads(): Promise<StoreChatThread[]> {
+    try {
+      const res = await apiRequest<{ threads: StoreChatThread[] }>('/store/chat/threads');
+      return res?.threads || [];
+    } catch (err) {
+      console.warn('Failed to fetch store chat threads:', err);
+      return [];
+    }
+  },
+
+  async sendChatReply(threadId: string, text: string, storeName?: string): Promise<{ success: boolean; message?: StoreChatMessage }> {
+    return apiRequest<{ success: boolean; message?: StoreChatMessage }>('/store/chat/reply', {
+      method: 'POST',
+      body: JSON.stringify({ threadId, text, storeName }),
+    });
+  },
+
+  async markChatRead(threadId: string): Promise<boolean> {
+    try {
+      await apiRequest('/store/chat/mark-read', {
+        method: 'POST',
+        body: JSON.stringify({ threadId }),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  async deleteChatThread(threadId: string): Promise<boolean> {
+    try {
+      await apiRequest(`/store/chat/threads/${encodeURIComponent(threadId)}`, {
+        method: 'DELETE',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  },
 };
 
 // ---------------- PUBLIC CUSTOMER STOREFRONT API ----------------
@@ -1042,6 +1083,36 @@ export const publicStoreApi = {
       console.warn('batchTrackOrders error:', err);
       return [];
     }
+  },
+
+  async sendChatMessage(
+    identifier: string,
+    threadId: string,
+    customerName: string,
+    customerPhone: string,
+    text: string
+  ): Promise<{ success: boolean; message: StoreChatMessage }> {
+    return apiRequest<{ success: boolean; message: StoreChatMessage }>(
+      `/public/store/${encodeURIComponent(identifier)}/chat/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ threadId, customerName, customerPhone, text }),
+      }
+    );
+  },
+
+  async getChatMessages(
+    identifier: string,
+    threadId: string,
+    customerPhone?: string
+  ): Promise<{ messages: StoreChatMessage[] }> {
+    const params = new URLSearchParams();
+    if (threadId) params.set('threadId', threadId);
+    if (customerPhone) params.set('customerPhone', customerPhone);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return apiRequest<{ messages: StoreChatMessage[] }>(
+      `/public/store/${encodeURIComponent(identifier)}/chat/messages${queryString}`
+    );
   },
 };
 

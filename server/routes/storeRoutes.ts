@@ -674,6 +674,10 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             publishedProductIds: Array.isArray(r.published_product_ids)
               ? r.published_product_ids
               : (typeof r.published_product_ids === 'string' ? JSON.parse(r.published_product_ids) : []),
+            deletedDemoProductIds: Array.isArray(r.deleted_demo_product_ids)
+              ? r.deleted_demo_product_ids
+              : (typeof r.deleted_demo_product_ids === 'string' ? JSON.parse(r.deleted_demo_product_ids || '[]') : []),
+            includeDemoProducts: r.include_demo_products !== false,
             isStoreAllowedByAdmin: isAllowed,
             adminStoreStatus: adminStatus,
             adminStoreNote: adminNote,
@@ -706,6 +710,8 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
           acceptRocket: false,
           bannerStyle: 'gradient',
           publishedProductIds: [],
+          deletedDemoProductIds: [],
+          includeDemoProducts: true,
           isStoreAllowedByAdmin: isAllowed,
           adminStoreStatus: adminStatus,
           adminStoreNote: adminNote,
@@ -723,6 +729,8 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
         return res.json({
           config: {
             ...found,
+            deletedDemoProductIds: found.deletedDemoProductIds || found.deleted_demo_product_ids || [],
+            includeDemoProducts: found.includeDemoProducts !== false && found.include_demo_products !== false,
             isStoreAllowedByAdmin: isAllowed,
             adminStoreStatus: adminStatus,
             adminStoreNote: adminNote,
@@ -1053,7 +1061,9 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             published_product_ids = $53,
             banners = $54,
             is_enabled = $55,
-            updated_at = $56
+            deleted_demo_product_ids = $56,
+            include_demo_products = $57,
+            updated_at = $58
           WHERE user_id = $1`,
           [
             userId,
@@ -1111,6 +1121,8 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             JSON.stringify(body.publishedProductIds || []),
             JSON.stringify(body.banners || []),
             body.isEnabled !== false,
+            JSON.stringify(body.deletedDemoProductIds || []),
+            body.includeDemoProducts !== false,
             now,
           ]
         );
@@ -1128,12 +1140,13 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             vendor_payment_qr_url, accept_bangla_qr, bangla_qr_number,
             payment_instructions, banner_url, banner_title, banner_subtitle,
             banner_tag, banner_discount_text, banner_style, logo_url, support_whatsapp_message,
-            support_hours, facebook_url, published_product_ids, banners, is_enabled, created_at, updated_at
+            support_hours, facebook_url, published_product_ids, banners, is_enabled,
+            deleted_demo_product_ids, include_demo_products, created_at, updated_at
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34,
             $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50,
-            $51, $52, $53, $54, $55, $56, $57, $58
+            $51, $52, $53, $54, $55, $56, $57, $58, $59, $60
           )`,
           [
             'cfg_' + userId,
@@ -1192,6 +1205,8 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             JSON.stringify(body.publishedProductIds || []),
             JSON.stringify(body.banners || []),
             body.isEnabled !== false,
+            JSON.stringify(body.deletedDemoProductIds || []),
+            body.includeDemoProducts !== false,
             now,
             now,
           ]
@@ -1816,6 +1831,275 @@ router.get('/orders/track/:orderNumber', optionalAuth, async (req: Authenticated
       if (order) return res.json({ order });
       return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });
     }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/store/chat/threads
+ * Authenticated vendor gets all customer chat threads grouped by thread_id
+ */
+router.get('/chat/threads', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+
+    if (pool) {
+      const result = await pool.query(
+        `SELECT * FROM store_chat_messages WHERE vendor_id = $1 ORDER BY created_at ASC`,
+        [userId]
+      );
+
+      const threadMap = new Map<string, any>();
+      for (const row of result.rows) {
+        const thId = row.thread_id;
+        if (!threadMap.has(thId)) {
+          threadMap.set(thId, {
+            id: thId,
+            customerName: row.customer_name || 'সম্মানিত ক্রেতা',
+            customerPhone: row.customer_phone || '',
+            lastMessage: row.text,
+            lastMessageAt: Number(row.created_at),
+            unreadByVendor: 0,
+            unreadByCustomer: 0,
+            messages: [],
+          });
+        }
+        const thread = threadMap.get(thId);
+        if (row.customer_name && row.customer_name !== 'সম্মানিত ক্রেতা') {
+          thread.customerName = row.customer_name;
+        }
+        if (row.customer_phone) {
+          thread.customerPhone = row.customer_phone;
+        }
+        thread.lastMessage = row.text;
+        thread.lastMessageAt = Number(row.created_at);
+        if (row.sender === 'customer' && !row.is_read_by_vendor) {
+          thread.unreadByVendor += 1;
+        }
+        if (row.sender === 'vendor' && !row.is_read_by_customer) {
+          thread.unreadByCustomer += 1;
+        }
+        thread.messages.push({
+          id: row.id,
+          sender: row.sender,
+          senderName: row.sender_name || (row.sender === 'vendor' ? 'দোকানদার' : thread.customerName),
+          senderPhone: row.sender_phone || '',
+          text: row.text,
+          timestamp: Number(row.created_at),
+        });
+      }
+
+      const threads = Array.from(threadMap.values()).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+      return res.json({ threads });
+    } else {
+      const list = (inMemoryStore.store_chat_messages || []).filter((m: any) => m.vendor_id === userId);
+      const threadMap = new Map<string, any>();
+      for (const row of list) {
+        const thId = row.thread_id;
+        if (!threadMap.has(thId)) {
+          threadMap.set(thId, {
+            id: thId,
+            customerName: row.customer_name || 'সম্মানিত ক্রেতা',
+            customerPhone: row.customer_phone || '',
+            lastMessage: row.text,
+            lastMessageAt: Number(row.created_at),
+            unreadByVendor: 0,
+            unreadByCustomer: 0,
+            messages: [],
+          });
+        }
+        const thread = threadMap.get(thId);
+        if (row.customer_name && row.customer_name !== 'সম্মানিত ক্রেতা') {
+          thread.customerName = row.customer_name;
+        }
+        if (row.customer_phone) {
+          thread.customerPhone = row.customer_phone;
+        }
+        thread.lastMessage = row.text;
+        thread.lastMessageAt = Number(row.created_at);
+        if (row.sender === 'customer' && !row.is_read_by_vendor) {
+          thread.unreadByVendor += 1;
+        }
+        if (row.sender === 'vendor' && !row.is_read_by_customer) {
+          thread.unreadByCustomer += 1;
+        }
+        thread.messages.push({
+          id: row.id,
+          sender: row.sender,
+          senderName: row.sender_name || (row.sender === 'vendor' ? 'দোকানদার' : thread.customerName),
+          senderPhone: row.sender_phone || '',
+          text: row.text,
+          timestamp: Number(row.created_at),
+        });
+      }
+
+      const threads = Array.from(threadMap.values()).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+      return res.json({ threads });
+    }
+  } catch (err: any) {
+    console.error('Error fetching vendor chat threads:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/chat/reply
+ * Authenticated vendor sends a reply to a specific customer thread
+ */
+router.post('/chat/reply', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { threadId, text, storeName } = req.body;
+
+    if (!threadId || !text || !text.trim()) {
+      return res.status(400).json({ error: 'থ্রেড আইডি এবং মেসেজ টেক্সট আবশ্যক।' });
+    }
+
+    const cleanText = text.trim();
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = Date.now();
+    const senderName = storeName || req.user?.shopName || 'দোকানদার';
+
+    const pool = getDbPool();
+    let custName = 'সম্মানিত ক্রেতা';
+    let custPhone = '';
+
+    if (pool) {
+      const prevMsg = await pool.query(
+        `SELECT customer_name, customer_phone FROM store_chat_messages WHERE vendor_id = $1 AND thread_id = $2 LIMIT 1`,
+        [userId, threadId]
+      );
+      if (prevMsg.rows.length > 0) {
+        custName = prevMsg.rows[0].customer_name || custName;
+        custPhone = prevMsg.rows[0].customer_phone || custPhone;
+      }
+
+      await pool.query(
+        `INSERT INTO store_chat_messages (
+          id, vendor_id, thread_id, customer_name, customer_phone, sender, sender_name, sender_phone, text, is_read_by_vendor, is_read_by_customer, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          msgId,
+          userId,
+          threadId,
+          custName,
+          custPhone,
+          'vendor',
+          senderName,
+          '',
+          cleanText,
+          true,
+          false,
+          now,
+        ]
+      );
+
+      // Mark previous customer messages as read
+      await pool.query(
+        `UPDATE store_chat_messages SET is_read_by_vendor = TRUE WHERE vendor_id = $1 AND thread_id = $2`,
+        [userId, threadId]
+      );
+    } else {
+      if (!inMemoryStore.store_chat_messages) inMemoryStore.store_chat_messages = [];
+      const prev = inMemoryStore.store_chat_messages.find((m: any) => m.vendor_id === userId && m.thread_id === threadId);
+      if (prev) {
+        custName = prev.customer_name || custName;
+        custPhone = prev.customer_phone || custPhone;
+      }
+
+      inMemoryStore.store_chat_messages.push({
+        id: msgId,
+        vendor_id: userId,
+        thread_id: threadId,
+        customer_name: custName,
+        customer_phone: custPhone,
+        sender: 'vendor',
+        sender_name: senderName,
+        sender_phone: '',
+        text: cleanText,
+        is_read_by_vendor: true,
+        is_read_by_customer: false,
+        created_at: now,
+      });
+
+      inMemoryStore.store_chat_messages.forEach((m: any) => {
+        if (m.vendor_id === userId && m.thread_id === threadId) {
+          m.is_read_by_vendor = true;
+        }
+      });
+      saveInMemoryStoreToDisk();
+    }
+
+    return res.json({
+      success: true,
+      message: {
+        id: msgId,
+        sender: 'vendor',
+        senderName,
+        text: cleanText,
+        timestamp: now,
+      },
+    });
+  } catch (err: any) {
+    console.error('Error replying to customer chat:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/chat/mark-read
+ * Mark thread as read by vendor
+ */
+router.post('/chat/mark-read', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { threadId } = req.body;
+    if (!threadId) return res.status(400).json({ error: 'threadId required' });
+
+    const pool = getDbPool();
+    if (pool) {
+      await pool.query(
+        `UPDATE store_chat_messages SET is_read_by_vendor = TRUE WHERE vendor_id = $1 AND thread_id = $2`,
+        [userId, threadId]
+      );
+    } else {
+      (inMemoryStore.store_chat_messages || []).forEach((m: any) => {
+        if (m.vendor_id === userId && m.thread_id === threadId) {
+          m.is_read_by_vendor = true;
+        }
+      });
+      saveInMemoryStoreToDisk();
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/store/chat/threads/:threadId
+ * Vendor deletes a customer thread
+ */
+router.delete('/chat/threads/:threadId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { threadId } = req.params;
+
+    const pool = getDbPool();
+    if (pool) {
+      await pool.query(
+        `DELETE FROM store_chat_messages WHERE vendor_id = $1 AND thread_id = $2`,
+        [userId, threadId]
+      );
+    } else {
+      inMemoryStore.store_chat_messages = (inMemoryStore.store_chat_messages || []).filter(
+        (m: any) => !(m.vendor_id === userId && m.thread_id === threadId)
+      );
+      saveInMemoryStoreToDisk();
+    }
+    return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
