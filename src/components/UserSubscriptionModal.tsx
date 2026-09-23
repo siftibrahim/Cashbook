@@ -13,6 +13,7 @@ import {
   INITIAL_PAYMENT_SETTINGS,
 } from '../services/adminService';
 import { subscriptionApi, getStoredUser } from '../services/apiService';
+import QRCode from 'qrcode';
 import {
   CreditCard,
   CheckCircle2,
@@ -37,6 +38,8 @@ import {
   ExternalLink,
   RefreshCw,
   Globe,
+  QrCode,
+  Download,
 } from 'lucide-react';
 import { formatMoney } from '../utils/storage';
 import { StoreProfile } from '../types';
@@ -84,6 +87,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
 
   // Real-time payment settings synced from Admin
   const [settings, setSettings] = useState<SystemPaymentSettings>(INITIAL_PAYMENT_SETTINGS);
+  const [banglaQrDataUrl, setBanglaQrDataUrl] = useState<string>('');
   const [isInitiatingPaymently, setIsInitiatingPaymently] = useState<boolean>(false);
   const [activePaymentlySession, setActivePaymentlySession] = useState<{
     paymentUrl: string;
@@ -389,6 +393,42 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
     }
   };
 
+  // Dynamic Bangla QR Generation
+  useEffect(() => {
+    const generateBanglaQr = async () => {
+      const bQr = settings.banglaQr;
+      if (!bQr) return;
+      const merchantId = bQr.merchantId?.trim() || '01306908115';
+      const payload = bQr.qrPayload?.trim() || JSON.stringify({
+        format: 'BANGLA_QR',
+        ver: '1.0',
+        merchantName: bQr.accountTitle || 'TWING HISABI SUPER ADMIN',
+        merchantId: merchantId,
+        network: bQr.bankOrMfsName || 'Bangla QR Network',
+        terminal: bQr.terminalId || 'TWING-BQR-01',
+        country: 'BD',
+        currency: '050',
+      });
+
+      try {
+        const url = await QRCode.toDataURL(payload, {
+          width: 360,
+          margin: 2,
+          color: {
+            dark: '#034426',
+            light: '#ffffff',
+          },
+          errorCorrectionLevel: 'H',
+        });
+        setBanglaQrDataUrl(url);
+      } catch (err) {
+        console.error('Failed to generate Bangla QR code', err);
+      }
+    };
+
+    generateBanglaQr();
+  }, [settings.banglaQr]);
+
   const getMethodDetails = () => {
     if (paymentMethod === 'bkash') {
       return {
@@ -420,6 +460,18 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
         color: 'from-cyan-600 to-blue-600',
         personalNum: settings.upay?.personal?.number || '01306908115',
         instructions: settings.upay?.personal?.instructions || 'উপায় অ্যাপ থেকে সেন্ড মানি করুন।',
+      };
+    }
+    if (paymentMethod === 'bangla_qr') {
+      return {
+        name: 'বাংলা কিউআর (Bangla QR)',
+        color: 'from-emerald-700 to-teal-800',
+        personalNum: settings.banglaQr?.merchantId || '01306908115',
+        accountTitle: settings.banglaQr?.accountTitle || 'TWING হিসাবি / সুপার এডমিন',
+        bankOrMfsName: settings.banglaQr?.bankOrMfsName || 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
+        terminalId: settings.banglaQr?.terminalId || 'TWING-BQR-01',
+        qrCodeUrl: settings.banglaQr?.qrCodeUrl || '',
+        instructions: settings.banglaQr?.instructions || 'যেকোনো ব্যাংক বা এমএফএস অ্যাপ দিয়ে বাংলা কিউআর স্ক্যান করে পেমেন্ট করুন।',
       };
     }
     return null;
@@ -1121,6 +1173,33 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
                         </div>
                       </button>
                     )}
+
+                    {/* Bangla QR (National Interoperable Standard) */}
+                    {settings.banglaQr?.isEnabled !== false && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentMethod('bangla_qr');
+                          setStep('submit_trx');
+                        }}
+                        className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition hover:scale-102 col-span-2 sm:col-span-4 ${
+                          paymentMethod === 'bangla_qr'
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-900 shadow-md shadow-emerald-600/10'
+                            : 'border-emerald-200/90 bg-gradient-to-r from-emerald-50/60 via-white to-teal-50/60 hover:bg-emerald-50 text-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <QrCode className="w-5 h-5 text-emerald-600" />
+                          <span className="text-xs font-black">🇧🇩 বাংলা কিউআর (Bangla QR)</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            জাতীয় কিউআর (সকল ব্যাংক ও MFS)
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          যেকোনো ব্যাংক অ্যাপ বা বিকাশ/নগদ দিয়ে এক কিউআরে পেমেন্ট করুন
+                        </span>
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1128,8 +1207,100 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
               {/* STEP 3: SUBMIT TRANSACTION & DETAILS */}
               {step === 'submit_trx' && (
                 <form onSubmit={handleSubmitPayment} className="space-y-4">
-                  {/* MFS Instructions */}
-                  {methodInfo && (
+                  {/* Bangla QR Special Card */}
+                  {paymentMethod === 'bangla_qr' && (
+                    <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-b from-emerald-950 via-slate-900 to-teal-950 border border-emerald-500/40 text-white space-y-4 shadow-xl">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="text-xs font-black text-white">🇧🇩 বাংলা কিউআর পেমেন্ট</span>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
+                          জাতীয় ইন্টারঅপারেবল স্ট্যান্ডার্ড
+                        </span>
+                      </div>
+
+                      {/* Standee-style QR display */}
+                      <div className="flex flex-col sm:flex-row items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/10">
+                        <div className="bg-white p-2.5 rounded-2xl shadow-xl border-2 border-emerald-500/50 shrink-0 w-44 h-44 flex items-center justify-center">
+                          {settings.banglaQr?.qrCodeUrl ? (
+                            <img
+                              src={settings.banglaQr.qrCodeUrl}
+                              alt="Bangla QR"
+                              className="w-full h-full object-contain rounded-xl"
+                            />
+                          ) : banglaQrDataUrl ? (
+                            <img
+                              src={banglaQrDataUrl}
+                              alt="Generated Bangla QR"
+                              className="w-full h-full object-contain rounded-xl"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 gap-1 text-[11px]">
+                              <QrCode className="w-8 h-8 text-slate-300 animate-pulse" />
+                              <span>QR লোড হচ্ছে...</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex-1 space-y-2 text-center sm:text-left">
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase block">মার্চেন্ট শিরোনাম</span>
+                            <span className="text-sm font-black text-white">
+                              {settings.banglaQr?.accountTitle || 'TWING হিসাবি / সুপার এডমিন'}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase block">মার্চেন্ট আইডি / নম্বর</span>
+                            <div className="flex items-center justify-center sm:justify-start gap-2 mt-0.5">
+                              <span className="font-mono font-black text-base text-emerald-300 bg-emerald-950/80 px-2.5 py-1 rounded-xl border border-emerald-500/40">
+                                {settings.banglaQr?.merchantId || '01306908115'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(settings.banglaQr?.merchantId || '01306908115', 'মার্চেন্ট আইডি')}
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1 border border-slate-700 cursor-pointer"
+                              >
+                                {copiedText === (settings.banglaQr?.merchantId || '01306908115') ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                )}
+                                <span>{copiedText === (settings.banglaQr?.merchantId || '01306908115') ? 'কপি হয়েছে' : 'কপি'}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="text-[11px] text-slate-300">
+                            পার্টনার নেটওয়ার্ক: <span className="font-bold text-emerald-200">{settings.banglaQr?.bankOrMfsName || 'Bangla QR Network'}</span>
+                          </div>
+
+                          <div className="pt-1 flex flex-wrap items-center justify-center sm:justify-start gap-1">
+                            {['bKash', 'Nagad', 'Rocket', 'Upay', 'Cellfin', 'Citytouch', 'NexusPay'].map((app) => (
+                              <span key={app} className="px-1.5 py-0.5 bg-slate-800 text-[10px] font-bold rounded text-slate-300 border border-slate-700">
+                                {app}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-slate-200 bg-emerald-950/40 p-3 rounded-xl border border-emerald-500/30">
+                        <span>পেমেন্টের পরিমাণ:</span>
+                        <span className="font-black text-emerald-400 text-base">
+                          ৳{formatMoney(selectedPlan.price)}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-emerald-100/80 leading-relaxed">
+                        {settings.banglaQr?.instructions || 'যেকোনো ব্যাংক বা এমএফএস অ্যাপ দিয়ে বাংলা কিউআর স্ক্যান করে টাকা পাঠানোর পর Transaction ID (TrxID) নিচে প্রদান করুন।'}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Standard MFS Instructions (when not Bangla QR) */}
+                  {methodInfo && paymentMethod !== 'bangla_qr' && (
                     <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-3 shadow-lg">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-slate-300">

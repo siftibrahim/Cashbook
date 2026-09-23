@@ -192,6 +192,17 @@ export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
       instructions: 'উপায় (Upay) অ্যাপ থেকে সেন্ড মানি করুন।',
     },
   },
+  banglaQr: {
+    isEnabled: true,
+    accountTitle: 'TWING হিসাবি / সুপার এডমিন',
+    merchantId: '01306908115',
+    bankOrMfsName: 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
+    terminalId: 'TWING-BQR-01',
+    routingNumber: '',
+    qrCodeUrl: '',
+    qrPayload: '',
+    instructions: 'যেকোনো ব্যাংক বা এমএফএস (বিকাশ, নগদ, সেলফিন, সিটিটাচ, উপায় ইত্যাদি) অ্যাপ দিয়ে বাংলা কিউআর স্ক্যান করে পেমেন্ট করুন এবং ট্রানজেকশন আইডি দিন।',
+  },
   bankTransfer: {
     isEnabled: true,
     accounts: [

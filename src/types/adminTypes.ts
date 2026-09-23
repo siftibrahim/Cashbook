@@ -43,7 +43,7 @@ export interface SubscriptionPlan {
   badge?: string;
 }
 
-export type AdminPaymentMethod = 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank' | 'sslcommerz' | 'card' | 'cash' | 'paymently' | 'other';
+export type AdminPaymentMethod = 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bangla_qr' | 'bank' | 'sslcommerz' | 'card' | 'cash' | 'paymently' | 'other';
 export type PaymentStatus = 'pending' | 'approved' | 'rejected' | 'failed' | 'refunded';
 export type RefundStatus = 'none' | 'refund_pending' | 'refunded' | 'refund_rejected';
 export type PaymentMode = 'manual_mfs' | 'bank_transfer' | 'automated_gateway' | 'cash_offline';
@@ -61,6 +61,18 @@ export interface MfsAccountDetails {
   number: string;
   accountType: 'personal' | 'merchant' | 'agent';
   instructions?: string;
+}
+
+export interface BanglaQrConfig {
+  isEnabled: boolean;
+  accountTitle: string; // যেমন: "TWING হিসাবি / সুপার এডমিন"
+  merchantId: string; // যেমন: "01306908115"
+  bankOrMfsName: string; // যেমন: "Mutual Trust Bank / বিকাশ বাংলা কিউআর / সেলফিন"
+  terminalId?: string; // যেমন: "TWING-BQR-01"
+  routingNumber?: string;
+  qrCodeUrl?: string; // সরাসরি কিউআর কোডের ইমেজ লিংক বা আপলোড করা ডাটা
+  qrPayload?: string; // EMVCo বা বাংলা কিউআর টেক্সট স্পেসিফিকেশন
+  instructions?: string; // গ্রাহকদের জন্য পেমেন্ট নির্দেশিকা
 }
 
 export interface PaymentGatewayConfig {
@@ -115,6 +127,8 @@ export interface SystemPaymentSettings {
     isEnabled: boolean;
     personal: MfsAccountDetails;
   };
+  // 🇧🇩 Bangla QR Channel (Bangladesh Bank interoperable standard)
+  banglaQr?: BanglaQrConfig;
   // Bank Channel
   bankTransfer: {
     isEnabled: boolean;

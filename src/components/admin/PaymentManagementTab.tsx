@@ -248,6 +248,7 @@ export const PaymentManagementTab: React.FC<PaymentManagementTabProps> = ({
             className="px-3 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-xs font-bold text-slate-300 focus:outline-none focus:border-indigo-500 cursor-pointer uppercase"
           >
             <option value="all">সব মেথড</option>
+            <option value="bangla_qr">🇧🇩 বাংলা কিউআর (Bangla QR)</option>
             <option value="bkash">বিকাশ (bKash)</option>
             <option value="nagad">নগদ (Nagad)</option>
             <option value="rocket">রকেট (Rocket)</option>
@@ -358,6 +359,10 @@ export const PaymentManagementTab: React.FC<PaymentManagementTabProps> = ({
                       {payment.paymentMethod === 'paymently' ? (
                         <span className="px-1.5 py-0.5 rounded-md bg-teal-500/20 text-teal-300 font-bold border border-teal-500/30 text-[10px] tracking-wide">
                           ⚡ PAYMENTLY ONLINE
+                        </span>
+                      ) : payment.paymentMethod === 'bangla_qr' ? (
+                        <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 text-[10px] tracking-wide">
+                          🇧🇩 বাংলা কিউআর
                         </span>
                       ) : (
                         <span className="text-white uppercase">{payment.paymentMethod}</span>
@@ -749,6 +754,7 @@ export const PaymentManagementTab: React.FC<PaymentManagementTabProps> = ({
                     onChange={(e) => setManualForm({ ...manualForm, paymentMethod: e.target.value as any })}
                     className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-2xl text-white focus:border-indigo-500 focus:outline-none cursor-pointer"
                   >
+                    <option value="bangla_qr">🇧🇩 বাংলা কিউআর (Bangla QR)</option>
                     <option value="bkash">বিকাশ (bKash)</option>
                     <option value="nagad">নগদ (Nagad)</option>
                     <option value="rocket">রকেট (Rocket)</option>

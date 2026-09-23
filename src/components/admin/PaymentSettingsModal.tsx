@@ -4,6 +4,7 @@ import {
   BankAccountDetails,
   PaymentGatewayConfig,
   SubscriptionPlan,
+  BanglaQrConfig,
 } from '../../types/adminTypes';
 import { DEFAULT_PLANS } from '../../services/adminService';
 import {
@@ -20,6 +21,7 @@ import {
   Package,
   Sparkles,
   Key,
+  QrCode,
 } from 'lucide-react';
 
 interface PaymentSettingsModalProps {
@@ -37,10 +39,21 @@ export const PaymentSettingsModal: React.FC<PaymentSettingsModalProps> = ({
   onSaveSettings,
   onShowToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'mfs' | 'bank' | 'packages' | 'gateway'>('mfs');
+  const [activeTab, setActiveTab] = useState<'mfs' | 'bangla_qr' | 'bank' | 'packages' | 'gateway'>('mfs');
   const [formData, setFormData] = useState<SystemPaymentSettings>({
     ...settings,
     customPlans: settings.customPlans && settings.customPlans.length > 0 ? settings.customPlans : DEFAULT_PLANS,
+    banglaQr: settings.banglaQr || {
+      isEnabled: true,
+      accountTitle: 'TWING হিসাবি / সুপার এডমিন',
+      merchantId: '01306908115',
+      bankOrMfsName: 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
+      terminalId: 'TWING-BQR-01',
+      routingNumber: '',
+      qrCodeUrl: '',
+      qrPayload: '',
+      instructions: 'যেকোনো ব্যাংক বা এমএফএস অ্যাপ দিয়ে বাংলা কিউআর স্ক্যান করে পেমেন্ট করুন এবং ট্রানজেকশন আইডি দিন।',
+    },
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -145,6 +158,28 @@ export const PaymentSettingsModal: React.FC<PaymentSettingsModalProps> = ({
           >
             <Smartphone className="w-4 h-4" />
             <span>MFS ওয়ালেট (বিকাশ / নগদ / রকেট / উপায়)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('bangla_qr')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold transition cursor-pointer shrink-0 ${
+              activeTab === 'bangla_qr'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-600/30'
+                : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <QrCode className="w-4 h-4 text-emerald-400" />
+            <span>🇧🇩 বাংলা কিউআর (Bangla QR)</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                formData.banglaQr?.isEnabled !== false
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'bg-rose-500/20 text-rose-300'
+              }`}
+            >
+              {formData.banglaQr?.isEnabled !== false ? 'সক্রিয়' : 'বন্ধ'}
+            </span>
           </button>
 
           <button
@@ -417,6 +452,207 @@ export const PaymentSettingsModal: React.FC<PaymentSettingsModalProps> = ({
                       className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-white font-mono focus:border-indigo-500 focus:outline-none"
                     />
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 1.5 BANGLA QR PAYMENT */}
+          {activeTab === 'bangla_qr' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-teal-950/70 border border-emerald-500/30 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                    <h4 className="text-sm font-black text-white">🇧🇩 বাংলা কিউআর (Bangla QR) গেটওয়ে</h4>
+                  </div>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    বাংলাদেশ ব্যাংক অনুমোদিত ইন্টারঅপারেবল স্ট্যান্ডার্ড (সকল ব্যাংক ও এমএফএস অ্যাপ সমর্থিত)
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
+                  <input
+                    type="checkbox"
+                    checked={formData.banglaQr?.isEnabled !== false}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        banglaQr: {
+                          ...(prev.banglaQr || {
+                            isEnabled: true,
+                            accountTitle: 'TWING হিসাবি / সুপার এডমিন',
+                            merchantId: '01306908115',
+                            bankOrMfsName: 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
+                          }),
+                          isEnabled: e.target.checked,
+                        },
+                      }))
+                    }
+                    className="w-4 h-4 accent-emerald-500 rounded cursor-pointer"
+                  />
+                  <span className={formData.banglaQr?.isEnabled !== false ? 'text-emerald-400' : 'text-slate-500'}>
+                    {formData.banglaQr?.isEnabled !== false ? 'চালু (Active)' : 'বন্ধ (Disabled)'}
+                  </span>
+                </label>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">
+                    মার্চেন্ট / প্রতিষ্ঠানের নাম (Account Title):
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.banglaQr?.accountTitle || ''}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        banglaQr: {
+                          ...(prev.banglaQr || {
+                            isEnabled: true,
+                            accountTitle: '',
+                            merchantId: '',
+                            bankOrMfsName: '',
+                          }),
+                          accountTitle: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="যেমন: TWING হিসাবি / সুপার এডমিন"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-white font-semibold focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">
+                    বাংলা কিউআর মার্চেন্ট আইডি / রেজিস্টার্ড মোবাইল নম্বর:
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.banglaQr?.merchantId || ''}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        banglaQr: {
+                          ...(prev.banglaQr || {
+                            isEnabled: true,
+                            accountTitle: '',
+                            merchantId: '',
+                            bankOrMfsName: '',
+                          }),
+                          merchantId: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="যেমন: 01306908115"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">
+                    অধিভুক্ত ব্যাংক বা নেটওয়ার্ক (Acquiring Network):
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.banglaQr?.bankOrMfsName || ''}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        banglaQr: {
+                          ...(prev.banglaQr || {
+                            isEnabled: true,
+                            accountTitle: '',
+                            merchantId: '',
+                            bankOrMfsName: '',
+                          }),
+                          bankOrMfsName: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="যেমন: Mutual Trust Bank (MTBL) / bKash Bangla QR"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">
+                      টার্মিনাল / কাউন্টার আইডি (ঐচ্ছিক):
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.banglaQr?.terminalId || ''}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          banglaQr: {
+                            ...(prev.banglaQr || {
+                              isEnabled: true,
+                              accountTitle: '',
+                              merchantId: '',
+                              bankOrMfsName: '',
+                            }),
+                            terminalId: e.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="যেমন: TWING-BQR-01"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-white font-mono focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-bold mb-1">
+                      অফিসিয়াল কিউআর ইমেজ লিঙ্ক (URL - ঐচ্ছিক):
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.banglaQr?.qrCodeUrl || ''}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          banglaQr: {
+                            ...(prev.banglaQr || {
+                              isEnabled: true,
+                              accountTitle: '',
+                              merchantId: '',
+                              bankOrMfsName: '',
+                            }),
+                            qrCodeUrl: e.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="https://.../bangla_qr.png"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-white font-mono focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">
+                    পেমেন্ট নির্দেশিকা (গ্রাহকদের জন্য):
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={formData.banglaQr?.instructions || ''}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        banglaQr: {
+                          ...(prev.banglaQr || {
+                            isEnabled: true,
+                            accountTitle: '',
+                            merchantId: '',
+                            bankOrMfsName: '',
+                          }),
+                          instructions: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="যেকোনো ব্যাংক বা এমএফএস অ্যাপ দিয়ে কিউআর স্ক্যান করে টাকা পাঠানোর পর TrxID প্রদান করুন।"
+                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-slate-200 focus:border-emerald-500 focus:outline-none resize-none"
+                  />
                 </div>
               </div>
             </div>
