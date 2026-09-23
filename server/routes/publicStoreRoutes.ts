@@ -32,6 +32,18 @@ function sanitizePublicConfig(row: any, fallbackStoreProfile?: any) {
     acceptRocket: Boolean(row.accept_rocket ?? row.acceptRocket),
     rocketNumber: row.rocket_number || row.rocketNumber || fallbackStoreProfile?.rocketNumber || '',
     rocketType: row.rocket_type || row.rocketType || 'personal',
+    acceptUpay: Boolean(row.accept_upay ?? row.acceptUpay),
+    upayNumber: row.upay_number || row.upayNumber || '',
+    upayType: row.upay_type || row.upayType || 'personal',
+    acceptBank: Boolean(row.accept_bank ?? row.acceptBank),
+    bankName: row.bank_name || row.bankName || '',
+    bankAccountName: row.bank_account_name || row.bankAccountName || '',
+    bankAccountNumber: row.bank_account_number || row.bankAccountNumber || '',
+    bankBranchName: row.bank_branch_name || row.bankBranchName || '',
+    bankRoutingNumber: row.bank_routing_number || row.bankRoutingNumber || '',
+    vendorPaymentQrUrl: row.vendor_payment_qr_url || row.vendorPaymentQrUrl || '',
+    acceptBanglaQr: row.accept_bangla_qr !== false && row.acceptBanglaQr !== false,
+    banglaQrNumber: row.bangla_qr_number || row.banglaQrNumber || '',
     paymentInstructions: row.payment_instructions || row.paymentInstructions || '',
     bannerUrl: row.banner_url || row.bannerUrl || '',
     bannerTitle: row.banner_title || row.bannerTitle || '',
@@ -682,6 +694,98 @@ router.post('/:identifier/orders', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/public/store/:identifier/orders/batch-track
+ * Customer batches order tracking by list of order numbers or customer phone in real time
+ */
+router.post('/:identifier/orders/batch-track', async (req: Request, res: Response) => {
+  try {
+    const { identifier } = req.params;
+    const { orderNumbers, phone } = req.body || {};
+    const ctx = await getVerifiedStoreContext(req, identifier);
+
+    if (ctx.error || !ctx.resolved) {
+      return res.status(ctx.status || 404).json({ error: ctx.error || 'স্টোরটি পাওয়া যায়নি।' });
+    }
+
+    const targetUserId = ctx.resolved.userId;
+    const pool = getDbPool();
+
+    const cleanNumbers: string[] = Array.isArray(orderNumbers)
+      ? orderNumbers.filter((n) => typeof n === 'string' && n.trim().length > 0)
+      : [];
+    const cleanPhone = typeof phone === 'string' ? phone.trim() : '';
+
+    if (cleanNumbers.length === 0 && !cleanPhone) {
+      return res.json({ orders: [] });
+    }
+
+    if (pool) {
+      let query = `
+        SELECT id, order_number, customer_name, customer_phone, customer_address,
+               delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
+               payment_status, order_status, trx_id, sender_phone, payment_reject_reason,
+               courier_name, courier_tracking_code, created_at, updated_at
+        FROM online_orders
+        WHERE (user_id = $1 OR user_id = 'default_vendor' OR user_id IS NULL) AND (
+      `;
+      const params: any[] = [targetUserId];
+      const conditions: string[] = [];
+
+      if (cleanNumbers.length > 0) {
+        params.push(cleanNumbers);
+        conditions.push(`(order_number = ANY($${params.length}) OR id = ANY($${params.length}))`);
+      }
+
+      if (cleanPhone) {
+        params.push(`%${cleanPhone.slice(-10)}%`);
+        conditions.push(`customer_phone LIKE $${params.length}`);
+      }
+
+      query += conditions.join(' OR ') + `) ORDER BY created_at DESC LIMIT 50`;
+
+      const result = await pool.query(query, params);
+      const orders = result.rows.map((row) => ({
+        id: row.id,
+        orderNumber: row.order_number,
+        customerName: row.customer_name,
+        customerPhone: row.customer_phone,
+        customerAddress: row.customer_address,
+        deliveryArea: row.delivery_area,
+        deliveryCharge: parseFloat(row.delivery_charge) || 0,
+        items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
+        subtotal: parseFloat(row.subtotal) || 0,
+        totalAmount: parseFloat(row.total_amount) || 0,
+        paymentMethod: row.payment_method,
+        paymentStatus: row.payment_status,
+        orderStatus: row.order_status,
+        trxId: row.trx_id,
+        senderPhone: row.sender_phone,
+        paymentRejectReason: row.payment_reject_reason,
+        courierName: row.courier_name,
+        courierTrackingCode: row.courier_tracking_code,
+        createdAt: Number(row.created_at),
+        updatedAt: Number(row.updated_at),
+      }));
+
+      return res.json({ orders });
+    } else {
+      const allOrders = inMemoryStore.online_orders || [];
+      const orders = allOrders.filter((o) => {
+        if (o.userId !== targetUserId && o.userId !== 'default_vendor' && o.userId) return false;
+        if (cleanNumbers.includes(o.orderNumber) || cleanNumbers.includes(o.id)) return true;
+        if (cleanPhone && o.customerPhone && o.customerPhone.includes(cleanPhone.slice(-10))) return true;
+        return false;
+      });
+
+      return res.json({ orders });
+    }
+  } catch (err: any) {
+    console.error('Error in batch order tracking:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /api/public/store/:identifier/orders/track/:orderNumber
  * Public customer tracks an order by orderNumber strictly within this store
  */
@@ -699,56 +803,84 @@ router.get('/:identifier/orders/track/:orderNumber', async (req: Request, res: R
 
 
     if (pool) {
-      const result = await pool.query(
+      let result = await pool.query(
         `SELECT id, order_number, customer_name, customer_phone, customer_address,
                 delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
                 payment_status, order_status, trx_id, sender_phone, payment_reject_reason,
                 courier_name, courier_tracking_code, created_at, updated_at
          FROM online_orders
-         WHERE (order_number = $1 OR id = $1) AND user_id = $2
-         LIMIT 1`,
-        [orderNumber, targetUserId]
+         WHERE (order_number = $1 OR id = $1 OR customer_phone = $1) 
+           AND (user_id = $2 OR user_id = 'default_vendor' OR user_id IS NULL)
+         ORDER BY created_at DESC
+         LIMIT 10`,
+        [orderNumber.trim(), targetUserId]
       );
 
       if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি। অনুগ্রহ করে সঠিক অর্ডার নম্বর দিন।' });
+        // Fallback: match by order_number directly
+        result = await pool.query(
+          `SELECT id, order_number, customer_name, customer_phone, customer_address,
+                  delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
+                  payment_status, order_status, trx_id, sender_phone, payment_reject_reason,
+                  courier_name, courier_tracking_code, created_at, updated_at
+           FROM online_orders
+           WHERE (order_number = $1 OR id = $1)
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [orderNumber.trim()]
+        );
       }
 
-      const row = result.rows[0];
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি। অনুগ্রহ করে সঠিক অর্ডার নম্বর বা মোবাইল নম্বর দিন।' });
+      }
+
+      const mapRow = (row: any) => ({
+        id: row.id,
+        orderNumber: row.order_number,
+        customerName: row.customer_name,
+        customerPhone: row.customer_phone,
+        customerAddress: row.customer_address,
+        deliveryArea: row.delivery_area,
+        deliveryCharge: parseFloat(row.delivery_charge) || 0,
+        items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
+        subtotal: parseFloat(row.subtotal) || 0,
+        totalAmount: parseFloat(row.total_amount) || 0,
+        paymentMethod: row.payment_method,
+        paymentStatus: row.payment_status,
+        orderStatus: row.order_status,
+        trxId: row.trx_id,
+        senderPhone: row.sender_phone,
+        paymentRejectReason: row.payment_reject_reason,
+        courierName: row.courier_name,
+        courierTrackingCode: row.courier_tracking_code,
+        createdAt: Number(row.created_at),
+        updatedAt: Number(row.updated_at),
+      });
+
+      const orders = result.rows.map(mapRow);
       return res.json({
-        order: {
-          id: row.id,
-          orderNumber: row.order_number,
-          customerName: row.customer_name,
-          customerPhone: row.customer_phone,
-          customerAddress: row.customer_address,
-          deliveryArea: row.delivery_area,
-          deliveryCharge: parseFloat(row.delivery_charge) || 0,
-          items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
-          subtotal: parseFloat(row.subtotal) || 0,
-          totalAmount: parseFloat(row.total_amount) || 0,
-          paymentMethod: row.payment_method,
-          paymentStatus: row.payment_status,
-          orderStatus: row.order_status,
-          trxId: row.trx_id,
-          senderPhone: row.sender_phone,
-          paymentRejectReason: row.payment_reject_reason,
-          courierName: row.courier_name,
-          courierTrackingCode: row.courier_tracking_code,
-          createdAt: Number(row.created_at),
-          updatedAt: Number(row.updated_at),
-        },
+        order: orders[0],
+        orders,
       });
     } else {
-      const order = (inMemoryStore.online_orders || []).find(
-        (o) => (o.orderNumber === orderNumber || o.id === orderNumber) && o.userId === targetUserId
+      const searchKey = orderNumber.trim();
+      let allOrders = (inMemoryStore.online_orders || []).filter(
+        (o) => (o.orderNumber === searchKey || o.id === searchKey || o.customerPhone === searchKey) &&
+               (o.userId === targetUserId || o.userId === 'default_vendor' || !o.userId)
       );
 
-      if (!order) {
-        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি। অনুগ্রহ করে সঠিক অর্ডার নম্বর দিন।' });
+      if (allOrders.length === 0) {
+        allOrders = (inMemoryStore.online_orders || []).filter(
+          (o) => o.orderNumber === searchKey || o.id === searchKey
+        );
       }
 
-      return res.json({ order });
+      if (allOrders.length === 0) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি। অনুগ্রহ করে সঠিক অর্ডার নম্বর বা মোবাইল নম্বর দিন।' });
+      }
+
+      return res.json({ order: allOrders[0], orders: allOrders });
     }
   } catch (err: any) {
     console.error('Error tracking customer order:', err);

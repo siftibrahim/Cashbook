@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, OnlineStoreConfig, OnlineOrder } from '../types';
 import { formatMoney } from '../utils/storage';
@@ -39,6 +39,8 @@ import {
   Copy,
   Lock,
   Clock,
+  Maximize2,
+  ZoomIn,
 } from 'lucide-react';
 
 interface OnlineStorefrontModalProps {
@@ -151,6 +153,104 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     } catch {}
     return [];
   });
+
+  const [enlargedQrUrl, setEnlargedQrUrl] = useState<string | null>(null);
+  const [isRefreshingOrders, setIsRefreshingOrders] = useState<boolean>(false);
+
+  // Live order status refresh function
+  const refreshCustomerOrders = useCallback(async () => {
+    try {
+      const raw = localStorage.getItem(STORE_ORDERS_STORAGE_KEY);
+      const currentList: OnlineOrder[] = raw ? JSON.parse(raw) : customerOrders;
+      const orderNums = currentList.map((o) => o.orderNumber).filter(Boolean);
+      const identifier =
+        config.storeSlug ||
+        config.customDomain ||
+        config.vendorId ||
+        (typeof window !== 'undefined' ? window.location.pathname.split('/')[2] : '') ||
+        'default';
+
+      if (!identifier || (orderNums.length === 0 && !customerPhone)) return;
+
+      setIsRefreshingOrders(true);
+      const freshOrders = await publicStoreApi.batchTrackOrders(
+        identifier,
+        orderNums,
+        customerPhone || undefined
+      );
+
+      if (freshOrders && freshOrders.length > 0) {
+        setCustomerOrders((prev) => {
+          const map = new Map<string, OnlineOrder>();
+          prev.forEach((o) => map.set(o.orderNumber || o.id, o));
+          freshOrders.forEach((f) => {
+            const key = f.orderNumber || f.id;
+            map.set(key, { ...map.get(key), ...f });
+          });
+          const merged = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          try {
+            localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
+      }
+    } catch (e) {
+      console.warn('Real-time order sync error:', e);
+    } finally {
+      setIsRefreshingOrders(false);
+    }
+  }, [customerOrders, config.storeSlug, config.customDomain, config.vendorId, customerPhone]);
+
+  // Real-time polling & global events listener
+  useEffect(() => {
+    refreshCustomerOrders();
+    const interval = setInterval(refreshCustomerOrders, 5000);
+
+    const handleOrderEvent = (e: any) => {
+      // Immediate local state update if event has order details
+      if (e?.detail) {
+        const { orderId, orderNumber, orderStatus, courierName, courierTrackingCode, updatedAt } = e.detail;
+        setCustomerOrders((prev) => {
+          const updated = prev.map((ord) => {
+            if (ord.id === orderId || ord.orderNumber === orderNumber || ord.orderNumber === orderId) {
+              return {
+                ...ord,
+                orderStatus: orderStatus || ord.orderStatus,
+                courierName: courierName !== undefined ? courierName : ord.courierName,
+                courierTrackingCode: courierTrackingCode !== undefined ? courierTrackingCode : ord.courierTrackingCode,
+                updatedAt: updatedAt || Date.now(),
+              };
+            }
+            return ord;
+          });
+          try {
+            localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+      }
+      refreshCustomerOrders();
+    };
+
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (!e.key || e.key === STORE_ORDERS_STORAGE_KEY) {
+        try {
+          const raw = localStorage.getItem(STORE_ORDERS_STORAGE_KEY);
+          if (raw) setCustomerOrders(JSON.parse(raw));
+        } catch {}
+      }
+      refreshCustomerOrders();
+    };
+
+    window.addEventListener('twing_order_updated', handleOrderEvent);
+    window.addEventListener('storage', handleStorageEvent);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('twing_order_updated', handleOrderEvent);
+      window.removeEventListener('storage', handleStorageEvent);
+    };
+  }, [refreshCustomerOrders]);
 
   // Save profile info
   const handleSaveCustomerProfile = (info: { name: string; phone: string; address: string }) => {
@@ -674,6 +774,8 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
               <StorefrontOrderTracker
                 orders={customerOrders}
                 whatsappPhone={config.whatsappPhone || config.phone}
+                onRefresh={refreshCustomerOrders}
+                isRefreshing={isRefreshingOrders}
               />
             </div>
           )}
@@ -1107,9 +1209,29 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                               </div>
                             </button>
                           )}
+
+                          {config.vendorPaymentQrUrl && config.acceptBanglaQr !== false && (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentMethod('bangla_qr' as any)}
+                              className={`p-2.5 rounded-xl border text-xs font-bold text-left transition cursor-pointer ${
+                                (paymentMethod as string) === 'bangla_qr'
+                                  ? 'bg-emerald-50 border-emerald-500 text-emerald-950 shadow-2xs'
+                                  : 'bg-white border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <QrCode className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>বাংলা কিউআর (Bangla QR)</span>
+                              </div>
+                              <div className="text-[10px] text-emerald-700 font-semibold truncate">
+                                {config.banglaQrNumber ? `মার্চেন্ট: ${config.banglaQrNumber}` : 'যেকোনো অ্যাপে স্ক্যান'}
+                              </div>
+                            </button>
+                          )}
                         </div>
 
-                        {/* Payment Instructions & TrxID Input for Mobile / Bank Banking */}
+                        {/* Payment Instructions & TrxID Input for Mobile / Bank Banking / Bangla QR */}
                         {paymentMethod !== 'cod' && (
                           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-3 text-xs">
                             <div className="font-bold text-slate-800 flex flex-wrap items-center justify-between gap-1 pb-2 border-b border-slate-200">
@@ -1119,10 +1241,11 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                 {paymentMethod === 'rocket' && `রকেট নম্বর: ${config.rocketNumber || 'নম্বর প্রদান করা হয়নি'}`}
                                 {paymentMethod === 'upay' && `উপায় নম্বর: ${config.upayNumber || 'নম্বর প্রদান করা হয়নি'}`}
                                 {paymentMethod === 'bank' && `ব্যাংক: ${config.bankName || 'ব্যাংক হিসাব'}`}
+                                {(paymentMethod as string) === 'bangla_qr' && `বাংলা কিউআর কোড (মার্চেন্ট: ${config.banglaQrNumber || config.storeName})`}
                               </span>
 
-                              {/* Copy Number Button if mobile banking */}
-                              {['bkash', 'nagad', 'rocket', 'upay'].includes(paymentMethod) && (
+                              {/* Copy Number Button if mobile banking or bangla QR */}
+                              {['bkash', 'nagad', 'rocket', 'upay', 'bangla_qr'].includes(paymentMethod as string) && (
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -1133,7 +1256,9 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                         ? config.nagadNumber
                                         : paymentMethod === 'rocket'
                                         ? config.rocketNumber
-                                        : config.upayNumber;
+                                        : paymentMethod === 'upay'
+                                        ? config.upayNumber
+                                        : config.banglaQrNumber;
                                     if (num) {
                                       navigator.clipboard?.writeText(num);
                                       alert(`নম্বর কপি হয়েছে: ${num}`);
@@ -1158,7 +1283,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                   <div><span className="text-slate-500">ব্যাংকের নাম:</span> <strong className="text-slate-900">{config.bankName || '-'}</strong></div>
                                   <div><span className="text-slate-500">হিসাবধারীর নাম:</span> <strong className="text-slate-900">{config.bankAccountName || '-'}</strong></div>
                                   <div><span className="text-slate-500">অ্যাকাউন্ট নম্বর:</span> <strong className="font-mono text-slate-900">{config.bankAccountNumber || '-'}</strong></div>
-                                  <div><span className="text-slate-500">শাখা (Branch):</span> <strong className="text-slate-900">{config.bankBranchName || '-'}</strong></div>
+                                  <div><span className="text-slate-500"> শাখা (Branch):</span> <strong className="text-slate-900">{config.bankBranchName || '-'}</strong></div>
                                   {config.bankRoutingNumber && (
                                     <div><span className="text-slate-500">রাউটিং নম্বর:</span> <strong className="font-mono text-slate-900">{config.bankRoutingNumber}</strong></div>
                                   )}
@@ -1166,22 +1291,48 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                               </div>
                             )}
 
-                            {/* Vendor QR Code if available */}
+                            {/* Vendor QR Code / Bangla QR Display */}
                             {config.vendorPaymentQrUrl && (
-                              <div className="flex items-center gap-3 bg-white p-2.5 rounded-lg border border-slate-200">
-                                <img
-                                  src={config.vendorPaymentQrUrl}
-                                  alt="Payment QR"
-                                  className="w-16 h-16 object-contain rounded-md border border-slate-100 bg-white"
-                                />
-                                <div className="space-y-1">
-                                  <div className="font-bold text-slate-900 text-xs flex items-center gap-1">
-                                    <QrCode className="w-3.5 h-3.5 text-teal-700" />
-                                    <span>ভেন্ডর কিউআর কোড (QR Code)</span>
+                              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
+                                    <QrCode className="w-4 h-4 text-emerald-700" />
+                                    <span>বাংলা কিউআর কোড (Bangla QR Code)</span>
                                   </div>
-                                  <p className="text-[11px] text-slate-500">
-                                    আপনার পেমেন্ট অ্যাপ থেকে সরাসরি স্ক্যান করে পেমেন্ট সম্পন্ন করতে পারেন।
-                                  </p>
+                                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+                                    সরাসরি স্ক্যান করুন
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  <div
+                                    className="relative group cursor-pointer shrink-0"
+                                    onClick={() => setEnlargedQrUrl(config.vendorPaymentQrUrl || null)}
+                                    title="বড় করে কিউআর স্ক্যান করুন"
+                                  >
+                                    <img
+                                      src={config.vendorPaymentQrUrl}
+                                      alt="Payment QR"
+                                      className="w-20 h-20 object-contain rounded-xl border border-emerald-300 bg-white p-1 shadow-2xs group-hover:scale-105 transition"
+                                    />
+                                    <div className="absolute inset-0 bg-black/30 rounded-xl opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[10px] font-bold transition">
+                                      <Maximize2 className="w-4 h-4" />
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-1.5 flex-1">
+                                    <p className="text-[11px] text-emerald-950 font-medium leading-relaxed">
+                                      আপনার বিকাশ, নগদ, রকেট, উপায়, সেলফিন বা যেকোনো ব্যাংকিং অ্যাপ থেকে সরাসরি স্ক্যান করে পেমেন্ট করুন।
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEnlargedQrUrl(config.vendorPaymentQrUrl || null)}
+                                      className="text-[11px] font-bold text-emerald-800 hover:text-emerald-950 inline-flex items-center gap-1 bg-white border border-emerald-200 px-2.5 py-1 rounded-lg shadow-2xs cursor-pointer"
+                                    >
+                                      <ZoomIn className="w-3.5 h-3.5 text-emerald-600" />
+                                      <span>কিউআর কোড বড় করে দেখুন (Enlarge QR)</span>
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             )}
@@ -1199,6 +1350,8 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                 <label className="text-[11px] font-bold text-slate-700">
                                   {paymentMethod === 'bank'
                                     ? 'ট্রানজেকশন আইডি বা ডিপোজিট রেফারেন্স নং *'
+                                    : (paymentMethod as string) === 'bangla_qr'
+                                    ? 'কিউআর স্ক্যান পেমেন্টের TrxID *'
                                     : 'ট্রানজেকশন আইডি (TrxID) *'}
                                 </label>
                                 <input
@@ -1206,7 +1359,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                   required
                                   value={customerTrxId}
                                   onChange={(e) => setCustomerTrxId(e.target.value)}
-                                  placeholder={paymentMethod === 'bank' ? 'উদাঃ DEP-48921 বা স্লিপ নম্বর' : 'উদাঃ 9J7X5K2L9'}
+                                  placeholder={paymentMethod === 'bank' ? 'উদাঃ DEP-48921 বা স্লিপ নম্বর' : 'উদাঃ 9J7X5K2L9 (TrxID)'}
                                   className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs font-mono font-semibold text-slate-800 focus:outline-hidden"
                                 />
                               </div>
@@ -1361,6 +1514,59 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                     className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
                   >
                     অর্ডার ট্র্যাক করুন
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Enlarged QR Code Modal */}
+        <AnimatePresence>
+          {enlargedQrUrl && (
+            <div className="fixed inset-0 z-70 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl space-y-4 border border-slate-200 text-center relative"
+              >
+                <button
+                  type="button"
+                  onClick={() => setEnlargedQrUrl(null)}
+                  className="absolute right-4 top-4 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+
+                <div className="pt-2 space-y-1">
+                  <h3 className="text-base font-bold text-slate-900">বাংলা কিউআর কোড (Bangla QR)</h3>
+                  <p className="text-xs text-slate-500">
+                    বিকাশ, নগদ, রকেট, সেলফিন বা ব্যাংক অ্যাপ দিয়ে স্ক্যান করুন
+                  </p>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 inline-block shadow-inner mx-auto">
+                  <img
+                    src={enlargedQrUrl}
+                    alt="Enlarged Vendor Payment QR"
+                    className="w-64 h-64 object-contain mx-auto rounded-xl bg-white p-2 shadow-2xs"
+                  />
+                </div>
+
+                {config.banglaQrNumber && (
+                  <div className="text-xs text-slate-700 font-bold bg-emerald-50 text-emerald-900 py-1.5 px-3 rounded-xl border border-emerald-200 inline-block">
+                    মার্চেন্ট আইডি / নম্বর: {config.banglaQrNumber}
+                  </div>
+                )}
+
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setEnlargedQrUrl(null)}
+                    className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                  >
+                    বন্ধ করুন
                   </button>
                 </div>
               </motion.div>

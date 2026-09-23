@@ -1068,6 +1068,18 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_rocket BOOLEAN DEFAULT FALSE;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS rocket_number VARCHAR(50);
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS rocket_type VARCHAR(50) DEFAULT 'personal';
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_upay BOOLEAN DEFAULT FALSE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS upay_number VARCHAR(50);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS upay_type VARCHAR(50) DEFAULT 'personal';
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_bank BOOLEAN DEFAULT FALSE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_name VARCHAR(150);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_account_name VARCHAR(150);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(100);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_branch_name VARCHAR(150);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_routing_number VARCHAR(100);
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS vendor_payment_qr_url TEXT;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_bangla_qr BOOLEAN DEFAULT TRUE;
+      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bangla_qr_number VARCHAR(50);
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS payment_instructions TEXT;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_url TEXT;
       ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_title TEXT;

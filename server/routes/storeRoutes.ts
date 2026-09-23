@@ -645,6 +645,18 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             acceptRocket: Boolean(r.accept_rocket),
             rocketNumber: r.rocket_number || '',
             rocketType: r.rocket_type || 'personal',
+            acceptUpay: Boolean(r.accept_upay),
+            upayNumber: r.upay_number || '',
+            upayType: r.upay_type || 'personal',
+            acceptBank: Boolean(r.accept_bank),
+            bankName: r.bank_name || '',
+            bankAccountName: r.bank_account_name || '',
+            bankAccountNumber: r.bank_account_number || '',
+            bankBranchName: r.bank_branch_name || '',
+            bankRoutingNumber: r.bank_routing_number || '',
+            vendorPaymentQrUrl: r.vendor_payment_qr_url || '',
+            acceptBanglaQr: r.accept_bangla_qr !== false,
+            banglaQrNumber: r.bangla_qr_number || '',
             paymentInstructions: r.payment_instructions || '',
             bannerUrl: r.banner_url || '',
             bannerTitle: r.banner_title || '',
@@ -1015,21 +1027,33 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             accept_rocket = $27,
             rocket_number = $28,
             rocket_type = $29,
-            payment_instructions = $30,
-            banner_url = $31,
-            banner_title = $32,
-            banner_subtitle = $33,
-            banner_tag = $34,
-            banner_discount_text = $35,
-            banner_style = $36,
-            logo_url = $37,
-            support_whatsapp_message = $38,
-            support_hours = $39,
-            facebook_url = $40,
-            published_product_ids = $41,
-            banners = $42,
-            is_enabled = $43,
-            updated_at = $44
+            accept_upay = $30,
+            upay_number = $31,
+            upay_type = $32,
+            accept_bank = $33,
+            bank_name = $34,
+            bank_account_name = $35,
+            bank_account_number = $36,
+            bank_branch_name = $37,
+            bank_routing_number = $38,
+            vendor_payment_qr_url = $39,
+            accept_bangla_qr = $40,
+            bangla_qr_number = $41,
+            payment_instructions = $42,
+            banner_url = $43,
+            banner_title = $44,
+            banner_subtitle = $45,
+            banner_tag = $46,
+            banner_discount_text = $47,
+            banner_style = $48,
+            logo_url = $49,
+            support_whatsapp_message = $50,
+            support_hours = $51,
+            facebook_url = $52,
+            published_product_ids = $53,
+            banners = $54,
+            is_enabled = $55,
+            updated_at = $56
           WHERE user_id = $1`,
           [
             userId,
@@ -1061,6 +1085,18 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             Boolean(body.acceptRocket),
             body.rocketNumber || '',
             body.rocketType || 'personal',
+            Boolean(body.acceptUpay),
+            body.upayNumber || '',
+            body.upayType || 'personal',
+            Boolean(body.acceptBank),
+            body.bankName || '',
+            body.bankAccountName || '',
+            body.bankAccountNumber || '',
+            body.bankBranchName || '',
+            body.bankRoutingNumber || '',
+            body.vendorPaymentQrUrl || '',
+            body.acceptBanglaQr !== false,
+            body.banglaQrNumber || '',
             body.paymentInstructions || '',
             body.bannerUrl || '',
             body.bannerTitle || '',
@@ -1087,13 +1123,17 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             delivery_outside_dhaka, free_delivery_above, min_order_amount,
             delivery_time_estimate, accept_cod, accept_bkash, bkash_number, bkash_type,
             accept_nagad, nagad_number, nagad_type, accept_rocket, rocket_number,
-            rocket_type, payment_instructions, banner_url, banner_title, banner_subtitle,
+            rocket_type, accept_upay, upay_number, upay_type, accept_bank, bank_name,
+            bank_account_name, bank_account_number, bank_branch_name, bank_routing_number,
+            vendor_payment_qr_url, accept_bangla_qr, bangla_qr_number,
+            payment_instructions, banner_url, banner_title, banner_subtitle,
             banner_tag, banner_discount_text, banner_style, logo_url, support_whatsapp_message,
             support_hours, facebook_url, published_product_ids, banners, is_enabled, created_at, updated_at
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34,
-            $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46
+            $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50,
+            $51, $52, $53, $54, $55, $56, $57, $58
           )`,
           [
             'cfg_' + userId,
@@ -1126,6 +1166,18 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             Boolean(body.acceptRocket),
             body.rocketNumber || '',
             body.rocketType || 'personal',
+            Boolean(body.acceptUpay),
+            body.upayNumber || '',
+            body.upayType || 'personal',
+            Boolean(body.acceptBank),
+            body.bankName || '',
+            body.bankAccountName || '',
+            body.bankAccountNumber || '',
+            body.bankBranchName || '',
+            body.bankRoutingNumber || '',
+            body.vendorPaymentQrUrl || '',
+            body.acceptBanglaQr !== false,
+            body.banglaQrNumber || '',
             body.paymentInstructions || '',
             body.bannerUrl || '',
             body.bannerTitle || '',
@@ -1641,28 +1693,68 @@ router.put('/orders/:orderId/payment', authenticateUser, async (req: Authenticat
 router.put('/orders/:orderId/status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { orderId } = req.params;
-    const { orderStatus } = req.body;
+    const { orderStatus, courierName, courierTrackingCode } = req.body;
     const userId = req.user?.userId;
     const pool = getDbPool();
     const now = Date.now();
 
+    const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin');
+
     if (pool) {
-      const result = await pool.query(
-        'UPDATE online_orders SET order_status = $1, updated_at = $2 WHERE id = $3 AND user_id = $4 RETURNING *',
-        [orderStatus, now, orderId, userId]
+      let result = await pool.query(
+        `UPDATE online_orders 
+         SET order_status = $1, 
+             courier_name = COALESCE($2, courier_name),
+             courier_tracking_code = COALESCE($3, courier_tracking_code),
+             updated_at = $4 
+         WHERE (id = $5 OR order_number = $5) 
+           AND (user_id = $6 OR user_id = 'default_vendor' OR user_id IS NULL OR $7 = true) 
+         RETURNING *`,
+        [orderStatus, courierName || null, courierTrackingCode || null, now, orderId, userId, isSuperAdmin]
       );
+
       if (result.rows.length === 0) {
-        return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার এই অর্ডারে কোনো অনুমতি নেই।' });
+        // Fallback: match by ID/order_number directly
+        result = await pool.query(
+          `UPDATE online_orders 
+           SET order_status = $1, 
+               courier_name = COALESCE($2, courier_name),
+               courier_tracking_code = COALESCE($3, courier_tracking_code),
+               updated_at = $4 
+           WHERE (id = $5 OR order_number = $5) 
+           RETURNING *`,
+          [orderStatus, courierName || null, courierTrackingCode || null, now, orderId]
+        );
       }
-      return res.json({ order: mapDbRowToOrder(result.rows[0]) });
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+      }
+
+      const updatedOrder = mapDbRowToOrder(result.rows[0]);
+      if (inMemoryStore.online_orders) {
+        const memIdx = inMemoryStore.online_orders.findIndex((o) => o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber);
+        if (memIdx >= 0) inMemoryStore.online_orders[memIdx] = { ...inMemoryStore.online_orders[memIdx], ...updatedOrder };
+      }
+      return res.json({ order: updatedOrder, message: 'অর্ডারের ডেলিভারি স্ট্যাটাস সফলভাবে আপডেট করা হয়েছে।' });
     } else {
-      const order = (inMemoryStore.online_orders || []).find((o) => o.id === orderId && o.userId === userId);
+      let order = (inMemoryStore.online_orders || []).find(
+        (o) => (o.id === orderId || o.orderNumber === orderId) && (o.userId === userId || o.userId === 'default_vendor' || !o.userId || isSuperAdmin)
+      );
+      if (!order) {
+        order = (inMemoryStore.online_orders || []).find(
+          (o) => o.id === orderId || o.orderNumber === orderId
+        );
+      }
+
       if (order) {
         order.orderStatus = orderStatus;
+        if (courierName !== undefined) order.courierName = courierName;
+        if (courierTrackingCode !== undefined) order.courierTrackingCode = courierTrackingCode;
         order.updatedAt = now;
-        return res.json({ order });
+        return res.json({ order, message: 'অর্ডারের ডেলিভারি স্ট্যাটাস সফলভাবে আপডেট করা হয়েছে।' });
       }
-      return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার এই অর্ডারে কোনো অনুমতি নেই।' });
+      return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
     }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

@@ -156,6 +156,12 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [rejectReasonInput, setRejectReasonInput] = useState('');
   const [isProcessingPayment, setIsProcessingPayment] = useState<string | null>(null);
 
+  // Delivery status management drafts and submission states
+  const [orderStatusDrafts, setOrderStatusDrafts] = useState<Record<string, OnlineOrder['orderStatus']>>({});
+  const [orderCourierDrafts, setOrderCourierDrafts] = useState<Record<string, { courierName?: string; courierTrackingCode?: string }>>({});
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [statusUpdateSuccessId, setStatusUpdateSuccessId] = useState<string | null>(null);
+
   // Catalog tab filter states
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategory, setCatalogCategory] = useState('all');
@@ -661,11 +667,116 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
     onUpdateConfig(updated);
   };
 
-  const handleUpdateOrderStatus = (orderId: string, newStatus: OnlineOrder['orderStatus']) => {
-    const updatedOrders = orders.map((ord) =>
-      ord.id === orderId ? { ...ord, orderStatus: newStatus, updatedAt: Date.now() } : ord
-    );
-    onUpdateOrders(updatedOrders);
+  const handleSubmitOrderStatus = async (orderId: string) => {
+    const ord = orders.find((o) => o.id === orderId);
+    if (!ord) return;
+
+    const newStatus = orderStatusDrafts[orderId] ?? ord.orderStatus;
+    const courierDraft = orderCourierDrafts[orderId];
+    const courierName = courierDraft?.courierName !== undefined ? courierDraft.courierName : ord.courierName;
+    const courierTrackingCode = courierDraft?.courierTrackingCode !== undefined ? courierDraft.courierTrackingCode : ord.courierTrackingCode;
+
+    setUpdatingOrderId(orderId);
+    const now = Date.now();
+    try {
+      const updatedOrders = orders.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              orderStatus: newStatus,
+              courierName: courierName || undefined,
+              courierTrackingCode: courierTrackingCode || undefined,
+              updatedAt: now,
+            }
+          : o
+      );
+      onUpdateOrders(updatedOrders);
+
+      // 1. Sync to customer localStorage on this browser
+      try {
+        const rawCustomerOrders = localStorage.getItem('ibrahim_khata_online_customer_orders_v1');
+        if (rawCustomerOrders) {
+          const custOrders: OnlineOrder[] = JSON.parse(rawCustomerOrders);
+          const updatedCustOrders = custOrders.map((co) =>
+            co.id === orderId || co.orderNumber === ord.orderNumber || co.orderNumber === orderId
+              ? {
+                  ...co,
+                  orderStatus: newStatus,
+                  courierName: courierName || undefined,
+                  courierTrackingCode: courierTrackingCode || undefined,
+                  updatedAt: now,
+                }
+              : co
+          );
+          localStorage.setItem('ibrahim_khata_online_customer_orders_v1', JSON.stringify(updatedCustOrders));
+        }
+      } catch (err) {
+        console.warn('Failed to sync to customer localStorage:', err);
+      }
+
+      // 2. Dispatch global event for instant UI sync
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('twing_order_updated', {
+            detail: {
+              orderId,
+              orderNumber: ord.orderNumber,
+              orderStatus: newStatus,
+              courierName,
+              courierTrackingCode,
+              updatedAt: now,
+            },
+          })
+        );
+      }
+
+      // 3. Persist to server database
+      const serverRes = await storeApi.updateOrderStatus(orderId, newStatus, {
+        courierName: courierName || undefined,
+        courierTrackingCode: courierTrackingCode || undefined,
+      });
+
+      if (serverRes) {
+        const finalOrders = orders.map((o) =>
+          o.id === orderId ? { ...o, ...serverRes } : o
+        );
+        onUpdateOrders(finalOrders);
+      }
+
+      setStatusUpdateSuccessId(orderId);
+      setTimeout(() => {
+        setStatusUpdateSuccessId((cur) => (cur === orderId ? null : cur));
+      }, 5000);
+
+      const statusBnName =
+        newStatus === 'pending'
+          ? 'নতুন (অপেক্ষমান)'
+          : newStatus === 'confirmed'
+          ? 'নিশ্চিত'
+          : newStatus === 'processing'
+          ? 'প্যাকিং চলছে'
+          : newStatus === 'shipped'
+          ? 'ডেলিভারিতে আছে'
+          : newStatus === 'delivered'
+          ? 'ডেলিভারি সম্পন্ন'
+          : 'বাতিল';
+
+      if (onShowToast) {
+        onShowToast(`✅ অর্ডার #${ord.orderNumber} এর স্ট্যাটাস '${statusBnName}' সাবমিট হয়েছে এবং কাস্টমার সাইডে পাঠানো হয়েছে!`);
+      }
+    } catch (err: any) {
+      console.error('Failed to submit order status update:', err);
+      if (onShowToast) {
+        onShowToast(`⚠️ স্ট্যাটাস আপডেট করতে সমস্যা হয়েছে: ${err.message || 'Error'}`);
+      }
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: OnlineOrder['orderStatus']) => {
+    setOrderStatusDrafts((prev) => ({ ...prev, [orderId]: newStatus }));
+    await handleSubmitOrderStatus(orderId);
   };
 
   const handleGenerateTestOrder = () => {
@@ -3184,22 +3295,95 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-slate-500">ডেলিভারি স্ট্যাটাস:</span>
-                              <select
-                                value={ord.orderStatus}
-                                onChange={(e) => handleUpdateOrderStatus(ord.id, e.target.value as OnlineOrder['orderStatus'])}
-                                className="text-xs font-bold px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 cursor-pointer"
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-50/80 p-1.5 sm:p-2 rounded-xl border border-slate-200">
+                              <div className="flex items-center gap-1.5">
+                                <Truck className="w-3.5 h-3.5 text-teal-700" />
+                                <span className="text-xs font-bold text-slate-700 whitespace-nowrap">ডেলিভারি স্ট্যাটাস:</span>
+                                <select
+                                  value={orderStatusDrafts[ord.id] ?? ord.orderStatus}
+                                  onChange={(e) => {
+                                    const val = e.target.value as OnlineOrder['orderStatus'];
+                                    setOrderStatusDrafts((prev) => ({ ...prev, [ord.id]: val }));
+                                  }}
+                                  className="text-xs font-bold px-2 py-1 bg-white border border-slate-300 rounded-lg text-slate-900 cursor-pointer shadow-2xs focus:ring-1 focus:ring-teal-600 focus:outline-hidden"
+                                >
+                                  <option value="pending">🟡 নতুন (পেন্ডিং)</option>
+                                  <option value="confirmed">🔵 অর্ডার নিশ্চিত</option>
+                                  <option value="processing">📦 প্যাকেজিং / প্রসেসিং</option>
+                                  <option value="shipped">🚚 কুরিয়ারে হস্তান্তর (Shipped)</option>
+                                  <option value="delivered">✅ ডেলিভারি সম্পন্ন (Delivered)</option>
+                                  <option value="cancelled">❌ বাতিল (Cancelled)</option>
+                                </select>
+                              </div>
+
+                              {(orderStatusDrafts[ord.id] ?? ord.orderStatus) === 'shipped' && (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <input
+                                    type="text"
+                                    placeholder="কুরিয়ার (রেডএক্স/পাঠাও)"
+                                    value={orderCourierDrafts[ord.id]?.courierName ?? (ord.courierName || '')}
+                                    onChange={(e) =>
+                                      setOrderCourierDrafts((prev) => ({
+                                        ...prev,
+                                        [ord.id]: { ...(prev[ord.id] || {}), courierName: e.target.value },
+                                      }))
+                                    }
+                                    className="text-xs px-2 py-1 bg-white border border-slate-300 rounded-lg text-slate-800 w-32 shadow-2xs"
+                                  />
+                                  <input
+                                    type="text"
+                                    placeholder="ট্র্যাকিং কোড"
+                                    value={orderCourierDrafts[ord.id]?.courierTrackingCode ?? (ord.courierTrackingCode || '')}
+                                    onChange={(e) =>
+                                      setOrderCourierDrafts((prev) => ({
+                                        ...prev,
+                                        [ord.id]: { ...(prev[ord.id] || {}), courierTrackingCode: e.target.value },
+                                      }))
+                                    }
+                                    className="text-xs px-2 py-1 bg-white border border-slate-300 rounded-lg text-slate-800 w-28 shadow-2xs"
+                                  />
+                                </div>
+                              )}
+
+                              {/* SUBMIT BUTTON */}
+                              <button
+                                type="button"
+                                disabled={updatingOrderId === ord.id}
+                                onClick={() => handleSubmitOrderStatus(ord.id)}
+                                className={`px-3 py-1 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50 sm:ml-auto ${
+                                  (orderStatusDrafts[ord.id] !== undefined && orderStatusDrafts[ord.id] !== ord.orderStatus) ||
+                                  (orderCourierDrafts[ord.id]?.courierName !== undefined && orderCourierDrafts[ord.id]?.courierName !== (ord.courierName || '')) ||
+                                  (orderCourierDrafts[ord.id]?.courierTrackingCode !== undefined && orderCourierDrafts[ord.id]?.courierTrackingCode !== (ord.courierTrackingCode || ''))
+                                    ? 'bg-teal-700 hover:bg-teal-800 text-white ring-2 ring-teal-500/50 animate-pulse'
+                                    : 'bg-[#004D40] hover:bg-[#00382E] text-white'
+                                }`}
+                                title="ডেলিভারি স্ট্যাটাস সেভ করুন এবং কাস্টমার সাইডে রিয়েল-টাইমে আপডেট পাঠান"
                               >
-                                <option value="pending">নতুন (পেন্ডিং)</option>
-                                <option value="confirmed">নিশ্চিত</option>
-                                <option value="processing">প্যাকিং</option>
-                                <option value="shipped">ডেলিভারিতে</option>
-                                <option value="delivered">সম্পন্ন</option>
-                                <option value="cancelled">বাতিল</option>
-                              </select>
+                                {updatingOrderId === ord.id ? (
+                                  <>
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    <span>সাবমিট হচ্ছে...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>সাবমিট করুন</span>
+                                  </>
+                                )}
+                              </button>
                             </div>
                           </div>
+
+                          {/* Real-time sync feedback banner */}
+                          {statusUpdateSuccessId === ord.id && (
+                            <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-3 py-2 rounded-xl text-xs flex items-center justify-between gap-2 font-bold">
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <span>স্ট্যাটাস সফলভাবে সাবমিট হয়েছে এবং কাস্টমার সাইডে রিয়েল-টাইমে আপডেট পাঠানো হয়েছে!</span>
+                              </div>
+                              <span className="text-[10px] text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md font-mono">লাইভ সিঙ্কড ✓</span>
+                            </div>
+                          )}
 
                           {/* Customer & Product Info Grid */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -4105,57 +4289,88 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                   </p>
                 </div>
 
-                {/* 7. Vendor QR Code Upload */}
-                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs space-y-3">
+                {/* 7. Bangla QR & Vendor QR Code */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                     <div className="flex items-center gap-2.5">
                       <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
                         <QrCode className="w-5 h-5" />
                       </div>
                       <div>
-                        <h4 className="font-bold text-slate-900 text-sm">ভেন্ডর পেমেন্ট কিউআর কোড (QR Code)</h4>
-                        <p className="text-[11px] text-slate-500">চেকআউট পেজে কাস্টমারদের স্ক্যান করার জন্য</p>
+                        <h4 className="font-bold text-slate-900 text-sm">বাংলা কিউআর কোড (Bangla QR / Merchant QR)</h4>
+                        <p className="text-[11px] text-slate-500">বিকাশ, নগদ, সেলফিন বা যেকোনো ব্যাংকিং অ্যাপ থেকে সরাসরি স্ক্যান করে পেমেন্ট</p>
                       </div>
                     </div>
-                    {formData.vendorPaymentQrUrl && (
-                      <button
-                        type="button"
-                        onClick={() => setFormData({ ...formData, vendorPaymentQrUrl: undefined })}
-                        className="text-xs font-bold text-rose-600 hover:underline cursor-pointer"
-                      >
-                        মুছে ফেলুন
-                      </button>
-                    )}
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptBanglaQr !== false}
+                        onChange={(e) => setFormData({ ...formData, acceptBanglaQr: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
                   </div>
 
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-start gap-4">
                     {formData.vendorPaymentQrUrl ? (
-                      <img
-                        src={formData.vendorPaymentQrUrl}
-                        alt="Vendor Payment QR"
-                        className="w-20 h-20 object-contain rounded-xl border border-slate-200 bg-slate-50 shadow-2xs"
-                      />
+                      <div className="relative group">
+                        <img
+                          src={formData.vendorPaymentQrUrl}
+                          alt="Vendor Payment QR"
+                          className="w-24 h-24 object-contain rounded-xl border border-emerald-300 bg-white p-1 shadow-2xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, vendorPaymentQrUrl: undefined })}
+                          className="absolute -top-2 -right-2 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs font-bold shadow-md hover:bg-rose-700 cursor-pointer"
+                          title="কিউআর কোড মুছে ফেলুন"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     ) : (
-                      <div className="w-20 h-20 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-slate-400">
+                      <div className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 flex flex-col items-center justify-center text-slate-400 gap-1">
                         <QrCode className="w-8 h-8" />
+                        <span className="text-[10px]">QR নেই</span>
                       </div>
                     )}
 
-                    <div className="space-y-2 flex-1">
-                      <label className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 inline-flex items-center gap-1.5 cursor-pointer transition">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>কিউআর কোডের ছবি আপলোড</span>
+                    <div className="space-y-3 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-800 inline-flex items-center gap-1.5 cursor-pointer transition">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>কিউআর কোডের ছবি আপলোড</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              if (e.target.files?.[0]) handlePaymentQrFileUpload(e.target.files[0]);
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                        {formData.vendorPaymentQrUrl && (
+                          <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100/80 px-2.5 py-1 rounded-lg">
+                            ✓ কিউআর কোড সক্রিয় (কাস্টমার দেখতে পাবে)
+                          </span>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                          বাংলা কিউআর সংশ্লিষ্ট নম্বর বা মার্চেন্ট আইডি (ঐচ্ছিক):
+                        </label>
                         <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            if (e.target.files?.[0]) handlePaymentQrFileUpload(e.target.files[0]);
-                          }}
-                          className="hidden"
+                          type="text"
+                          value={formData.banglaQrNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, banglaQrNumber: e.target.value })}
+                          placeholder="উদাঃ 017XXXXXXXX বা মার্চেন্ট আইডি"
+                          className="w-full sm:w-72 p-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                         />
-                      </label>
-                      <p className="text-[11px] text-slate-500">
-                        বিকাশ বা নগদ মার্চেন্ট কিউআর কোডের ছবি আপলোড করুন।
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        বিকাশ, নগদ, সেলফিন বা যেকোনো মার্চেন্ট বাংলা কিউআর (Bangla QR) এর ছবি আপলোড করুন। কাস্টমার চেকআউট করার সময় কিউআর কোডটি বড় করে স্ক্যান করে সহজে ট্রানজেকশন করতে পারবেন।
                       </p>
                     </div>
                   </div>

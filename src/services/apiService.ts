@@ -878,11 +878,19 @@ export const storeApi = {
     }
   },
 
-  async updateOrderStatus(orderId: string, orderStatus: OnlineOrder['orderStatus']): Promise<OnlineOrder | null> {
+  async updateOrderStatus(
+    orderId: string,
+    orderStatus: OnlineOrder['orderStatus'],
+    courierInfo?: { courierName?: string; courierTrackingCode?: string }
+  ): Promise<OnlineOrder | null> {
     try {
       const res = await apiRequest<{ order: OnlineOrder }>(`/store/orders/${encodeURIComponent(orderId)}/status`, {
         method: 'PUT',
-        body: JSON.stringify({ orderStatus }),
+        body: JSON.stringify({
+          orderStatus,
+          courierName: courierInfo?.courierName,
+          courierTrackingCode: courierInfo?.courierTrackingCode,
+        }),
       });
       return res?.order || null;
     } catch (err) {
@@ -1011,12 +1019,28 @@ export const publicStoreApi = {
 
   async trackOrder(identifier: string, orderNumber: string): Promise<OnlineOrder | null> {
     try {
-      const res = await apiRequest<{ order: OnlineOrder }>(
+      const res = await apiRequest<{ order: OnlineOrder; orders?: OnlineOrder[] }>(
         `/public/store/${encodeURIComponent(identifier)}/orders/track/${encodeURIComponent(orderNumber)}`
       );
-      return res?.order || null;
+      return res?.order || (res?.orders?.[0]) || null;
     } catch {
       return null;
+    }
+  },
+
+  async batchTrackOrders(identifier: string, orderNumbers?: string[], phone?: string): Promise<OnlineOrder[]> {
+    try {
+      const res = await apiRequest<{ orders: OnlineOrder[] }>(
+        `/public/store/${encodeURIComponent(identifier)}/orders/batch-track`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ orderNumbers, phone }),
+        }
+      );
+      return res?.orders || [];
+    } catch (err) {
+      console.warn('batchTrackOrders error:', err);
+      return [];
     }
   },
 };

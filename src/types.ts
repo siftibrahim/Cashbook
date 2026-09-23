@@ -199,6 +199,8 @@ export interface OnlineStoreConfig {
   bankBranchName?: string;
   bankRoutingNumber?: string;
   vendorPaymentQrUrl?: string;
+  acceptBanglaQr?: boolean;
+  banglaQrNumber?: string;
   paymentInstructions?: string;
   bannerUrl?: string;
   bannerTitle?: string;
@@ -214,6 +216,7 @@ export interface OnlineStoreConfig {
   estimatedDeliveryDays?: string;
   facebookUrl?: string;
   publishedProductIds?: string[];
+  vendorId?: string;
   isStoreAllowedByAdmin?: boolean;
   adminStoreStatus?: 'active' | 'disabled' | 'requested';
   adminStoreNote?: string;
@@ -247,7 +250,7 @@ export interface OnlineOrder {
   items: OnlineOrderItem[];
   subtotal: number;
   totalAmount: number;
-  paymentMethod: 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank';
+  paymentMethod: 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank' | 'bangla_qr';
   paymentStatus: 'unpaid' | 'paid' | 'partial' | 'pending_verification' | 'rejected';
   orderStatus: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   trxId?: string;
