@@ -70,6 +70,7 @@ import { SuperAdminSecurityTab } from './SuperAdminSecurityTab';
 import { DataManagementTab } from './DataManagementTab';
 import { LiveDbViewerTab } from './LiveDbViewerTab';
 import { OnlineStoreManagementTab } from './OnlineStoreManagementTab';
+import { DashboardBannersTab } from './DashboardBannersTab';
 import {
   LayoutDashboard,
   Users,
@@ -293,6 +294,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       id: 'ads_management',
       label: 'বিজ্ঞাপন ও অ্যাড সেটিংস',
       icon: Megaphone,
+      isAllowed: isSuperAdmin,
+      isSuperOnly: true,
+    },
+    {
+      id: 'dashboard_banners',
+      label: 'ড্যাশবোর্ড প্রোমো ব্যানার',
+      icon: Sparkles,
       isAllowed: isSuperAdmin,
       isSuperOnly: true,
     },
@@ -786,6 +794,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {activeTab === 'ads_management' && isSuperAdmin && (
             <AdsManagementTab onShowToast={showToast} />
+          )}
+
+          {activeTab === 'dashboard_banners' && isSuperAdmin && (
+            <DashboardBannersTab
+              onShowToast={showToast}
+              currentUserEmail={effectiveSession.email || currentUserEmail}
+            />
           )}
 
           {activeTab === 'super_admin_security' && isSuperAdmin && (

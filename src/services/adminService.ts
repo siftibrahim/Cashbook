@@ -18,6 +18,8 @@ import {
   StaffPermission,
   StaffPermissionCategory,
   AdminSession,
+  DashboardBannerItem,
+  DashboardBannerSettings,
 } from '../types/adminTypes';
 import {
   hashPassword,
@@ -138,6 +140,30 @@ const STORAGE_KEYS = {
   SUPPORT_THREADS: 'admin_support_threads_cache_v2',
   SUPPORT_MESSAGES: 'admin_support_messages_cache_v2',
   STAFF: 'admin_staff_members_cache_v2',
+  DASHBOARD_BANNERS: 'admin_dashboard_banners_cache_v2',
+};
+
+export const INITIAL_DASHBOARD_BANNER_SETTINGS: DashboardBannerSettings = {
+  isEnabled: true,
+  autoPlay: true,
+  intervalSeconds: 6,
+  banners: [
+    {
+      id: 'banner_store_companion',
+      title: 'আপনার ব্যবসার বিশ্বস্ত ডিজিটাল সঙ্গী',
+      subtitle: 'সহজে হিসাব রাখুন, এগিয়ে যান নির্ভুল খাতা নিয়ে',
+      badgeText: 'আপনার ব্যবসার সঙ্গী',
+      imageUrl: '',
+      bgGradient: 'teal',
+      textColor: 'dark',
+      actionType: 'none',
+      actionText: 'অফারটি দেখুন',
+      actionUrl: '',
+      isActive: true,
+      order: 1,
+    },
+  ],
+  updatedAt: Date.now(),
 };
 
 export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
@@ -953,6 +979,95 @@ export async function saveAppUpdateConfig(config: AppUpdateConfig): Promise<void
 }
 
 export const saveAppUpdateConfigToCloud = saveAppUpdateConfig;
+
+// ----------------------------------------------------
+// 6.1 DASHBOARD HERO BANNER (SUPER ADMIN CONTROLLED)
+// ----------------------------------------------------
+export function subscribeToDashboardBanners(
+  onUpdate: (settings: DashboardBannerSettings) => void,
+  onError?: (err: Error) => void
+) {
+  const cached = getCached<DashboardBannerSettings>(
+    STORAGE_KEYS.DASHBOARD_BANNERS,
+    INITIAL_DASHBOARD_BANNER_SETTINGS
+  );
+  onUpdate(cached);
+
+  const handleCustomEvent = (e: Event) => {
+    try {
+      const customEvent = e as CustomEvent<DashboardBannerSettings>;
+      if (customEvent.detail) {
+        onUpdate(customEvent.detail);
+      } else {
+        const latest = getCached<DashboardBannerSettings>(
+          STORAGE_KEYS.DASHBOARD_BANNERS,
+          INITIAL_DASHBOARD_BANNER_SETTINGS
+        );
+        onUpdate(latest);
+      }
+    } catch {}
+  };
+
+  window.addEventListener('dashboard_banners_updated', handleCustomEvent);
+
+  let isSubscribed = true;
+  const fetchBanners = async () => {
+    try {
+      const remote = await subscriptionApi.getDashboardBanners();
+      if (isSubscribed && remote && Array.isArray(remote.banners)) {
+        setCached(STORAGE_KEYS.DASHBOARD_BANNERS, remote);
+        onUpdate(remote);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchBanners();
+  const interval = setInterval(fetchBanners, 25000);
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+    window.removeEventListener('dashboard_banners_updated', handleCustomEvent);
+  };
+}
+
+export async function saveDashboardBanners(
+  settings: DashboardBannerSettings,
+  updatedBy?: string
+): Promise<void> {
+  const finalSettings: DashboardBannerSettings = {
+    ...settings,
+    updatedAt: Date.now(),
+  };
+  setCached(STORAGE_KEYS.DASHBOARD_BANNERS, finalSettings);
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent('dashboard_banners_updated', { detail: finalSettings })
+    );
+  } catch {}
+
+  try {
+    await adminApi.saveDashboardBanners(finalSettings);
+  } catch (err) {
+    console.warn('Failed to save dashboard banners to cloud:', err);
+  }
+
+  try {
+    await logAdminActivity(
+      'DASHBOARD_BANNERS_UPDATE',
+      'DashboardBanner',
+      `ড্যাশবোর্ড প্রোমো ব্যানার আপডেট করা হয়েছে (${finalSettings.banners?.length || 0}টি ব্যানার)`,
+      'dashboard_banner_settings',
+      'ড্যাশবোর্ড ব্যানার'
+    );
+  } catch {}
+}
+
+export const saveDashboardBannersToCloud = saveDashboardBanners;
+
 
 // ----------------------------------------------------
 // 7. AUDIT & ACTIVITY LOGS

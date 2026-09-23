@@ -3867,15 +3867,15 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       return (
                         <div
                           key={ord.id}
-                          className={`bg-white rounded-2xl p-4 border transition-all space-y-3.5 ${
+                          className={`bg-white rounded-2xl p-3.5 sm:p-4 border transition-all space-y-3 w-full max-w-full overflow-hidden box-border ${
                             isPendingReview
                               ? 'border-amber-400/90 shadow-md ring-2 ring-amber-400/20'
                               : 'border-slate-200/90 shadow-2xs'
                           }`}
                         >
-                          {/* Top Row: Order Number & Delivery Status */}
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-                            <div className="flex items-center gap-2 flex-wrap">
+                          {/* Top Row: Order Number & Delivery Status Badge */}
+                          <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 border-b border-slate-100 pb-2.5 w-full min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
                               <span className="font-mono font-bold text-xs sm:text-sm text-teal-900 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
                                 {ord.orderNumber}
                               </span>
@@ -3886,23 +3886,28 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                               >
                                 {statusLabels[ord.orderStatus] || ord.orderStatus}
                               </span>
-                              <span className="text-xs text-slate-400 font-medium">
-                                {new Date(ord.createdAt).toLocaleDateString('bn-BD')} •{' '}
-                                {new Date(ord.createdAt).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })}
-                              </span>
                             </div>
+                            <span className="text-xs text-slate-400 font-medium whitespace-nowrap">
+                              {new Date(ord.createdAt).toLocaleDateString('bn-BD')} •{' '}
+                              {new Date(ord.createdAt).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
 
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-50/80 p-1.5 sm:p-2 rounded-xl border border-slate-200">
-                              <div className="flex items-center gap-1.5">
-                                <Truck className="w-3.5 h-3.5 text-teal-700" />
-                                <span className="text-xs font-bold text-slate-700 whitespace-nowrap">ডেলিভারি স্ট্যাটাস:</span>
+                          {/* Delivery Status & Courier Control Box (Fully responsive, no overflow) */}
+                          <div className="w-full bg-slate-50/90 p-2.5 sm:p-3 rounded-xl border border-slate-200/90 space-y-2.5 box-border">
+                            <div className="flex items-center gap-2 w-full min-w-0">
+                              <div className="flex items-center gap-1 shrink-0 text-slate-700 font-bold text-xs">
+                                <Truck className="w-4 h-4 text-teal-700 shrink-0" />
+                                <span className="whitespace-nowrap">ডেলিভারি স্ট্যাটাস:</span>
+                              </div>
+                              <div className="min-w-0 flex-1">
                                 <select
                                   value={orderStatusDrafts[ord.id] ?? ord.orderStatus}
                                   onChange={(e) => {
                                     const val = e.target.value as OnlineOrder['orderStatus'];
                                     setOrderStatusDrafts((prev) => ({ ...prev, [ord.id]: val }));
                                   }}
-                                  className="text-xs font-bold px-2 py-1 bg-white border border-slate-300 rounded-lg text-slate-900 cursor-pointer shadow-2xs focus:ring-1 focus:ring-teal-600 focus:outline-hidden"
+                                  className="w-full min-w-0 text-xs font-bold px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 cursor-pointer shadow-2xs focus:ring-1 focus:ring-teal-600 focus:outline-hidden truncate box-border"
                                 >
                                   <option value="pending">🟡 নতুন (পেন্ডিং)</option>
                                   <option value="confirmed">🔵 অর্ডার নিশ্চিত</option>
@@ -3912,12 +3917,14 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                   <option value="cancelled">❌ বাতিল (Cancelled)</option>
                                 </select>
                               </div>
+                            </div>
 
-                              {(orderStatusDrafts[ord.id] ?? ord.orderStatus) === 'shipped' && (
-                                <div className="flex items-center gap-1.5 flex-wrap">
+                            {(orderStatusDrafts[ord.id] ?? ord.orderStatus) === 'shipped' && (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full pt-0.5">
+                                <div className="w-full min-w-0">
                                   <input
                                     type="text"
-                                    placeholder="কুরিয়ার (রেডএক্স/পাঠাও)"
+                                    placeholder="কুরিয়ার (রেডএক্স/পাঠাও/অন্যান্য)"
                                     value={orderCourierDrafts[ord.id]?.courierName ?? (ord.courierName || '')}
                                     onChange={(e) =>
                                       setOrderCourierDrafts((prev) => ({
@@ -3925,11 +3932,13 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                         [ord.id]: { ...(prev[ord.id] || {}), courierName: e.target.value },
                                       }))
                                     }
-                                    className="text-xs px-2 py-1 bg-white border border-slate-300 rounded-lg text-slate-800 w-32 shadow-2xs"
+                                    className="w-full text-xs px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 shadow-2xs focus:ring-1 focus:ring-teal-600 focus:outline-hidden box-border"
                                   />
+                                </div>
+                                <div className="w-full min-w-0">
                                   <input
                                     type="text"
-                                    placeholder="ট্র্যাকিং কোড"
+                                    placeholder="ট্র্যাকিং কোড বা ইনভয়েস নং"
                                     value={orderCourierDrafts[ord.id]?.courierTrackingCode ?? (ord.courierTrackingCode || '')}
                                     onChange={(e) =>
                                       setOrderCourierDrafts((prev) => ({
@@ -3937,38 +3946,38 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                         [ord.id]: { ...(prev[ord.id] || {}), courierTrackingCode: e.target.value },
                                       }))
                                     }
-                                    className="text-xs px-2 py-1 bg-white border border-slate-300 rounded-lg text-slate-800 w-28 shadow-2xs"
+                                    className="w-full text-xs px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 shadow-2xs focus:ring-1 focus:ring-teal-600 focus:outline-hidden box-border"
                                   />
                                 </div>
-                              )}
+                              </div>
+                            )}
 
-                              {/* SUBMIT BUTTON */}
-                              <button
-                                type="button"
-                                disabled={updatingOrderId === ord.id}
-                                onClick={() => handleSubmitOrderStatus(ord.id)}
-                                className={`px-3 py-1 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50 sm:ml-auto ${
-                                  (orderStatusDrafts[ord.id] !== undefined && orderStatusDrafts[ord.id] !== ord.orderStatus) ||
-                                  (orderCourierDrafts[ord.id]?.courierName !== undefined && orderCourierDrafts[ord.id]?.courierName !== (ord.courierName || '')) ||
-                                  (orderCourierDrafts[ord.id]?.courierTrackingCode !== undefined && orderCourierDrafts[ord.id]?.courierTrackingCode !== (ord.courierTrackingCode || ''))
-                                    ? 'bg-teal-700 hover:bg-teal-800 text-white ring-2 ring-teal-500/50 animate-pulse'
-                                    : 'bg-[#004D40] hover:bg-[#00382E] text-white'
-                                }`}
-                                title="ডেলিভারি স্ট্যাটাস সেভ করুন এবং কাস্টমার সাইডে রিয়েল-টাইমে আপডেট পাঠান"
-                              >
-                                {updatingOrderId === ord.id ? (
-                                  <>
-                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                    <span>সাবমিট হচ্ছে...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>সাবমিট করুন</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
+                            {/* SUBMIT BUTTON */}
+                            <button
+                              type="button"
+                              disabled={updatingOrderId === ord.id}
+                              onClick={() => handleSubmitOrderStatus(ord.id)}
+                              className={`w-full py-2 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50 box-border ${
+                                (orderStatusDrafts[ord.id] !== undefined && orderStatusDrafts[ord.id] !== ord.orderStatus) ||
+                                (orderCourierDrafts[ord.id]?.courierName !== undefined && orderCourierDrafts[ord.id]?.courierName !== (ord.courierName || '')) ||
+                                (orderCourierDrafts[ord.id]?.courierTrackingCode !== undefined && orderCourierDrafts[ord.id]?.courierTrackingCode !== (ord.courierTrackingCode || ''))
+                                  ? 'bg-teal-700 hover:bg-teal-800 text-white ring-2 ring-teal-500/50 animate-pulse'
+                                  : 'bg-[#004D40] hover:bg-[#00382E] text-white'
+                              }`}
+                              title="ডেলিভারি স্ট্যাটাস সেভ করুন এবং কাস্টমার সাইডে রিয়েল-টাইমে আপডেট পাঠান"
+                            >
+                              {updatingOrderId === ord.id ? (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  <span>সাবমিট হচ্ছে...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>সাবমিট করুন</span>
+                                </>
+                              )}
+                            </button>
                           </div>
 
                           {/* Real-time sync feedback banner */}

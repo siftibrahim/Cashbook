@@ -1981,6 +1981,22 @@ export const adminApi = {
     });
   },
 
+  async getDashboardBanners(): Promise<any> {
+    try {
+      const res = await apiRequest<{ settings: any }>('/admin/dashboard-banners');
+      return res.settings;
+    } catch {
+      return null;
+    }
+  },
+
+  async saveDashboardBanners(settings: any): Promise<{ message: string }> {
+    return await apiRequest('/admin/dashboard-banners', {
+      method: 'POST',
+      body: JSON.stringify({ settings }),
+    });
+  },
+
   async addUserSms(userId: string, amount: number, note?: string): Promise<{ message: string; newBalance: number }> {
     return await apiRequest(`/admin/users/${userId}/add-sms`, {
       method: 'POST',

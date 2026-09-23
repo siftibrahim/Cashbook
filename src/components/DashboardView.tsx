@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Customer, Transaction, StoreProfile, DailyExpense, Product, OnlineStoreConfig } from '../types';
 import { formatMoney, getTodayDateString, formatBanglaDate } from '../utils/storage';
@@ -25,6 +25,7 @@ import {
   ShoppingCart,
   ArrowUp,
   ArrowDown,
+  ArrowUpRight,
   Wallet,
   Users,
   Calendar,
@@ -45,6 +46,10 @@ import {
   LayoutGrid,
   Plus,
 } from 'lucide-react';
+import { DashboardBannerSettings, DashboardBannerItem } from '../types/adminTypes';
+import { subscribeToDashboardBanners, INITIAL_DASHBOARD_BANNER_SETTINGS } from '../services/adminService';
+import { BANNER_GRADIENTS } from './admin/DashboardBannersTab';
+
 
 interface DashboardViewProps {
   customers: Customer[];
@@ -90,6 +95,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenOnlineStore,
   onlineStoreConfig,
   onOpenSms,
+  onOpenSubscription,
 }) => {
   const isOnlineStoreAllowed = onlineStoreConfig?.isStoreAllowedByAdmin === true && onlineStoreConfig?.adminStoreStatus === 'active';
   const isOnlineStorePending = onlineStoreConfig?.adminStoreStatus === 'requested';
@@ -104,6 +110,55 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [isDateReportModalOpen, setIsDateReportModalOpen] = useState(false);
   const [isInventoryReportOpen, setIsInventoryReportOpen] = useState(false);
   const [metricViewMode, setMetricViewMode] = useState<'today' | 'date_range'>('today');
+
+  // Super Admin controlled dashboard promo banner subscription
+  const [dashboardBanners, setDashboardBanners] = useState<DashboardBannerSettings>(INITIAL_DASHBOARD_BANNER_SETTINGS);
+  const [activeBannerIndex, setActiveBannerIndex] = useState(0);
+
+  useEffect(() => {
+    const unsub = subscribeToDashboardBanners((settings) => {
+      if (settings && Array.isArray(settings.banners)) {
+        setDashboardBanners(settings);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const activeBanners = (dashboardBanners?.banners || []).filter((b) => b.isActive !== false);
+  const currentBanner: DashboardBannerItem =
+    activeBanners[activeBannerIndex] ||
+    activeBanners[0] ||
+    INITIAL_DASHBOARD_BANNER_SETTINGS.banners[0];
+
+  useEffect(() => {
+    if (!dashboardBanners?.autoPlay || activeBanners.length <= 1) return;
+    const interval = setInterval(() => {
+      setActiveBannerIndex((prev) => (prev + 1) % activeBanners.length);
+    }, (dashboardBanners.intervalSeconds || 6) * 1000);
+    return () => clearInterval(interval);
+  }, [dashboardBanners?.autoPlay, dashboardBanners?.intervalSeconds, activeBanners.length]);
+
+  const handleBannerAction = (banner: DashboardBannerItem) => {
+    if (!banner.actionType || banner.actionType === 'none') {
+      if (banner.actionUrl) {
+        window.open(banner.actionUrl, '_blank', 'noopener,noreferrer');
+      }
+      return;
+    }
+    if (banner.actionType === 'url' && banner.actionUrl) {
+      window.open(banner.actionUrl, '_blank', 'noopener,noreferrer');
+    } else if (banner.actionType === 'tel' && banner.actionUrl) {
+      window.location.href = banner.actionUrl.startsWith('tel:') ? banner.actionUrl : `tel:${banner.actionUrl}`;
+    } else if (banner.actionType === 'subscription') {
+      if (onOpenSubscription) onOpenSubscription();
+    } else if (banner.actionType === 'sms') {
+      if (onOpenSms) onOpenSms();
+    } else if (banner.actionType === 'support') {
+      const supportBtn = document.getElementById('floating-support-btn') || document.querySelector('[data-tab="support"]');
+      if (supportBtn) (supportBtn as HTMLElement).click();
+    }
+  };
+
 
   // Helper to normalize any date format to YYYY-MM-DD
   const normalizeToISO = (d: string): string => {
@@ -417,56 +472,105 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     },
   ];
 
+  const currentTheme = BANNER_GRADIENTS[currentBanner.bgGradient || 'teal'] || BANNER_GRADIENTS.teal;
+  const hasBannerAction = Boolean(
+    (currentBanner.actionType && currentBanner.actionType !== 'none') ||
+    currentBanner.actionUrl ||
+    currentBanner.actionText
+  );
+
   return (
     <div
       id="dashboard-root-view"
       className="w-full flex flex-col gap-2 sm:gap-2.5 select-none text-slate-800"
     >
-      {/* 1. Hero Promo Banner (Compact, zero scroll) */}
-      <section
-        id="dashboard-promo-banner"
-        className="bg-gradient-to-r from-[#bceee3] via-[#d5f4ec] to-[#e6f9f3] border border-[#aee4d6] rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-2xs overflow-hidden shrink-0 h-[78px] sm:h-[90px]"
-      >
-        <div className="flex flex-col justify-between h-full py-0.5">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-white shadow-2xs border border-white flex items-center justify-center text-[#064e3b] shrink-0">
-              <Store className="w-4 h-4 text-[#064e3b]" />
+      {/* 1. Super Admin Controlled Promo Hero Banner */}
+      {dashboardBanners?.isEnabled !== false && (
+        <section
+          id="dashboard-promo-banner"
+          onClick={() => hasBannerAction ? handleBannerAction(currentBanner) : undefined}
+          className={`${currentTheme.bg} ${currentTheme.border} border rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-2xs overflow-hidden shrink-0 h-[78px] sm:h-[90px] ${
+            hasBannerAction ? 'cursor-pointer hover:shadow-xs transition' : ''
+          }`}
+        >
+          <div className="flex flex-col justify-between h-full py-0.5 min-w-0 flex-1 pr-1.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-white shadow-2xs border border-white flex items-center justify-center text-[#064e3b] shrink-0">
+                <Store className="w-4 h-4 text-[#064e3b]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className={`text-[10px] sm:text-[11px] font-bold ${currentTheme.sub} leading-none truncate`}>
+                    {currentBanner.badgeText || 'আপনার ব্যবসার সঙ্গী'}
+                  </p>
+                  {hasBannerAction && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleBannerAction(currentBanner);
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/95 hover:bg-white text-[9.5px] sm:text-[10px] font-black text-emerald-950 border border-emerald-300/80 shadow-2xs cursor-pointer active:scale-95 transition-all"
+                    >
+                      <span>{currentBanner.actionText || 'অফারটি দেখুন'}</span>
+                      <ArrowUpRight className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-emerald-700" />
+                    </button>
+                  )}
+                </div>
+                <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-tight mt-0.5 truncate">
+                  {currentBanner.title || 'আপনার ব্যবসার বিশ্বস্ত ডিজিটাল সঙ্গী'}
+                </h2>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] sm:text-[11px] font-bold text-[#064e3b]/85 leading-none">
-                আপনার ব্যবসার সঙ্গী
+
+            <div className="flex items-center justify-between gap-3 mt-auto">
+              <p className={`text-[10px] sm:text-xs ${currentTheme.sub} font-medium leading-none truncate`}>
+                {currentBanner.subtitle || 'সহজে হিসাব রাখুন, এগিয়ে যান'}
               </p>
-              <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-tight mt-0.5">
-                {store.name || 'আমার দোকান'}
-              </h2>
+              {/* Pagination Dots */}
+              <div className="flex items-center gap-1 shrink-0">
+                {activeBanners.length > 1 ? (
+                  activeBanners.map((_, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveBannerIndex(idx);
+                      }}
+                      aria-label={`স্লাইড ${idx + 1}`}
+                      className={`transition-all duration-300 cursor-pointer ${
+                        idx === activeBannerIndex
+                          ? `w-2.5 h-1.5 rounded-full ${currentTheme.dotActive}`
+                          : `w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive} hover:opacity-80`
+                      }`}
+                    />
+                  ))
+                ) : (
+                  <>
+                    <span className={`w-2.5 h-1.5 rounded-full ${currentTheme.dotActive}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive}`} />
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-4 mt-auto">
-            <p className="text-[10px] sm:text-xs text-[#064e3b] font-medium leading-none">
-              সহজে হিসাব রাখুন, এগিয়ে যান
-            </p>
-            {/* 6 Pagination Dots matching screenshot */}
-            <div className="flex items-center gap-1">
-              <span className="w-2.5 h-1.5 rounded-full bg-[#064e3b]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-[#7ecdb8]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-[#7ecdb8]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-[#7ecdb8]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-[#7ecdb8]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-[#7ecdb8]" />
-            </div>
+          {/* Right side retail grocery illustration or Super Admin uploaded image */}
+          <div className="h-full shrink-0 flex items-center pl-2">
+            <img
+              src={currentBanner.imageUrl || heroBannerImg}
+              alt="Promo Banner"
+              className="w-24 xs:w-28 sm:w-36 h-full object-cover rounded-xl shadow-2xs border border-white/95 bg-white"
+              referrerPolicy="no-referrer"
+            />
           </div>
-        </div>
-
-        {/* Right side retail grocery illustration */}
-        <div className="h-full shrink-0 flex items-center pl-2">
-          <img
-            src={heroBannerImg}
-            alt="Store Customer Service"
-            className="w-24 xs:w-28 sm:w-36 h-full object-cover rounded-xl shadow-2xs border border-white/95"
-          />
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* 2. Store Profile & Quick Action Bar */}
       <section
