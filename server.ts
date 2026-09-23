@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
@@ -21,6 +22,7 @@ import { migrateDataToPostgres } from './server/migration';
 import { requireSuperAdmin } from './server/authMiddleware';
 import { SubscriptionEngine } from './server/services/subscriptionEngine';
 import { wildcardCors, dynamicSubdomainMiddleware } from './server/middleware/subdomainMiddleware';
+import { injectProductSeo } from './server/services/productSeoHelper';
 
 dotenv.config();
 
@@ -159,12 +161,59 @@ Sitemap: ${baseUrl}/sitemap.xml
       server: { middlewareMode: true },
       appType: 'spa',
     });
+
+    // Intercept social crawlers (Facebook, WhatsApp, Twitter, Telegram, LinkedIn) & direct HTML requests for products
+    app.use(async (req, res, next) => {
+      if (req.method !== 'GET') return next();
+      const rawPath = req.path;
+      const productId = (req.query.product || req.query.p || rawPath.match(/^\/(?:product|p)\/([^/]+)/)?.[1]) as string | undefined;
+      const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+      const isCrawler = /bot|crawler|spider|facebookexternalhit|facebot|whatsapp|twitterbot|telegrambot|linkedinbot|discordbot|slackbot|applebot/i.test(userAgent);
+
+      if (productId && (isCrawler || req.accepts('html'))) {
+        try {
+          const indexPath = path.join(process.cwd(), 'index.html');
+          if (fs.existsSync(indexPath)) {
+            let html = fs.readFileSync(indexPath, 'utf-8');
+            html = await vite.transformIndexHtml(req.originalUrl, html);
+            const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+            const rawHost = req.headers.host || 'localhost:3000';
+            const fullUrl = `${protocol}://${rawHost}${req.originalUrl}`;
+            html = await injectProductSeo(html, productId, rawHost, fullUrl);
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            return res.send(html);
+          }
+        } catch (e) {
+          console.error('Error in dev product SEO interceptor:', e);
+        }
+      }
+      next();
+    });
+
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+
+    app.get('*', async (req, res) => {
+      const rawPath = req.path;
+      const productId = (req.query.product || req.query.p || rawPath.match(/^\/(?:product|p)\/([^/]+)/)?.[1]) as string | undefined;
+      const indexPath = path.join(distPath, 'index.html');
+
+      if (productId && fs.existsSync(indexPath)) {
+        try {
+          let html = fs.readFileSync(indexPath, 'utf-8');
+          const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+          const rawHost = req.headers.host || 'twinghisabi.site';
+          const fullUrl = `${protocol}://${rawHost}${req.originalUrl}`;
+          html = await injectProductSeo(html, productId, rawHost, fullUrl);
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          return res.send(html);
+        } catch (e) {
+          console.error('Error injecting product SEO in prod:', e);
+        }
+      }
+      res.sendFile(indexPath);
     });
   }
 

@@ -1048,6 +1048,18 @@ export const publicStoreApi = {
     }
   },
 
+  async getProduct(identifier: string, productId: string): Promise<Product | null> {
+    try {
+      const res = await apiRequest<{ product: Product }>(
+        `/public/store/${encodeURIComponent(identifier)}/products/${encodeURIComponent(productId)}`
+      );
+      return res?.product || null;
+    } catch (err) {
+      console.warn('Public getProduct error:', err);
+      return null;
+    }
+  },
+
   async placeOrder(identifier: string, orderData: any): Promise<{ success: boolean; message: string; order: OnlineOrder }> {
     return apiRequest<{ success: boolean; message: string; order: OnlineOrder }>(
       `/public/store/${encodeURIComponent(identifier)}/orders`,

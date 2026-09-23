@@ -115,6 +115,59 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   const [isCheckoutStep, setIsCheckoutStep] = useState(false);
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
 
+  // Synchronize product detail modal with URL query param (?product=... or ?p=...)
+  useEffect(() => {
+    if (!products || products.length === 0) return;
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const rawPath = window.location.pathname;
+      const pathMatch = rawPath.match(/^\/(?:product|p)\/([^/]+)/);
+      const targetId =
+        searchParams.get('product') ||
+        searchParams.get('p') ||
+        searchParams.get('prod') ||
+        searchParams.get('item') ||
+        (pathMatch ? pathMatch[1] : null);
+
+      if (targetId) {
+        const found = products.find(
+          (p) =>
+            p.id === targetId ||
+            p.sku === targetId ||
+            p.name.toLowerCase() === decodeURIComponent(targetId).toLowerCase()
+        );
+        if (found) {
+          setSelectedProductForDetail(found);
+        }
+      }
+    } catch (e) {
+      console.error('Error auto-opening product from URL:', e);
+    }
+  }, [products]);
+
+  // Sync URL when product detail opens so the browser address bar reflects the product
+  const handleOpenProductDetail = (prod: Product) => {
+    setSelectedProductForDetail(prod);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('product', prod.id);
+      window.history.replaceState({ ...window.history.state, productId: prod.id }, '', url.toString());
+    } catch {}
+  };
+
+  // Sync URL when product detail closes
+  const handleCloseProductDetail = () => {
+    setSelectedProductForDetail(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('product');
+      url.searchParams.delete('p');
+      url.searchParams.delete('prod');
+      url.searchParams.delete('item');
+      window.history.replaceState({ ...window.history.state, productId: undefined }, '', url.toString());
+    } catch {}
+  };
+
   // Coupon state
   const [couponInput, setCouponInput] = useState('');
   const [couponResult, setCouponResult] = useState<CouponValidationResult | null>(null);
@@ -700,7 +753,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                             inCartQuantity={inCart ? inCart.quantity : 0}
                             onAddToCart={(p) => addToCart(p, 1)}
                             onUpdateQuantity={updateQuantity}
-                            onViewProduct={(p) => setSelectedProductForDetail(p)}
+                            onViewProduct={(p) => handleOpenProductDetail(p)}
                             isWishlisted={wishlistIds.includes(prod.id)}
                             onToggleWishlist={handleToggleWishlist}
                           />
@@ -724,7 +777,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                     onSelectProduct={(productId) => {
                       const prod = allStoreProducts.find((p) => p.id === productId);
                       if (prod) {
-                        setSelectedProductForDetail(prod);
+                        handleOpenProductDetail(prod);
                       }
                     }}
                   />
@@ -766,7 +819,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                               inCartQuantity={inCart ? inCart.quantity : 0}
                               onAddToCart={(p) => addToCart(p, 1)}
                               onUpdateQuantity={updateQuantity}
-                              onViewProduct={(p) => setSelectedProductForDetail(p)}
+                              onViewProduct={(p) => handleOpenProductDetail(p)}
                               isWishlisted={wishlistIds.includes(prod.id)}
                               onToggleWishlist={handleToggleWishlist}
                             />
@@ -802,7 +855,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                               inCartQuantity={inCart ? inCart.quantity : 0}
                               onAddToCart={(p) => addToCart(p, 1)}
                               onUpdateQuantity={updateQuantity}
-                              onViewProduct={(p) => setSelectedProductForDetail(p)}
+                              onViewProduct={(p) => handleOpenProductDetail(p)}
                               isWishlisted={wishlistIds.includes(prod.id)}
                               onToggleWishlist={handleToggleWishlist}
                             />
@@ -850,7 +903,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                 wishlistIds={wishlistIds}
                 onRemoveFromWishlist={handleRemoveWishlist}
                 onAddToCart={(prod) => addToCart(prod, 1)}
-                onViewProduct={(prod) => setSelectedProductForDetail(prod)}
+                onViewProduct={(prod) => handleOpenProductDetail(prod)}
                 onExplore={() => setActiveTab('home')}
               />
             </div>
@@ -1640,7 +1693,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
         <StorefrontProductDetailModal
           isOpen={!!selectedProductForDetail}
           product={selectedProductForDetail}
-          onClose={() => setSelectedProductForDetail(null)}
+          onClose={handleCloseProductDetail}
           inCartQuantity={
             selectedProductForDetail
               ? cart.find((i) => i.product.id === selectedProductForDetail.id)?.quantity || 0
@@ -1649,7 +1702,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
           onAddToCart={(prod, qty = 1) => addToCart(prod, qty)}
           onBuyNow={(prod, qty) => {
             addToCart(prod, qty);
-            setSelectedProductForDetail(null);
+            handleCloseProductDetail();
             setIsCartOpen(true);
           }}
           config={config}

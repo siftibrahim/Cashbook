@@ -25,8 +25,6 @@ export const RESERVED_SUBDOMAINS = new Set([
   'static',
   'cloud',
   'portal',
-  'store',
-  'shop',
   'root',
   'public',
   'dev',

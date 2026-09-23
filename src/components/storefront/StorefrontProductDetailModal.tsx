@@ -14,10 +14,24 @@ import {
   Share2,
   MessageCircle,
   Heart,
+  Copy,
+  Check,
+  ExternalLink,
+  Send,
+  Globe,
+  Smartphone,
 } from 'lucide-react';
 import { Product, OnlineStoreConfig } from '../../types';
 import { formatMoney } from '../../utils/storage';
 import { getFallbackProductImage } from '../../utils/productImages';
+import {
+  getCanonicalProductUrl,
+  getProductShareMessage,
+  getWhatsAppShareUrl,
+  getFacebookShareUrl,
+  getTelegramShareUrl,
+  copyProductLinkToClipboard,
+} from '../../utils/productShareHelper';
 
 interface StorefrontProductDetailModalProps {
   product: Product | null;
@@ -43,7 +57,8 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
   onToggleWishlist,
 }) => {
   const [selectedQuantity, setSelectedQuantity] = useState(1);
-  const [showCopiedToast, setShowCopiedToast] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   if (!isOpen || !product) return null;
 
@@ -58,19 +73,32 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
   const rating = product.rating || 4.9;
   const reviewCount = product.reviewCount || (product.salePrice > 500 ? 181 : 94);
 
-  const handleShare = () => {
-    if (navigator.share) {
-      navigator
-        .share({
+  // Generates 100% clean, canonical product URL with ?product=...
+  const canonicalUrl = getCanonicalProductUrl(product, config);
+  const shareMessage = getProductShareMessage(product, config?.storeName);
+
+  const handleCopyLink = async () => {
+    if (!canonicalUrl) return;
+    const success = await copyProductLinkToClipboard(canonicalUrl);
+    if (success) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 3000);
+    }
+  };
+
+  const handleNativeShare = async () => {
+    if (navigator.share && canonicalUrl) {
+      try {
+        await navigator.share({
           title: product.name,
-          text: `${product.name} - মাত্র ৳${formatMoney(product.salePrice)} তে কিনুন!`,
-          url: window.location.href,
-        })
-        .catch(() => {});
+          text: shareMessage,
+          url: canonicalUrl,
+        });
+      } catch {
+        // User canceled or dismissed
+      }
     } else {
-      navigator.clipboard.writeText(`${window.location.href} - ${product.name}`);
-      setShowCopiedToast(true);
-      setTimeout(() => setShowCopiedToast(false), 2000);
+      handleCopyLink();
     }
   };
 
@@ -80,7 +108,7 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
       alert('ভেন্ডরের WhatsApp নম্বর পাওয়া যায়নি।');
       return;
     }
-    const msg = `আসসালামু আলাইকুম, আমি "${product.name}" (মূল্য: ৳${formatMoney(product.salePrice)}) সম্পর্কে বিস্তারিত জানতে চাই।`;
+    const msg = `আসসালামু আলাইকুম, আমি "${product.name}" (মূল্য: ৳${formatMoney(product.salePrice)}) সম্পর্কে বিস্তারিত জানতে চাই। লিংক: ${canonicalUrl}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
@@ -128,11 +156,12 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
             )}
             <button
               type="button"
-              onClick={handleShare}
-              className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-              title="শেয়ার করুন"
+              onClick={() => setIsShareModalOpen(true)}
+              className="p-2 text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded-xl transition cursor-pointer flex items-center gap-1 font-bold text-xs"
+              title="সোশ্যাল মিডিয়ায় শেয়ার করুন"
             >
-              <Share2 className="w-4 h-4" />
+              <Share2 className="w-4 h-4 text-teal-700" />
+              <span className="hidden sm:inline">শেয়ার</span>
             </button>
             <button
               type="button"
@@ -319,13 +348,165 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
           </div>
         </div>
 
-        {/* Share toast */}
-        {showCopiedToast && (
-          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 z-20">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            <span>লিংক কপি করা হয়েছে!</span>
-          </div>
-        )}
+        {/* Dedicated Social Media Sharing Sheet */}
+        <AnimatePresence>
+          {isShareModalOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex flex-col justify-end sm:justify-center p-0 sm:p-4"
+            >
+              <motion.div
+                initial={{ y: 50, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 50, opacity: 0 }}
+                className="bg-white rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200 w-full max-w-lg mx-auto space-y-4 max-h-[88vh] overflow-y-auto"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center border border-teal-200">
+                      <Share2 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800">সোশ্যাল মিডিয়ায় শেয়ার করুন</h3>
+                      <p className="text-[11px] text-slate-500">লাইভ সার্ভার ও সোশ্যাল মিডিয়া ফ্রেন্ডলি লিংক</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsShareModalOpen(false)}
+                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Product Summary Mini Card */}
+                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                  <img
+                    src={product.imageUrl || getFallbackProductImage(product.name, product.category)}
+                    alt={product.name}
+                    className="w-12 h-12 object-cover rounded-xl border border-slate-200 bg-white"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-xs font-bold text-slate-800 truncate">{product.name}</h4>
+                    <p className="text-xs font-black text-teal-800">৳{formatMoney(product.salePrice)}</p>
+                  </div>
+                </div>
+
+                {/* Clean Canonical URL Box */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-slate-700 flex items-center justify-between">
+                    <span>প্রোডাক্টের সরাসরি লিংক:</span>
+                    {copiedLink && (
+                      <span className="text-emerald-700 font-bold text-[11px] flex items-center gap-1 animate-pulse">
+                        <Check className="w-3 h-3" /> লিংক কপি হয়েছে!
+                      </span>
+                    )}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={canonicalUrl}
+                      className="flex-1 bg-slate-100/90 text-slate-700 font-mono text-[11px] px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none select-all truncate"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopyLink}
+                      className="py-2.5 px-3.5 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer shrink-0"
+                    >
+                      {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedLink ? 'কপি হয়েছে' : 'কপি লিংক'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 1-Click Social Sharing Buttons */}
+                <div className="space-y-2">
+                  <p className="text-[11px] font-bold text-slate-600">এক ক্লিকে সোশ্যাল মিডিয়ায় পাঠান:</p>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {/* WhatsApp */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.open(getWhatsAppShareUrl(canonicalUrl, product, config?.storeName), '_blank');
+                      }}
+                      className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition cursor-pointer text-xs font-bold"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-[#25D366] text-white flex items-center justify-center shrink-0">
+                        <MessageCircle className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-black">WhatsApp</div>
+                        <div className="text-[9px] text-emerald-700 font-normal">মেসেজে পাঠান</div>
+                      </div>
+                    </button>
+
+                    {/* Facebook */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.open(getFacebookShareUrl(canonicalUrl), '_blank');
+                      }}
+                      className="flex items-center gap-2 p-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 transition cursor-pointer text-xs font-bold"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-[#1877F2] text-white flex items-center justify-center shrink-0">
+                        <Globe className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-black">Facebook</div>
+                        <div className="text-[9px] text-blue-700 font-normal">টাইমলাইনে শেয়ার</div>
+                      </div>
+                    </button>
+
+                    {/* Telegram */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.open(getTelegramShareUrl(canonicalUrl, product), '_blank');
+                      }}
+                      className="flex items-center gap-2 p-2.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 transition cursor-pointer text-xs font-bold"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-[#0088cc] text-white flex items-center justify-center shrink-0">
+                        <Send className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-black">Telegram</div>
+                        <div className="text-[9px] text-sky-700 font-normal">চ্যাটে পাঠান</div>
+                      </div>
+                    </button>
+
+                    {/* Device Share (Messenger, SMS, More) */}
+                    <button
+                      type="button"
+                      onClick={handleNativeShare}
+                      className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 transition cursor-pointer text-xs font-bold"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-slate-700 text-white flex items-center justify-center shrink-0">
+                        <Smartphone className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-black">অন্যান্য অ্যাপ</div>
+                        <div className="text-[9px] text-slate-500 font-normal">ডিভাইস শেয়ার</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Helpful Tip */}
+                <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-2.5 text-[11px] text-amber-900 leading-relaxed flex items-start gap-2">
+                  <span className="text-sm shrink-0">💡</span>
+                  <span>
+                    এই লিংকটি ফেসবুক, হোয়াটসঅ্যাপ বা যেকোনো ব্রাউজারে দিলে প্রোডাক্টের ছবি ও দাম সহ লাইভ প্রিভিউ দেখাবে এবং ক্রেতা সরাসরি এই প্রোডাক্ট পেজে পৌঁছাবেন।
+                  </span>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );

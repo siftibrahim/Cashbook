@@ -10,15 +10,31 @@
       "business_type": "জেনারেল স্টোর",
       "address": "বাংলাদেশ",
       "role": "user",
-      "status": "expired",
+      "status": "active",
       "subscriptionPlan": "১ মাসের স্টার্টার প্যাক",
       "subscriptionStatus": "active",
-      "subscriptionExpiresAt": 1792496045173,
+      "subscriptionExpiresAt": 1793592035262,
       "registered_at": 1789790435262,
-      "last_active_at": 1790068907418,
-      "notes": "অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে",
-      "isOnlineStoreAllowed": false,
-      "onlineStoreStatus": "disabled"
+      "last_active_at": 1790176490085,
+      "notes": "অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে"
+    },
+    {
+      "id": "usr_mudvydt9klkw",
+      "name": "তানজিনা",
+      "phone": "01778601196",
+      "email": "01778601196@twing.com",
+      "password_hash": "$2b$10$yyj6PRaaGz5fOZKNcr2yjOy7qlJdVxuD4ZQ516k/T9vSwtrAeukna",
+      "shop_name": "তানজিনা স্টেরন",
+      "business_type": "জেনারেল স্টোর",
+      "address": "বাংলাদেশ",
+      "role": "user",
+      "status": "active",
+      "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
+      "subscriptionStatus": "trial",
+      "subscriptionExpiresAt": 1791364412052,
+      "registered_at": 1790154812052,
+      "last_active_at": 1790173733212,
+      "notes": null
     },
     {
       "id": "usr_super_admin",
@@ -36,9 +52,7 @@
       "subscriptionExpiresAt": 2105147647299,
       "registered_at": 1789787647299,
       "last_active_at": 1789792127578,
-      "notes": null,
-      "isOnlineStoreAllowed": true,
-      "onlineStoreStatus": "active"
+      "notes": null
     }
   ],
   "stores": [],
@@ -68,5 +82,6 @@
   "sms_logs": [],
   "sms_purchases": [],
   "online_orders": [],
-  "online_store_configs": []
+  "online_store_configs": [],
+  "store_chat_messages": []
 }

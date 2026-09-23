@@ -35,8 +35,31 @@ export const PublicStorefrontPage: React.FC<PublicStorefrontPageProps> = ({
 
       // 2. Fetch published products for this store
       const targetSlug = res.store.storeSlug || res.vendorId || identifier || '';
-      const productList = await publicStoreApi.getProducts(targetSlug);
-      setProducts(productList || []);
+      let productList = await publicStoreApi.getProducts(targetSlug);
+      productList = productList || [];
+
+      // Check if user came via a shared product link
+      const params = new URLSearchParams(window.location.search);
+      const rawPath = window.location.pathname;
+      const pathMatch = rawPath.match(/^\/(?:product|p)\/([^/]+)/);
+      const targetProdId =
+        params.get('product') ||
+        params.get('p') ||
+        params.get('prod') ||
+        (pathMatch ? pathMatch[1] : null);
+
+      if (targetProdId && !productList.some((p) => p.id === targetProdId || p.sku === targetProdId)) {
+        try {
+          const single = await publicStoreApi.getProduct(targetSlug, targetProdId);
+          if (single) {
+            productList = [single, ...productList];
+          }
+        } catch (singleErr) {
+          console.warn('Could not fetch single deep-linked product:', singleErr);
+        }
+      }
+
+      setProducts(productList);
     } catch (err: any) {
       console.error('Error loading public storefront:', err);
       setError('স্টোর লোড করতে সমস্যা হয়েছে। অনুগ্রহ করে ইন্টারনেট সংযোগ চেক করে পুনরায় চেষ্টা করুন।');
