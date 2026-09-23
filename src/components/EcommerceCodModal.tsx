@@ -51,8 +51,6 @@ export const EcommerceCodModal: React.FC<EcommerceCodModalProps> = ({
   const [courierNameInput, setCourierNameInput] = useState('');
   const [trackingCodeInput, setTrackingCodeInput] = useState('');
 
-  if (!isOpen) return null;
-
   // Filtered orders
   const filteredOrders = useMemo(() => {
     return orders.filter((ord) => {
@@ -175,6 +173,8 @@ export const EcommerceCodModal: React.FC<EcommerceCodModalProps> = ({
       window.print();
     }, 200);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-in fade-in">

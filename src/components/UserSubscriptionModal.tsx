@@ -226,7 +226,42 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
     return () => clearInterval(interval);
   }, [activePaymentlySession]);
 
-  if (!isOpen) return null;
+  // Dynamic Bangla QR Generation
+  useEffect(() => {
+    if (!isOpen) return;
+    const generateBanglaQr = async () => {
+      const bQr = settings.banglaQr;
+      if (!bQr) return;
+      const merchantId = bQr.merchantId?.trim() || '01306908115';
+      const payload = bQr.qrPayload?.trim() || JSON.stringify({
+        format: 'BANGLA_QR',
+        ver: '1.0',
+        merchantName: bQr.accountTitle || 'TWING HISABI SUPER ADMIN',
+        merchantId: merchantId,
+        network: bQr.bankOrMfsName || 'Bangla QR Network',
+        terminal: bQr.terminalId || 'TWING-BQR-01',
+        country: 'BD',
+        currency: '050',
+      });
+
+      try {
+        const url = await QRCode.toDataURL(payload, {
+          width: 360,
+          margin: 2,
+          color: {
+            dark: '#034426',
+            light: '#ffffff',
+          },
+          errorCorrectionLevel: 'H',
+        });
+        setBanglaQrDataUrl(url);
+      } catch (err) {
+        console.error('Failed to generate Bangla QR code', err);
+      }
+    };
+
+    generateBanglaQr();
+  }, [isOpen, settings.banglaQr]);
 
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -393,41 +428,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
     }
   };
 
-  // Dynamic Bangla QR Generation
-  useEffect(() => {
-    const generateBanglaQr = async () => {
-      const bQr = settings.banglaQr;
-      if (!bQr) return;
-      const merchantId = bQr.merchantId?.trim() || '01306908115';
-      const payload = bQr.qrPayload?.trim() || JSON.stringify({
-        format: 'BANGLA_QR',
-        ver: '1.0',
-        merchantName: bQr.accountTitle || 'TWING HISABI SUPER ADMIN',
-        merchantId: merchantId,
-        network: bQr.bankOrMfsName || 'Bangla QR Network',
-        terminal: bQr.terminalId || 'TWING-BQR-01',
-        country: 'BD',
-        currency: '050',
-      });
-
-      try {
-        const url = await QRCode.toDataURL(payload, {
-          width: 360,
-          margin: 2,
-          color: {
-            dark: '#034426',
-            light: '#ffffff',
-          },
-          errorCorrectionLevel: 'H',
-        });
-        setBanglaQrDataUrl(url);
-      } catch (err) {
-        console.error('Failed to generate Bangla QR code', err);
-      }
-    };
-
-    generateBanglaQr();
-  }, [settings.banglaQr]);
+  if (!isOpen) return null;
 
   const getMethodDetails = () => {
     if (paymentMethod === 'bkash') {

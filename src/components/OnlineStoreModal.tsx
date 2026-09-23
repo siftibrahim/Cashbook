@@ -42,6 +42,9 @@ import {
   Save,
   Tag,
   Landmark,
+  Edit3,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { VendorChatInboxTab } from './vendor/VendorChatInboxTab';
 import { getTotalUnreadVendorMessages, CHAT_SYNC_EVENT } from '../utils/storeChatStorage';
@@ -150,6 +153,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<OnlineOrder | null>(null);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [bannerUploadNotice, setBannerUploadNotice] = useState<string | null>(null);
+  const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
 
   // Online orders filter and payment verification states
   const [orderFilter, setOrderFilter] = useState<'all' | 'pending_verification' | 'paid' | 'rejected' | 'cod'>('all');
@@ -548,13 +552,27 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           };
           setFormData(updated);
           onUpdateConfig(updated);
-          setBannerUploadNotice('✅ নতুন ব্যানার সফলভাবে আপলোড ও যুক্ত হয়েছে!');
-          setTimeout(() => setBannerUploadNotice(null), 4000);
+          setEditingBannerId(newBannerItem.id);
+          setBannerUploadNotice('✅ নতুন ব্যানার যুক্ত হয়েছে! নিচে টাইটেল ও পণ্য লিংক দিন।');
+          setTimeout(() => setBannerUploadNotice(null), 5000);
         }
       };
       img.src = e.target?.result as string;
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleUpdateBannerItem = (bannerId: string, updates: Partial<StoreBanner>) => {
+    const existing = Array.isArray(formData.banners) ? [...formData.banners] : [];
+    const updatedBanners = existing.map((b) =>
+      b.id === bannerId ? { ...b, ...updates } : b
+    );
+    const updated = {
+      ...formData,
+      banners: updatedBanners,
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
   };
 
   const handleRemoveBanner = (bannerId: string) => {
@@ -565,6 +583,9 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
       banners: updatedBanners,
       bannerUrl: updatedBanners[0]?.imageUrl || '',
     };
+    if (editingBannerId === bannerId) {
+      setEditingBannerId(null);
+    }
     setFormData(updated);
     onUpdateConfig(updated);
   };
@@ -583,12 +604,14 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   };
 
   const handleAddPresetBanner = (presetUrl: string, presetLabel: string) => {
+    const cleanTitle = presetLabel.replace(/^[^\w\s\u0980-\u09FF]+/, '').trim() || formData.storeName;
     const newBannerItem: StoreBanner = {
       id: `banner_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       imageUrl: presetUrl,
-      title: presetLabel.replace(/^[^\w\s\u0980-\u09FF]+/, '').trim() || formData.storeName,
-      subtitle: 'সেরা অফারে আকর্ষণীয় পণ্য সামগ্রী',
-      tag: 'হট অফার',
+      title: cleanTitle,
+      subtitle: 'সেরা মানের পণ্য ও অবিশ্বাস্য মূল্যছাড়!',
+      tag: '🔥 হট অফার',
+      buttonText: 'এখনই অর্ডার করুন',
       active: true,
     };
     const currentBanners = Array.isArray(formData.banners) ? [...formData.banners] : [];
@@ -601,8 +624,9 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
     };
     setFormData(updated);
     onUpdateConfig(updated);
-    setBannerUploadNotice('✅ প্রিসেট ব্যানার যুক্ত হয়েছে!');
-    setTimeout(() => setBannerUploadNotice(null), 4000);
+    setEditingBannerId(newBannerItem.id);
+    setBannerUploadNotice('✅ প্রিসেট ব্যানার যুক্ত হয়েছে! আপনি চাইলে টাইটেল ও পণ্য লিংক পরিবর্তন করতে পারেন।');
+    setTimeout(() => setBannerUploadNotice(null), 5000);
   };
 
   const handleLogoFileUpload = (file: File) => {
@@ -2306,48 +2330,62 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {formData.logoUrl ? (
-                        <div className="w-10 h-10 rounded-xl border border-slate-200 overflow-hidden bg-white shrink-0 flex items-center justify-center">
-                          <img
-                            src={formData.logoUrl}
-                            alt="Logo"
-                            className="w-full h-full object-contain"
-                            referrerPolicy="no-referrer"
-                          />
-                        </div>
-                      ) : (
-                        <div className="w-10 h-10 rounded-xl border border-dashed border-slate-300 bg-slate-50 shrink-0 flex items-center justify-center text-slate-400">
-                          <ImageIcon className="w-5 h-5" />
-                        </div>
-                      )}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full">
+                      <div className="flex items-center gap-2 shrink-0">
+                        {formData.logoUrl ? (
+                          <div className="relative group">
+                            <div className="w-10 h-10 rounded-xl border border-slate-200 overflow-hidden bg-white shrink-0 flex items-center justify-center">
+                              <img
+                                src={formData.logoUrl}
+                                alt="Logo"
+                                className="w-full h-full object-contain"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setFormData({ ...formData, logoUrl: '' })}
+                              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center text-[10px] cursor-pointer hover:bg-rose-600 shadow-xs"
+                              title="লোগো মুছুন"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="w-10 h-10 rounded-xl border border-dashed border-slate-300 bg-slate-50 shrink-0 flex items-center justify-center text-slate-400">
+                            <ImageIcon className="w-5 h-5" />
+                          </div>
+                        )}
 
-                      <label
-                        htmlFor="store-logo-upload"
-                        className="px-3 py-2 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0"
-                      >
-                        <Upload className="w-3.5 h-3.5 text-teal-700" />
-                        <span>ছবি আপলোড</span>
-                      </label>
-                      <input
-                        id="store-logo-upload"
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          if (e.target.files?.[0]) {
-                            handleLogoFileUpload(e.target.files[0]);
-                          }
-                        }}
-                      />
+                        <label
+                          htmlFor="store-logo-upload"
+                          className="px-3 py-2 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-teal-700" />
+                          <span>ছবি আপলোড</span>
+                        </label>
+                        <input
+                          id="store-logo-upload"
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files?.[0]) {
+                              handleLogoFileUpload(e.target.files[0]);
+                            }
+                          }}
+                        />
+                      </div>
 
-                      <input
-                        type="url"
-                        value={formData.logoUrl || ''}
-                        onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
-                        placeholder="অথবা লোগো URL পেস্ট করুন"
-                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
-                      />
+                      <div className="flex-1 min-w-0 w-full">
+                        <input
+                          type="url"
+                          value={formData.logoUrl || ''}
+                          onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
+                          placeholder="অথবা লোগো URL পেস্ট করুন"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -2481,74 +2519,314 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                 {/* Sub-fields for Image Banner */}
                 {formData.bannerStyle === 'image' && (
                   <div className="p-4 rounded-2xl bg-teal-50/40 border border-teal-200/60 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-teal-950 flex items-center gap-1.5">
                         <ImageIcon className="w-4 h-4 text-teal-700" />
-                        <span>মাল্টিপল ব্যানার ব্যবস্থাপনা ({Array.isArray(formData.banners) ? formData.banners.length : (formData.bannerUrl ? 1 : 0)}টি ব্যানার সক্রিয়)</span>
+                        <span>মাল্টিপল ব্যানার ও প্রডাক্ট লিংক ব্যবস্থাপনা ({Array.isArray(formData.banners) ? formData.banners.length : (formData.bannerUrl ? 1 : 0)}টি ব্যানার সক্রিয়)</span>
                       </div>
                       {bannerUploadNotice && (
-                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                        <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-1 rounded-lg">
                           {bannerUploadNotice}
                         </span>
                       )}
                     </div>
 
-                    {/* List of existing banners */}
-                    <div className="space-y-2.5">
+                    <p className="text-[11px] text-slate-600">
+                      💡 আপনি প্রতিটি ব্যানারের উপরে আকর্ষণীয় <strong>টাইটেল/শিরোনাম</strong>, <strong>সাব-টাইটেল</strong>, <strong>ট্যাগ</strong> লিখতে পারবেন এবং গ্রাহকের ক্লিকে সরাসরি নির্দিষ্ট <strong>পণ্য কেনার পেজ</strong> লিংক করতে পারবেন।
+                    </p>
+
+                    {/* List of existing banners with rich customization */}
+                    <div className="space-y-3">
                       {((Array.isArray(formData.banners) && formData.banners.length > 0)
                         ? formData.banners
                         : (formData.bannerUrl ? [{ id: 'banner_init', imageUrl: formData.bannerUrl, title: formData.bannerTitle || 'ব্যানার ১', active: true }] : [])
-                      ).map((b, idx) => (
-                        <div
-                          key={b.id || idx}
-                          className="flex items-center gap-3 p-2.5 bg-white rounded-xl border border-teal-200 shadow-2xs hover:border-teal-400 transition"
-                        >
-                          <img
-                            src={b.imageUrl}
-                            alt={`Banner ${idx + 1}`}
-                            className="w-20 h-12 object-cover rounded-lg border border-slate-200 shrink-0 bg-slate-100"
-                            referrerPolicy="no-referrer"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-slate-800 truncate">
-                                {b.title || `ব্যানার #${idx + 1}`}
-                              </span>
-                              <span
-                                className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                                  b.active !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
-                                }`}
-                              >
-                                {b.active !== false ? 'চলমান' : 'বন্ধ'}
-                              </span>
+                      ).map((b, idx) => {
+                        const isEditing = editingBannerId === b.id;
+                        const linkedProd = b.productId && products ? products.find((p) => p.id === b.productId) : null;
+
+                        return (
+                          <div
+                            key={b.id || idx}
+                            className={`p-3 bg-white rounded-2xl border transition shadow-2xs ${
+                              isEditing ? 'border-teal-500 ring-2 ring-teal-500/20 shadow-sm' : 'border-teal-200 hover:border-teal-400'
+                            }`}
+                          >
+                            {/* Summary Card Header */}
+                            <div className="flex items-center gap-3">
+                              <div className="relative shrink-0">
+                                <img
+                                  src={b.imageUrl}
+                                  alt={b.title || `Banner ${idx + 1}`}
+                                  className="w-20 h-13 object-cover rounded-xl border border-slate-200 bg-slate-100"
+                                  referrerPolicy="no-referrer"
+                                />
+                                {b.tag && (
+                                  <span className="absolute -top-1.5 -left-1 px-1.5 py-0.2 rounded-md bg-amber-400 text-slate-950 font-black text-[8px] uppercase tracking-wider shadow-2xs">
+                                    {b.tag}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                                    {b.title || `ব্যানার #${idx + 1}`}
+                                  </span>
+                                  <span
+                                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                      b.active !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                                    }`}
+                                  >
+                                    {b.active !== false ? 'সক্রিয়' : 'বন্ধ'}
+                                  </span>
+                                </div>
+
+                                {b.subtitle && (
+                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                    {b.subtitle}
+                                  </p>
+                                )}
+
+                                <div className="flex items-center gap-2 flex-wrap mt-1">
+                                  {linkedProd ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                      <ShoppingBag className="w-3 h-3 text-emerald-600" />
+                                      লিংকড পণ্য: {linkedProd.name} (৳{linkedProd.salePrice})
+                                    </span>
+                                  ) : b.linkUrl ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                                      <Globe className="w-3 h-3 text-blue-600" />
+                                      কাস্টম ওয়েব লিংক
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400">
+                                      কোনো নির্দিষ্ট পণ্য লিংক নেই
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingBannerId(isEditing ? null : b.id)}
+                                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition flex items-center gap-1 ${
+                                    isEditing
+                                      ? 'bg-teal-700 text-white'
+                                      : 'bg-teal-50 text-teal-800 hover:bg-teal-100 border border-teal-200'
+                                  }`}
+                                  title="টাইটেল ও লিংক এডিট করুন"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">{isEditing ? 'বন্ধ করুন' : 'এডিট'}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleBannerActive(b.id)}
+                                  className={`px-2 py-1.5 rounded-xl text-[11px] font-bold cursor-pointer transition ${
+                                    b.active !== false
+                                      ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                      : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                  }`}
+                                >
+                                  {b.active !== false ? 'বন্ধ' : 'চালু'}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveBanner(b.id)}
+                                  className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-xl cursor-pointer transition"
+                                  title="ব্যানার মুছুন"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </div>
-                            <p className="text-[10px] text-slate-400 truncate mt-0.5">
-                              {b.tag ? `ট্যাগ: ${b.tag}` : 'হোমস্ক্রিন ক্যারোসেলে প্রদর্শিত'}
-                            </p>
+
+                            {/* Rich Inline Editing Panel */}
+                            {isEditing && (
+                              <div className="mt-3 pt-3 border-t border-teal-100 space-y-3 bg-teal-50/50 p-3 rounded-xl">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs font-black text-teal-900 flex items-center gap-1.5">
+                                    <Sparkles className="w-3.5 h-3.5 text-teal-700" />
+                                    <span>ব্যানারের লেখা ও প্রোডাক্ট লিংক এডিট করুন</span>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  {/* Banner Title */}
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                                      <span>ব্যানারের প্রধান টাইটেল / শিরোনাম</span>
+                                      <span className="text-rose-500">*</span>
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={b.title || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { title: e.target.value })}
+                                      placeholder="উদাঃ ঈদের স্পেশাল ধামাকা অফার"
+                                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold text-slate-900 focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                                    />
+                                    <p className="text-[10px] text-slate-500">ব্যানারের ছবির উপর বড় ও স্পষ্ট শিরোনাম হিসেবে প্রদর্শিত হবে।</p>
+                                  </div>
+
+                                  {/* Banner Subtitle */}
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-800">ব্যানারের সাব-টাইটেল বা বিবরণ</label>
+                                    <input
+                                      type="text"
+                                      value={b.subtitle || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { subtitle: e.target.value })}
+                                      placeholder="উদাঃ সকল পণ্যে আকর্ষণীয় মূল্যছাড় ও ফ্রি ডেলিভারি!"
+                                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                                    />
+                                    <p className="text-[10px] text-slate-500">টাইটেলের নিচে ছোট ডেসক্রিপশন হিসেবে থাকবে।</p>
+                                  </div>
+
+                                  {/* Banner Tag / Badge */}
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-800">অফার ট্যাগ বা ব্যাজ</label>
+                                    <input
+                                      type="text"
+                                      value={b.tag || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { tag: e.target.value })}
+                                      placeholder="উদাঃ 🔥 ৫০% ছাড় / ⚡ মেগা অফার"
+                                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                                    />
+                                  </div>
+
+                                  {/* CTA Button Text */}
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-800">বাটন টেক্সট</label>
+                                    <input
+                                      type="text"
+                                      value={b.buttonText || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { buttonText: e.target.value })}
+                                      placeholder="উদাঃ এখনই অর্ডার করুন / পণ্যটি দেখুন"
+                                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                                    />
+                                  </div>
+
+                                  {/* Link to Product Dropdown */}
+                                  <div className="sm:col-span-2 space-y-1.5 p-3 rounded-xl bg-emerald-50/80 border border-emerald-300">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                                        <ShoppingBag className="w-4 h-4 text-emerald-700" />
+                                        <span>দোকানের প্রডাক্ট লিংক করুন (গ্রাহক ব্যানারে ক্লিক করলে সরাসরি পণ্যের অর্ডার পপআপ ওপেন হবে):</span>
+                                      </label>
+                                      {b.productId && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdateBannerItem(b.id, { productId: undefined })}
+                                          className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer"
+                                        >
+                                          লিংক সরান
+                                        </button>
+                                      )}
+                                    </div>
+                                    <select
+                                      value={b.productId || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { productId: e.target.value || undefined })}
+                                      className="w-full px-3 py-2 rounded-xl border border-emerald-400 bg-white text-xs sm:text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500/40 focus:outline-none"
+                                    >
+                                      <option value="">-- কোনো নির্দিষ্ট পণ্য লিংক নেই (সাধারণ ব্যানার) --</option>
+                                      {products && products.length > 0 ? (
+                                        products.map((p) => (
+                                          <option key={p.id} value={p.id}>
+                                            📦 {p.name} — ৳{p.salePrice} {p.category ? `[${p.category}]` : ''} {p.stock !== undefined ? `(স্টক: ${p.stock})` : ''}
+                                          </option>
+                                        ))
+                                      ) : (
+                                        <option disabled value="">(দোকানে কোনো পণ্য পাওয়া যায়নি)</option>
+                                      )}
+                                    </select>
+                                    {b.productId && linkedProd && (
+                                      <div className="flex items-center gap-2 text-[11px] text-emerald-900 font-bold bg-white/80 p-2 rounded-lg border border-emerald-200">
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                        <span>সংযুক্ত পণ্য: <strong>{linkedProd.name}</strong> (মূল্য: ৳{linkedProd.salePrice})</span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Custom External Link */}
+                                  <div className="sm:col-span-2 space-y-1">
+                                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                                      <Globe className="w-3.5 h-3.5 text-slate-500" />
+                                      <span>অথবা কাস্টম ওয়েব লিঙ্ক (যদি নির্দিষ্ট প্রডাক্ট ছাড়া অন্য কোনো লিঙ্ক দিতে চান):</span>
+                                    </label>
+                                    <input
+                                      type="url"
+                                      value={b.linkUrl || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { linkUrl: e.target.value })}
+                                      placeholder="উদাঃ https://..."
+                                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                                    />
+                                  </div>
+
+                                  {/* Live Preview of Banner Overlay */}
+                                  <div className="sm:col-span-2 space-y-1.5 pt-1">
+                                    <div className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                                      <Eye className="w-3.5 h-3.5 text-teal-700" />
+                                      <span>ব্যানার লাইভ প্রিভিউ (ওয়েবসাইটে যেমন প্রদর্শিত হবে):</span>
+                                    </div>
+                                    <div className="relative w-full h-36 sm:h-44 rounded-2xl overflow-hidden border border-slate-300 shadow-sm bg-slate-950">
+                                      <img
+                                        src={b.imageUrl}
+                                        alt={b.title || 'Preview'}
+                                        className="w-full h-full object-cover"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                      <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-transparent flex items-center p-4 sm:p-6">
+                                        <div className="max-w-xs space-y-1.5 text-white">
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            {b.tag && (
+                                              <span className="inline-block px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider">
+                                                {b.tag}
+                                              </span>
+                                            )}
+                                            {linkedProd && (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/90 text-white text-[10px] font-bold">
+                                                <ShoppingBag className="w-3 h-3" />
+                                                <span className="truncate max-w-[120px]">{linkedProd.name}</span>
+                                                <span className="font-black">৳{linkedProd.salePrice}</span>
+                                              </span>
+                                            )}
+                                          </div>
+                                          <h4 className="text-sm sm:text-base font-black leading-tight text-white drop-shadow-md">
+                                            {b.title || 'ব্যানার শিরোনাম এখানে আসবে'}
+                                          </h4>
+                                          {b.subtitle && (
+                                            <p className="text-[10px] sm:text-xs text-slate-200 line-clamp-2">
+                                              {b.subtitle}
+                                            </p>
+                                          )}
+                                          <div className="inline-flex items-center gap-1 px-3 py-1 bg-amber-400 text-slate-950 font-black text-[11px] rounded-lg shadow-xs">
+                                            <span>{b.buttonText || (linkedProd ? 'পণ্যটি কিনুন' : 'এখনই অর্ডার করুন')}</span>
+                                            <ArrowUpRight className="w-3 h-3" />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Done button */}
+                                  <div className="sm:col-span-2 flex justify-end pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingBannerId(null)}
+                                      className="px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center gap-1.5"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                      <span>সম্পন্ন করুন</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleBannerActive(b.id)}
-                              className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition ${
-                                b.active !== false
-                                  ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                                  : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                              }`}
-                            >
-                              {b.active !== false ? 'বন্ধ করুন' : 'চালু করুন'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveBanner(b.id)}
-                              className="p-1 text-red-500 hover:bg-red-50 rounded-lg cursor-pointer transition"
-                              title="ব্যানার মুছুন"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {/* Direct File Upload Area for New Banner */}
@@ -2585,12 +2863,12 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Direct URL input to add new banner */}
-                    <div className="flex gap-2">
+                    {/* Direct URL input to add new banner (Fully responsive to prevent overflow) */}
+                    <div className="flex flex-col sm:flex-row gap-2 w-full">
                       <input
                         type="url"
                         placeholder="অথবা ব্যানার ছবির URL পেস্ট করে যুক্ত করুন..."
-                        className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                        className="w-full sm:flex-1 min-w-0 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
                             const val = (e.target as HTMLInputElement).value.trim();
@@ -2609,9 +2887,10 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                             input.value = '';
                           }
                         }}
-                        className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold cursor-pointer transition shrink-0"
+                        className="w-full sm:w-auto px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold cursor-pointer transition shrink-0 flex items-center justify-center gap-1.5 shadow-xs"
                       >
-                        + ব্যানার যোগ করুন
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>+ ব্যানার যোগ করুন</span>
                       </button>
                     </div>
 

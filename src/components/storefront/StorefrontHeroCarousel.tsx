@@ -8,17 +8,23 @@ import {
   CheckCircle2,
   ThumbsUp,
   Sparkles,
+  ShoppingBag,
+  ExternalLink,
 } from 'lucide-react';
-import { OnlineStoreConfig } from '../../types';
+import { OnlineStoreConfig, Product } from '../../types';
 
 interface StorefrontHeroCarouselProps {
   onExploreClick?: () => void;
+  onSelectProduct?: (productId: string) => void;
   config?: OnlineStoreConfig;
+  products?: Product[];
 }
 
 export const StorefrontHeroCarousel: React.FC<StorefrontHeroCarouselProps> = ({
   onExploreClick,
+  onSelectProduct,
   config,
+  products = [],
 }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const timerRef = useRef<any>(null);
@@ -108,6 +114,24 @@ export const StorefrontHeroCarousel: React.FC<StorefrontHeroCarouselProps> = ({
               /* Custom Merchant Banners */
               customBanners.map((banner, index) => {
                 if (index !== currentSlide) return null;
+                const linkedProduct = banner.productId
+                  ? products.find((p) => p.id === banner.productId)
+                  : null;
+
+                const handleBannerAction = () => {
+                  if (banner.productId && onSelectProduct) {
+                    onSelectProduct(banner.productId);
+                  } else if (banner.linkUrl) {
+                    if (banner.linkUrl.startsWith('http')) {
+                      window.open(banner.linkUrl, '_blank', 'noopener,noreferrer');
+                    } else {
+                      window.location.href = banner.linkUrl;
+                    }
+                  } else if (onExploreClick) {
+                    onExploreClick();
+                  }
+                };
+
                 return (
                   <motion.div
                     key={`custom-banner-${banner.id || index}`}
@@ -115,44 +139,56 @@ export const StorefrontHeroCarousel: React.FC<StorefrontHeroCarouselProps> = ({
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -20 }}
                     transition={{ duration: 0.35 }}
-                    className="w-full h-full"
+                    className="w-full h-full cursor-pointer"
+                    onClick={handleBannerAction}
                   >
-                    <div className="relative w-full h-[190px] sm:h-[240px] md:h-[270px] flex items-center overflow-hidden">
+                    <div className="relative w-full h-[190px] sm:h-[240px] md:h-[270px] flex items-center overflow-hidden group">
                       <img
                         src={banner.imageUrl}
                         alt={banner.title || 'Store Banner'}
                         referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover transition duration-700 group-hover:scale-105"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/45 to-transparent flex items-center p-4 sm:p-8">
+                      <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-transparent flex items-center p-4 sm:p-8">
                         <div className="max-w-md space-y-2 text-white">
-                          {banner.tag && (
-                            <span className="inline-block px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] sm:text-xs font-black uppercase tracking-wider">
-                              {banner.tag}
-                            </span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {banner.tag && (
+                              <span className="inline-block px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] sm:text-xs font-black uppercase tracking-wider shadow-xs">
+                                {banner.tag}
+                              </span>
+                            )}
+                            {linkedProduct && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/90 text-white text-[10px] sm:text-xs font-bold backdrop-blur-xs border border-emerald-300/40">
+                                <ShoppingBag className="w-3 h-3" />
+                                <span className="truncate max-w-[120px] sm:max-w-[180px]">{linkedProduct.name}</span>
+                                <span className="font-black">৳{linkedProduct.salePrice}</span>
+                              </span>
+                            )}
+                          </div>
+
                           {banner.title && (
-                            <h2 className="text-base sm:text-2xl md:text-3xl font-black leading-tight drop-shadow-md">
+                            <h2 className="text-base sm:text-2xl md:text-3xl font-black leading-tight drop-shadow-md text-white">
                               {banner.title}
                             </h2>
                           )}
+
                           {banner.subtitle && (
                             <p className="text-xs sm:text-sm text-slate-200 drop-shadow-xs line-clamp-2">
                               {banner.subtitle}
                             </p>
                           )}
+
                           <button
                             type="button"
-                            onClick={() => {
-                              if (banner.linkUrl) {
-                                window.open(banner.linkUrl, '_blank', 'noopener,noreferrer');
-                              } else if (onExploreClick) {
-                                onExploreClick();
-                              }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleBannerAction();
                             }}
                             className="mt-1 px-4 py-1.5 sm:py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs sm:text-sm rounded-xl flex items-center gap-1.5 shadow-md transition active:scale-95 cursor-pointer"
                           >
-                            <span>এখনই অর্ডার করুন</span>
+                            <span>
+                              {banner.buttonText || (linkedProduct ? 'পণ্যটি কিনুন' : 'এখনই অর্ডার করুন')}
+                            </span>
                             <ArrowRight className="w-4 h-4" />
                           </button>
                         </div>

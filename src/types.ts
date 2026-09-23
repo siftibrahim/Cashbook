@@ -141,6 +141,7 @@ export interface Product {
   minStock?: number;
   minStockAlert?: number;
   sku?: string; // Product code / Barcode / QR Code identifier (e.g. PRD-101)
+  barcode?: string;
   qrCode?: string; // Base64 data or QR payload
   imageUrl?: string;
   description?: string;
@@ -156,6 +157,8 @@ export interface StoreBanner {
   tag?: string;
   discountText?: string;
   linkUrl?: string;
+  productId?: string;
+  buttonText?: string;
   active?: boolean;
 }
 

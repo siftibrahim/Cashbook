@@ -715,10 +715,17 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                   {/* Hero Banner Carousel */}
                   <StorefrontHeroCarousel
                     config={config}
+                    products={allStoreProducts}
                     onExploreClick={() => {
                       // Smooth scroll down to best offers
                       const el = document.getElementById('storefront-best-offers-section');
                       if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    onSelectProduct={(productId) => {
+                      const prod = allStoreProducts.find((p) => p.id === productId);
+                      if (prod) {
+                        setSelectedProductForDetail(prod);
+                      }
                     }}
                   />
 

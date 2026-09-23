@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Customer, Transaction, StoreProfile, DailyExpense, Product, OnlineStoreConfig } from '../types';
 import { formatMoney, getTodayDateString, formatBanglaDate } from '../utils/storage';
 import { DateWiseReportModal } from './DateWiseReportModal';
+import { InventoryReportModal } from './InventoryReportModal';
 import heroBannerImg from '../assets/images/store_banner_hero_1788852324640.jpg';
 import {
   TopUpIcon,
@@ -35,6 +36,7 @@ import {
   Package,
   Smartphone,
   CircleDollarSign,
+  TrendingUp,
   Settings,
   Boxes,
   Truck,
@@ -55,6 +57,7 @@ interface DashboardViewProps {
   onOpenAnalytics: () => void;
   onOpenCashbook: () => void;
   onOpenReport: () => void;
+  onOpenInventoryReport?: () => void;
   onOpenSalesHistory?: () => void;
   onOpenSubscription?: () => void;
   onOpenSettings?: () => void;
@@ -76,10 +79,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   transactions,
   store,
   expenses = [],
+  products = [],
   onOpenNewCustomer,
   onNavigateToTab,
   onOpenCashbook,
   onOpenReport,
+  onOpenInventoryReport,
   onOpenSalesHistory,
   onOpenSettings,
   onOpenOnlineStore,
@@ -97,6 +102,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const today = getTodayDateString();
   const [isDateReportModalOpen, setIsDateReportModalOpen] = useState(false);
+  const [isInventoryReportOpen, setIsInventoryReportOpen] = useState(false);
   const [metricViewMode, setMetricViewMode] = useState<'today' | 'date_range'>('today');
 
   // Helper to normalize any date format to YYYY-MM-DD
@@ -236,6 +242,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   }, [safeTransactions, expenses, safeCustomers, today]);
 
+  // Overall customer dues (মোট বাকি পাওনা)
+  const totalDue = useMemo(() => {
+    return safeCustomers.reduce((acc, c) => {
+      if (!c) return acc;
+      const bal = Number(c.balance || 0);
+      return bal > 0 ? acc + bal : acc;
+    }, 0);
+  }, [safeCustomers]);
+
+  // Overall total collection (মোট আদায়)
+  const totalCollected = useMemo(() => {
+    let collected = 0;
+    Object.values(safeTransactions).forEach((txList) => {
+      if (!Array.isArray(txList)) return;
+      txList.forEach((tx) => {
+        if (!tx) return;
+        if (tx.type === 'payment') {
+          collected += Number(tx.amount || 0);
+        } else if (tx.type === 'sale') {
+          if (tx.paidAmount) {
+            collected += Number(tx.paidAmount || 0);
+          }
+        }
+      });
+    });
+    return collected;
+  }, [safeTransactions]);
+
   // Compute comprehensive Date Range metrics based on startDate and endDate
   const dateRangeMetrics = useMemo(() => {
     let income = 0; // cash in (payment received + paid portion of sales + other income)
@@ -365,9 +399,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     },
     {
       id: 'inventory_report',
-      title: 'ইনভেনটরি রিপোর্ট',
+      title: 'ইনভেন্টরি রিপোর্ট',
       icon: ReportAnalyticsIcon,
-      action: onOpenReport,
+      action: () => {
+        if (onOpenInventoryReport) {
+          onOpenInventoryReport();
+        } else {
+          setIsInventoryReportOpen(true);
+        }
+      },
     },
     {
       id: 'shop_settings',
@@ -512,12 +552,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        <div id="dashboard-metric-cards-grid" className="grid grid-cols-4 gap-1.5 sm:gap-2">
+        <div id="dashboard-metric-cards-grid" className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-2">
           {metricViewMode === 'today' ? (
             <>
-              {/* Card 1: আজকের আয় */}
-              <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+              {/* Card 1: মোট বাকি (Total Due) */}
+              <div
+                onClick={() => onNavigateToTab('customers')}
+                className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] hover:border-rose-300 shadow-xs hover:shadow-md transition flex flex-col justify-between text-center cursor-pointer group"
+                title="বকেয়া বাকি দেখতে ক্লিক করুন"
+              >
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-amber-300 group-hover:scale-105 transition flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+                  <CircleDollarSign className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
+                </div>
+                <div>
+                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-700 leading-tight truncate">মোট বাকি</p>
+                  <p className="text-xs sm:text-sm md:text-base font-black text-rose-700 tracking-tight mt-0.5 leading-tight">
+                    ৳ {formatMoney(totalDue)}
+                  </p>
+                  <p className="text-[8.5px] sm:text-[9.5px] text-rose-600 font-bold leading-none mt-0.5 truncate">
+                    বকেয়া পাওনা
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 2: মোট আদায় (Total Collected) */}
+              <div
+                onClick={onOpenCashbook}
+                className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] hover:border-emerald-300 shadow-xs hover:shadow-md transition flex flex-col justify-between text-center cursor-pointer group"
+                title="ক্যাশবুকে আদায়ের হিসাব দেখতে ক্লিক করুন"
+              >
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-emerald-300 group-hover:scale-105 transition flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+                  <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
+                </div>
+                <div>
+                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-700 leading-tight truncate">মোট আদায়</p>
+                  <p className="text-xs sm:text-sm md:text-base font-black text-emerald-700 tracking-tight mt-0.5 leading-tight">
+                    ৳ {formatMoney(totalCollected)}
+                  </p>
+                  <p className="text-[8.5px] sm:text-[9.5px] text-emerald-700 font-bold leading-none mt-0.5 truncate">
+                    সর্বমোট ক্যাশ ইন
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 3: আজকের আয় */}
+              <div
+                onClick={onOpenCashbook}
+                className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] hover:border-emerald-300 shadow-xs hover:shadow-md transition flex flex-col justify-between text-center cursor-pointer group"
+                title="আজকের আয় দেখতে ক্লিক করুন"
+              >
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white group-hover:scale-105 transition flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <ArrowUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
                 </div>
                 <div>
@@ -531,9 +615,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Card 2: আজকের ব্যয় */}
-              <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+              {/* Card 4: আজকের ব্যয় */}
+              <div
+                onClick={onOpenCashbook}
+                className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] hover:border-rose-300 shadow-xs hover:shadow-md transition flex flex-col justify-between text-center cursor-pointer group"
+                title="আজকের খরচ দেখতে ক্লিক করুন"
+              >
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white group-hover:scale-105 transition flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <ArrowDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
                 </div>
                 <div>
@@ -547,7 +635,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Card 3: মোট লেনদেন */}
+              {/* Card 5: মোট লেনদেন */}
               <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] shadow-xs flex flex-col justify-between text-center">
                 <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
@@ -563,9 +651,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Card 4: সর্বমোট সম্প্রী */}
-              <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+              {/* Card 6: সর্বমোট খাতা */}
+              <div
+                onClick={() => onNavigateToTab('customers')}
+                className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] hover:border-teal-300 shadow-xs hover:shadow-md transition flex flex-col justify-between text-center cursor-pointer group"
+                title="কাস্টমার তালিকা দেখতে ক্লিক করুন"
+              >
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white group-hover:scale-105 transition flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
                 </div>
                 <div>
@@ -582,7 +674,42 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           ) : (
             <>
               {/* Mode: Date Range Metrics */}
-              {/* Card 1: মোট আয় */}
+              {/* Card 1: মোট বাকি */}
+              <div
+                onClick={() => onNavigateToTab('customers')}
+                className="bg-white rounded-xl p-1.5 sm:p-2 border border-rose-200 shadow-xs flex flex-col justify-between text-center cursor-pointer"
+              >
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-amber-300 flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+                  <CircleDollarSign className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
+                </div>
+                <div>
+                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-700 leading-tight truncate">মোট বাকি</p>
+                  <p className="text-xs sm:text-sm md:text-base font-black text-rose-700 tracking-tight mt-0.5 leading-tight">
+                    ৳ {formatMoney(totalDue)}
+                  </p>
+                  <p className="text-[8.5px] sm:text-[9.5px] text-rose-600 font-bold leading-none mt-0.5 truncate">
+                    বকেয়া পাওনা
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 2: মোট আদায় (Date range collected) */}
+              <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-emerald-200 shadow-xs flex flex-col justify-between text-center">
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
+                  <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
+                </div>
+                <div>
+                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-emerald-800 leading-tight truncate">মোট আদায়</p>
+                  <p className="text-xs sm:text-sm md:text-base font-black text-emerald-800 tracking-tight mt-0.5 leading-tight">
+                    ৳ {formatMoney(dateRangeMetrics.income)}
+                  </p>
+                  <p className="text-[8.5px] sm:text-[9.5px] text-emerald-600 font-bold leading-none mt-0.5 truncate">
+                    উক্ত তারিখে আদায়
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 3: মোট আয় */}
               <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-emerald-300 shadow-xs flex flex-col justify-between text-center">
                 <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <ArrowUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
@@ -598,7 +725,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Card 2: মোট ব্যয় */}
+              {/* Card 4: মোট ব্যয় */}
               <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-rose-300 shadow-xs flex flex-col justify-between text-center">
                 <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-rose-700 text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <ArrowDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
@@ -614,7 +741,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Card 3: নিট লাভ / ক্যাশ */}
+              {/* Card 5: নিট লাভ / ক্যাশ */}
               <div
                 className={`rounded-xl p-1.5 sm:p-2 border shadow-xs flex flex-col justify-between text-center ${
                   dateRangeMetrics.netProfit >= 0 ? 'bg-emerald-50/70 border-emerald-400' : 'bg-rose-50/70 border-rose-400'
@@ -642,7 +769,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Card 4: মোট পণ্য বিক্রি */}
+              {/* Card 6: মোট পণ্য বিক্রি */}
               <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-teal-300 shadow-xs flex flex-col justify-between text-center">
                 <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-teal-800 text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
                   <BarChart3 className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
@@ -866,6 +993,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         expenses={expenses || []}
         store={store}
         onClose={() => setIsDateReportModalOpen(false)}
+      />
+
+      {/* Inventory & Stock Report Modal */}
+      <InventoryReportModal
+        isOpen={isInventoryReportOpen}
+        onClose={() => setIsInventoryReportOpen(false)}
+        products={products || []}
+        store={store}
+        onNavigateToInventory={() => onNavigateToTab('inventory')}
       />
     </div>
   );
