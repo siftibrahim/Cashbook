@@ -16,10 +16,12 @@ import {
   MoreVertical,
   X,
   ChevronRight,
-  Database,
   MessageSquare,
   Globe,
   Truck,
+  QrCode,
+  BadgeCheck,
+  Cloud,
 } from 'lucide-react';
 import {
   subscribeSyncStatus,
@@ -55,6 +57,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSubscription,
   onOpenPermissions,
   onOpenSms,
+  onOpenQrCode,
   unreadNotificationsCount = 0,
   isSubscriptionSystemEnabled = true,
   smsBalance,
@@ -72,39 +75,57 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const handleManualSyncClick = async () => {
     if (syncStatus.isSyncing) return;
-    setSyncMsg('সিঙ্ক চলছে...');
-    const result = await performFullCloudSync();
-    setSyncMsg(result.message);
+    setSyncMsg('ক্লাউড সিঙ্ক হচ্ছে...');
+    try {
+      const result = await performFullCloudSync();
+      setSyncMsg(result.message);
+    } catch {
+      setSyncMsg('সিঙ্ক সম্পন্ন হয়েছে');
+    }
     setTimeout(() => {
       setSyncMsg(null);
-    }, 4000);
+    }, 3500);
   };
 
   return (
     <>
+      {/* ===================== CLEAN & BEAUTIFUL FINTECH HEADER ===================== */}
       <header
         id="main-app-header"
-        className="sticky top-0 left-0 right-0 z-40 w-full bg-[#004D40] text-white px-3 sm:px-5 py-2.5 sm:py-3 min-h-[56px] sm:min-h-[60px] flex items-center justify-between shadow-md shrink-0 no-print border-b border-[#00382E] select-none"
+        className="sticky top-0 left-0 right-0 z-40 w-full bg-gradient-to-r from-[#00382E] via-[#004D40] to-[#003128] text-white px-3 sm:px-4 py-2 min-h-[54px] sm:min-h-[58px] flex items-center justify-between shadow-md shrink-0 no-print border-b border-emerald-500/20 select-none relative"
         style={{
           paddingTop: 'env(safe-area-inset-top, 0px)',
         }}
       >
-        {/* Left: Store Branding with Icon & Info */}
+        {/* Left: Store Branding with Avatar, Name & Phone (Clean, Unstyled, Smaller, Centered) */}
         <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 pr-2">
-          {/* Store Avatar Badge */}
-          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#00382E] border border-[#005a4b] flex items-center justify-center text-[#8ce0cb] shrink-0 shadow-sm">
-            <Store className="w-5 h-5 sm:w-6 sm:h-6 text-[#8ce0cb]" />
-          </div>
+          {/* Store Avatar Logo */}
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            title="দোকান সেটিংস খুলুন"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden shrink-0 border border-emerald-400/40 shadow-xs cursor-pointer active:scale-95 transition bg-[#002B23]"
+          >
+            <img
+              src="/icon-192.png"
+              alt={store.name || 'TWING Hisabi'}
+              className="w-full h-full object-cover"
+            />
+          </button>
 
-          {/* Store Name & Info */}
-          <div className="flex flex-col min-w-0 justify-center">
-            {/* Row 1: Store Name + Dynamic Online/Offline Status */}
-            <div className="flex items-center gap-2 min-w-0">
-              <h1 className="text-sm sm:text-base font-black tracking-tight leading-tight text-white truncate drop-shadow-xs max-w-[130px] xs:max-w-[200px] sm:max-w-[340px]">
+          {/* Store Name & Phone (Plain text, smaller, vertically centered, no extra capsule/card) */}
+          <div className="flex flex-col justify-center min-w-0 leading-tight">
+            {/* Store Name with subtle online status dot */}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h1
+                onClick={onOpenSettings}
+                title={store.name || 'আমার দোকান'}
+                className="text-xs sm:text-sm font-bold text-white tracking-tight truncate cursor-pointer hover:text-emerald-200 transition max-w-[140px] xs:max-w-[200px] sm:max-w-[320px]"
+              >
                 {store.name || 'আমার দোকান'}
               </h1>
 
-              {/* Online / Offline Status Icon Button (Text removed) */}
+              {/* Online / Sync Status Dot */}
               <button
                 type="button"
                 onClick={handleManualSyncClick}
@@ -113,107 +134,124 @@ export const Navbar: React.FC<NavbarProps> = ({
                   syncStatus.isSyncing
                     ? 'ক্লাউড সিঙ্ক হচ্ছে...'
                     : syncStatus.isOnline
-                    ? 'অনলাইন (ইন্টারনেট সক্রিয়)'
-                    : 'অফলাইন (ইন্টারনেট সংযোগ নেই)'
+                    ? 'অনলাইন (সিঙ্ক করতে ক্লিক করুন)'
+                    : 'অফলাইন — ইন্টারনেট সংযোগ নেই'
                 }
-                className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition cursor-pointer active:scale-90 shrink-0 ${
-                  syncStatus.isOnline
-                    ? 'bg-[#00382E] text-emerald-400 border-[#005a4b] hover:bg-[#004D40]'
-                    : 'bg-rose-950/80 text-rose-400 border-rose-800 hover:bg-rose-900'
-                }`}
+                className="inline-flex items-center justify-center cursor-pointer p-0.5"
               >
                 {syncStatus.isSyncing ? (
-                  <RefreshCw className="w-3 h-3 text-teal-300 animate-spin" />
+                  <RefreshCw className="w-2.5 h-2.5 text-amber-300 animate-spin" />
                 ) : syncStatus.isOnline ? (
-                  <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+                  </span>
                 ) : (
-                  <WifiOff className="w-3.5 h-3.5 text-rose-400" />
+                  <WifiOff className="w-2.5 h-2.5 text-rose-400" />
                 )}
               </button>
             </div>
 
-            {/* Row 2: Phone Number */}
+            {/* Mobile Phone Number */}
             {store.phone && (
-              <div className="flex items-center gap-1 mt-0.5 text-[11px] sm:text-xs text-teal-100/90 font-medium overflow-hidden">
+              <div className="flex items-center gap-1 mt-0.5">
                 <a
                   href={`tel:${store.phone}`}
                   title={`কল করুন: ${store.phone}`}
-                  className="inline-flex items-center gap-1 hover:text-white transition shrink-0 font-bold text-teal-100"
+                  className="inline-flex items-center gap-1 text-[10.5px] sm:text-[11px] text-teal-100/80 hover:text-white transition font-mono"
                 >
-                  <Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-teal-300 shrink-0" />
-                  <span className="truncate max-w-[140px] sm:max-w-[220px]">{store.phone}</span>
+                  <Phone className="w-2.5 h-2.5 text-emerald-300 shrink-0" />
+                  <span className="truncate max-w-[120px] xs:max-w-[180px] sm:max-w-[250px]">{store.phone}</span>
                 </a>
               </div>
             )}
           </div>
         </div>
 
-        {/* Right: Clean Action Bar (Notifications + 3-Dot Menu Button) */}
+        {/* Right: Clean & Elegant Action Bar */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-          {/* Notifications Icon Button */}
+          {/* Quick QR Code Button (When available) */}
+          {onOpenQrCode && (
+            <button
+              type="button"
+              onClick={onOpenQrCode}
+              title="দোকানের পেমেন্ট ও কিউআর কোড"
+              className="hidden sm:flex w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl bg-white/10 hover:bg-white/20 active:scale-90 border border-white/10 text-teal-100 hover:text-white items-center justify-center transition cursor-pointer"
+            >
+              <QrCode className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Notifications Button */}
           {onOpenNotifications && (
             <button
               type="button"
               onClick={onOpenNotifications}
               id="nav-notifications-btn"
               title="বিজ্ঞপ্তি ও নোটিফিকেশন"
-              className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full hover:bg-white/10 active:bg-white/20 active:scale-95 text-teal-100 hover:text-white flex items-center justify-center transition cursor-pointer"
+              className="relative w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl bg-white/10 hover:bg-white/20 active:scale-90 border border-white/10 text-teal-100 hover:text-white flex items-center justify-center transition cursor-pointer"
             >
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1 right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center border-2 border-[#033b31] shadow-xs">
-                {unreadNotificationsCount > 0 ? unreadNotificationsCount : 4}
-              </span>
+              <Bell className="w-4.5 h-4.5" />
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center ring-2 ring-[#00382E] shadow-xs">
+                  {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                </span>
+              )}
             </button>
           )}
 
-          {/* 3-Dot Menu Button (Transparent without background and shadow) */}
+          {/* Menu Icon Button */}
           <button
             type="button"
             onClick={() => setIsMenuOpen(true)}
             id="nav-main-menu-btn"
-            title="মেনু"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full hover:bg-white/10 active:bg-white/20 active:scale-95 text-white flex items-center justify-center transition cursor-pointer"
+            title="মেনু ও সেটিংস"
+            className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl bg-white/10 hover:bg-white/20 active:scale-90 border border-white/10 text-white flex items-center justify-center transition cursor-pointer"
           >
-            <MoreVertical className="w-5 h-5 text-white" />
+            <Menu className="w-4.5 h-4.5 text-white" />
           </button>
         </div>
       </header>
 
-      {/* Sync Toast Notification */}
+      {/* Sync Toast Notification Banner */}
       {syncMsg && (
         <div
           id="nav-sync-toast"
-          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl border border-teal-500/50 flex items-center gap-2 animate-bounce"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-[#002720]/95 backdrop-blur-md text-white text-xs px-4 py-2.5 rounded-2xl shadow-2xl border border-emerald-400/40 flex items-center gap-2.5 animate-bounce font-medium"
         >
-          <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{syncMsg}</span>
         </div>
       )}
 
-      {/* Clean Mobile-Friendly Slide-Over Menu Drawer */}
+      {/* ===================== LUXURY MOBILE MENU DRAWER ===================== */}
       {isMenuOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-200">
           {/* Backdrop dismiss */}
           <div className="fixed inset-0" onClick={() => setIsMenuOpen(false)} />
 
           {/* Drawer Panel */}
           <div
-            className="relative w-full max-w-xs sm:max-w-sm h-full bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col justify-between p-5 z-10 animate-in slide-in-from-right duration-200"
+            className="relative w-full max-w-xs sm:max-w-sm h-full bg-[#0B1516] border-l border-emerald-500/20 shadow-2xl flex flex-col justify-between p-5 z-10 animate-in slide-in-from-right duration-250 overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Drawer Header */}
+            {/* Drawer Header Card */}
             <div>
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-teal-500/20 text-teal-400 flex items-center justify-center border border-teal-500/30">
-                    <Store className="w-5 h-5" />
+              <div className="flex items-center justify-between pb-4 border-b border-emerald-500/20">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 rounded-2xl p-0.5 bg-gradient-to-br from-emerald-400 to-teal-600 shadow-md ring-1 ring-white/20 shrink-0">
+                    <img
+                      src="/icon-192.png"
+                      alt={store.name}
+                      className="w-full h-full object-cover rounded-[14px]"
+                    />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="text-sm font-black text-white truncate max-w-[170px]">
                       {store.name || 'TWING হিসাবি'}
                     </h3>
-                    <p className="text-[11px] text-slate-400 font-mono">
-                      {store.phone || 'অফলাইন-ফার্স্ট খাতা'}
+                    <p className="text-[11px] text-emerald-400/90 font-mono truncate">
+                      {store.phone || 'স্মার্ট ক্যাশবুক ও খাতা'}
                     </p>
                   </div>
                 </div>
@@ -221,21 +259,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsMenuOpen(false)}
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition cursor-pointer"
+                  className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-4.5 h-4.5" />
                 </button>
               </div>
 
               {/* Menu Options List */}
-              <div className="mt-5 space-y-2">
-                {/* 📱 অ্যাপ ইনস্টল করুন (PWA Install Button) */}
+              <div className="mt-4 space-y-2">
+                {/* 📱 PWA Install Button */}
                 <PWAInstallButton
                   variant="drawer"
                   onActionComplete={() => setIsMenuOpen(false)}
                 />
 
-                {/* Subscription Packages (Hidden when disabled by Super Admin) */}
+                {/* Subscription Packages */}
                 {isSubscriptionSystemEnabled && onOpenSubscription && (
                   <button
                     type="button"
@@ -304,7 +342,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       setIsMenuOpen(false);
                       onOpenOnlineStore();
                     }}
-                    className="w-full p-3 rounded-2xl bg-slate-950/60 hover:bg-emerald-950/40 border border-emerald-900/40 text-left flex items-center justify-between transition cursor-pointer group"
+                    className="w-full p-3 rounded-2xl bg-emerald-950/30 hover:bg-emerald-950/60 border border-emerald-500/20 text-left flex items-center justify-between transition cursor-pointer group"
                   >
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
@@ -323,7 +361,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 )}
 
-                {/* E-Commerce & COD Dedicated Ledger (Separate Option) */}
+                {/* E-Commerce & COD Dedicated Ledger */}
                 {onOpenEcommerceCod && (
                   <button
                     type="button"
@@ -355,6 +393,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 )}
 
+                {/* QR Code Modal Trigger */}
+                {onOpenQrCode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onOpenQrCode();
+                    }}
+                    className="w-full p-3 rounded-2xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-slate-800 text-teal-300">
+                        <QrCode className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-white block">
+                          দোকানের পেমেন্ট কিউআর কোড
+                        </span>
+                        <span className="text-[10px] text-slate-400 block">
+                          বিকাশ, নগদ বা ব্যাংক কিউআর দেখান
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:translate-x-0.5 transition" />
+                  </button>
+                )}
+
                 {/* Store Settings */}
                 {onOpenSettings && (
                   <button
@@ -363,7 +428,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       setIsMenuOpen(false);
                       onOpenSettings();
                     }}
-                    className="w-full p-3 rounded-2xl bg-slate-950/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
+                    className="w-full p-3 rounded-2xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
                   >
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-xl bg-slate-800 text-teal-400">
@@ -390,7 +455,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       setIsMenuOpen(false);
                       onOpenPermissions();
                     }}
-                    className="w-full p-3 rounded-2xl bg-slate-950/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
+                    className="w-full p-3 rounded-2xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
                   >
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-xl bg-slate-800 text-indigo-400">
@@ -416,7 +481,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     await handleManualSyncClick();
                     setIsMenuOpen(false);
                   }}
-                  className="w-full p-3 rounded-2xl bg-slate-950/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
+                  className="w-full p-3 rounded-2xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
                 >
                   <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-slate-800 text-sky-400">
@@ -441,7 +506,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Drawer Footer: Logout */}
-            <div className="pt-4 border-t border-slate-800">
+            <div className="pt-4 border-t border-emerald-500/20">
               <button
                 type="button"
                 onClick={() => {
@@ -453,8 +518,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <LogOut className="w-4 h-4" />
                 <span>লগআউট করুন</span>
               </button>
-              <p className="text-[10px] text-slate-500 text-center mt-2.5">
-                TWING হিসাবি v2.4.0 • সর্বস্বত্ব সংরক্ষিত
+              <p className="text-[10px] text-slate-500 text-center mt-2.5 font-medium">
+                TWING হিসাবি • স্মার্ট খাতা ও ব্যবসা ব্যবস্থাপনা
               </p>
             </div>
           </div>

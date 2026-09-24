@@ -64,11 +64,11 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
 
           {/* App Icon + Title */}
           <div className="flex items-center gap-3.5">
-            <div className="w-14 h-14 rounded-2xl bg-white p-1 shadow-lg shrink-0 border-2 border-emerald-300 flex items-center justify-center overflow-hidden">
+            <div className="w-16 h-16 rounded-2xl bg-[#00382E] shadow-lg shrink-0 border border-[#00796B] flex items-center justify-center overflow-hidden">
               <img
                 src="/icon-192.png"
                 alt="TWING Hisabi App Icon"
-                className="w-full h-full object-cover rounded-xl"
+                className="w-full h-full object-cover"
               />
             </div>
             <div>

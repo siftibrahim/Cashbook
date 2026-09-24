@@ -113,6 +113,11 @@ import {
 } from './services/adminService';
 import { SupportMessage, Announcement, AppUpdateConfig, AdminSession, AdminNotification } from './types/adminTypes';
 import { Store, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { AppSplashIntro } from './components/animations/AppSplashIntro';
+import { NetworkStatusBanner } from './components/animations/NetworkStatusBanner';
+import { AnimatedToastContainer } from './components/animations/AnimatedToastContainer';
+import { CelebrationOverlay, CelebrationData } from './components/animations/CelebrationOverlay';
 
 export const App: React.FC = () => {
   const [store, setStore] = useState<StoreProfile>(() => {
@@ -262,6 +267,14 @@ export const App: React.FC = () => {
   const [toasts, setToasts] = useState<Array<{ id: string; message: string }>>([]);
   const isInitialSyncDone = useRef(false);
   const toastSeqRef = useRef(0);
+
+  // App Opening Splash Animation state
+  const [showSplash, setShowSplash] = useState<boolean>(() => {
+    return !sessionStorage.getItem('twing_splash_completed');
+  });
+
+  // Celebration Animation Modal State
+  const [celebrationData, setCelebrationData] = useState<CelebrationData | null>(null);
 
   const showToast = (message: string) => {
     toastSeqRef.current += 1;
@@ -1073,15 +1086,37 @@ export const App: React.FC = () => {
 
     setIsTxModalOpen(false);
 
-    // Audio Feedback
+    // Audio & Visual Celebration Feedback
     if (store.enableSoundEffects !== false) {
       if (txType === 'payment') {
         playPaymentChime();
         if (newBal <= 0) {
           triggerConfettiCelebration();
+          setCelebrationData({
+            isOpen: true,
+            type: 'due_clear',
+            title: 'বকেয়া সম্পূর্ণ পরিশোধ হয়েছে! 🎉',
+            amount: data.amount,
+            subtitle: `${activeCustomer.name}-এর সমস্ত বকেয়া বাকি পরিশোধ সম্পন্ন হয়েছে`,
+          });
+        } else {
+          setCelebrationData({
+            isOpen: true,
+            type: 'payment',
+            title: 'টাকা জমা সফল হয়েছে! ৳',
+            amount: data.amount,
+            subtitle: `${activeCustomer.name}-এর ব্যালেন্স হালনাগাদ করা হয়েছে`,
+          });
         }
       } else {
         playSaleTone();
+        setCelebrationData({
+          isOpen: true,
+          type: 'sale',
+          title: 'বাকি বিক্রি সম্পন্ন হয়েছে!',
+          amount: data.amount,
+          subtitle: `${activeCustomer.name}-এর খাতায় বাকি যোগ করা হয়েছে`,
+        });
       }
     }
 
@@ -1427,8 +1462,21 @@ export const App: React.FC = () => {
     }
 
     if (store.enableSoundEffects) {
-      playSaleTone();
+      if (params.paidAmount >= params.netAmount && params.netAmount > 0) {
+        playPaymentChime();
+        triggerConfettiCelebration();
+      } else {
+        playSaleTone();
+      }
     }
+
+    setCelebrationData({
+      isOpen: true,
+      type: 'sale',
+      title: 'POS বিক্রি সফল হয়েছে! 🎉',
+      amount: params.netAmount,
+      subtitle: `মোট ${params.items.length}টি পণ্যের বিক্রি ও ক্যাশ মেমো প্রস্তুত`,
+    });
   };
 
   // Restore backup and push to Cloud
@@ -1629,8 +1677,8 @@ export const App: React.FC = () => {
     return (
       <div className="w-full h-[100dvh] bg-slate-100 flex flex-col items-center justify-center p-4">
         <div className="w-full max-w-sm bg-white p-7 rounded-3xl shadow-xl border border-slate-200 text-center flex flex-col items-center gap-3 animate-in fade-in">
-          <div className="w-14 h-14 rounded-2xl bg-[#004D40] text-white flex items-center justify-center shadow-lg font-black text-2xl border-2 border-teal-600">
-            <Store className="w-7 h-7 text-white" />
+          <div className="w-16 h-16 rounded-2xl bg-[#00382E] text-white flex items-center justify-center shadow-lg border border-[#00796B] overflow-hidden">
+            <img src="/icon-192.png" alt={store.name} className="w-full h-full object-cover" />
           </div>
           <h2 className="text-lg font-black text-slate-800 tracking-tight">{store.name}</h2>
           <div className="flex items-center gap-2 text-xs font-bold text-teal-800 mt-2 bg-teal-50 px-3.5 py-1.5 rounded-full border border-teal-200">
@@ -1654,17 +1702,25 @@ export const App: React.FC = () => {
   if (!isLoggedIn) {
     return (
       <div className="w-full h-full min-h-[100dvh] flex flex-col items-center justify-start p-0 text-slate-100 font-sans antialiased overflow-y-auto smooth-scroll-container selection:bg-teal-500 selection:text-white bg-[#030712]">
-        {/* Toast Notifications */}
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none flex flex-col gap-2 no-print">
-          {toasts.map((t, idx) => (
-            <div
-              key={t.id || `toast-${idx}`}
-              className="bg-slate-900/95 text-white px-4 py-3 rounded-2xl text-xs font-bold shadow-xl text-center border border-slate-700 animate-in fade-in slide-in-from-top-2"
-            >
-              {t.message}
-            </div>
-          ))}
-        </div>
+        {/* Animated Toast Notifications */}
+        <AnimatedToastContainer
+          toasts={toasts}
+          onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
+        />
+
+        {/* Global Offline / Online Status Banner */}
+        <NetworkStatusBanner onShowToast={showToast} />
+
+        {/* App Launch Splash Animation */}
+        {showSplash && (
+          <AppSplashIntro
+            storeName={store?.name}
+            onFinish={() => {
+              sessionStorage.setItem('twing_splash_completed', '1');
+              setShowSplash(false);
+            }}
+          />
+        )}
 
         <AuthScreen
           store={store}
@@ -1684,17 +1740,31 @@ export const App: React.FC = () => {
 
   return (
     <div className="w-full h-full min-h-full flex flex-col items-center justify-start p-0 text-slate-800 font-sans antialiased overflow-hidden selection:bg-teal-500 selection:text-white bg-[#004D40]">
-      {/* Toast Notifications */}
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm pointer-events-none flex flex-col gap-2 no-print">
-        {toasts.map((t, idx) => (
-          <div
-            key={t.id || `toast-${idx}`}
-            className="bg-slate-900/95 text-white px-4 py-3 rounded-2xl text-xs font-bold shadow-xl text-center border border-slate-700 animate-in fade-in slide-in-from-top-2"
-          >
-            {t.message}
-          </div>
-        ))}
-      </div>
+      {/* Animated Toast Notifications */}
+      <AnimatedToastContainer
+        toasts={toasts}
+        onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
+      />
+
+      {/* Global Offline / Online Status Banner */}
+      <NetworkStatusBanner onShowToast={showToast} />
+
+      {/* Celebration Modal / Overlay for Sales & Due Clears */}
+      <CelebrationOverlay
+        data={celebrationData}
+        onClose={() => setCelebrationData(null)}
+      />
+
+      {/* App Launch Splash Animation */}
+      {showSplash && (
+        <AppSplashIntro
+          storeName={store?.name}
+          onFinish={() => {
+            sessionStorage.setItem('twing_splash_completed', '1');
+            setShowSplash(false);
+          }}
+        />
+      )}
 
       {/* Main Container Card */}
       <div className="w-full max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[1536px] h-full min-h-full flex flex-col bg-white overflow-hidden relative shadow-2xl xl:border-x xl:border-emerald-950/20">
@@ -1751,41 +1821,50 @@ export const App: React.FC = () => {
                   onOpenSupport={() => setIsSupportModalOpen(true)}
                 />
               ) : activeCustomerId && activeCustomer ? (
-                <CustomerDetail
-                  customer={activeCustomer}
-                  transactions={activeTxList}
-                  onBack={() => setActiveCustomerId(null)}
-                  onOpenTransaction={(type) => {
-                    setTxType(type);
-                    setIsTxModalOpen(true);
-                  }}
-                  onOpenEditCustomer={() => {
-                    setEditingCustomer(activeCustomer);
-                    setIsCustomerModalOpen(true);
-                  }}
-                  onOpenNewCustomer={() => {
-                    setEditingCustomer(null);
-                    setIsCustomerModalOpen(true);
-                  }}
-                  onDeleteCustomer={triggerDeleteCustomerConfirm}
-                  onDeleteTransaction={triggerDeleteTransactionConfirm}
-                  onEditTransaction={(tx) => handleOpenEditTransaction(tx, activeCustomer)}
-                  onOpenTagada={() => {
-                    setTagadaCustomer(activeCustomer);
-                    setIsTagadaModalOpen(true);
-                  }}
-                  onOpenReport={() => setIsReportModalOpen(true)}
-                  onOpenInvoice={handleOpenInvoice}
-                  onOpenSms={(c) =>
-                    handleOpenSms({
-                      phone: c.phone,
-                      customerName: c.name,
-                      dueAmount: Number(c.balance || 0),
-                      message: `শ্রদ্ধেয় ${c.name}, ${store.name}-এ আপনার বর্তমান বকেয়া বাকির পরিমাণ ৳${c.balance || 0} টাকা। দ্রুত পরিশোধ করার বিনীত অনুরোধ রইল। ধন্যবাদ!`,
-                    })
-                  }
-                  onOpenQrCode={(c) => handleOpenCustomerQr(c)}
-                />
+                <motion.div
+                  key={`customer-${activeCustomerId}`}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                  className="flex-1 flex flex-col min-h-0 overflow-hidden"
+                >
+                  <CustomerDetail
+                    customer={activeCustomer}
+                    transactions={activeTxList}
+                    onBack={() => setActiveCustomerId(null)}
+                    onOpenTransaction={(type) => {
+                      setTxType(type);
+                      setIsTxModalOpen(true);
+                    }}
+                    onOpenEditCustomer={() => {
+                      setEditingCustomer(activeCustomer);
+                      setIsCustomerModalOpen(true);
+                    }}
+                    onOpenNewCustomer={() => {
+                      setEditingCustomer(null);
+                      setIsCustomerModalOpen(true);
+                    }}
+                    onDeleteCustomer={triggerDeleteCustomerConfirm}
+                    onDeleteTransaction={triggerDeleteTransactionConfirm}
+                    onEditTransaction={(tx) => handleOpenEditTransaction(tx, activeCustomer)}
+                    onOpenTagada={() => {
+                      setTagadaCustomer(activeCustomer);
+                      setIsTagadaModalOpen(true);
+                    }}
+                    onOpenReport={() => setIsReportModalOpen(true)}
+                    onOpenInvoice={handleOpenInvoice}
+                    onOpenSms={(c) =>
+                      handleOpenSms({
+                        phone: c.phone,
+                        customerName: c.name,
+                        dueAmount: Number(c.balance || 0),
+                        message: `শ্রদ্ধেয় ${c.name}, ${store.name}-এ আপনার বর্তমান বকেয়া বাকির পরিমাণ ৳${c.balance || 0} টাকা। দ্রুত পরিশোধ করার বিনীত অনুরোধ রইল। ধন্যবাদ!`,
+                      })
+                    }
+                    onOpenQrCode={(c) => handleOpenCustomerQr(c)}
+                  />
+                </motion.div>
               ) : (
                 <main
                   id="main-scroll-container"
@@ -1793,142 +1872,153 @@ export const App: React.FC = () => {
                     activeTab === 'customers' ? 'overflow-hidden' : 'overflow-y-auto'
                   } overscroll-contain p-2.5 sm:p-3.5 gap-2.5 sm:gap-3.5 pb-2.5 sm:pb-3.5`}
                 >
-                  {activeTab === 'dashboard' && (
-                    <DashboardView
-                      customers={customers}
-                      transactions={transactions}
-                      store={store}
-                      onOpenNewCustomer={() => {
-                        setEditingCustomer(null);
-                        setIsCustomerModalOpen(true);
-                      }}
-                      onNavigateToTab={(tab) => {
-                        setActiveCustomerId(null);
-                        if (tab === 'cashbook') {
-                          setIsCashbookModalOpen(true);
-                        } else {
-                          setActiveTab(tab);
-                        }
-                      }}
-                      onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
-                      onOpenCashbook={() => setIsCashbookModalOpen(true)}
-                      onOpenReport={() => setIsReportModalOpen(true)}
-                      onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
-                      onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
-                      onOpenSettings={() => setIsSettingsModalOpen(true)}
-                      onOpenOnlineStore={() => setIsOnlineStoreModalOpen(true)}
-                      onlineStoreConfig={onlineStoreConfig}
-                      expenses={expenses}
-                      products={products}
-                      onOpenSms={() => handleOpenSms()}
-                      smsBalance={userSmsBalance}
-                      pendingSmsPurchaseInfo={pendingSmsPurchaseInfo}
-                      onRefreshSmsStatus={handleRefreshSmsStatus}
-                      isSubscriptionSystemEnabled={isSubscriptionSystemEnabled}
-                      pendingPaymentInfo={pendingPaymentInfo}
-                      onRefreshSubscriptionStatus={handleRefreshSubscriptionStatus}
-                      onSelectCustomer={(id) => setActiveCustomerId(id)}
-                    />
-                  )}
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={activeTab}
+                      initial={{ opacity: 0, y: 8, scale: 0.995 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8, scale: 0.995 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      className="w-full flex-1 flex flex-col min-h-0"
+                    >
+                      {activeTab === 'dashboard' && (
+                        <DashboardView
+                          customers={customers}
+                          transactions={transactions}
+                          store={store}
+                          onOpenNewCustomer={() => {
+                            setEditingCustomer(null);
+                            setIsCustomerModalOpen(true);
+                          }}
+                          onNavigateToTab={(tab) => {
+                            setActiveCustomerId(null);
+                            if (tab === 'cashbook') {
+                              setIsCashbookModalOpen(true);
+                            } else {
+                              setActiveTab(tab);
+                            }
+                          }}
+                          onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
+                          onOpenCashbook={() => setIsCashbookModalOpen(true)}
+                          onOpenReport={() => setIsReportModalOpen(true)}
+                          onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
+                          onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
+                          onOpenSettings={() => setIsSettingsModalOpen(true)}
+                          onOpenOnlineStore={() => setIsOnlineStoreModalOpen(true)}
+                          onlineStoreConfig={onlineStoreConfig}
+                          expenses={expenses}
+                          products={products}
+                          onOpenSms={() => handleOpenSms()}
+                          smsBalance={userSmsBalance}
+                          pendingSmsPurchaseInfo={pendingSmsPurchaseInfo}
+                          onRefreshSmsStatus={handleRefreshSmsStatus}
+                          isSubscriptionSystemEnabled={isSubscriptionSystemEnabled}
+                          pendingPaymentInfo={pendingPaymentInfo}
+                          onRefreshSubscriptionStatus={handleRefreshSubscriptionStatus}
+                          onSelectCustomer={(id) => setActiveCustomerId(id)}
+                        />
+                      )}
 
-                  {activeTab === 'customers' && (
-                    <CustomerList
-                      customers={customers}
-                      searchQuery={searchQuery}
-                      onSearchChange={setSearchQuery}
-                      filter={filter}
-                      onFilterChange={setFilter}
-                      onSelectCustomer={(id) => setActiveCustomerId(id)}
-                      onOpenNewCustomer={() => {
-                        setEditingCustomer(null);
-                        setIsCustomerModalOpen(true);
-                      }}
-                      onOpenSettings={() => setIsSettingsModalOpen(true)}
-                      onOpenReport={() => setIsReportModalOpen(true)}
-                      onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
-                      onOpenCashbook={() => setIsCashbookModalOpen(true)}
-                      highDueLimit={store.highDueLimit}
-                      onQuickTagada={(e, c) => {
-                        e.stopPropagation();
-                        setTagadaCustomer(c);
-                        setIsTagadaModalOpen(true);
-                      }}
-                    />
-                  )}
+                      {activeTab === 'customers' && (
+                        <CustomerList
+                          customers={customers}
+                          searchQuery={searchQuery}
+                          onSearchChange={setSearchQuery}
+                          filter={filter}
+                          onFilterChange={setFilter}
+                          onSelectCustomer={(id) => setActiveCustomerId(id)}
+                          onOpenNewCustomer={() => {
+                            setEditingCustomer(null);
+                            setIsCustomerModalOpen(true);
+                          }}
+                          onOpenSettings={() => setIsSettingsModalOpen(true)}
+                          onOpenReport={() => setIsReportModalOpen(true)}
+                          onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
+                          onOpenCashbook={() => setIsCashbookModalOpen(true)}
+                          highDueLimit={store.highDueLimit}
+                          onQuickTagada={(e, c) => {
+                            e.stopPropagation();
+                            setTagadaCustomer(c);
+                            setIsTagadaModalOpen(true);
+                          }}
+                        />
+                      )}
 
-                  {activeTab === 'pos' && (
-                    <PosSalesView
-                      customers={customers}
-                      products={products}
-                      store={store}
-                      scannedProductToAdd={scannedProductForPos}
-                      onClearScannedProduct={() => setScannedProductForPos(null)}
-                      onCompleteSale={handleCompletePosSale}
-                      onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
-                      onOpenScanner={() => handleOpenScanner('pos')}
-                      onOpenPaymentQr={(amt) => handleOpenPaymentQr(amt)}
-                      onOpenSms={(phone, msg, name) =>
-                        handleOpenSms({ phone, message: msg, customerName: name })
-                      }
-                      onOpenInvoiceModal={(data) => {
-                        const finalCustomerBal =
-                          data.customerBalanceAfter !== undefined
-                            ? data.customerBalanceAfter
-                            : (data.prevBalance || 0) + data.dueAmount;
+                      {activeTab === 'pos' && (
+                        <PosSalesView
+                          customers={customers}
+                          products={products}
+                          store={store}
+                          scannedProductToAdd={scannedProductForPos}
+                          onClearScannedProduct={() => setScannedProductForPos(null)}
+                          onCompleteSale={handleCompletePosSale}
+                          onOpenSalesHistory={() => setIsSalesHistoryModalOpen(true)}
+                          onOpenScanner={() => handleOpenScanner('pos')}
+                          onOpenPaymentQr={(amt) => handleOpenPaymentQr(amt)}
+                          onOpenSms={(phone, msg, name) =>
+                            handleOpenSms({ phone, message: msg, customerName: name })
+                          }
+                          onOpenInvoiceModal={(data) => {
+                            const finalCustomerBal =
+                              data.customerBalanceAfter !== undefined
+                                ? data.customerBalanceAfter
+                                : (data.prevBalance || 0) + data.dueAmount;
 
-                        setInvoiceTx({
-                          id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-                          customerId: data.customerId || 'pos_instant',
-                          type: 'sale',
-                          amount: data.netAmount,
-                          description: 'পিওএস বিক্রয়',
-                          subtotal: data.totalAmount,
-                          discount: data.discount,
-                          netAmount: data.netAmount,
-                          paidAmount: data.paidAmount,
-                          dueAmount: data.dueAmount,
-                          prevBalance: data.prevBalance || 0,
-                          date: data.date,
-                          time: data.time,
-                          balanceAfter: finalCustomerBal,
-                          createdAt: Date.now(),
-                          items: data.items,
-                          receiptNo: data.receiptNo,
-                          paymentMethod: data.paymentMethod,
-                        });
-                        setInvoiceCustomer({
-                          id: data.customerId || 'pos_instant',
-                          name: data.customerName,
-                          phone: data.customerPhone,
-                          address: data.customerAddress,
-                          balance: finalCustomerBal,
-                          category: 'retail',
-                          createdAt: Date.now(),
-                          updatedAt: Date.now(),
-                        });
-                        setIsInvoiceModalOpen(true);
-                      }}
-                      onShowToast={showToast}
-                    />
-                  )}
+                            setInvoiceTx({
+                              id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+                              customerId: data.customerId || 'pos_instant',
+                              type: 'sale',
+                              amount: data.netAmount,
+                              description: 'পিওএস বিক্রয়',
+                              subtotal: data.totalAmount,
+                              discount: data.discount,
+                              netAmount: data.netAmount,
+                              paidAmount: data.paidAmount,
+                              dueAmount: data.dueAmount,
+                              prevBalance: data.prevBalance || 0,
+                              date: data.date,
+                              time: data.time,
+                              balanceAfter: finalCustomerBal,
+                              createdAt: Date.now(),
+                              items: data.items,
+                              receiptNo: data.receiptNo,
+                              paymentMethod: data.paymentMethod,
+                            });
+                            setInvoiceCustomer({
+                              id: data.customerId || 'pos_instant',
+                              name: data.customerName,
+                              phone: data.customerPhone,
+                              address: data.customerAddress,
+                              balance: finalCustomerBal,
+                              category: 'retail',
+                              createdAt: Date.now(),
+                              updatedAt: Date.now(),
+                            });
+                            setIsInvoiceModalOpen(true);
+                          }}
+                          onShowToast={showToast}
+                        />
+                      )}
 
-                  {activeTab === 'inventory' && (
-                    <InventoryView
-                      products={products}
-                      store={store}
-                      onAddProduct={handleAddProduct}
-                      onUpdateProduct={handleUpdateProduct}
-                      onDeleteProduct={handleDeleteProduct}
-                      initialSku={initialSkuForInventory}
-                      highlightedProductId={highlightedProductId}
-                      onClearInitialSku={() => setInitialSkuForInventory(null)}
-                      onClearHighlightedProduct={() => setHighlightedProductId(null)}
-                      onOpenScanner={() => handleOpenScanner('inventory')}
-                      onOpenQrGenerator={() => setIsQrModalOpen(true)}
-                      onOpenProductQr={(p) => handleOpenProductQr(p)}
-                      onShowToast={showToast}
-                    />
-                  )}
+                      {activeTab === 'inventory' && (
+                        <InventoryView
+                          products={products}
+                          store={store}
+                          onAddProduct={handleAddProduct}
+                          onUpdateProduct={handleUpdateProduct}
+                          onDeleteProduct={handleDeleteProduct}
+                          initialSku={initialSkuForInventory}
+                          highlightedProductId={highlightedProductId}
+                          onClearInitialSku={() => setInitialSkuForInventory(null)}
+                          onClearHighlightedProduct={() => setHighlightedProductId(null)}
+                          onOpenScanner={() => handleOpenScanner('inventory')}
+                          onOpenQrGenerator={() => setIsQrModalOpen(true)}
+                          onOpenProductQr={(p) => handleOpenProductQr(p)}
+                          onShowToast={showToast}
+                        />
+                      )}
+                    </motion.div>
+                  </AnimatePresence>
                 </main>
               )}
 

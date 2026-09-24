@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>TwingHisabi – টুইংহিসাবি | সহজ হিসাব, অনলাইন স্টোর ও সেন্ট্রাল মার্কেটপ্লেস</title>
-    <meta name="description" content="TwingHisabi (টুইংহিসাবি) – সহজ ডিজিটাল হিসাব খাতা, পিওএস, অনলাইন স্টোর ও সেন্ট্রাল মার্কেটপ্লেস (centralmarketplace.twinghisabi.site)। ভেরিফাইড পণ্যের কেনাকাটা ও ব্যবসা ব্যবস্থাপনা প্ল্যাটফর্ম।" />
+    <title>TwingHisabi – টুইংহিসাবি | সহজ হিসাব ও ব্যবসা ব্যবস্থাপনা</title>
+    <meta name="description" content="TwingHisabi হলো সহজ ও আধুনিক হিসাব এবং ব্যবসা ব্যবস্থাপনার প্ল্যাটফর্ম।" />
     <meta name="keywords" content="twing, twinghisabi, twing hisabi, টুইং, টুইংহিসাবি, টুইং হিসাবি, Central Marketplace, centralmarketplace.twinghisabi.site, marketplace.twinghisabi.site, টুইং মার্কেটপ্লেস, হিসাব খাতা, ডিজিটাল খাতা, বাকির খাতা, ক্যাশ মেমো, পিওএস সফটওয়্যার, ব্যবসা ব্যবস্থাপনা, অনলাইন শপিং, অনলাইন স্টোর" />
     <link rel="canonical" href="https://twinghisabi.site/" />
 
@@ -437,14 +437,11 @@
       id="app-instant-loader"
       style="position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;width:100%;height:100vh;height:100%;background:#002820;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Hind Siliguri',system-ui,-apple-system,sans-serif;color:#ffffff;padding:24px;z-index:999999;box-sizing:border-box;margin:0;"
     >
-      <div style="width:72px;height:72px;border-radius:22px;background:linear-gradient(135deg,#10b981,#0d9488);display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px rgba(0,0,0,0.35);margin-bottom:18px;border:2px solid rgba(255,255,255,0.2);">
-        <svg style="width:38px;height:38px;fill:none;stroke:#ffffff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round" viewBox="0 0 24 24">
-          <path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/>
-          <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
-          <path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/>
-          <path d="M2 7h20"/>
-          <path d="M22 7v3a2 2 0 0 1-2 2v0a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12v0a2 2 0 0 1-2-2V7"/>
-        </svg>
+      <div class="twing-loader-logo-wrap" style="position:relative;margin-bottom:18px;">
+        <div class="twing-loader-pulse-ring"></div>
+        <div style="width:84px;height:84px;border-radius:24px;background:#00382E;display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px rgba(0,56,46,0.45);border:2px solid #00796B;position:relative;z-index:2;animation:twing-float 3s ease-in-out infinite;overflow:hidden;padding:0;">
+          <img src="/icon-192.png" alt="TwingHisabi" style="width:100%;height:100%;object-fit:cover;" />
+        </div>
       </div>
       <h1 style="font-size:24px;font-weight:900;margin:0 0 6px 0;letter-spacing:-0.5px;color:#ffffff;text-shadow:0 2px 8px rgba(0,0,0,0.2);">TwingHisabi – সহজ হিসাব ও ব্যবসা ব্যবস্থাপনা</h1>
       <p style="font-size:13px;color:#a7f3d0;margin:0 0 22px 0;font-weight:600;opacity:0.95;">TwingHisabi হলো সহজ ও আধুনিক হিসাব এবং ব্যবসা ব্যবস্থাপনার প্ল্যাটফর্ম।</p>
@@ -471,6 +468,23 @@
       @keyframes twing-fade {
         from { opacity: 0; transform: translateY(6px); }
         to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes twing-float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-5px); }
+      }
+      @keyframes twing-pulse-expand {
+        0% { transform: scale(0.85); opacity: 0.8; }
+        50% { transform: scale(1.35); opacity: 0.2; }
+        100% { transform: scale(1.6); opacity: 0; }
+      }
+      .twing-loader-pulse-ring {
+        position: absolute;
+        inset: -6px;
+        border-radius: 28px;
+        background: radial-gradient(circle, rgba(16,185,129,0.5) 0%, rgba(13,148,136,0) 70%);
+        animation: twing-pulse-expand 2.4s ease-out infinite;
+        pointer-events: none;
       }
       #tv-loader-reload-btn:focus {
         outline: 3px solid #34d399 !important;

@@ -1,5 +1,5 @@
-// TWING হিসাবি — Progressive Web App Service Worker (v2.5.0)
-const CACHE_NAME = 'twing-hisabi-cache-v2.5.0';
+// TWING হিসাবি — Progressive Web App Service Worker (v3.0.0)
+const CACHE_NAME = 'twing-hisabi-cache-v3.0.0-twingbrand';
 const ASSETS_TO_CACHE = [
   '/manifest.json',
   '/icon-192.png',

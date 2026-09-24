@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { NavTab } from '../types';
 import { LayoutGrid, Users, ShoppingBag, Package, Wallet, Headphones } from 'lucide-react';
 
@@ -168,19 +169,25 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           const isActive = activeTab === tab.id;
 
           return (
-            <button
+            <motion.button
               key={tab.id}
               type="button"
               id={`nav-tab-${tab.id}`}
               tabIndex={0}
+              whileTap={{ scale: 0.92 }}
               onClick={() => handleTabClick(tab)}
-              className="w-full py-1.5 px-0.5 min-h-[50px] flex flex-col items-center justify-center relative rounded-xl transition-all duration-150 cursor-pointer active:scale-95 group outline-none focus-visible:ring-3 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:bg-emerald-50/80"
+              className="w-full py-1.5 px-0.5 min-h-[50px] flex flex-col items-center justify-center relative rounded-xl cursor-pointer group outline-none focus-visible:ring-3 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:bg-emerald-50/80"
             >
-              {/* Icon Container Pill */}
-              <div
-                className={`relative w-10 sm:w-12 h-7 sm:h-8 rounded-full flex items-center justify-center transition-all duration-200 ${
+              {/* Icon Container Pill with Spring Animation */}
+              <motion.div
+                animate={{
+                  scale: isActive ? 1.08 : 1,
+                  y: isActive ? -1 : 0,
+                }}
+                transition={{ type: 'spring', stiffness: 450, damping: 25 }}
+                className={`relative w-10 sm:w-12 h-7 sm:h-8 rounded-full flex items-center justify-center transition-colors duration-200 ${
                   isActive
-                    ? 'bg-[#004D40] text-white shadow-md shadow-teal-900/20 scale-105'
+                    ? 'bg-[#004D40] text-white shadow-md shadow-teal-900/25'
                     : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/80'
                 }`}
               >
@@ -192,17 +199,20 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
                 {/* Badge Indicator */}
                 {tab.badge !== undefined && tab.badge > 0 && (
-                  <span
+                  <motion.span
+                    initial={{ scale: 0 }}
+                    animate={{ scale: [1, 1.15, 1] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
                     className={`absolute -top-1 -right-1 ${
                       tab.badgeColor || 'bg-red-600'
-                    } text-white text-[8.5px] sm:text-[9px] font-black rounded-full px-1 min-w-[15px] h-[15px] flex items-center justify-center text-center shadow-xs ring-2 ring-white animate-pulse`}
+                    } text-white text-[8.5px] sm:text-[9px] font-black rounded-full px-1 min-w-[15px] h-[15px] flex items-center justify-center text-center shadow-xs ring-2 ring-white`}
                   >
                     {tab.badge > 99 ? '99+' : tab.badge}
-                  </span>
+                  </motion.span>
                 )}
-              </div>
+              </motion.div>
 
-              {/* Text Label - Exactly same baseline across all 6 buttons */}
+              {/* Text Label */}
               <span
                 className={`text-[10px] sm:text-[11px] mt-1 leading-tight tracking-tight whitespace-nowrap text-center transition-colors ${
                   isActive ? 'font-black text-[#004D40]' : 'font-semibold text-slate-500 group-hover:text-slate-800'
@@ -210,7 +220,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               >
                 {tab.label}
               </span>
-            </button>
+            </motion.button>
           );
         })}
       </div>
