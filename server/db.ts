@@ -88,6 +88,9 @@ export const inMemoryStore: {
   online_orders: any[];
   online_store_configs: any[];
   store_chat_messages: any[];
+  marketplace_master_orders: any[];
+  marketplace_categories: any[];
+  marketplace_settings: any;
 } = {
   users: [],
   stores: [],
@@ -109,6 +112,9 @@ export const inMemoryStore: {
   online_orders: [],
   online_store_configs: [],
   store_chat_messages: [],
+  marketplace_master_orders: [],
+  marketplace_categories: [],
+  marketplace_settings: {},
 };
 
 /**
@@ -167,7 +173,7 @@ function createNeonPool(connectionString: string): pg.Pool {
     max: 10, // Optimized connection limit for Neon PgBouncer
     min: 0,
     idleTimeoutMillis: 10000, // Recycle idle connections in 10s so dead sockets don't linger
-    connectionTimeoutMillis: 25000, // 25s allows cold-start Neon compute to wake up without erroring
+    connectionTimeoutMillis: 5000, // Fast failover so unreachable external hosts fail fast to inMemoryStore
     keepAlive: true,
     keepAliveInitialDelayMillis: 10000, // TCP keepalive probes prevent intermediate proxy drops
     allowExitOnIdle: false,
@@ -1163,6 +1169,73 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE sms_purchases ADD COLUMN IF NOT EXISTS gateway_id VARCHAR(64);
       ALTER TABLE sms_purchases ADD COLUMN IF NOT EXISTS admin_note TEXT;
       CREATE INDEX IF NOT EXISTS idx_sms_purchases_user_id ON sms_purchases(user_id);
+
+      -- ========================================================
+      -- Central Multi-Vendor Marketplace Schema Evolution
+      -- ========================================================
+      -- 1. Products Marketplace Fields
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS is_listed_on_marketplace BOOLEAN DEFAULT FALSE;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS marketplace_status VARCHAR(30) DEFAULT 'approved';
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured_on_marketplace BOOLEAN DEFAULT FALSE;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS marketplace_category_id VARCHAR(64);
+
+      CREATE INDEX IF NOT EXISTS idx_products_mkt_feed 
+      ON products(is_listed_on_marketplace, marketplace_status, stock);
+
+      -- 2. Online Orders Multi-Vendor Support
+      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS order_source VARCHAR(30) DEFAULT 'direct_store';
+      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS master_order_id VARCHAR(100);
+      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS vendor_payout_status VARCHAR(30) DEFAULT 'unsettled';
+
+      CREATE INDEX IF NOT EXISTS idx_online_orders_master ON online_orders(master_order_id);
+      CREATE INDEX IF NOT EXISTS idx_online_orders_src ON online_orders(order_source);
+
+      -- 3. Central Marketplace Master Orders Table
+      CREATE TABLE IF NOT EXISTS marketplace_master_orders (
+        id VARCHAR(100) PRIMARY KEY,
+        order_number VARCHAR(50) UNIQUE NOT NULL,
+        customer_name VARCHAR(150) NOT NULL,
+        customer_phone VARCHAR(50) NOT NULL,
+        customer_address TEXT NOT NULL,
+        delivery_city VARCHAR(50) DEFAULT 'dhaka',
+        total_items_count INT NOT NULL DEFAULT 1,
+        total_products_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        total_delivery_charge NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        grand_total NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        payment_method VARCHAR(50) NOT NULL DEFAULT 'cod',
+        payment_status VARCHAR(50) DEFAULT 'unpaid',
+        payment_trx_id VARCHAR(100),
+        sender_phone VARCHAR(50),
+        notes TEXT,
+        vendor_ids JSONB DEFAULT '[]'::jsonb,
+        sub_order_ids JSONB DEFAULT '[]'::jsonb,
+        overall_status VARCHAR(50) DEFAULT 'processing',
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_mkt_orders_phone ON marketplace_master_orders(customer_phone);
+      CREATE INDEX IF NOT EXISTS idx_mkt_orders_created ON marketplace_master_orders(created_at DESC);
+
+      -- 4. Central Marketplace Categories Table
+      CREATE TABLE IF NOT EXISTS marketplace_categories (
+        id VARCHAR(64) PRIMARY KEY,
+        name_bn VARCHAR(150) NOT NULL,
+        name_en VARCHAR(150),
+        slug VARCHAR(100) UNIQUE NOT NULL,
+        icon VARCHAR(100),
+        image_url TEXT,
+        sort_order INT DEFAULT 0,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_mkt_cats_slug ON marketplace_categories(slug);
+
+      -- 5. Central Marketplace Settings Table
+      CREATE TABLE IF NOT EXISTS marketplace_settings (
+        id VARCHAR(64) PRIMARY KEY,
+        data JSONB NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
     `);
 
     // Seed default admin and system configs if not present
@@ -1537,10 +1610,52 @@ async function seedDefaultDataInPostgres(client: pg.PoolClient) {
     VALUES ($1, $2, $3, $4)
     ON CONFLICT (id) DO NOTHING;
   `, ['dashboard_banner_settings', JSON.stringify(defaultBannerSettings), Date.now(), adminEmail]);
+
+  // Seed default Central Marketplace Categories
+  const defaultMarketplaceCategories = [
+    { id: 'cat_grocery', name_bn: 'চাল, ডাল ও মুদি', name_en: 'Grocery & Essentials', slug: 'grocery', icon: 'ShoppingBag', sort_order: 1 },
+    { id: 'cat_oil_ghee', name_bn: 'তেল ও খাঁটি ঘি', name_en: 'Oil & Pure Ghee', slug: 'oil-ghee', icon: 'Flame', sort_order: 2 },
+    { id: 'cat_fashion', name_bn: 'পোশাক ও ফ্যাশন', name_en: 'Clothing & Fashion', slug: 'fashion', icon: 'Shirt', sort_order: 3 },
+    { id: 'cat_electronics', name_bn: 'ইলেকট্রনিক্স ও গ্যাজেট', name_en: 'Electronics & Gadgets', slug: 'electronics', icon: 'Smartphone', sort_order: 4 },
+    { id: 'cat_beauty', name_bn: 'রূপচর্চা ও প্রসাধন', name_en: 'Beauty & Personal Care', slug: 'beauty', icon: 'Sparkles', sort_order: 5 },
+    { id: 'cat_home', name_bn: 'গৃহস্থালী ও রান্নাঘর', name_en: 'Home & Kitchen', slug: 'home-kitchen', icon: 'Home', sort_order: 6 },
+    { id: 'cat_health', name_bn: 'স্বাস্থ্য ও মেডিসিন', name_en: 'Health & Pharmacy', slug: 'health', icon: 'HeartPulse', sort_order: 7 },
+  ];
+
+  for (const cat of defaultMarketplaceCategories) {
+    await client.query(`
+      INSERT INTO marketplace_categories (id, name_bn, name_en, slug, icon, sort_order, is_active, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7)
+      ON CONFLICT (id) DO NOTHING;
+    `, [cat.id, cat.name_bn, cat.name_en, cat.slug, cat.icon, cat.sort_order, Date.now()]).catch(() => {});
+  }
 }
 
 function seedDefaultDataInMemory() {
   const adminEmail = process.env.ADMIN_EMAIL || 'siftibrahim@gmail.com';
+
+  const defaultMarketplaceCategories = [
+    { id: 'cat_grocery', name_bn: 'চাল, ডাল ও মুদি', name_en: 'Grocery & Essentials', slug: 'grocery', icon: 'ShoppingBag', sort_order: 1 },
+    { id: 'cat_oil_ghee', name_bn: 'তেল ও খাঁটি ঘি', name_en: 'Oil & Pure Ghee', slug: 'oil-ghee', icon: 'Flame', sort_order: 2 },
+    { id: 'cat_fashion', name_bn: 'পোশাক ও ফ্যাশন', name_en: 'Clothing & Fashion', slug: 'fashion', icon: 'Shirt', sort_order: 3 },
+    { id: 'cat_electronics', name_bn: 'ইলেকট্রনিক্স ও গ্যাজেট', name_en: 'Electronics & Gadgets', slug: 'electronics', icon: 'Smartphone', sort_order: 4 },
+    { id: 'cat_beauty', name_bn: 'রূপচর্চা ও প্রসাধন', name_en: 'Beauty & Personal Care', slug: 'beauty', icon: 'Sparkles', sort_order: 5 },
+    { id: 'cat_home', name_bn: 'গৃহস্থালী ও রান্নাঘর', name_en: 'Home & Kitchen', slug: 'home-kitchen', icon: 'Home', sort_order: 6 },
+    { id: 'cat_health', name_bn: 'স্বাস্থ্য ও মেডিসিন', name_en: 'Health & Pharmacy', slug: 'health', icon: 'HeartPulse', sort_order: 7 },
+  ];
+
+  if (!inMemoryStore.marketplace_categories || inMemoryStore.marketplace_categories.length === 0) {
+    inMemoryStore.marketplace_categories = defaultMarketplaceCategories.map(c => ({
+      id: c.id,
+      nameBn: c.name_bn,
+      nameEn: c.name_en,
+      slug: c.slug,
+      icon: c.icon,
+      sortOrder: c.sort_order,
+      isActive: true,
+      createdAt: Date.now(),
+    }));
+  }
 
   const existingAdmin = inMemoryStore.users.find(u => u.id === 'usr_super_admin');
   if (!existingAdmin) {

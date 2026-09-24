@@ -146,6 +146,59 @@ export interface Product {
   imageUrl?: string;
   description?: string;
   isPublishedOnline?: boolean;
+  isListedOnMarketplace?: boolean;
+  marketplaceCategory?: string;
+  marketplaceStatus?: 'approved' | 'pending' | 'rejected';
+  isFeaturedOnMarketplace?: boolean;
+  updatedAt: number;
+}
+
+export interface MarketplaceProduct extends Product {
+  vendorId: string;
+  vendorShopName: string;
+  vendorSlug: string;
+  vendorPhone?: string;
+  vendorAddress?: string;
+  vendorLogoUrl?: string;
+  vendorThemeColor?: string;
+}
+
+export interface MarketplaceCategory {
+  id: string;
+  nameBn: string;
+  nameEn: string;
+  slug: string;
+  icon?: string;
+  imageUrl?: string;
+  productCount?: number;
+}
+
+export interface MarketplaceCartItem {
+  product: MarketplaceProduct;
+  quantity: number;
+}
+
+export interface MarketplaceMasterOrder {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress: string;
+  deliveryCity: string;
+  totalItemsCount: number;
+  totalProductsAmount: number;
+  totalDeliveryCharge: number;
+  grandTotal: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  paymentTrxId?: string;
+  senderPhone?: string;
+  notes?: string;
+  vendorIds: string[];
+  subOrderIds: string[];
+  overallStatus: string;
+  subOrders?: OnlineOrder[];
+  createdAt: number;
   updatedAt: number;
 }
 

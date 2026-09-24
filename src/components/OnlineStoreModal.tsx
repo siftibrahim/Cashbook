@@ -61,6 +61,7 @@ interface OnlineStoreModalProps {
   onUpdateOrders: (orders: OnlineOrder[]) => void;
   store: StoreProfile;
   onOpenStorefront: () => void;
+  onOpenMarketplace?: () => void;
   onNavigateToTab?: (tab: 'customers' | 'pos' | 'inventory' | 'cashbook') => void;
   onConvertOrderToSale?: (order: OnlineOrder) => void;
   onShowToast?: (msg: string) => void;
@@ -79,6 +80,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   onUpdateOrders,
   store,
   onOpenStorefront,
+  onOpenMarketplace,
   onNavigateToTab,
   onConvertOrderToSale,
   onShowToast,
@@ -1018,6 +1020,18 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               >
                 <Eye className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">স্টোর দেখুন</span>
+              </button>
+            )}
+
+            {onOpenMarketplace && (
+              <button
+                type="button"
+                onClick={onOpenMarketplace}
+                className="px-3 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm bg-teal-800 hover:bg-teal-700 text-white border border-teal-600/50"
+                title="সেন্ট্রাল মার্কেটপ্লেস মল দেখুন"
+              >
+                <Store className="w-3.5 h-3.5 text-amber-300" />
+                <span className="hidden sm:inline">সেন্ট্রাল মল</span>
               </button>
             )}
 

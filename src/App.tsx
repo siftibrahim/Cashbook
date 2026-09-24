@@ -99,6 +99,7 @@ import { ProductScannerModal } from './components/scanner/ProductScannerModal';
 import { OnlineStoreModal } from './components/OnlineStoreModal';
 import { OnlineStorefrontModal } from './components/OnlineStorefrontModal';
 import { PublicStorefrontPage } from './components/PublicStorefrontPage';
+import { CentralMarketplacePage } from './components/marketplace/CentralMarketplacePage';
 import { detectPublicStoreContext } from './utils/storefrontDetector';
 import { AdBanner } from './components/ads/AdBanner';
 import {
@@ -175,6 +176,7 @@ export const App: React.FC = () => {
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [isOnlineStoreModalOpen, setIsOnlineStoreModalOpen] = useState(false);
+  const [isMarketplaceViewOpen, setIsMarketplaceViewOpen] = useState(false);
   const [publicStoreContext, setPublicStoreContext] = useState(() => detectPublicStoreContext());
   const [isMerchantAdminViewForced, setIsMerchantAdminViewForced] = useState(false);
   const [isOnlineStorefrontOpen, setIsOnlineStorefrontOpen] = useState(false);
@@ -1590,6 +1592,35 @@ export const App: React.FC = () => {
     setIsOnlineStoreModalOpen(false);
   };
 
+  // If this session is visiting Central Marketplace (e.g. CentralMarketplace.twinghisabi.site, /marketplace, ?marketplace=1)
+  if (publicStoreContext.isCentralMarketplace && !isMerchantAdminViewForced) {
+    return (
+      <CentralMarketplacePage
+        onMerchantLogin={() => {
+          setIsMerchantAdminViewForced(true);
+        }}
+      />
+    );
+  }
+
+  // Merchant manually browsing central marketplace from inside dashboard
+  if (isMarketplaceViewOpen) {
+    return (
+      <div className="relative">
+        <div className="fixed top-3 right-4 z-50">
+          <button
+            type="button"
+            onClick={() => setIsMarketplaceViewOpen(false)}
+            className="px-3.5 py-1.5 bg-slate-900/90 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-lg flex items-center gap-1.5 cursor-pointer backdrop-blur-xs transition"
+          >
+            <span>← ড্যাশবোর্ডে ফিরুন</span>
+          </button>
+        </div>
+        <CentralMarketplacePage />
+      </div>
+    );
+  }
+
   // If this session is visiting a public storefront (subdomain or ?shop=) and hasn't forced merchant login:
   if (publicStoreContext.isPublicStore && !isMerchantAdminViewForced) {
     return (
@@ -2218,6 +2249,10 @@ export const App: React.FC = () => {
             return;
           }
           setIsOnlineStorefrontOpen(true);
+        }}
+        onOpenMarketplace={() => {
+          setIsOnlineStoreModalOpen(false);
+          setIsMarketplaceViewOpen(true);
         }}
         onNavigateToTab={(tab) => {
           setIsOnlineStoreModalOpen(false);

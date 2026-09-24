@@ -36,12 +36,15 @@ export const RESERVED_STORE_SUBDOMAINS = new Set([
   'dev',
   'staging',
   'test',
+  'centralmarketplace',
+  'marketplace',
 ]);
 
 export interface StoreContextResult {
   isPublicStore: boolean;
+  isCentralMarketplace?: boolean;
   storeIdentifier?: string;
-  source?: 'subdomain' | 'custom_domain' | 'path' | 'query' | 'preview';
+  source?: 'subdomain' | 'custom_domain' | 'path' | 'query' | 'preview' | 'marketplace';
 }
 
 /**
@@ -100,6 +103,30 @@ export function detectPublicStoreContext(): StoreContextResult {
     pathname.startsWith('/admin/')
   ) {
     return { isPublicStore: false };
+  }
+
+  // 1.1 Central Marketplace Domain, Subdomain or Route Detection
+  // e.g. CentralMarketplace.twinghisabi.site, centralmarketplace.localhost, /marketplace, ?marketplace=1
+  const isMarketplaceSubdomain =
+    hostname.startsWith('centralmarketplace.') ||
+    hostname === 'centralmarketplace.twinghisabi.site' ||
+    hostname === 'marketplace.twinghisabi.site';
+
+  const isMarketplacePathOrQuery =
+    pathname === '/marketplace' ||
+    pathname.startsWith('/marketplace/') ||
+    pathname === '/centralmarketplace' ||
+    pathname.startsWith('/centralmarketplace/') ||
+    params.get('marketplace') === '1' ||
+    params.get('central') === '1' ||
+    params.get('market') === '1';
+
+  if (isMarketplaceSubdomain || isMarketplacePathOrQuery) {
+    return {
+      isPublicStore: false,
+      isCentralMarketplace: true,
+      source: 'marketplace',
+    };
   }
 
   // 2. PRIMARY CANONICAL RESOLUTION: Dynamic Wildcard Subdomain

@@ -15,7 +15,7 @@
       "subscriptionStatus": "active",
       "subscriptionExpiresAt": 1793592035262,
       "registered_at": 1789790435262,
-      "last_active_at": 1790176490085,
+      "last_active_at": 1790184540277,
       "notes": "অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে"
     },
     {
@@ -83,5 +83,8 @@
   "sms_purchases": [],
   "online_orders": [],
   "online_store_configs": [],
-  "store_chat_messages": []
+  "store_chat_messages": [],
+  "marketplace_master_orders": [],
+  "marketplace_categories": [],
+  "marketplace_settings": {}
 }

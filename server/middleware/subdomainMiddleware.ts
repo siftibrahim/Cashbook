@@ -30,6 +30,8 @@ const RESERVED_SUBDOMAINS = new Set([
   'static',
   'assets',
   'cdn',
+  'centralmarketplace',
+  'marketplace',
 ]);
 
 /**

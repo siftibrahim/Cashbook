@@ -30,6 +30,8 @@ export const RESERVED_SUBDOMAINS = new Set([
   'dev',
   'staging',
   'test',
+  'centralmarketplace',
+  'marketplace',
 ]);
 
 export interface HostInfo {

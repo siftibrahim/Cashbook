@@ -79,6 +79,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [showUrlInput, setShowUrlInput] = useState(false);
+  const [isListedOnMarketplace, setIsListedOnMarketplace] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -182,6 +183,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setMinAlert('10');
     setImageUrl('');
     setDescription('');
+    setIsListedOnMarketplace(false);
     setShowPresetPicker(false);
     setShowUrlInput(false);
     setIsModalOpen(true);
@@ -199,6 +201,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setMinAlert((p.minStockAlert || 10).toString());
     setImageUrl(p.imageUrl || '');
     setDescription(p.description || '');
+    setIsListedOnMarketplace(p.isListedOnMarketplace || false);
     setShowPresetPicker(false);
     setShowUrlInput(false);
     setIsModalOpen(true);
@@ -251,6 +254,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         minStockAlert: Number(minAlert || 10),
         imageUrl: finalImageUrl,
         description: description.trim(),
+        isListedOnMarketplace,
         updatedAt: Date.now(),
       });
       onShowToast(`'${name}' পণ্য আপডেট করা হয়েছে`);
@@ -267,6 +271,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         minStockAlert: Number(minAlert || 10),
         imageUrl: finalImageUrl,
         description: description.trim(),
+        isListedOnMarketplace,
         updatedAt: Date.now(),
       };
       onAddProduct(newProd);
@@ -474,6 +479,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       </span>
                     </div>
                   </div>
+
+                  {p.isListedOnMarketplace && (
+                    <div className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-teal-800 bg-teal-50 border border-teal-200/80 px-2 py-0.5 rounded-md w-fit">
+                      <span>🛍️</span>
+                      <span>মার্কেটপ্লেস লাইভ</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Stock Controls & Actions */}
@@ -502,6 +514,22 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = !p.isListedOnMarketplace;
+                        onUpdateProduct({ ...p, isListedOnMarketplace: updated, updatedAt: Date.now() });
+                        onShowToast(updated ? `🛍️ '${p.name}' সেন্ট্রাল মার্কেটপ্লেসে যুক্ত হয়েছে` : `'${p.name}' মার্কেটপ্লেস থেকে সরানো হয়েছে`);
+                      }}
+                      className={`p-1.5 rounded-lg transition cursor-pointer ${
+                        p.isListedOnMarketplace
+                          ? 'bg-teal-50 text-teal-700 hover:bg-teal-100'
+                          : 'text-slate-400 hover:text-teal-700 hover:bg-slate-100'
+                      }`}
+                      title={p.isListedOnMarketplace ? "সেন্ট্রাল মার্কেটপ্লেস থেকে বাদ দিন" : "সেন্ট্রাল মার্কেটপ্লেসে প্রদর্শন করুন"}
+                    >
+                      <span className="text-xs">🛍️</span>
+                    </button>
                     {onOpenProductQr && (
                       <button
                         type="button"
@@ -916,6 +944,26 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     className="w-full px-3 py-2 text-xs font-medium border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
                   />
                 </div>
+              </div>
+
+              {/* Central Marketplace Listing Toggle */}
+              <div className="p-3.5 bg-gradient-to-r from-teal-50/90 to-emerald-50/90 border border-teal-200 rounded-xl flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-xl shrink-0">🛍️</span>
+                  <div>
+                    <p className="text-xs font-bold text-teal-950">সেন্ট্রাল মার্কেটপ্লেসে প্রদর্শন</p>
+                    <p className="text-[11px] text-teal-700">CentralMarketplace.twinghisabi.site-এ পণ্যটি সারা দেশের ক্রেতাদের দেখান</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsListedOnMarketplace(!isListedOnMarketplace)}
+                  className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-200 ease-in-out shrink-0 cursor-pointer ${
+                    isListedOnMarketplace ? 'bg-teal-600 justify-end' : 'bg-slate-300 justify-start'
+                  }`}
+                >
+                  <div className="bg-white w-4 h-4 rounded-full shadow-md transform transition" />
+                </button>
               </div>
               </div>
 

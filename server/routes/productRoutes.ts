@@ -24,6 +24,7 @@ function mapRowToProduct(row: any) {
     originalPrice: row.original_price ? parseFloat(row.original_price) : undefined,
     discountPercent: row.discount_percent ? parseFloat(row.discount_percent) : undefined,
     isPublishedOnline: row.is_published_online !== false,
+    isListedOnMarketplace: row.is_listed_on_marketplace === true,
     rating: row.rating ? parseFloat(row.rating) : 5.0,
     reviewCount: row.review_count ? parseInt(row.review_count, 10) : 0,
     updatedAt: Number(row.updated_at),
@@ -120,6 +121,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       originalPrice,
       discountPercent,
       isPublishedOnline,
+      isListedOnMarketplace,
       rating,
     } = req.body;
 
@@ -138,6 +140,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
     const cleanOriginal = originalPrice !== undefined && originalPrice !== null ? parseFloat(originalPrice) : null;
     const cleanDiscount = discountPercent !== undefined && discountPercent !== null ? parseFloat(discountPercent) : null;
     const cleanOnline = isPublishedOnline !== false;
+    const cleanMarketplace = isListedOnMarketplace === true;
     const cleanRating = rating ? parseFloat(rating) : 5.0;
 
     const pool = getDbPool();
@@ -155,8 +158,8 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       await pool.query(`
         INSERT INTO products (
           id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, sku, qr_code,
-          image_url, description, original_price, discount_percent, is_published_online, rating, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+          image_url, description, original_price, discount_percent, is_published_online, is_listed_on_marketplace, rating, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           category = EXCLUDED.category,
@@ -172,13 +175,14 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
           original_price = EXCLUDED.original_price,
           discount_percent = EXCLUDED.discount_percent,
           is_published_online = EXCLUDED.is_published_online,
+          is_listed_on_marketplace = EXCLUDED.is_listed_on_marketplace,
           rating = EXCLUDED.rating,
           updated_at = EXCLUDED.updated_at
         WHERE products.user_id = EXCLUDED.user_id
       `, [
         prodId, validUserId, name.trim(), category || 'সাধারণ', unit || 'পিস',
         cleanBuy, cleanSale, cleanStock, cleanAlert, assignedSku, qrCode || '',
-        imageUrl || '', description || '', cleanOriginal, cleanDiscount, cleanOnline, cleanRating, now
+        imageUrl || '', description || '', cleanOriginal, cleanDiscount, cleanOnline, cleanMarketplace, cleanRating, now
       ]);
     } else {
       if (!inMemoryStore.products) inMemoryStore.products = [];
@@ -208,6 +212,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         originalPrice: cleanOriginal ?? undefined,
         discountPercent: cleanDiscount ?? undefined,
         isPublishedOnline: cleanOnline,
+        isListedOnMarketplace: cleanMarketplace,
         rating: cleanRating,
         updatedAt: now,
       };
@@ -231,6 +236,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       originalPrice: cleanOriginal ?? undefined,
       discountPercent: cleanDiscount ?? undefined,
       isPublishedOnline: cleanOnline,
+      isListedOnMarketplace: cleanMarketplace,
       rating: cleanRating,
       updatedAt: now,
     };
@@ -299,8 +305,8 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
         await pool.query(`
           INSERT INTO products (
             id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, sku, qr_code,
-            image_url, description, original_price, discount_percent, is_published_online, rating, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            image_url, description, original_price, discount_percent, is_published_online, is_listed_on_marketplace, rating, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
           ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             category = EXCLUDED.category,
@@ -316,6 +322,7 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
             original_price = EXCLUDED.original_price,
             discount_percent = EXCLUDED.discount_percent,
             is_published_online = EXCLUDED.is_published_online,
+            is_listed_on_marketplace = EXCLUDED.is_listed_on_marketplace,
             rating = EXCLUDED.rating,
             updated_at = EXCLUDED.updated_at
           WHERE products.user_id = EXCLUDED.user_id
@@ -336,6 +343,7 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
           p.originalPrice !== undefined ? parseFloat(p.originalPrice) : null,
           p.discountPercent !== undefined ? parseFloat(p.discountPercent) : null,
           p.isPublishedOnline !== false,
+          p.isListedOnMarketplace === true,
           p.rating ? parseFloat(p.rating) : 5.0,
           p.updatedAt || now,
         ]);
