@@ -1674,6 +1674,9 @@ export const App: React.FC = () => {
             setAdminSession(session || { role: 'super_admin', email: adminEmail });
             setIsAdminPanelOpen(true);
           }}
+          onOpenMarketplace={() => {
+            setIsMarketplaceViewOpen(true);
+          }}
         />
       </div>
     );

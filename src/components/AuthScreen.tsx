@@ -36,12 +36,14 @@ interface AuthScreenProps {
   store: StoreProfile;
   onLoginSuccess: (email: string, role: string, userPayload?: any) => void;
   onAdminLoginSuccess?: (email: string, session?: AdminSession) => void;
+  onOpenMarketplace?: () => void;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   store,
   onLoginSuccess,
   onAdminLoginSuccess,
+  onOpenMarketplace,
 }) => {
   // Tabs: 'login' (Unified for User, Super Admin, Staff), 'register', 'reset'
   const [activeTab, setActiveTab] = useState<'login' | 'register' | 'reset'>('login');
@@ -548,11 +550,81 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
             <span>সাপোর্ট ও যেকোনো প্রয়োজনে হেল্পলাইন: <span className="font-mono text-emerald-400 font-bold">০১৩০৬ ৯০৮১১৫</span></span>
           </div>
+
+          {/* Direct Link to Central Marketplace */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (onOpenMarketplace) {
+                  onOpenMarketplace();
+                } else {
+                  // Fallback: check current host
+                  if (window.location.hostname.includes('twinghisabi.site')) {
+                    window.location.href = 'https://centralmarketplace.twinghisabi.site';
+                  } else {
+                    const u = new URL(window.location.href);
+                    u.searchParams.set('marketplace', '1');
+                    window.location.href = u.toString();
+                  }
+                }
+              }}
+              className="w-full text-left flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-teal-500/20 border border-amber-400/40 hover:border-amber-300 transition-all duration-200 group cursor-pointer shadow-lg shadow-amber-950/20"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-md group-hover:scale-105 transition-transform">
+                  <Sparkles className="w-5 h-5 text-slate-950" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-black text-amber-300 group-hover:text-amber-200">
+                      সেন্ট্রাল মার্কেটপ্লেস ব্রাউজ করুন
+                    </h4>
+                    <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-400 text-slate-950">
+                      লাইভ শপ
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    দেশজুড়ে ভেরিফাইড মার্চেন্টদের খাঁটি পণ্য সরাসরি কিনুন
+                  </p>
+                </div>
+              </div>
+              <span className="text-amber-300 font-extrabold text-sm group-hover:translate-x-1 transition-transform">
+                &rarr;
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Right Column: The Login / Registration Card Container */}
         <div className="w-full lg:col-span-7 xl:col-span-6">
           <div className="bg-[#0B132B]/95 rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-800 backdrop-blur-md">
+            {/* Direct Marketplace quick action button for mobile / top card */}
+            <div className="mb-4 lg:hidden">
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenMarketplace) {
+                    onOpenMarketplace();
+                  } else {
+                    if (window.location.hostname.includes('twinghisabi.site')) {
+                      window.location.href = 'https://centralmarketplace.twinghisabi.site';
+                    } else {
+                      const u = new URL(window.location.href);
+                      u.searchParams.set('marketplace', '1');
+                      window.location.href = u.toString();
+                    }
+                  }
+                }}
+                className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-teal-500/20 border border-amber-400/30 text-amber-300 hover:text-amber-200 text-xs font-black transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>সেন্ট্রাল মার্কেটপ্লেস দেখুন ও কেনাকাটা করুন</span>
+                </div>
+                <span>&rarr;</span>
+              </button>
+            </div>
             {/* Brand Header */}
             <div className="text-center mb-6">
               <div className="inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-lg shadow-emerald-900/30 mb-3 border-2 border-emerald-300/30">
