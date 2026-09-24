@@ -15,7 +15,6 @@ import { StorefrontOrderTracker } from './storefront/StorefrontOrderTracker';
 import { StorefrontMoreTab } from './storefront/StorefrontMoreTab';
 import { StorefrontSupportDrawer } from './storefront/StorefrontSupportDrawer';
 import { StorefrontProductDetailModal } from './storefront/StorefrontProductDetailModal';
-import { STOREFRONT_BEST_OFFERS, STOREFRONT_RECENT_PRODUCTS } from '../data/storefrontDemoCatalog';
 import { getWishlist, toggleWishlist, removeFromWishlist, WISHLIST_SYNC_EVENT } from '../utils/wishlistStorage';
 import { validateAndApplyCoupon, CouponValidationResult } from '../utils/couponStorage';
 import { storeApi, publicStoreApi } from '../services/apiService';
@@ -378,29 +377,24 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     });
   }, [products, config.publishedProductIds]);
 
-  // Master product catalog: Blend authentic reference products with merchant inventory
+  // Master product catalog: Strictly merchant published inventory only!
+  // ZERO default or demo products are included in the user's e-commerce store.
   const allStoreProducts = useMemo(() => {
-    const existingIds = new Set(merchantPublishedProducts.map((p) => p.id));
-    const deletedDemos = new Set(config.deletedDemoProductIds || []);
-    const allowDemos = config.includeDemoProducts !== false;
-    const demoItems = allowDemos
-      ? [...STOREFRONT_BEST_OFFERS, ...STOREFRONT_RECENT_PRODUCTS].filter(
-          (item) => !existingIds.has(item.id) && !deletedDemos.has(item.id)
-        )
-      : [];
-    return [...merchantPublishedProducts, ...demoItems];
-  }, [merchantPublishedProducts, config.deletedDemoProductIds, config.includeDemoProducts]);
+    return merchantPublishedProducts;
+  }, [merchantPublishedProducts]);
 
-  // Best offers list (Today's Best Offers)
+  // Best offers list (Today's Best Offers) - Only products with actual discounts
   const bestOffersProducts = useMemo(() => {
     return allStoreProducts.filter(
       (p) => (p.discountPercent && p.discountPercent > 0) || (p.originalPrice && p.originalPrice > p.salePrice)
     );
   }, [allStoreProducts]);
 
-  // Recent products list
+  // Remaining or regular products
   const recentProducts = useMemo(() => {
-    return allStoreProducts.filter((p) => !bestOffersProducts.some((b) => b.id === p.id)).slice(0, 8);
+    const bestIds = new Set(bestOffersProducts.map((b) => b.id));
+    const remainder = allStoreProducts.filter((p) => !bestIds.has(p.id));
+    return remainder.length > 0 ? remainder : (bestOffersProducts.length > 0 ? [] : allStoreProducts);
   }, [allStoreProducts, bestOffersProducts]);
 
   // Search and Category filtered products
@@ -782,88 +776,106 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                     }}
                   />
 
-                  {/* 24 Categories Grid */}
-                  <StorefrontCategoryGrid
-                    selectedCategory={selectedCategory}
-                    onSelectCategory={(cat) => setSelectedCategory(cat)}
-                    products={allStoreProducts}
-                    onViewAll={() => setActiveTab('categories')}
-                  />
-
-                  {/* Section 1: 🔥 আজকের সেরা অফার (Today's Best Offers) */}
-                  <div id="storefront-best-offers-section" className="w-full px-2.5 sm:px-4 py-2">
-                    <div className="max-w-7xl mx-auto space-y-2.5">
-                      {/* Section Header */}
-                      <div className="flex items-center justify-between px-1">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-6 h-6 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center shadow-2xs">
-                            <Flame className="w-4 h-4 fill-orange-500 text-orange-600" />
-                          </div>
-                          <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
-                            আজকের সেরা অফার
-                          </h2>
-                          <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 text-[10px] font-black border border-rose-200/80">
-                            সীমিত সময়
-                          </span>
-                        </div>
+                  {allStoreProducts.length === 0 ? (
+                    <div className="w-full px-4 py-16 flex flex-col items-center justify-center text-center">
+                      <div className="w-16 h-16 rounded-3xl bg-teal-50 text-teal-800 flex items-center justify-center mb-3.5 border border-teal-200/80 shadow-2xs">
+                        <Package className="w-8 h-8 text-[#004D40]" />
                       </div>
-
-                      {/* Best Offers Products Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3.5">
-                        {bestOffersProducts.map((prod) => {
-                          const inCart = cart.find((i) => i.product.id === prod.id);
-                          return (
-                            <StorefrontProductCard
-                              key={prod.id}
-                              product={prod}
-                              inCartQuantity={inCart ? inCart.quantity : 0}
-                              onAddToCart={(p) => addToCart(p, 1)}
-                              onUpdateQuantity={updateQuantity}
-                              onViewProduct={(p) => handleOpenProductDetail(p)}
-                              isWishlisted={wishlistIds.includes(prod.id)}
-                              onToggleWishlist={handleToggleWishlist}
-                            />
-                          );
-                        })}
-                      </div>
+                      <h3 className="text-base sm:text-lg font-bold text-slate-900">স্টোরে কোনো পণ্য নেই</h3>
+                      <p className="text-xs sm:text-sm text-slate-500 max-w-sm mt-1 leading-relaxed">
+                        এই অনলাইন স্টোরে এখনো কোনো পণ্য যোগ করা হয়নি। খুব শীঘ্রই নতুন পণ্য তালিকাভুক্ত করা হবে।
+                      </p>
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      {/* 24 Categories Grid */}
+                      <StorefrontCategoryGrid
+                        selectedCategory={selectedCategory}
+                        onSelectCategory={(cat) => setSelectedCategory(cat)}
+                        products={allStoreProducts}
+                        onViewAll={() => setActiveTab('categories')}
+                      />
 
-                  {/* Section 2: ⭐ সাম্প্রতিক পণ্যসমূহ (Recent Products) */}
-                  <div className="w-full px-2.5 sm:px-4 py-2">
-                    <div className="max-w-7xl mx-auto space-y-2.5">
-                      {/* Section Header */}
-                      <div className="flex items-center justify-between px-1">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-6 h-6 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center shadow-2xs">
-                            <Star className="w-4 h-4 fill-amber-500 text-amber-600" />
+                      {/* Section 1: 🔥 আজকের সেরা অফার (Today's Best Offers) */}
+                      {bestOffersProducts.length > 0 && (
+                        <div id="storefront-best-offers-section" className="w-full px-2.5 sm:px-4 py-2">
+                          <div className="max-w-7xl mx-auto space-y-2.5">
+                            {/* Section Header */}
+                            <div className="flex items-center justify-between px-1">
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-6 h-6 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center shadow-2xs">
+                                  <Flame className="w-4 h-4 fill-orange-500 text-orange-600" />
+                                </div>
+                                <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
+                                  আজকের সেরা অফার
+                                </h2>
+                                <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 text-[10px] font-black border border-rose-200/80">
+                                  সীমিত সময়
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Best Offers Products Grid */}
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3.5">
+                              {bestOffersProducts.map((prod) => {
+                                const inCart = cart.find((i) => i.product.id === prod.id);
+                                return (
+                                  <StorefrontProductCard
+                                    key={prod.id}
+                                    product={prod}
+                                    inCartQuantity={inCart ? inCart.quantity : 0}
+                                    onAddToCart={(p) => addToCart(p, 1)}
+                                    onUpdateQuantity={updateQuantity}
+                                    onViewProduct={(p) => handleOpenProductDetail(p)}
+                                    isWishlisted={wishlistIds.includes(prod.id)}
+                                    onToggleWishlist={handleToggleWishlist}
+                                  />
+                                );
+                              })}
+                            </div>
                           </div>
-                          <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
-                            সাম্প্রতিক পণ্যসমূহ
-                          </h2>
                         </div>
-                      </div>
+                      )}
 
-                      {/* Recent Products Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3.5">
-                        {recentProducts.map((prod) => {
-                          const inCart = cart.find((i) => i.product.id === prod.id);
-                          return (
-                            <StorefrontProductCard
-                              key={prod.id}
-                              product={prod}
-                              inCartQuantity={inCart ? inCart.quantity : 0}
-                              onAddToCart={(p) => addToCart(p, 1)}
-                              onUpdateQuantity={updateQuantity}
-                              onViewProduct={(p) => handleOpenProductDetail(p)}
-                              isWishlisted={wishlistIds.includes(prod.id)}
-                              onToggleWishlist={handleToggleWishlist}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
+                      {/* Section 2: ⭐ আমাদের পণ্যসমূহ (Recent / All Products) */}
+                      {recentProducts.length > 0 && (
+                        <div className="w-full px-2.5 sm:px-4 py-2">
+                          <div className="max-w-7xl mx-auto space-y-2.5">
+                            {/* Section Header */}
+                            <div className="flex items-center justify-between px-1">
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-6 h-6 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center shadow-2xs">
+                                  <Star className="w-4 h-4 fill-amber-500 text-amber-600" />
+                                </div>
+                                <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
+                                  {bestOffersProducts.length > 0 ? 'অন্যান্য পণ্যসমূহ' : 'আমাদের পণ্যসমূহ'}
+                                </h2>
+                              </div>
+                            </div>
+
+                            {/* Recent Products Grid */}
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3.5">
+                              {recentProducts.map((prod) => {
+                                const inCart = cart.find((i) => i.product.id === prod.id);
+                                return (
+                                  <StorefrontProductCard
+                                    key={prod.id}
+                                    product={prod}
+                                    inCartQuantity={inCart ? inCart.quantity : 0}
+                                    onAddToCart={(p) => addToCart(p, 1)}
+                                    onUpdateQuantity={updateQuantity}
+                                    onViewProduct={(p) => handleOpenProductDetail(p)}
+                                    isWishlisted={wishlistIds.includes(prod.id)}
+                                    onToggleWishlist={handleToggleWishlist}
+                                  />
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </>
               )}
             </div>

@@ -47,6 +47,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { VendorChatInboxTab } from './vendor/VendorChatInboxTab';
+import { VendorMarketplaceHubTab } from './marketplace/VendorMarketplaceHubTab';
 import { getTotalUnreadVendorMessages, CHAT_SYNC_EVENT } from '../utils/storeChatStorage';
 import { storeApi } from '../services/apiService';
 import { STOREFRONT_BEST_OFFERS, STOREFRONT_RECENT_PRODUCTS } from '../data/storefrontDemoCatalog';
@@ -68,7 +69,7 @@ interface OnlineStoreModalProps {
   onOpenSubscriptionModal?: () => void;
 }
 
-type TabType = 'overview' | 'activation_request' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages' | 'coupons' | 'payments';
+type TabType = 'overview' | 'activation_request' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages' | 'coupons' | 'payments' | 'marketplace';
 
 export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   isOpen,
@@ -1189,6 +1190,22 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                 {unreadMessageCount}
               </span>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('marketplace')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'marketplace'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Store className="w-4 h-4 text-teal-600" />
+            <span>সেন্ট্রাল মার্কেটপ্লেস</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-teal-100 text-teal-800 text-[10px] font-black">
+              মল
+            </span>
           </button>
         </div>
         )}
@@ -3398,28 +3415,8 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                   )}
                 </div>
 
-                {/* VIEW 1: MY INVENTORY PRODUCTS */}
-                {catalogViewMode === 'my_products' && (
-                  <div className="space-y-4">
-                    {/* Notice for Demo Products if Active */}
-                    {isDemoIncluded && activeDemoProducts.length > 0 && (
-                      <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
-                        <div className="flex items-center gap-2 text-amber-900">
-                          <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
-                          <span>
-                            ওয়েবসাইটে স্বয়ংক্রিয়ভাবে <strong>{activeDemoProducts.length} টি ডিফল্ট ডেমো পণ্য</strong> প্রদর্শিত হচ্ছে। আপনার প্রয়োজন না হলে ডিলিট করতে পারবেন।
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setCatalogViewMode('demo_products')}
-                          className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold rounded-lg transition shrink-0 self-start sm:self-auto cursor-pointer"
-                        >
-                          ডেমো পণ্য দেখুন ও মুছুন →
-                        </button>
-                      </div>
-                    )}
-
+                {/* MY INVENTORY PRODUCTS */}
+                <div className="space-y-4">
                 {/* Filter and Search Bar */}
                 <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3">
                   <div className="flex flex-col sm:flex-row gap-2">
@@ -3558,160 +3555,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                   </div>
                 )}
               </div>
-            )}
-
-            {/* VIEW 2: DEFAULT DEMO PRODUCTS MANAGEMENT */}
-            {catalogViewMode === 'demo_products' && (
-              <div className="space-y-4">
-                {/* Control Banner */}
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                        <span>ই-কমার্স ওয়েবসাইটের ডিফল্ট / ডেমো পণ্য ব্যবস্থাপনা</span>
-                        <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-full">
-                          {isDemoIncluded ? activeDemoProducts.length : 0} টি সক্রিয়
-                        </span>
-                      </h4>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        ই-কমার্স ওয়েবসাইটে নতুন স্টোরের জন্য কিছু ডেমো পণ্য রাখা আছে। আপনার প্রয়োজন না হলে নিচের যেকোনো পণ্য <strong>ডিলিট</strong> করতে পারেন অথবা এক ক্লিকে সম্পূর্ণ বন্ধ করতে পারেন।
-                      </p>
-                    </div>
-
-                    {/* Master On/Off Switch & Actions */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleIncludeDemoProducts(!isDemoIncluded)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                          isDemoIncluded
-                            ? 'bg-emerald-600 text-white shadow-xs hover:bg-emerald-700'
-                            : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                        }`}
-                      >
-                        <span>{isDemoIncluded ? '✅ ডেমো প্রদর্শন চালু' : '🚫 ডেমো প্রদর্শন বন্ধ'}</span>
-                      </button>
-
-                      {activeDemoProducts.length > 0 && isDemoIncluded && (
-                        <button
-                          type="button"
-                          onClick={handleDeleteAllDemoProducts}
-                          className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>সব ডিলিট করুন</span>
-                        </button>
-                      )}
-
-                      {deletedDemoIds.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleRestoreAllDemoProducts}
-                          className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                          <span>পুনরুদ্ধার করুন ({deletedDemoIds.length})</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {!isDemoIncluded && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-slate-500 shrink-0" />
-                      <span>
-                        বর্তমানে ই-কমার্স ওয়েবসাইটে সকল ডিফল্ট ডেমো পণ্য বন্ধ রয়েছে। গ্রাহকরা কেবল আপনার ইনভেন্টরির নিজস্ব পণ্য দেখতে পাবেন।
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Active Demo Products List */}
-                {activeDemoProducts.length === 0 ? (
-                  <div className="bg-white rounded-3xl p-10 border border-slate-200 text-center space-y-3">
-                    <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
-                    <p className="font-bold text-slate-800 text-sm">সকল ডেমো পণ্য মুছে ফেলা হয়েছে!</p>
-                    <p className="text-xs text-slate-500 max-w-md mx-auto">
-                      আপনার ওয়েবসাইটে এখন আর কোনো নমুনা বা ডেমো পণ্য নেই। গ্রাহকরা কেবল আপনার নিজস্ব ইনভেন্টরির আসল পণ্যগুলো দেখতে পারবেন।
-                    </p>
-                    {deletedDemoIds.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={handleRestoreAllDemoProducts}
-                        className="px-4 py-2 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold transition inline-flex items-center gap-2 cursor-pointer"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>প্রয়োজন হলে মুছে ফেলা ডেমো পণ্য ফিরিয়ে আনুন</span>
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {activeDemoProducts.map((prod) => (
-                      <div
-                        key={prod.id}
-                        className={`bg-white rounded-2xl border p-3 flex flex-col justify-between transition ${
-                          !isDemoIncluded ? 'opacity-60 border-slate-200' : 'border-slate-200 hover:border-amber-300 shadow-2xs'
-                        }`}
-                      >
-                        <div>
-                          {prod.imageUrl && (
-                            <div className="w-full h-28 rounded-xl overflow-hidden mb-2 bg-slate-100 relative">
-                              <img
-                                src={prod.imageUrl}
-                                alt={prod.name}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  (e.target as HTMLElement).style.display = 'none';
-                                }}
-                              />
-                              <span className="absolute top-2 right-2 px-1.5 py-0.5 bg-amber-500/90 backdrop-blur-xs text-white text-[10px] font-bold rounded-md">
-                                ডিফল্ট নমুনা
-                              </span>
-                            </div>
-                          )}
-
-                          <div className="flex items-center justify-between gap-1 mb-1">
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                              {prod.category}
-                            </span>
-                            <span className="text-[11px] text-slate-400 font-medium">
-                              {prod.deliveryTime || '১২-২৪ ঘণ্টা'}
-                            </span>
-                          </div>
-
-                          <h5 className="font-bold text-xs text-slate-900 line-clamp-1">{prod.name}</h5>
-                          <div className="flex items-baseline gap-1.5 mt-1">
-                            <span className="font-extrabold text-sm text-teal-800">৳{formatMoney(prod.salePrice)}</span>
-                            {prod.originalPrice && prod.originalPrice > prod.salePrice && (
-                              <span className="text-[11px] text-slate-400 line-through">
-                                ৳{formatMoney(prod.originalPrice)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
-                          <span className="text-[11px] text-slate-400">
-                            আইডি: <code className="text-[10px] font-mono text-slate-500">{prod.id}</code>
-                          </span>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteDemoProduct(prod.id, prod.name)}
-                            className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                            title="ওয়েবসাইট থেকে এই ডেমো পণ্যটি সম্পূর্ণ মুছে ফেলুন"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>ডিলিট করুন</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         );
       })()}
@@ -5029,6 +4872,21 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                 </button>
               </div>
             </div>
+          )}
+
+          {/* TAB 10: CENTRAL MARKETPLACE HUB */}
+          {activeTab === 'marketplace' && (
+            <VendorMarketplaceHubTab
+              products={products}
+              orders={orders}
+              store={store}
+              onOpenMarketplace={onOpenMarketplace}
+              onShowToast={onShowToast}
+              onConvertOrderToSale={onConvertOrderToSale}
+              onUpdateProducts={() => {
+                if (onUpdateOrders) onUpdateOrders([...orders]);
+              }}
+            />
           )}
           </>
           )}

@@ -1,12 +1,14 @@
 User-agent: Googlebot
 Allow: /
 Disallow: /api/
+Allow: /api/marketplace/sitemap.xml
 Disallow: /admin/
 
 User-agent: *
 Allow: /
 Disallow: /api/
+Allow: /api/marketplace/sitemap.xml
 Disallow: /admin/
 
 Sitemap: https://twinghisabi.site/sitemap.xml
-
+Sitemap: https://centralmarketplace.twinghisabi.site/api/marketplace/sitemap.xml

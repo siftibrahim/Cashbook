@@ -715,6 +715,7 @@ export function getDefaultOnlineStoreConfig(storeName?: string, phone?: string):
     supportWhatsAppMessage: 'আসসালামু আলাইকুম, আমি আপনার অনলাইন স্টোর থেকে কেনাকাটা বিষয়ে জানতে চাই।',
     supportHours: 'সকাল ৯:০০ - রাত ১০:০০',
     facebookUrl: '',
+    includeDemoProducts: false,
     publishedProductIds: [],
     isStoreAllowedByAdmin: false,
     adminStoreStatus: 'disabled',

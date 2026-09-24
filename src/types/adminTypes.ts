@@ -538,6 +538,7 @@ export type AdminTab =
   | 'app_update'
   | 'live_db_viewer'
   | 'data_management'
+  | 'central_marketplace'
   | 'activity_logs';
 
 

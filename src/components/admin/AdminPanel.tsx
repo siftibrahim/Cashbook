@@ -71,6 +71,7 @@ import { DataManagementTab } from './DataManagementTab';
 import { LiveDbViewerTab } from './LiveDbViewerTab';
 import { OnlineStoreManagementTab } from './OnlineStoreManagementTab';
 import { DashboardBannersTab } from './DashboardBannersTab';
+import { CentralMarketplaceAdminTab } from './CentralMarketplaceAdminTab';
 import {
   LayoutDashboard,
   Users,
@@ -122,7 +123,7 @@ interface TabNavItem {
   id: AdminTab;
   label: string;
   icon: any;
-  badge?: number;
+  badge?: number | string;
   badgeColor?: string;
   isAllowed: boolean;
   isSuperOnly?: boolean;
@@ -335,6 +336,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       badge: pendingStoreRequestsCount > 0 ? pendingStoreRequestsCount : undefined,
       badgeColor: 'bg-amber-400 text-slate-950 font-black animate-pulse',
       isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'users_view'),
+    },
+    {
+      id: 'central_marketplace',
+      label: 'সেন্ট্রাল মার্কেটপ্লেস মল',
+      icon: Store,
+      badge: 'মল',
+      badgeColor: 'bg-teal-600 text-white font-bold',
+      isAllowed: isSuperAdmin,
+      isSuperOnly: true,
     },
     {
       id: 'payments',
@@ -624,6 +634,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               onRefreshUsers={checkDbAndRefresh}
               showToast={showToast}
             />
+          )}
+
+          {activeTab === 'central_marketplace' && isSuperAdmin && (
+            <CentralMarketplaceAdminTab isSuperAdmin={isSuperAdmin} />
           )}
 
           {activeTab === 'subscriptions' && (

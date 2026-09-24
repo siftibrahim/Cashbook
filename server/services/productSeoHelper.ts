@@ -41,10 +41,10 @@ export async function injectProductSeo(
 
     const prodName = productRow.name || 'পণ্য';
     const price = productRow.sale_price ?? productRow.salePrice ?? 0;
-    const title = `${prodName} - ৳${price} | ${storeName}`;
+    const title = `${prodName} - ৳${price} | ${storeName} – TwingHisabi`;
     const desc = productRow.description
       ? String(productRow.description).slice(0, 180).replace(/"/g, '&quot;')
-      : `${storeName} থেকে আকর্ষণীয় মূল্যে "${prodName}" অর্ডার করুন। ক্যাশ অন ডেলিভারি ও দ্রুত হোম ডেলিভারি সুবিধা রয়েছে।`;
+      : `${storeName} থেকে আকর্ষণীয় মূল্যে "${prodName}" কিনুন। সেন্ট্রাল মার্কেটপ্লেস ও অনলাইন ডেলিভারি সুবিধা twinghisabi-তে।`;
     const image = productRow.image_url || productRow.imageUrl || 'https://twinghisabi.site/icon-512.png';
 
     // Replace or inject Title
@@ -74,6 +74,32 @@ export async function injectProductSeo(
     return modified;
   } catch (err) {
     console.error('Error injecting product SEO meta tags:', err);
+    return html;
+  }
+}
+
+/**
+ * Injects Central Marketplace specific OpenGraph & SEO tags when visiting central marketplace
+ */
+export function injectMarketplaceSeo(html: string, fullUrl: string): string {
+  try {
+    const title = 'TwingMall Central Marketplace – টুইং সেন্ট্রাল মার্কেটপ্লেস | খাঁটি ও সেরা পণ্য';
+    const desc = 'বাংলাদেশের সেরা ভেরিফাইড মার্চেন্টদের সরাসরি উৎপাদিত খাঁটি খাদ্যপণ্য, প্রিমিয়াম গ্রোসারি, লাইফস্টাইল ও ইলেকট্রনিক্স। ক্যাশ অন ডেলিভারিতে দ্রুত সারা দেশে ডেলিভারি।';
+    const image = 'https://twinghisabi.site/icon-512.png';
+
+    let modified = html.replace(/<title>.*?<\/title>/i, `<title>${title}</title>`);
+    modified = modified.replace(/<meta name="description" content=".*?" \/>/i, `<meta name="description" content="${desc}" />`);
+    modified = modified.replace(/<meta property="og:title" content=".*?" \/>/i, `<meta property="og:title" content="${title}" />`);
+    modified = modified.replace(/<meta property="og:description" content=".*?" \/>/i, `<meta property="og:description" content="${desc}" />`);
+    modified = modified.replace(/<meta property="og:image" content=".*?" \/>/i, `<meta property="og:image" content="${image}" />`);
+    modified = modified.replace(/<meta property="og:url" content=".*?" \/>/i, `<meta property="og:url" content="${fullUrl}" />`);
+    modified = modified.replace(/<meta name="twitter:title" content=".*?" \/>/i, `<meta name="twitter:title" content="${title}" />`);
+    modified = modified.replace(/<meta name="twitter:description" content=".*?" \/>/i, `<meta name="twitter:description" content="${desc}" />`);
+    modified = modified.replace(/<meta name="twitter:image" content=".*?" \/>/i, `<meta name="twitter:image" content="${image}" />`);
+    modified = modified.replace(/<link rel="canonical" href=".*?" \/>/i, `<link rel="canonical" href="${fullUrl}" />`);
+
+    return modified;
+  } catch (e) {
     return html;
   }
 }

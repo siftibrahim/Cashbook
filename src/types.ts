@@ -322,6 +322,9 @@ export interface OnlineOrder {
   courierTrackingCode?: string;
   codCollectedAmount?: number;
   collectedAt?: number;
+  orderSource?: 'direct' | 'marketplace';
+  masterOrderId?: string;
+  vendorPayoutStatus?: 'pending' | 'settled';
   createdAt: number;
   updatedAt: number;
 }

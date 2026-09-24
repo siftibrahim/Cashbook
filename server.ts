@@ -23,7 +23,7 @@ import { migrateDataToPostgres } from './server/migration';
 import { requireSuperAdmin } from './server/authMiddleware';
 import { SubscriptionEngine } from './server/services/subscriptionEngine';
 import { wildcardCors, dynamicSubdomainMiddleware } from './server/middleware/subdomainMiddleware';
-import { injectProductSeo } from './server/services/productSeoHelper';
+import { injectProductSeo, injectMarketplaceSeo } from './server/services/productSeoHelper';
 
 dotenv.config();
 
@@ -168,9 +168,17 @@ Sitemap: ${baseUrl}/sitemap.xml
     app.use(async (req, res, next) => {
       if (req.method !== 'GET') return next();
       const rawPath = req.path;
+      const rawHost = req.headers.host || 'localhost:3000';
       const productId = (req.query.product || req.query.p || rawPath.match(/^\/(?:product|p)\/([^/]+)/)?.[1]) as string | undefined;
       const userAgent = (req.headers['user-agent'] || '').toLowerCase();
       const isCrawler = /bot|crawler|spider|facebookexternalhit|facebot|whatsapp|twitterbot|telegrambot|linkedinbot|discordbot|slackbot|applebot/i.test(userAgent);
+
+      const isMarketplace =
+        rawHost.startsWith('centralmarketplace.') ||
+        rawHost.startsWith('marketplace.') ||
+        rawPath === '/marketplace' ||
+        rawPath.startsWith('/marketplace/') ||
+        req.query.marketplace === '1';
 
       if (productId && (isCrawler || req.accepts('html'))) {
         try {
@@ -179,7 +187,6 @@ Sitemap: ${baseUrl}/sitemap.xml
             let html = fs.readFileSync(indexPath, 'utf-8');
             html = await vite.transformIndexHtml(req.originalUrl, html);
             const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-            const rawHost = req.headers.host || 'localhost:3000';
             const fullUrl = `${protocol}://${rawHost}${req.originalUrl}`;
             html = await injectProductSeo(html, productId, rawHost, fullUrl);
             res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -187,6 +194,21 @@ Sitemap: ${baseUrl}/sitemap.xml
           }
         } catch (e) {
           console.error('Error in dev product SEO interceptor:', e);
+        }
+      } else if (isMarketplace && (isCrawler || req.accepts('html'))) {
+        try {
+          const indexPath = path.join(process.cwd(), 'index.html');
+          if (fs.existsSync(indexPath)) {
+            let html = fs.readFileSync(indexPath, 'utf-8');
+            html = await vite.transformIndexHtml(req.originalUrl, html);
+            const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+            const fullUrl = `${protocol}://${rawHost}${req.originalUrl}`;
+            html = injectMarketplaceSeo(html, fullUrl);
+            res.setHeader('Content-Type', 'text/html; charset=utf-8');
+            return res.send(html);
+          }
+        } catch (e) {
+          console.error('Error in dev marketplace SEO interceptor:', e);
         }
       }
       next();
@@ -199,20 +221,38 @@ Sitemap: ${baseUrl}/sitemap.xml
 
     app.get('*', async (req, res) => {
       const rawPath = req.path;
+      const rawHost = req.headers.host || 'twinghisabi.site';
       const productId = (req.query.product || req.query.p || rawPath.match(/^\/(?:product|p)\/([^/]+)/)?.[1]) as string | undefined;
       const indexPath = path.join(distPath, 'index.html');
+
+      const isMarketplace =
+        rawHost.startsWith('centralmarketplace.') ||
+        rawHost.startsWith('marketplace.') ||
+        rawPath === '/marketplace' ||
+        rawPath.startsWith('/marketplace/') ||
+        req.query.marketplace === '1';
 
       if (productId && fs.existsSync(indexPath)) {
         try {
           let html = fs.readFileSync(indexPath, 'utf-8');
           const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
-          const rawHost = req.headers.host || 'twinghisabi.site';
           const fullUrl = `${protocol}://${rawHost}${req.originalUrl}`;
           html = await injectProductSeo(html, productId, rawHost, fullUrl);
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
           return res.send(html);
         } catch (e) {
           console.error('Error injecting product SEO in prod:', e);
+        }
+      } else if (isMarketplace && fs.existsSync(indexPath)) {
+        try {
+          let html = fs.readFileSync(indexPath, 'utf-8');
+          const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+          const fullUrl = `${protocol}://${rawHost}${req.originalUrl}`;
+          html = injectMarketplaceSeo(html, fullUrl);
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          return res.send(html);
+        } catch (e) {
+          console.error('Error injecting marketplace SEO in prod:', e);
         }
       }
       res.sendFile(indexPath);

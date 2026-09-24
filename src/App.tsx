@@ -1606,18 +1606,10 @@ export const App: React.FC = () => {
   // Merchant manually browsing central marketplace from inside dashboard
   if (isMarketplaceViewOpen) {
     return (
-      <div className="relative">
-        <div className="fixed top-3 right-4 z-50">
-          <button
-            type="button"
-            onClick={() => setIsMarketplaceViewOpen(false)}
-            className="px-3.5 py-1.5 bg-slate-900/90 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-lg flex items-center gap-1.5 cursor-pointer backdrop-blur-xs transition"
-          >
-            <span>← ড্যাশবোর্ডে ফিরুন</span>
-          </button>
-        </div>
-        <CentralMarketplacePage />
-      </div>
+      <CentralMarketplacePage
+        onBackToDashboard={() => setIsMarketplaceViewOpen(false)}
+        onMerchantLogin={() => setIsMarketplaceViewOpen(false)}
+      />
     );
   }
 
