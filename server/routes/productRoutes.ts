@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
+import { notifySearchEnginesOnProductPublish } from '../services/productSeoHelper';
 
 const router = Router();
 
@@ -240,6 +241,11 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       rating: cleanRating,
       updatedAt: now,
     };
+
+    // If product is listed on Central Marketplace or published online, notify search engines immediately
+    if (cleanMarketplace || cleanOnline) {
+      notifySearchEnginesOnProductPublish(prodId, savedProduct.name).catch(() => {});
+    }
 
     return res.json({ message: '✅ পণ্য সফলভাবে ডাটাবেজে সংরক্ষণ করা হয়েছে', product: savedProduct });
   } catch (err: any) {
