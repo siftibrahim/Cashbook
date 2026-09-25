@@ -202,6 +202,38 @@ export interface MarketplaceMasterOrder {
   updatedAt: number;
 }
 
+export interface VendorPayoutRequest {
+  id: string;
+  userId: string;
+  storeName?: string;
+  storePhone?: string;
+  amount: number;
+  paymentMethod: 'bkash' | 'nagad' | 'rocket' | 'bank';
+  accountNumber: string;
+  accountType?: 'personal' | 'agent' | 'savings' | 'current';
+  bankName?: string;
+  branchName?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  requestNote?: string;
+  adminTransactionId?: string;
+  adminNote?: string;
+  processedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface VendorWalletSummary {
+  totalSales: number;
+  deliveredSales: number;
+  settledSales: number;
+  pendingDeliverySales: number;
+  pendingWithdrawalAmount: number;
+  availableForWithdrawal: number;
+  deliveredOrdersCount: number;
+  pendingOrdersCount: number;
+  payoutRequests: VendorPayoutRequest[];
+}
+
 export interface StoreBanner {
   id: string;
   imageUrl: string;

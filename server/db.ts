@@ -91,6 +91,7 @@ export const inMemoryStore: {
   marketplace_master_orders: any[];
   marketplace_categories: any[];
   marketplace_settings: any;
+  vendor_payout_requests: any[];
 } = {
   users: [],
   stores: [],
@@ -115,6 +116,7 @@ export const inMemoryStore: {
   marketplace_master_orders: [],
   marketplace_categories: [],
   marketplace_settings: {},
+  vendor_payout_requests: [],
 };
 
 /**
@@ -1236,6 +1238,30 @@ export async function initializeDatabaseSchema() {
         data JSONB NOT NULL,
         updated_at BIGINT NOT NULL
       );
+
+      -- 6. Central Marketplace Vendor Payout Requests Table
+      CREATE TABLE IF NOT EXISTS vendor_payout_requests (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        store_name VARCHAR(255),
+        store_phone VARCHAR(50),
+        amount NUMERIC(12, 2) NOT NULL,
+        payment_method VARCHAR(50) NOT NULL,
+        account_number VARCHAR(100) NOT NULL,
+        account_type VARCHAR(50) DEFAULT 'personal',
+        bank_name VARCHAR(100),
+        branch_name VARCHAR(100),
+        status VARCHAR(30) DEFAULT 'pending',
+        request_note TEXT,
+        admin_transaction_id VARCHAR(100),
+        admin_note TEXT,
+        processed_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_payout_user ON vendor_payout_requests(user_id);
+      CREATE INDEX IF NOT EXISTS idx_payout_status ON vendor_payout_requests(status);
+      CREATE INDEX IF NOT EXISTS idx_payout_created ON vendor_payout_requests(created_at DESC);
     `);
 
     // Seed default admin and system configs if not present

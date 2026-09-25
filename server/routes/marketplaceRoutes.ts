@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { PaymentlyService } from '../services/paymentlyService';
+import { sendSmsNotification } from '../services/smsService';
 
 const router = Router();
 
@@ -855,6 +856,15 @@ router.post('/checkout', async (req: Request, res: Response) => {
       }
     }
 
+    // 🔔 Send Instant Customer Order Confirmation SMS
+    if (cleanPhone && cleanPhone.length >= 11) {
+      const payLabel = normalizedPaymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : 'অনলাইন পরিশোধিত';
+      const custSms = `TwingHisabi: ধন্যবাদ ${cleanName}! সেন্ট্রাল মার্কেটপ্লেসে আপনার অর্ডার #${masterOrderNumber} সফলভাবে গৃহীত হয়েছে। মোট বিল: ৳${grandTotal} (${payLabel})। ডেলিভারির সময় কুরিয়ার যোগাযোগ করবে।`;
+      sendSmsNotification(cleanPhone, custSms).catch((err) => {
+        console.warn('Customer marketplace order SMS notification notice:', err?.message || err);
+      });
+    }
+
     return res.status(201).json({
       success: true,
       masterOrder: {
@@ -1301,6 +1311,49 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
       }
     }
 
+    // 🔔 Send Order Status Update SMS to Customer (Cancelled, Confirmed, Shipped, Delivered)
+    let custPhone = '';
+    let custName = '';
+    let ordNum = '';
+
+    if (pool) {
+      const ordRes = await pool.query(
+        'SELECT order_number, customer_name, customer_phone FROM marketplace_master_orders WHERE id = $1 OR order_number = $1',
+        [id]
+      ).catch(() => ({ rows: [] }));
+      if (ordRes.rows.length > 0) {
+        ordNum = ordRes.rows[0].order_number;
+        custName = ordRes.rows[0].customer_name;
+        custPhone = ordRes.rows[0].customer_phone;
+      }
+    } else {
+      const ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
+      if (ord) {
+        ordNum = ord.orderNumber;
+        custName = ord.customerName;
+        custPhone = ord.customerPhone;
+      }
+    }
+
+    if (custPhone && custPhone.length >= 11 && overallStatus) {
+      let statusMsg = '';
+      if (overallStatus === 'cancelled') {
+        statusMsg = `TwingHisabi: দুঃখিত ${custName || 'গ্রাহক'}! আপনার সেন্ট্রাল মল অর্ডার #${ordNum || id} বাতিল (Cancelled) করা হয়েছে। বিস্তারিত জানতে আমাদের সাথে যোগাযোগ করুন।`;
+      } else if (overallStatus === 'confirmed') {
+        statusMsg = `TwingHisabi: অভিনন্দন ${custName || 'গ্রাহক'}! আপনার সেন্ট্রাল মল অর্ডার #${ordNum || id} নিশ্চিত (Confirmed) করা হয়েছে এবং পার্সেল প্রস্তুত হচ্ছে।`;
+      } else if (overallStatus === 'shipped') {
+        statusMsg = `TwingHisabi: আপনার সেন্ট্রাল মল অর্ডার #${ordNum || id} কুরিয়ারে হস্তান্তর করা হয়েছে। শীঘ্রই ডেলিভারি পাবেন।`;
+      } else if (overallStatus === 'delivered') {
+        statusMsg = `TwingHisabi: আপনার সেন্ট্রাল মল অর্ডার #${ordNum || id} সফলভাবে ডেলিভারি সম্পন্ন হয়েছে। আমাদের সাথে কেনাকাটার জন্য ধন্যবাদ!`;
+      }
+
+      if (statusMsg) {
+        sendSmsNotification(custPhone, statusMsg).catch((err) => {
+          console.warn('Customer marketplace order status SMS notification notice:', err?.message || err);
+        });
+      }
+    }
+
     return res.json({ success: true, message: 'অর্ডার স্ট্যাটাস সফলভাবে আপডেট হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1552,6 +1605,653 @@ router.get('/vendor/summary', authenticateUser, async (req: AuthenticatedRequest
         listedCount: prods.filter(p => p.isListedOnMarketplace).length,
         totalSales: orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0),
       });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 14. GET /api/marketplace/vendor/wallet - Vendor Financial Wallet & Balance Overview
+ */
+router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'লগইন করুন' });
+
+    const pool = getDbPool();
+
+    if (pool) {
+      // 1. Fetch vendor's marketplace orders
+      const ordersRes = await pool.query(`
+        SELECT id, order_number, total_amount, order_status, vendor_payout_status, created_at
+        FROM online_orders 
+        WHERE user_id = $1 AND (order_source = 'marketplace' OR master_order_id IS NOT NULL)
+        ORDER BY created_at DESC
+      `, [userId]).catch(() => ({ rows: [] }));
+
+      // 2. Fetch vendor's payout requests
+      const payoutsRes = await pool.query(`
+        SELECT * FROM vendor_payout_requests 
+        WHERE user_id = $1 
+        ORDER BY created_at DESC
+      `, [userId]).catch(() => ({ rows: [] }));
+
+      const orders = ordersRes.rows.map(o => ({
+        id: o.id,
+        orderNumber: o.order_number,
+        totalAmount: parseFloat(o.total_amount) || 0,
+        orderStatus: o.order_status,
+        vendorPayoutStatus: o.vendor_payout_status || 'unsettled',
+        createdAt: Number(o.created_at),
+      }));
+
+      const payoutRequests = payoutsRes.rows.map(p => ({
+        id: p.id,
+        userId: p.user_id,
+        storeName: p.store_name,
+        storePhone: p.store_phone,
+        amount: parseFloat(p.amount) || 0,
+        paymentMethod: p.payment_method,
+        accountNumber: p.account_number,
+        accountType: p.account_type || 'personal',
+        bankName: p.bank_name,
+        branchName: p.branch_name,
+        status: p.status,
+        requestNote: p.request_note,
+        adminTransactionId: p.admin_transaction_id,
+        adminNote: p.admin_note,
+        processedAt: p.processed_at ? Number(p.processed_at) : undefined,
+        createdAt: Number(p.created_at),
+        updatedAt: Number(p.updated_at),
+      }));
+
+      const nonCancelledOrders = orders.filter(o => o.orderStatus !== 'cancelled');
+      const totalSales = nonCancelledOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+      const deliveredOrders = nonCancelledOrders.filter(o => o.orderStatus === 'delivered');
+      const deliveredSales = deliveredOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+      const settledSales = nonCancelledOrders
+        .filter(o => o.vendorPayoutStatus === 'settled')
+        .reduce((sum, o) => sum + o.totalAmount, 0);
+      const pendingDeliverySales = nonCancelledOrders
+        .filter(o => o.orderStatus !== 'delivered')
+        .reduce((sum, o) => sum + o.totalAmount, 0);
+
+      // Pending withdrawal requests amount (in process)
+      const pendingWithdrawalAmount = payoutRequests
+        .filter(p => p.status === 'pending')
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      // Available balance is delivered money minus what is already settled minus what is currently pending review
+      const availableForWithdrawal = Math.max(0, deliveredSales - settledSales - pendingWithdrawalAmount);
+
+      return res.json({
+        success: true,
+        totalSales,
+        deliveredSales,
+        settledSales,
+        pendingDeliverySales,
+        pendingWithdrawalAmount,
+        availableForWithdrawal,
+        deliveredOrdersCount: deliveredOrders.length,
+        pendingOrdersCount: nonCancelledOrders.length - deliveredOrders.length,
+        payoutRequests,
+      });
+    } else {
+      // In-memory fallback
+      const orders = (inMemoryStore.online_orders || []).filter(
+        o => o.userId === userId && (o.orderSource === 'marketplace' || o.masterOrderId)
+      );
+      const payoutRequests = ((inMemoryStore as any).vendor_payout_requests || [])
+        .filter((p: any) => p.userId === userId || p.user_id === userId)
+        .sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      const nonCancelledOrders = orders.filter((o: any) => o.orderStatus !== 'cancelled');
+      const totalSales = nonCancelledOrders.reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
+      const deliveredOrders = nonCancelledOrders.filter((o: any) => o.orderStatus === 'delivered');
+      const deliveredSales = deliveredOrders.reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
+      const settledSales = nonCancelledOrders
+        .filter((o: any) => o.vendorPayoutStatus === 'settled')
+        .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
+      const pendingDeliverySales = nonCancelledOrders
+        .filter((o: any) => o.orderStatus !== 'delivered')
+        .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
+
+      const pendingWithdrawalAmount = payoutRequests
+        .filter((p: any) => p.status === 'pending')
+        .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+
+      const availableForWithdrawal = Math.max(0, deliveredSales - settledSales - pendingWithdrawalAmount);
+
+      return res.json({
+        success: true,
+        totalSales,
+        deliveredSales,
+        settledSales,
+        pendingDeliverySales,
+        pendingWithdrawalAmount,
+        availableForWithdrawal,
+        deliveredOrdersCount: deliveredOrders.length,
+        pendingOrdersCount: nonCancelledOrders.length - deliveredOrders.length,
+        payoutRequests,
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 15. POST /api/marketplace/vendor/payout-request - Vendor Submits Payout Withdrawal Request
+ */
+router.post('/vendor/payout-request', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'লগইন করুন' });
+
+    const {
+      amount,
+      paymentMethod,
+      accountNumber,
+      accountType = 'personal',
+      bankName,
+      branchName,
+      requestNote,
+    } = req.body;
+
+    const numAmount = parseFloat(amount);
+    if (!numAmount || isNaN(numAmount) || numAmount < 100) {
+      return res.status(400).json({ error: 'ন্যূনতম উত্তোলনের পরিমাণ ১০০ টাকা হতে হবে' });
+    }
+
+    if (!paymentMethod || !['bkash', 'nagad', 'rocket', 'bank'].includes(paymentMethod)) {
+      return res.status(400).json({ error: 'সঠিক পেমেন্ট মেথড (বিকাশ, নগদ, রকেট বা ব্যাংক) নির্বাচন করুন' });
+    }
+
+    if (!accountNumber || !accountNumber.trim()) {
+      return res.status(400).json({ error: 'অ্যাকাউন্ট বা মোবাইল নম্বর প্রদান করুন' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+    const requestId = 'payout_' + now.toString(36) + Math.random().toString(36).substring(2, 6);
+
+    let storeName = req.user?.shopName || req.user?.name || 'ভেন্ডর শপ';
+    let storePhone = req.user?.phone || '';
+
+    if (pool) {
+      // Check user's current available balance
+      const ordersRes = await pool.query(`
+        SELECT total_amount, order_status, vendor_payout_status 
+        FROM online_orders 
+        WHERE user_id = $1 AND (order_source = 'marketplace' OR master_order_id IS NOT NULL)
+      `, [userId]).catch(() => ({ rows: [] }));
+
+      const existingPayouts = await pool.query(`
+        SELECT amount, status FROM vendor_payout_requests WHERE user_id = $1
+      `, [userId]).catch(() => ({ rows: [] }));
+
+      // Also get store name from store_profiles if exists
+      const storeRes = await pool.query('SELECT name, phone FROM store_profiles WHERE user_id = $1', [userId]).catch(() => ({ rows: [] }));
+      if (storeRes.rows.length > 0) {
+        if (storeRes.rows[0].name) storeName = storeRes.rows[0].name;
+        if (storeRes.rows[0].phone) storePhone = storeRes.rows[0].phone;
+      }
+
+      const deliveredSales = ordersRes.rows
+        .filter(o => o.order_status === 'delivered')
+        .reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+      const settledSales = ordersRes.rows
+        .filter(o => o.vendor_payout_status === 'settled')
+        .reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+      const pendingWithdrawals = existingPayouts.rows
+        .filter(p => p.status === 'pending')
+        .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+
+      const available = Math.max(0, deliveredSales - settledSales - pendingWithdrawals);
+
+      if (numAmount > available) {
+        return res.status(400).json({
+          error: `আপনার বর্তমান উত্তোলনযোগ্য ব্যালেন্স ৳${available.toLocaleString('en-US')}। আপনি এর বেশি তুলতে পারবেন না।`,
+        });
+      }
+
+      // Insert payout request
+      await pool.query(`
+        INSERT INTO vendor_payout_requests (
+          id, user_id, store_name, store_phone, amount, payment_method, 
+          account_number, account_type, bank_name, branch_name, 
+          status, request_note, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, $12, $12)
+      `, [
+        requestId,
+        userId,
+        storeName,
+        storePhone,
+        numAmount,
+        paymentMethod,
+        accountNumber.trim(),
+        accountType,
+        bankName || null,
+        branchName || null,
+        requestNote || null,
+        now,
+      ]);
+
+      // Notify Admin
+      const notifId = 'notif_payout_' + now;
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, priority, is_read, created_at)
+        VALUES ($1, $2, $3, 'payout', 'admin', 2, false, $4)
+      `, [
+        notifId,
+        '💸 নতুন ভেন্ডর পেআউট আবেদন!',
+        `${storeName} (${storePhone}) সেন্ট্রাল মল থেকে ৳${numAmount.toLocaleString('en-US')} পেআউট উত্তোলনের আবেদন করেছেন। মাধ্যম: ${paymentMethod.toUpperCase()} (${accountNumber})`,
+        now,
+      ]).catch(() => {});
+
+      return res.json({
+        success: true,
+        message: 'আপনার পেআউট উত্তোলনের আবেদন সফলভাবে গ্রহণ করা হয়েছে। সুপার অ্যাডমিন যাচাই করে আপনার একাউন্টে টাকা পাঠাবেন।',
+        requestId,
+      });
+    } else {
+      // In-memory
+      const orders = (inMemoryStore.online_orders || []).filter(
+        o => o.userId === userId && (o.orderSource === 'marketplace' || o.masterOrderId)
+      );
+      const existingPayouts = ((inMemoryStore as any).vendor_payout_requests || []).filter(
+        (p: any) => p.userId === userId || p.user_id === userId
+      );
+
+      const deliveredSales = orders
+        .filter((o: any) => o.orderStatus === 'delivered')
+        .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
+      const settledSales = orders
+        .filter((o: any) => o.vendorPayoutStatus === 'settled')
+        .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
+      const pendingWithdrawals = existingPayouts
+        .filter((p: any) => p.status === 'pending')
+        .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+
+      const available = Math.max(0, deliveredSales - settledSales - pendingWithdrawals);
+
+      if (numAmount > available) {
+        return res.status(400).json({
+          error: `আপনার বর্তমান উত্তোলনযোগ্য ব্যালেন্স ৳${available.toLocaleString('en-US')}। আপনি এর বেশি তুলতে পারবেন না।`,
+        });
+      }
+
+      const newRequest = {
+        id: requestId,
+        userId,
+        user_id: userId,
+        storeName,
+        store_name: storeName,
+        storePhone,
+        store_phone: storePhone,
+        amount: numAmount,
+        paymentMethod,
+        payment_method: paymentMethod,
+        accountNumber: accountNumber.trim(),
+        account_number: accountNumber.trim(),
+        accountType,
+        account_type: accountType,
+        bankName,
+        bank_name: bankName,
+        branchName,
+        branch_name: branchName,
+        status: 'pending',
+        requestNote,
+        request_note: requestNote,
+        createdAt: now,
+        created_at: now,
+        updatedAt: now,
+        updated_at: now,
+      };
+
+      if (!(inMemoryStore as any).vendor_payout_requests) {
+        (inMemoryStore as any).vendor_payout_requests = [];
+      }
+      (inMemoryStore as any).vendor_payout_requests.push(newRequest);
+      saveInMemoryStoreToDisk();
+
+      return res.json({
+        success: true,
+        message: 'আপনার পেআউট উত্তোলনের আবেদন সফলভাবে গ্রহণ করা হয়েছে। সুপার অ্যাডমিন যাচাই করে আপনার একাউন্টে টাকা পাঠাবেন।',
+        requestId,
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 16. GET /api/marketplace/admin/payout-requests - Super Admin Lists Vendor Payout Requests
+ */
+router.get('/admin/payout-requests', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const isSuperAdmin =
+      req.user?.role === 'super_admin' ||
+      req.user?.role === 'admin' ||
+      req.user?.email === 'siftibrahim@gmail.com' ||
+      req.user?.email === 'siftibrahim75@gmail.com' ||
+      req.user?.email === process.env.ADMIN_EMAIL;
+
+    if (!isSuperAdmin) {
+      return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
+    }
+
+    const { status } = req.query;
+    const pool = getDbPool();
+
+    if (pool) {
+      let queryText = `
+        SELECT p.*, u.name as user_real_name, u.phone as user_registered_phone, u.shop_name as user_shop_name, u.email as user_email
+        FROM vendor_payout_requests p
+        LEFT JOIN users u ON p.user_id = u.id
+      `;
+      const params: any[] = [];
+      if (status && status !== 'all') {
+        queryText += ' WHERE p.status = $1';
+        params.push(status);
+      }
+      queryText += ' ORDER BY p.created_at DESC';
+
+      const resList = await pool.query(queryText, params).catch(() => ({ rows: [] }));
+
+      const requests = resList.rows.map(p => ({
+        id: p.id,
+        userId: p.user_id,
+        storeName: p.store_name || p.user_shop_name || p.user_real_name || 'ভেন্ডর',
+        storePhone: p.store_phone || p.user_registered_phone || '',
+        userEmail: p.user_email,
+        amount: parseFloat(p.amount) || 0,
+        paymentMethod: p.payment_method,
+        accountNumber: p.account_number,
+        accountType: p.account_type || 'personal',
+        bankName: p.bank_name,
+        branchName: p.branch_name,
+        status: p.status,
+        requestNote: p.request_note,
+        adminTransactionId: p.admin_transaction_id,
+        adminNote: p.admin_note,
+        processedAt: p.processed_at ? Number(p.processed_at) : undefined,
+        createdAt: Number(p.created_at),
+        updatedAt: Number(p.updated_at),
+      }));
+
+      return res.json({ success: true, requests });
+    } else {
+      let requests = ((inMemoryStore as any).vendor_payout_requests || []).map((p: any) => ({
+        id: p.id,
+        userId: p.userId || p.user_id,
+        storeName: p.storeName || p.store_name || 'ভেন্ডর',
+        storePhone: p.storePhone || p.store_phone || '',
+        amount: Number(p.amount) || 0,
+        paymentMethod: p.paymentMethod || p.payment_method,
+        accountNumber: p.accountNumber || p.account_number,
+        accountType: p.accountType || p.account_type || 'personal',
+        bankName: p.bankName || p.bank_name,
+        branchName: p.branchName || p.branch_name,
+        status: p.status || 'pending',
+        requestNote: p.requestNote || p.request_note,
+        adminTransactionId: p.adminTransactionId || p.admin_transaction_id,
+        adminNote: p.adminNote || p.admin_note,
+        processedAt: p.processedAt || p.processed_at,
+        createdAt: Number(p.createdAt || p.created_at || Date.now()),
+        updatedAt: Number(p.updatedAt || p.updated_at || Date.now()),
+      }));
+
+      if (status && status !== 'all') {
+        requests = requests.filter((r: any) => r.status === status);
+      }
+      requests.sort((a: any, b: any) => b.createdAt - a.createdAt);
+
+      return res.json({ success: true, requests });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 17. POST /api/marketplace/admin/payout-requests/:id/process - Super Admin Approves or Rejects Payout
+ */
+router.post('/admin/payout-requests/:id/process', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const isSuperAdmin =
+      req.user?.role === 'super_admin' ||
+      req.user?.role === 'admin' ||
+      req.user?.email === 'siftibrahim@gmail.com' ||
+      req.user?.email === 'siftibrahim75@gmail.com' ||
+      req.user?.email === process.env.ADMIN_EMAIL;
+
+    if (!isSuperAdmin) {
+      return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
+    }
+
+    const { id } = req.params;
+    const { action, adminTransactionId, adminNote } = req.body;
+
+    if (!action || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ error: 'সঠিক অ্যাকশন (approve বা reject) নির্বাচন করুন' });
+    }
+
+    if (action === 'approve' && (!adminTransactionId || !adminTransactionId.trim())) {
+      return res.status(400).json({ error: 'বিকাশ/নগদ/ব্যাংক ট্রান্সফার TrxID প্রদান আবশ্যক' });
+    }
+
+    const now = Date.now();
+    const pool = getDbPool();
+
+    if (pool) {
+      // 1. Fetch the request
+      const reqRes = await pool.query('SELECT * FROM vendor_payout_requests WHERE id = $1', [id]);
+      if (reqRes.rows.length === 0) {
+        return res.status(404).json({ error: 'পেআউট আবেদনটি পাওয়া যায়নি' });
+      }
+      const payoutReq = reqRes.rows[0];
+      const targetUserId = payoutReq.user_id;
+      const amount = parseFloat(payoutReq.amount) || 0;
+      const cleanTrx = (adminTransactionId || '').trim();
+
+      if (action === 'approve') {
+        // Update request status to approved
+        await pool.query(`
+          UPDATE vendor_payout_requests
+          SET status = 'approved',
+              admin_transaction_id = $1,
+              admin_note = $2,
+              processed_at = $3,
+              updated_at = $3
+          WHERE id = $4
+        `, [cleanTrx, adminNote || null, now, id]);
+
+        // Mark unsettled delivered orders of this vendor as settled up to this amount
+        try {
+          const deliveredOrders = await pool.query(`
+            SELECT id, total_amount FROM online_orders 
+            WHERE user_id = $1 
+              AND (order_source = 'marketplace' OR master_order_id IS NOT NULL)
+              AND order_status = 'delivered'
+              AND (vendor_payout_status IS NULL OR vendor_payout_status != 'settled')
+            ORDER BY created_at ASC
+          `, [targetUserId]);
+
+          let remainingToSettle = amount;
+          for (const ord of deliveredOrders.rows) {
+            if (remainingToSettle <= 0) break;
+            const ordAmt = parseFloat(ord.total_amount) || 0;
+            await pool.query(`
+              UPDATE online_orders 
+              SET vendor_payout_status = 'settled',
+                  updated_at = $1
+              WHERE id = $2
+            `, [now, ord.id]);
+            remainingToSettle -= ordAmt;
+          }
+        } catch (e) {
+          console.warn('Order payout status update notice:', e);
+        }
+
+        // Auto-Ledger integration: Record in Digital Khata for Vendor
+        try {
+          // Check if customer "সেন্ট্রাল মার্কেটপ্লেস" exists for this user, if not create
+          const custCheck = await pool.query(`
+            SELECT id, balance FROM customers 
+            WHERE user_id = $1 AND (name ILIKE '%সেন্ট্রাল মার্কেটপ্লেস%' OR phone = '01700000000')
+            LIMIT 1
+          `, [targetUserId]);
+
+          let mktCustomerId = '';
+          let currentBalance = 0;
+
+          if (custCheck.rows.length > 0) {
+            mktCustomerId = custCheck.rows[0].id;
+            currentBalance = parseFloat(custCheck.rows[0].balance) || 0;
+          } else {
+            mktCustomerId = 'cust_mkt_' + targetUserId.substring(0, 8);
+            await pool.query(`
+              INSERT INTO customers (id, user_id, name, phone, address, balance, created_at, updated_at)
+              VALUES ($1, $2, 'সেন্ট্রাল মার্কেটপ্লেস মল', '01700000000', 'ঢাকা, বাংলাদেশ', 0, $3, $3)
+              ON CONFLICT (id) DO NOTHING
+            `, [mktCustomerId, targetUserId, now]);
+          }
+
+          // Add transaction
+          const txId = 'tx_payout_' + now.toString(36) + Math.random().toString(36).substring(2, 6);
+          const dateStr = new Date(now).toISOString().split('T')[0];
+          const timeStr = new Date(now).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
+          const newBal = currentBalance - amount;
+
+          await pool.query(`
+            INSERT INTO transactions (
+              id, user_id, customer_id, type, amount, description, 
+              date, time, balance_after, payment_method, created_at
+            ) VALUES ($1, $2, $3, 'payment', $4, $5, $6, $7, $8, $9, $10)
+          `, [
+            txId,
+            targetUserId,
+            mktCustomerId,
+            amount,
+            `সেন্ট্রাল মল পেআউট জমা (TrxID: ${cleanTrx})${adminNote ? ` [নোট: ${adminNote}]` : ''}`,
+            dateStr,
+            timeStr,
+            newBal,
+            payoutReq.payment_method || 'bkash',
+            now,
+          ]);
+
+          // Update customer balance
+          await pool.query(`
+            UPDATE customers SET balance = $1, updated_at = $2 WHERE id = $3
+          `, [newBal, now, mktCustomerId]);
+        } catch (e) {
+          console.warn('Auto-ledger transaction creation notice:', e);
+        }
+
+        // Targeted Notification for Vendor
+        const notifId = 'notif_payout_ok_' + now;
+        await pool.query(`
+          INSERT INTO notifications (
+            id, title, message, type, target, target_user_id, priority, is_read, created_at
+          ) VALUES ($1, $2, $3, 'payout', 'user', $4, 2, false, $5)
+        `, [
+          notifId,
+          '🎉 সেন্ট্রাল মার্কেটপ্লেস পেআউট পরিশোধ সম্পন্ন!',
+          `আপনার ৳${amount.toLocaleString('en-US')} উত্তোলনের আবেদন সফলভাবে পরিশোধ করা হয়েছে। মাধ্যম: ${(payoutReq.payment_method || 'bKash').toUpperCase()} (${payoutReq.account_number}), TrxID: ${cleanTrx}। টাকাটি আপনার ডিজিটাল ক্যাশবুকে স্বয়ংক্রিয়ভাবে জমা যুক্ত করা হয়েছে।`,
+          targetUserId,
+          now,
+        ]).catch(() => {});
+
+        // Send SMS to vendor's phone if provided
+        const vendorTargetPhone = payoutReq.store_phone || payoutReq.account_number;
+        if (vendorTargetPhone && vendorTargetPhone.length >= 11) {
+          const smsText = `TwingHisabi: আপনার সেন্ট্রাল মল পেআউট ৳${amount} পরিশোধ সম্পন্ন হয়েছে। TrxID: ${cleanTrx}। টাকাটি আপনার ক্যাশবুকে জমা হয়েছে।`;
+          sendSmsNotification(vendorTargetPhone, smsText).catch((err) => {
+            console.warn('Vendor payout SMS notification notice:', err?.message || err);
+          });
+        }
+
+        return res.json({
+          success: true,
+          message: `ভেন্ডর পেআউট সফলভাবে পরিশোধিত মার্ক করা হয়েছে (TrxID: ${cleanTrx})। ক্যাশবুক ও নোটিফিকেশন আপডেট সম্পন্ন।`,
+        });
+      } else {
+        // Reject Payout Request
+        await pool.query(`
+          UPDATE vendor_payout_requests
+          SET status = 'rejected',
+              admin_note = $1,
+              processed_at = $2,
+              updated_at = $2
+          WHERE id = $3
+        `, [adminNote || 'বাতিল করা হয়েছে', now, id]);
+
+        // Targeted Notification for Vendor
+        const notifId = 'notif_payout_rej_' + now;
+        await pool.query(`
+          INSERT INTO notifications (
+            id, title, message, type, target, target_user_id, priority, is_read, created_at
+          ) VALUES ($1, $2, $3, 'payout', 'user', $4, 1, false, $5)
+        `, [
+          notifId,
+          '⚠️ পেআউট উত্তোলনের আবেদন বাতিল হয়েছে',
+          `আপনার ৳${amount.toLocaleString('en-US')} পেআউট আবেদনটি সুপার অ্যাডমিন কর্তৃক বাতিল করা হয়েছে। কারণ: ${adminNote || 'তথ্য অসম্পূর্ণ বা ত্রুটিপূর্ণ'}। আপনার একাউন্টে ব্যালেন্স বহাল রয়েছে।`,
+          targetUserId,
+          now,
+        ]).catch(() => {});
+
+        return res.json({
+          success: true,
+          message: 'পেআউট আবেদনটি বাতিল মার্ক করা হয়েছে এবং ভেন্ডরকে নোটিফিকেশন পাঠানো হয়েছে।',
+        });
+      }
+    } else {
+      // In-memory fallback
+      const requests = (inMemoryStore as any).vendor_payout_requests || [];
+      const payoutReq = requests.find((r: any) => r.id === id);
+      if (!payoutReq) {
+        return res.status(404).json({ error: 'পেআউট আবেদনটি পাওয়া যায়নি' });
+      }
+
+      const cleanTrx = (adminTransactionId || '').trim();
+      payoutReq.processedAt = now;
+      payoutReq.updatedAt = now;
+
+      if (action === 'approve') {
+        payoutReq.status = 'approved';
+        payoutReq.adminTransactionId = cleanTrx;
+        payoutReq.adminNote = adminNote || null;
+
+        // Settle orders
+        const orders = (inMemoryStore.online_orders || []).filter(
+          (o: any) => (o.userId === payoutReq.userId || o.user_id === payoutReq.userId) && o.orderStatus === 'delivered'
+        );
+        let rem = payoutReq.amount;
+        for (const ord of orders) {
+          if (rem <= 0) break;
+          ord.vendorPayoutStatus = 'settled';
+          ord.updatedAt = now;
+          rem -= (Number(ord.totalAmount) || 0);
+        }
+
+        saveInMemoryStoreToDisk();
+        return res.json({
+          success: true,
+          message: `ভেন্ডর পেআউট সফলভাবে পরিশোধিত মার্ক করা হয়েছে (TrxID: ${cleanTrx})।`,
+        });
+      } else {
+        payoutReq.status = 'rejected';
+        payoutReq.adminNote = adminNote || 'বাতিল করা হয়েছে';
+        saveInMemoryStoreToDisk();
+        return res.json({
+          success: true,
+          message: 'পেআউট আবেদনটি বাতিল মার্ক করা হয়েছে।',
+        });
+      }
     }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

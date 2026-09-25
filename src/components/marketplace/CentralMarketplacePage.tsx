@@ -2292,9 +2292,31 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
               </div>
             </div>
 
+            <div className="p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-2xl text-[11px] text-emerald-900 flex items-center gap-2 text-left">
+              <span className="text-base">📩</span>
+              <div>
+                <strong className="block font-bold">এসএমএস কনফার্মেশন পাঠানো হয়েছে!</strong>
+                <span>আপনার দেওয়া মোবাইল নম্বরে অর্ডারের কনফার্মেশন এসএমএস পাঠানো হয়েছে।</span>
+              </div>
+            </div>
+
             <p className="text-[11px] text-slate-500">
               সংশ্লিষ্ট ভেন্ডররা অতিদ্রুত আপনার পার্সেল ডেলিভারি পার্টনারের কাছে হ্যান্ডওভার করবেন।
             </p>
+
+            <button
+              type="button"
+              onClick={() => {
+                const ord = confirmedOrder.masterOrder;
+                if (!ord) return;
+                const text = `🛍️ সেন্ট্রাল মার্কেটপ্লেস অর্ডার রসিদ:\n• অর্ডার নম্বর: #${ord.orderNumber}\n• গ্রাহকের নাম: ${ord.customerName}\n• মোট পরিশোধযোগ্য: ৳${ord.grandTotal}\n• পেমেন্ট মেথড: ${ord.paymentMethod?.toUpperCase()}\n• ডেলিভারি ঠিকানা: ${ord.customerAddress}\n\nঅর্ডার ট্র্যাক করুন: ${window.location.origin}/marketplace?track=${ord.orderNumber}`;
+                window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+              }}
+              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-xs shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span>WhatsApp এ চালান ও ট্র্যাকিং সেভ করুন</span>
+            </button>
 
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button

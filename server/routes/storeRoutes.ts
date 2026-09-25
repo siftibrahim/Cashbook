@@ -4,6 +4,7 @@ import { AuthenticatedRequest, authenticateUser, optionalAuth } from '../authMid
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { validateStoreSlug, cleanDomainString } from '../utils/domainResolver';
 import { realtimeEvents } from '../services/realtimeEvents';
+import { sendSmsNotification } from '../services/smsService';
 
 const router = Router();
 
@@ -1751,6 +1752,17 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         const memIdx = inMemoryStore.online_orders.findIndex((o) => o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber);
         if (memIdx >= 0) inMemoryStore.online_orders[memIdx] = { ...inMemoryStore.online_orders[memIdx], ...updatedOrder };
       }
+
+      // 🔔 Send Customer Order Status SMS (Cancelled, Confirmed, Shipped, Delivered)
+      sendCustomerOrderStatusSms(
+        updatedOrder.customerPhone,
+        updatedOrder.customerName,
+        updatedOrder.orderNumber,
+        orderStatus,
+        courierName,
+        courierTrackingCode
+      );
+
       return res.json({ order: updatedOrder, message: 'অর্ডারের ডেলিভারি স্ট্যাটাস সফলভাবে আপডেট করা হয়েছে।' });
     } else {
       let order = (inMemoryStore.online_orders || []).find(
@@ -1767,6 +1779,17 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         if (courierName !== undefined) order.courierName = courierName;
         if (courierTrackingCode !== undefined) order.courierTrackingCode = courierTrackingCode;
         order.updatedAt = now;
+
+        // 🔔 Send Customer Order Status SMS (Cancelled, Confirmed, Shipped, Delivered)
+        sendCustomerOrderStatusSms(
+          order.customerPhone,
+          order.customerName,
+          order.orderNumber,
+          orderStatus,
+          courierName,
+          courierTrackingCode
+        );
+
         return res.json({ order, message: 'অর্ডারের ডেলিভারি স্ট্যাটাস সফলভাবে আপডেট করা হয়েছে।' });
       }
       return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
@@ -1775,6 +1798,36 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
     return res.status(500).json({ error: err.message });
   }
 });
+
+function sendCustomerOrderStatusSms(
+  customerPhone?: string,
+  customerName?: string,
+  orderNumber?: string,
+  status?: string,
+  courierName?: string,
+  courierTrackingCode?: string
+) {
+  if (!customerPhone || customerPhone.length < 11 || !status) return;
+  const name = customerName || 'গ্রাহক';
+  const num = orderNumber || '';
+
+  let msg = '';
+  if (status === 'cancelled') {
+    msg = `TwingHisabi: দুঃখিত ${name}! আপনার অর্ডার #${num} বাতিল (Cancelled) করা হয়েছে। বিস্তারিত জানতে আমাদের সাথে যোগাযোগ করুন।`;
+  } else if (status === 'confirmed') {
+    msg = `TwingHisabi: অভিনন্দন ${name}! আপনার অর্ডার #${num} নিশ্চিত (Confirmed) করা হয়েছে এবং পার্সেল প্রস্তুত হচ্ছে।`;
+  } else if (status === 'shipped') {
+    msg = `TwingHisabi: আপনার অর্ডার #${num} কুরিয়ারে পাঠানো হয়েছে। কুরিয়ার: ${courierName || 'কুরিয়ার সার্ভিস'}${courierTrackingCode ? ` (ট্র্যাকিং: ${courierTrackingCode})` : ''}।`;
+  } else if (status === 'delivered') {
+    msg = `TwingHisabi: আপনার অর্ডার #${num} সফলভাবে ডেলিভারি সম্পন্ন হয়েছে। আমাদের সাথে কেনাকাটার জন্য ধন্যবাদ!`;
+  }
+
+  if (msg) {
+    sendSmsNotification(customerPhone, msg).catch((err) => {
+      console.warn('Customer store order status SMS notification notice:', err?.message || err);
+    });
+  }
+}
 
 /**
  * DELETE /api/store/orders/:orderId - Vendor deletes an order (Strictly Isolated)

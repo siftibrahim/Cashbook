@@ -81,4 +81,29 @@ export const marketplaceAdminApi = {
     if (!res.ok) throw new Error(data.error || 'ভেন্ডর সামারি লোড করা যায়নি');
     return data;
   },
+
+  async getPayoutRequests(status?: string): Promise<{ success: boolean; requests: any[] }> {
+    const query = status && status !== 'all' ? `?status=${encodeURIComponent(status)}` : '';
+    const res = await fetch(`/api/marketplace/admin/payout-requests${query}`, {
+      headers: this.getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'পেআউট আবেদন তালিকা লোড করা যায়নি');
+    return data;
+  },
+
+  async processPayoutRequest(id: string, payload: {
+    action: 'approve' | 'reject';
+    adminTransactionId?: string;
+    adminNote?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`/api/marketplace/admin/payout-requests/${encodeURIComponent(id)}/process`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'পেআউট প্রসেস করা যায়নি');
+    return data;
+  },
 };

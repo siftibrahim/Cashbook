@@ -186,4 +186,52 @@ export const marketplaceApi = {
     });
     return await res.json();
   },
+
+  async getVendorWallet(): Promise<{
+    success: boolean;
+    totalSales: number;
+    deliveredSales: number;
+    settledSales: number;
+    pendingDeliverySales: number;
+    pendingWithdrawalAmount: number;
+    availableForWithdrawal: number;
+    deliveredOrdersCount: number;
+    pendingOrdersCount: number;
+    payoutRequests: any[];
+    error?: string;
+  }> {
+    const token = localStorage.getItem('ibrahim_auth_token') || sessionStorage.getItem('ibrahim_auth_token');
+    const res = await fetch('/api/marketplace/vendor/wallet', {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ওয়ালেট হিসাব লোড করা যায়নি');
+    return data;
+  },
+
+  async createPayoutRequest(payload: {
+    amount: number;
+    paymentMethod: 'bkash' | 'nagad' | 'rocket' | 'bank';
+    accountNumber: string;
+    accountType?: string;
+    bankName?: string;
+    branchName?: string;
+    requestNote?: string;
+  }): Promise<{ success: boolean; message: string; requestId?: string; error?: string }> {
+    const token = localStorage.getItem('ibrahim_auth_token') || sessionStorage.getItem('ibrahim_auth_token');
+    const res = await fetch('/api/marketplace/vendor/payout-request', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'উইথড্র আবেদন ব্যর্থ হয়েছে');
+    return data;
+  },
 };
