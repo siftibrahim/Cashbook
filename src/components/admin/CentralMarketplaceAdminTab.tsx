@@ -35,6 +35,7 @@ import {
   Building,
   XCircle,
   Info,
+  Lock,
 } from 'lucide-react';
 import { marketplaceAdminApi } from '../../services/marketplaceAdminService';
 
