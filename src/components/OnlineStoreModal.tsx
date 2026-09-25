@@ -3566,31 +3566,36 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
           {/* TAB 5: ONLINE ORDERS (CLEAN STEP-BY-STEP WORKFLOW) */}
           {activeTab === 'orders' && (() => {
-            const newOrdersCount = orders.filter(
+            // Strictly exclude orders rejected by Super Admin - "ভেন্ডরসাইট থেকে এটা উধাও হয়ে যাবে"
+            const visibleOrders = orders.filter(
+              (o) => !o.isRejectedByAdmin && (o as any).isHiddenFromVendor !== true && o.adminApprovalStatus !== 'rejected'
+            );
+
+            const newOrdersCount = visibleOrders.filter(
               (o) => o.orderStatus === 'pending' || (o.paymentMethod !== 'cod' && o.paymentStatus === 'pending_verification')
             ).length;
 
-            const processingOrdersCount = orders.filter(
+            const processingOrdersCount = visibleOrders.filter(
               (o) => o.orderStatus === 'confirmed' || o.orderStatus === 'processing'
             ).length;
 
-            const shippedOrdersCount = orders.filter((o) => o.orderStatus === 'shipped').length;
+            const shippedOrdersCount = visibleOrders.filter((o) => o.orderStatus === 'shipped').length;
 
-            const deliveredOrdersCount = orders.filter((o) => o.orderStatus === 'delivered').length;
+            const deliveredOrdersCount = visibleOrders.filter((o) => o.orderStatus === 'delivered').length;
 
-            const cancelledOrdersCount = orders.filter((o) => o.orderStatus === 'cancelled').length;
+            const cancelledOrdersCount = visibleOrders.filter((o) => o.orderStatus === 'cancelled').length;
 
-            const pendingPaymentOrdersCount = orders.filter(
+            const pendingPaymentOrdersCount = visibleOrders.filter(
               (o) =>
                 o.paymentMethod !== 'cod' &&
                 (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
             ).length;
 
-            const totalDeliveredRevenue = orders
+            const totalDeliveredRevenue = visibleOrders
               .filter((o) => o.orderStatus === 'delivered')
               .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
 
-            const filteredOrders = orders.filter((o) => {
+            const filteredOrders = visibleOrders.filter((o) => {
               if (orderFilter === 'new') {
                 return o.orderStatus === 'pending' || (o.paymentMethod !== 'cod' && o.paymentStatus === 'pending_verification');
               }
@@ -3897,11 +3902,17 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                       const isDeliveredStage = ord.orderStatus === 'delivered';
                       const isCancelledStage = ord.orderStatus === 'cancelled';
 
+                      const isMarketplaceOrder = ord.orderSource === 'marketplace' || Boolean(ord.masterOrderId);
+                      const isMarketplaceLocked = isMarketplaceOrder && (ord.isLockedForVendor || ord.adminApprovalStatus === 'pending_approval' || !ord.isAdminApproved);
+                      const isMarketplaceApproved = isMarketplaceOrder && (ord.isAdminApproved || ord.adminApprovalStatus === 'approved');
+
                       return (
                         <div
                           key={ord.id}
                           className={`bg-white rounded-2xl border transition-all overflow-hidden ${
-                            isNewStage
+                            isMarketplaceLocked
+                              ? 'border-amber-400 ring-2 ring-amber-300/40 shadow-sm'
+                              : isNewStage
                               ? 'border-amber-300 ring-2 ring-amber-300/30 shadow-sm'
                               : isDeliveredStage
                               ? 'border-slate-200 bg-slate-50/30'
@@ -3916,13 +3927,32 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                               <span className="font-mono font-black text-xs sm:text-sm text-teal-950 bg-teal-50 px-2.5 py-0.5 rounded-lg border border-teal-200/80">
                                 #{ord.orderNumber}
                               </span>
-                              <span
-                                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                                  statusColors[ord.orderStatus] || statusColors.pending
-                                }`}
-                              >
-                                {statusLabels[ord.orderStatus] || ord.orderStatus}
-                              </span>
+
+                              {isMarketplaceOrder && (
+                                <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-800 text-[10px] font-black border border-teal-200">
+                                  সেন্ট্রাল মল
+                                </span>
+                              )}
+
+                              {isMarketplaceLocked ? (
+                                <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 animate-pulse">
+                                  <Lock className="w-3 h-3 text-amber-700" />
+                                  <span>লক (সুপার এডমিনের যাচাই বাকি)</span>
+                                </span>
+                              ) : isMarketplaceApproved ? (
+                                <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span>আনলকড (অনুমোদিত)</span>
+                                </span>
+                              ) : (
+                                <span
+                                  className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                    statusColors[ord.orderStatus] || statusColors.pending
+                                  }`}
+                                >
+                                  {statusLabels[ord.orderStatus] || ord.orderStatus}
+                                </span>
+                              )}
 
                               {/* Payment Badge */}
                               <span
@@ -3985,42 +4015,67 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                               </div>
                             </div>
 
-                            {/* PAYMENT VERIFICATION NOTICE (If bKash/Nagad pending verification) */}
-                            {ord.paymentMethod !== 'cod' && isPendingReview && (
-                              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
-                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <div className="flex items-center gap-2 text-xs text-amber-900 font-bold">
-                                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                                    <span>
-                                      {ord.paymentMethod.toUpperCase()} পেমেন্ট যাচাই প্রয়োজন (TrxID:{' '}
-                                      <strong className="font-mono text-slate-900 select-all">
-                                        {ord.trxId || 'পাওয়া যায়নি'}
-                                      </strong>
-                                      )
-                                    </span>
+                            {/* CENTRAL MARKETPLACE ORDER ESCROW STATUS NOTICES */}
+                            {isMarketplaceOrder ? (
+                              isMarketplaceLocked ? (
+                                <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-3 space-y-1.5 text-xs text-amber-950 shadow-2xs">
+                                  <div className="flex items-center gap-2 font-black text-amber-900">
+                                    <Lock className="w-4 h-4 text-amber-700 shrink-0 animate-pulse" />
+                                    <span>🔒 সেন্ট্রাল মল অর্ডার - সুপার এডমিন কর্তৃক পেমেন্ট যাচাই প্রক্রিয়াধীন (লক)</span>
                                   </div>
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    <button
-                                      type="button"
-                                      disabled={isProcessingPayment === ord.id}
-                                      onClick={() => handleAcceptPayment(ord)}
-                                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition shadow-2xs"
-                                    >
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>পেমেন্ট একসেপ্ট</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={isProcessingPayment === ord.id}
-                                      onClick={() => handleOpenRejectModal(ord)}
-                                      className="px-3 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition"
-                                    >
-                                      <XCircle className="w-3.5 h-3.5" />
-                                      <span>রিজেক্ট</span>
-                                    </button>
+                                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                                    গ্রাহক সেন্ট্রাল মলের মাধ্যমে অর্ডার ও পেমেন্ট সাবমিট করেছেন। নীতি অনুযায়ী সুপার এডমিন পেমেন্ট যাচাই-বাছাই শেষ করে একসেপ্ট করলে অর্ডারটি আনলক হবে এবং আপনার কাছে পণ্য রেডি করার অনুমতি আসবে। তার আগে পণ্য ডেলিভারি দেওয়া যাবে না।
+                                  </p>
+                                </div>
+                              ) : isMarketplaceApproved ? (
+                                <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-2.5 text-xs text-emerald-950 flex items-center justify-between gap-2 shadow-2xs">
+                                  <div className="flex items-center gap-1.5 font-bold text-emerald-900">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                    <span>✅ সুপার এডমিন কর্তৃক পেমেন্ট যাচাই সম্পন্ন ও অনুমোদিত (আনলকড)</span>
+                                  </div>
+                                  <span className="text-[10px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                                    পণ্য রেডি ও ডেলিভারি দিন
+                                  </span>
+                                </div>
+                              ) : null
+                            ) : (
+                              /* DIRECT STORE PAYMENT VERIFICATION (Only for direct vendor store orders) */
+                              ord.paymentMethod !== 'cod' && isPendingReview && (
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <div className="flex items-center gap-2 text-xs text-amber-900 font-bold">
+                                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                                      <span>
+                                        {ord.paymentMethod.toUpperCase()} পেমেন্ট যাচাই প্রয়োজন (TrxID:{' '}
+                                        <strong className="font-mono text-slate-900 select-all">
+                                          {ord.trxId || 'পাওয়া যায়নি'}
+                                        </strong>
+                                        )
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        type="button"
+                                        disabled={isProcessingPayment === ord.id}
+                                        onClick={() => handleAcceptPayment(ord)}
+                                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>পেমেন্ট একসেপ্ট</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isProcessingPayment === ord.id}
+                                        onClick={() => handleOpenRejectModal(ord)}
+                                        className="px-3 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition"
+                                      >
+                                        <XCircle className="w-3.5 h-3.5" />
+                                        <span>রিজেক্ট</span>
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
+                              )
                             )}
 
                             {/* COURIER INFO DISPLAY (If already shipped) */}
@@ -4079,88 +4134,97 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
                               {/* Right: Step Action Buttons */}
                               <div className="flex items-center gap-2 flex-wrap">
-                                {/* Step 1: New -> Confirm Order */}
-                                {isNewStage && (
+                                {isMarketplaceLocked ? (
+                                  <div className="px-3.5 py-2 bg-amber-50 text-amber-900 border border-amber-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-2xs">
+                                    <Lock className="w-3.5 h-3.5 text-amber-700 animate-pulse" />
+                                    <span>🔒 সুপার এডমিন কর্তৃক পেমেন্ট যাচাই সম্পন্ন না হওয়া পর্যন্ত ডেলিভারি লক</span>
+                                  </div>
+                                ) : (
                                   <>
-                                    <button
-                                      type="button"
-                                      disabled={updatingOrderId === ord.id}
-                                      onClick={() => handleUpdateOrderStatus(ord.id, 'confirmed')}
-                                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
-                                    >
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>অর্ডার কনফার্ম করুন</span>
-                                    </button>
+                                    {/* Step 1: New -> Confirm Order */}
+                                    {isNewStage && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          disabled={updatingOrderId === ord.id}
+                                          onClick={() => handleUpdateOrderStatus(ord.id, 'confirmed')}
+                                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+                                        >
+                                          <CheckCircle2 className="w-3.5 h-3.5" />
+                                          <span>অর্ডার কনফার্ম করুন</span>
+                                        </button>
 
-                                    <button
-                                      type="button"
-                                      disabled={updatingOrderId === ord.id}
-                                      onClick={() => handleUpdateOrderStatus(ord.id, 'cancelled')}
-                                      className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl text-xs font-bold transition cursor-pointer active:scale-95 disabled:opacity-50"
-                                    >
-                                      বাতিল
-                                    </button>
-                                  </>
-                                )}
+                                        <button
+                                          type="button"
+                                          disabled={updatingOrderId === ord.id}
+                                          onClick={() => handleUpdateOrderStatus(ord.id, 'cancelled')}
+                                          className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl text-xs font-bold transition cursor-pointer active:scale-95 disabled:opacity-50"
+                                        >
+                                          বাতিল
+                                        </button>
+                                      </>
+                                    )}
 
-                                {/* Step 2: Processing -> Handover to Courier */}
-                                {isProcessingStage && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setCourierModalOrder(ord);
-                                        setCourierInputCode(ord.courierTrackingCode || '');
-                                      }}
-                                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
-                                    >
-                                      <Truck className="w-3.5 h-3.5" />
-                                      <span>কুরিয়ারে পাঠান</span>
-                                    </button>
+                                    {/* Step 2: Processing -> Handover to Courier */}
+                                    {isProcessingStage && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setCourierModalOrder(ord);
+                                            setCourierInputCode(ord.courierTrackingCode || '');
+                                          }}
+                                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
+                                        >
+                                          <Truck className="w-3.5 h-3.5" />
+                                          <span>কুরিয়ারে পাঠান</span>
+                                        </button>
 
-                                    <button
-                                      type="button"
-                                      disabled={updatingOrderId === ord.id}
-                                      onClick={() => handleUpdateOrderStatus(ord.id, 'delivered')}
-                                      className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold transition cursor-pointer"
-                                    >
-                                      সরাসরি ডেলিভার্ড
-                                    </button>
-                                  </>
-                                )}
+                                        <button
+                                          type="button"
+                                          disabled={updatingOrderId === ord.id}
+                                          onClick={() => handleUpdateOrderStatus(ord.id, 'delivered')}
+                                          className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold transition cursor-pointer"
+                                        >
+                                          সরাসরি ডেলিভার্ড
+                                        </button>
+                                      </>
+                                    )}
 
-                                {/* Step 3: Shipped -> Mark Delivered */}
-                                {isShippedStage && (
-                                  <button
-                                    type="button"
-                                    disabled={updatingOrderId === ord.id}
-                                    onClick={() => handleUpdateOrderStatus(ord.id, 'delivered')}
-                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
-                                  >
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>ডেলিভারি সম্পন্ন মার্ক করুন</span>
-                                  </button>
-                                )}
-
-                                {/* Step 4: Delivered -> Finished Card Actions */}
-                                {isDeliveredStage && (
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs text-emerald-700 font-bold flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                      <span>ডেলিভারি সম্পন্ন</span>
-                                    </span>
-
-                                    {onConvertOrderToSale && (
+                                    {/* Step 3: Shipped -> Mark Delivered */}
+                                    {isShippedStage && (
                                       <button
                                         type="button"
-                                        onClick={() => onConvertOrderToSale(ord)}
-                                        className="px-3 py-1.5 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                                        disabled={updatingOrderId === ord.id}
+                                        onClick={() => handleUpdateOrderStatus(ord.id, 'delivered')}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
                                       >
-                                        <ShoppingBag className="w-3.5 h-3.5" />
-                                        <span>ক্যাশবুকে যুক্ত</span>
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>ডেলিভারি সম্পন্ন মার্ক করুন</span>
                                       </button>
                                     )}
-                                  </div>
+
+                                    {/* Step 4: Delivered -> Finished Card Actions */}
+                                    {isDeliveredStage && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-emerald-700 font-bold flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>ডেলিভারি সম্পন্ন</span>
+                                        </span>
+
+                                        {onConvertOrderToSale && (
+                                          <button
+                                            type="button"
+                                            onClick={() => onConvertOrderToSale(ord)}
+                                            className="px-3 py-1.5 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                                          >
+                                            <ShoppingBag className="w-3.5 h-3.5" />
+                                            <span>ক্যাশবুকে যুক্ত</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </>
                                 )}
 
                                 {/* Cancelled Status Notice */}

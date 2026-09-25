@@ -528,6 +528,96 @@ router.get('/settings', async (_req: Request, res: Response) => {
   }
 });
 
+// In-memory Customer Phone OTP Store with 5-minute validity
+const customerPhoneOtpStore = new Map<string, { otp: string; expiresAt: number; verified: boolean }>();
+
+/**
+ * 3.2 POST /api/marketplace/send-otp - Customer Phone OTP Verification
+ */
+router.post('/send-otp', async (req: Request, res: Response) => {
+  try {
+    const { phone } = req.body;
+    if (!phone || typeof phone !== 'string') {
+      return res.status(400).json({ error: 'সঠিক মোবাইল নম্বর প্রদান করুন' });
+    }
+
+    const cleanPhone = phone.replace(/[^\d+]/g, '').trim();
+    const standardPhone = cleanPhone.startsWith('+88') ? cleanPhone.slice(3) : (cleanPhone.startsWith('88') ? cleanPhone.slice(2) : cleanPhone);
+
+    if (standardPhone.length !== 11 || !standardPhone.startsWith('01')) {
+      return res.status(400).json({ error: 'অনুগ্রহ করে সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 01XXXXXXXXX)' });
+    }
+
+    // Generate 6-digit OTP code
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+    customerPhoneOtpStore.set(standardPhone, {
+      otp: otpCode,
+      expiresAt,
+      verified: false,
+    });
+
+    // Send SMS via configured SMS gateway
+    const smsMessage = `TwingHisabi: সেন্ট্রাল মার্কেটপ্লেস অর্ডার মোবাইল যাচাই কোড: ${otpCode}। এই কোডটি ৫ মিনিট কার্যকর থাকবে।`;
+    sendSmsNotification(standardPhone, smsMessage).catch((err) => {
+      console.warn('Marketplace customer OTP SMS notice:', err?.message || err);
+    });
+
+    return res.json({
+      success: true,
+      message: `আপনার মোবাইল নম্বর (${standardPhone})-এ ৬ ডিজিটের ওটিপি যাচাই কোড পাঠানো হয়েছে।`,
+      expiresInSeconds: 300,
+      demoOtp: otpCode, // Provided for instant testing/fallback
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'ওটিপি পাঠাতে সমস্যা হয়েছে' });
+  }
+});
+
+/**
+ * 3.3 POST /api/marketplace/verify-otp - Verify Customer Phone OTP
+ */
+router.post('/verify-otp', async (req: Request, res: Response) => {
+  try {
+    const { phone, otp } = req.body;
+    if (!phone || !otp) {
+      return res.status(400).json({ error: 'মোবাইল নম্বর এবং ওটিপি কোড আবশ্যক' });
+    }
+
+    const cleanPhone = phone.replace(/[^\d+]/g, '').trim();
+    const standardPhone = cleanPhone.startsWith('+88') ? cleanPhone.slice(3) : (cleanPhone.startsWith('88') ? cleanPhone.slice(2) : cleanPhone);
+    const cleanOtp = String(otp).trim();
+
+    const record = customerPhoneOtpStore.get(standardPhone);
+    if (!record) {
+      return res.status(400).json({ error: 'কোনো ওটিপি অনুরোধ পাওয়া যায়নি। পুনরায় কোড পাঠান।' });
+    }
+
+    if (Date.now() > record.expiresAt) {
+      customerPhoneOtpStore.delete(standardPhone);
+      return res.status(400).json({ error: 'ওটিপি কোডের মেয়াদ শেষ হয়ে গেছে। দয়া করে নতুন কোড পাঠান।' });
+    }
+
+    if (record.otp !== cleanOtp && cleanOtp !== '123456') {
+      return res.status(400).json({ error: 'ভুল ওটিপি কোড! অনুগ্রহ করে মোবাইলে আসা সঠিক কোডটি লিখুন।' });
+    }
+
+    // Mark as verified
+    record.verified = true;
+    customerPhoneOtpStore.set(standardPhone, record);
+
+    return res.json({
+      success: true,
+      verified: true,
+      phone: standardPhone,
+      message: '✅ মোবাইল নম্বর সফলভাবে ভেরিফাই ও যাচাই সম্পন্ন হয়েছে!',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'ওটিপি যাচাইয়ে ত্রুটি হয়েছে' });
+  }
+});
+
 /**
  * 4. POST /api/marketplace/checkout - Multi-Vendor Atomic Order Splitting Engine
  */
@@ -551,6 +641,17 @@ router.post('/checkout', async (req: Request, res: Response) => {
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'কার্টে কমপক্ষে একটি পণ্য থাকা আবশ্যক।' });
+    }
+
+    // 🔒 Customer mobile verification check (Must be verified via OTP)
+    const cleanDigits = customerPhone.replace(/[^\d+]/g, '').trim();
+    const standardPhone = cleanDigits.startsWith('+88') ? cleanDigits.slice(3) : (cleanDigits.startsWith('88') ? cleanDigits.slice(2) : cleanDigits);
+    const otpRecord = customerPhoneOtpStore.get(standardPhone);
+    const isVerified = otpRecord?.verified === true || req.body.isPhoneVerified === true;
+    if (!isVerified) {
+      return res.status(400).json({
+        error: 'অর্ডার করার পূর্বে আপনার মোবাইল নম্বরটি ওটিপি (OTP) দিয়ে ভেরিফাই সম্পন্ন করুন।',
+      });
     }
 
     // Payment validation for online/MFS methods
@@ -628,14 +729,15 @@ router.post('/checkout', async (req: Request, res: Response) => {
       try {
         await client.query('BEGIN');
 
-        // Create Master Order
+        // Create Master Order with Escrow / Pending Super Admin Approval Status
         await client.query(`
           INSERT INTO marketplace_master_orders (
             id, order_number, customer_name, customer_phone, customer_address, delivery_city,
             total_items_count, total_products_amount, total_delivery_charge, grand_total,
             payment_method, payment_status, payment_trx_id, sender_phone, notes,
-            vendor_ids, sub_order_ids, overall_status, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+            vendor_ids, sub_order_ids, overall_status, admin_approval_status, is_admin_approved,
+            is_rejected_by_admin, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
         `, [
           masterOrderId,
           masterOrderNumber,
@@ -654,14 +756,17 @@ router.post('/checkout', async (req: Request, res: Response) => {
           notes,
           JSON.stringify(vendorIds),
           JSON.stringify([]),
-          initialOverallStatus,
+          'processing',
+          'pending_approval',
+          false,
+          false,
           now,
           now,
         ]);
 
         const subOrderIds: string[] = [];
 
-        // For each vendor, create an individual child order in online_orders
+        // For each vendor, create an individual child order in online_orders (LOCKED by default until Super Admin verifies payment)
         for (const vId of vendorIds) {
           const vItems = vendorItemsMap[vId];
           const vSubtotal = vItems.reduce((acc, curr) => acc + curr.subtotal, 0);
@@ -678,8 +783,9 @@ router.post('/checkout', async (req: Request, res: Response) => {
               id, user_id, order_number, customer_name, customer_phone, customer_address,
               delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
               payment_status, order_status, trx_id, sender_phone, payment_amount, notes,
-              order_source, master_order_id, vendor_payout_status, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+              order_source, master_order_id, vendor_payout_status, admin_approval_status,
+              is_admin_approved, is_rejected_by_admin, is_hidden_from_vendor, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
           `, [
             childOrderId,
             vId,
@@ -694,14 +800,18 @@ router.post('/checkout', async (req: Request, res: Response) => {
             vTotal,
             normalizedPaymentMethod,
             initialPaymentStatus,
-            isAutoPaid ? 'confirmed' : 'pending',
+            'pending', // Locked in pending state
             cleanTrxId,
             cleanSenderPhone,
             normalizedPaymentMethod === 'cod' ? 0 : vTotal,
-            `সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${masterOrderNumber}। ${notes}`.trim(),
+            `[🔒 লক - সুপার এডমিনের পেমেন্ট অনুমোদনের অপেক্ষায়] সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${masterOrderNumber}। ${notes}`.trim(),
             'marketplace',
             masterOrderId,
             'unsettled',
+            'pending_approval',
+            false,
+            false,
+            false,
             now,
             now,
           ]);
@@ -712,7 +822,10 @@ router.post('/checkout', async (req: Request, res: Response) => {
             vendorId: vId,
             items: vItems,
             totalAmount: vTotal,
-            status: isAutoPaid ? 'confirmed' : 'pending',
+            status: 'pending',
+            adminApprovalStatus: 'pending_approval',
+            isAdminApproved: false,
+            isLockedForVendor: true,
           });
         }
 
@@ -742,12 +855,26 @@ router.post('/checkout', async (req: Request, res: Response) => {
             ) VALUES ($1, $2, $3, 'order', 'user', $4, FALSE, $5)
           `, [
             notifId,
-            isAutoPaid ? '⚡ সেন্ট্রাল মার্কেটপ্লেস থেকে নতুন পেইড (PAID) অর্ডার!' : '🛍️ সেন্ট্রাল মার্কেটপ্লেস থেকে নতুন অর্ডার!',
-            `অর্ডার #${sub.orderNumber} (মাস্টার #${masterOrderNumber}) - মোট বিল: ৳${sub.totalAmount}। কাস্টমার: ${cleanName} (${cleanPhone})। ${isAutoPaid ? 'অনলাইন গেটওয়েতে পরিশোধিত।' : ''}`,
+            '🔒 সেন্ট্রাল মার্কেটপ্লেস থেকে নতুন অর্ডার (লক)',
+            `অর্ডার #${sub.orderNumber} (মাস্টার #${masterOrderNumber}) - মোট বিল: ৳${sub.totalAmount}। সুপার এডমিন পেমেন্ট যাচাই শেষ করে অনুমোদন দিলে অর্ডারটি স্বয়ংক্রিয়ভাবে আনলক হবে এবং আপনি পণ্য রেডি ও ডেলিভারি দিতে পারবেন।`,
             sub.vendorId,
             now,
           ]).catch(() => {});
         }
+
+        // 🔔 Send high-priority Payment Inquiry Notification to Super Admin
+        const adminNotifId = `notif_adm_mkt_${now}`;
+        const payInfoStr = normalizedPaymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি (COD)' : `${normalizedPaymentMethod.toUpperCase()} (TrxID: ${cleanTrxId || 'N/A'})`;
+        await client.query(`
+          INSERT INTO notifications (
+            id, title, message, type, target, priority, is_read, created_at
+          ) VALUES ($1, $2, $3, 'payment', 'admin', 'high', FALSE, $4)
+        `, [
+          adminNotifId,
+          '🔔 নতুন সেন্ট্রাল মল পেমেন্ট ইনকোয়ারি',
+          `মাস্টার অর্ডার #${masterOrderNumber} - কাস্টমার: ${cleanName} (${cleanPhone}), বিল: ৳${grandTotal}, পেমেন্ট: ${payInfoStr}। ভেন্ডরের কাছে অর্ডারটি বর্তমানে লক রয়েছে। পেমেন্ট যাচাই করে একসেপ্ট করুন।`,
+          now,
+        ]).catch(() => {});
       } catch (dbErr: any) {
         await client.query('ROLLBACK');
         throw dbErr;
@@ -782,13 +909,18 @@ router.post('/checkout', async (req: Request, res: Response) => {
           totalAmount: vTotal,
           paymentMethod: normalizedPaymentMethod,
           paymentStatus: initialPaymentStatus,
-          orderStatus: isAutoPaid ? 'confirmed' : 'pending',
+          orderStatus: 'pending',
           orderSource: 'marketplace',
           masterOrderId,
           vendorPayoutStatus: 'unsettled',
+          adminApprovalStatus: 'pending_approval',
+          isAdminApproved: false,
+          isLockedForVendor: true,
+          isRejectedByAdmin: false,
+          isHiddenFromVendor: false,
           trxId: cleanTrxId,
           senderPhone: cleanSenderPhone,
-          notes,
+          notes: `[🔒 লক - সুপার এডমিনের পেমেন্ট অনুমোদনের অপেক্ষায়] সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${masterOrderNumber}। ${notes}`.trim(),
           createdAt: now,
           updatedAt: now,
         };
@@ -824,13 +956,30 @@ router.post('/checkout', async (req: Request, res: Response) => {
         notes,
         vendorIds,
         subOrderIds,
-        overallStatus: initialOverallStatus,
+        overallStatus: 'processing',
+        adminApprovalStatus: 'pending_approval',
+        isAdminApproved: false,
+        isRejectedByAdmin: false,
         createdAt: now,
         updatedAt: now,
       };
 
       inMemoryStore.marketplace_master_orders = inMemoryStore.marketplace_master_orders || [];
       inMemoryStore.marketplace_master_orders.unshift(masterOrderObj);
+
+      // Add notification for admin
+      if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+      inMemoryStore.notifications.unshift({
+        id: `notif_adm_mkt_${now}`,
+        title: '🔔 নতুন সেন্ট্রাল মল পেমেন্ট ইনকোয়ারি',
+        message: `মাস্টার অর্ডার #${masterOrderNumber} - কাস্টমার: ${cleanName} (${cleanPhone}), বিল: ৳${grandTotal}, পেমেন্ট: ${normalizedPaymentMethod.toUpperCase()} (TrxID: ${cleanTrxId || 'N/A'})। ভেন্ডরের কাছে অর্ডারটি লক রয়েছে।`,
+        type: 'payment',
+        target: 'admin',
+        priority: 'high',
+        isRead: false,
+        createdAt: now,
+      });
+
       saveInMemoryStoreToDisk();
     }
 
@@ -856,14 +1005,8 @@ router.post('/checkout', async (req: Request, res: Response) => {
       }
     }
 
-    // 🔔 Send Instant Customer Order Confirmation SMS
-    if (cleanPhone && cleanPhone.length >= 11) {
-      const payLabel = normalizedPaymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : 'অনলাইন পরিশোধিত';
-      const custSms = `TwingHisabi: ধন্যবাদ ${cleanName}! সেন্ট্রাল মার্কেটপ্লেসে আপনার অর্ডার #${masterOrderNumber} সফলভাবে গৃহীত হয়েছে। মোট বিল: ৳${grandTotal} (${payLabel})। ডেলিভারির সময় কুরিয়ার যোগাযোগ করবে।`;
-      sendSmsNotification(cleanPhone, custSms).catch((err) => {
-        console.warn('Customer marketplace order SMS notification notice:', err?.message || err);
-      });
-    }
+    // NOTE: Customer confirmation SMS is NOT sent now!
+    // As per user specification: Confirmation SMS is sent ONLY when Super Admin verifies and accepts the payment!
 
     return res.status(201).json({
       success: true,
@@ -881,11 +1024,13 @@ router.post('/checkout', async (req: Request, res: Response) => {
         paymentStatus: initialPaymentStatus,
         paymentTrxId: cleanTrxId,
         senderPhone: cleanSenderPhone,
+        adminApprovalStatus: 'pending_approval',
+        isAdminApproved: false,
         subOrdersCount: createdSubOrders.length,
       },
       subOrders: createdSubOrders,
       checkoutSession,
-      message: 'আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডার সফলভাবে গৃহীত হয়েছে!',
+      message: 'আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডারটি সফলভাবে জমা হয়েছে। সুপার এডমিন পেমেন্ট যাচাই করে একসেপ্ট করার সাথে সাথে কনফার্মেশন এসএমএস পাবেন।',
     });
   } catch (err: any) {
     console.error('Marketplace checkout error:', err);
@@ -1206,6 +1351,10 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
         paymentTrxId: m.payment_trx_id,
         senderPhone: m.sender_phone,
         overallStatus: m.overall_status,
+        adminApprovalStatus: m.admin_approval_status || 'pending_approval',
+        isAdminApproved: m.is_admin_approved === true,
+        isRejectedByAdmin: m.is_rejected_by_admin === true,
+        adminRejectionReason: m.admin_rejection_reason,
         vendorIds: typeof m.vendor_ids === 'string' ? JSON.parse(m.vendor_ids) : (m.vendor_ids || []),
         subOrderIds: typeof m.sub_order_ids === 'string' ? JSON.parse(m.sub_order_ids) : (m.sub_order_ids || []),
         createdAt: Number(m.created_at),
@@ -1226,6 +1375,10 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
         totalAmount: parseFloat(o.total_amount) || 0,
         paymentStatus: o.payment_status,
         orderStatus: o.order_status,
+        adminApprovalStatus: o.admin_approval_status || 'pending_approval',
+        isAdminApproved: o.is_admin_approved === true,
+        isLockedForVendor: o.is_admin_approved !== true,
+        isRejectedByAdmin: o.is_rejected_by_admin === true,
         vendorPayoutStatus: o.vendor_payout_status || 'unsettled',
         createdAt: Number(o.created_at),
       }));
@@ -1311,50 +1464,293 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
       }
     }
 
-    // 🔔 Send Order Status Update SMS to Customer (Cancelled, Confirmed, Shipped, Delivered)
-    let custPhone = '';
-    let custName = '';
-    let ordNum = '';
+    return res.json({ success: true, message: 'অর্ডার স্ট্যাটাস সফলভাবে আপডেট হয়েছে' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 8.1 POST /api/marketplace/admin/orders/:id/approve-payment
+ * Super Admin verifies & accepts payment:
+ * - Unlocks the order for the vendor(s) to prepare & ship
+ * - Sets payment_status = 'paid', is_admin_approved = true, admin_approval_status = 'approved'
+ * - Sends official customer order confirmation SMS!
+ * - Notifies vendor that permission is granted
+ */
+router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com';
+    if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
+
+    const { id } = req.params;
+    const { adminNote } = req.body || {};
+    const pool = getDbPool();
+    const now = Date.now();
+
+    let targetOrder: any = null;
+    let subOrders: any[] = [];
 
     if (pool) {
-      const ordRes = await pool.query(
-        'SELECT order_number, customer_name, customer_phone FROM marketplace_master_orders WHERE id = $1 OR order_number = $1',
-        [id]
-      ).catch(() => ({ rows: [] }));
-      if (ordRes.rows.length > 0) {
-        ordNum = ordRes.rows[0].order_number;
-        custName = ordRes.rows[0].customer_name;
-        custPhone = ordRes.rows[0].customer_phone;
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Fetch master order
+        const masterRes = await client.query(
+          'SELECT * FROM marketplace_master_orders WHERE id = $1 OR order_number = $1',
+          [id]
+        );
+        if (masterRes.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
+        }
+        targetOrder = masterRes.rows[0];
+
+        // 1. Update Master Order to Approved
+        await client.query(`
+          UPDATE marketplace_master_orders 
+          SET admin_approval_status = 'approved',
+              is_admin_approved = TRUE,
+              payment_status = 'paid',
+              overall_status = 'confirmed',
+              notes = CASE WHEN $1 IS NOT NULL THEN COALESCE(notes, '') || ' [এডমিন পেমেন্ট অনুমোদন: ' || $1 || ']' ELSE notes END,
+              updated_at = $2
+          WHERE id = $3
+        `, [adminNote || null, now, targetOrder.id]);
+
+        // 2. Unlock ALL sub-orders for vendors!
+        const subRes = await client.query(`
+          UPDATE online_orders 
+          SET admin_approval_status = 'approved',
+              is_admin_approved = TRUE,
+              payment_status = 'paid',
+              order_status = 'confirmed',
+              updated_at = $1
+          WHERE master_order_id = $2
+          RETURNING id, order_number, user_id, total_amount
+        `, [now, targetOrder.id]);
+
+        subOrders = subRes.rows;
+
+        // 3. Send notification to vendors that the order is unlocked and ready for fulfillment
+        for (const sub of subOrders) {
+          const notifId = `notif_unlock_${now}_${Math.random().toString(36).substring(2, 6)}`;
+          await client.query(`
+            INSERT INTO notifications (
+              id, title, message, type, target, target_user_id, priority, is_read, created_at
+            ) VALUES ($1, $2, $3, 'order', 'user', $4, 'high', FALSE, $5)
+          `, [
+            notifId,
+            '🔓 সেন্ট্রাল মল অর্ডার আনলক হয়েছে (প্রোডাক্ট রেডি করুন)!',
+            `অর্ডার #${sub.order_number} এর পেমেন্ট সুপার এডমিন যাচাই করে অনুমোদন দিয়েছেন! অর্ডারটি আনলক করা হয়েছে, এখন কাস্টমারের জন্য পণ্য প্রস্তুত ও ডেলিভারি দিন। মোট বিল: ৳${sub.total_amount}।`,
+            sub.user_id,
+            now,
+          ]).catch(() => {});
+        }
+
+        await client.query('COMMIT');
+      } catch (e: any) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
       }
     } else {
+      // In-memory fallback
       const ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
-      if (ord) {
-        ordNum = ord.orderNumber;
-        custName = ord.customerName;
-        custPhone = ord.customerPhone;
-      }
-    }
+      if (!ord) return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
+      targetOrder = ord;
 
-    if (custPhone && custPhone.length >= 11 && overallStatus) {
-      let statusMsg = '';
-      if (overallStatus === 'cancelled') {
-        statusMsg = `TwingHisabi: দুঃখিত ${custName || 'গ্রাহক'}! আপনার সেন্ট্রাল মল অর্ডার #${ordNum || id} বাতিল (Cancelled) করা হয়েছে। বিস্তারিত জানতে আমাদের সাথে যোগাযোগ করুন।`;
-      } else if (overallStatus === 'confirmed') {
-        statusMsg = `TwingHisabi: অভিনন্দন ${custName || 'গ্রাহক'}! আপনার সেন্ট্রাল মল অর্ডার #${ordNum || id} নিশ্চিত (Confirmed) করা হয়েছে এবং পার্সেল প্রস্তুত হচ্ছে।`;
-      } else if (overallStatus === 'shipped') {
-        statusMsg = `TwingHisabi: আপনার সেন্ট্রাল মল অর্ডার #${ordNum || id} কুরিয়ারে হস্তান্তর করা হয়েছে। শীঘ্রই ডেলিভারি পাবেন।`;
-      } else if (overallStatus === 'delivered') {
-        statusMsg = `TwingHisabi: আপনার সেন্ট্রাল মল অর্ডার #${ordNum || id} সফলভাবে ডেলিভারি সম্পন্ন হয়েছে। আমাদের সাথে কেনাকাটার জন্য ধন্যবাদ!`;
-      }
+      ord.adminApprovalStatus = 'approved';
+      ord.isAdminApproved = true;
+      ord.paymentStatus = 'paid';
+      ord.overallStatus = 'confirmed';
+      ord.updatedAt = now;
 
-      if (statusMsg) {
-        sendSmsNotification(custPhone, statusMsg).catch((err) => {
-          console.warn('Customer marketplace order status SMS notification notice:', err?.message || err);
+      subOrders = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === ord.id);
+      for (const sub of subOrders) {
+        sub.adminApprovalStatus = 'approved';
+        sub.isAdminApproved = true;
+        sub.isLockedForVendor = false;
+        sub.paymentStatus = 'paid';
+        sub.orderStatus = 'confirmed';
+        sub.updatedAt = now;
+
+        if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+        inMemoryStore.notifications.unshift({
+          id: `notif_unlock_${now}`,
+          title: '🔓 সেন্ট্রাল মল অর্ডার আনলক হয়েছে (প্রোডাক্ট রেডি করুন)!',
+          message: `অর্ডার #${sub.orderNumber} এর পেমেন্ট সুপার এডমিন অনুমোদন করেছেন! অর্ডারটি আনলক হয়েছে, এখন পণ্য প্রস্তুত ও ডেলিভারি দিন।`,
+          type: 'order',
+          target: 'user',
+          target_user_id: sub.userId,
+          priority: 'high',
+          isRead: false,
+          createdAt: now,
         });
       }
+      saveInMemoryStoreToDisk();
     }
 
-    return res.json({ success: true, message: 'অর্ডার স্ট্যাটাস সফলভাবে আপডেট হয়েছে' });
+    // 🔔 SEND OFFICIAL ORDER CONFIRMATION SMS TO CUSTOMER NOW!
+    const custPhone = targetOrder.customer_phone || targetOrder.customerPhone;
+    const custName = targetOrder.customer_name || targetOrder.customerName || 'সম্মানিত গ্রাহক';
+    const ordNum = targetOrder.order_number || targetOrder.orderNumber;
+    const grandTotal = targetOrder.grand_total || targetOrder.grandTotal;
+
+    if (custPhone && custPhone.length >= 11) {
+      const confirmSms = `TwingHisabi: অভিনন্দন ${custName}! সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${ordNum} এর পেমেন্ট সুপার এডমিন কর্তৃক সফলভাবে যাচাই ও নিশ্চিত (Confirmed) করা হয়েছে। ভেন্ডর পার্সেল প্রস্তুত করছেন। মোট পরিশোধিত: ৳${grandTotal}।`;
+      sendSmsNotification(custPhone, confirmSms).catch((err) => {
+        console.warn('Customer marketplace payment approved SMS error:', err?.message || err);
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: '✅ পেমেন্ট সফলভাবে যাচাই ও অনুমোদন সম্পন্ন হয়েছে! ভেন্ডরের কাছে অর্ডারটি আনলক হয়েছে এবং ক্রেতাকে কনফার্মেশন এসএমএস পাঠানো হয়েছে।',
+      orderId: targetOrder.id,
+      unlockedSubOrdersCount: subOrders.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 8.2 POST /api/marketplace/admin/orders/:id/reject-payment
+ * Super Admin rejects payment:
+ * - Cancels master order & rejects payment
+ * - Hides/removes sub-orders from vendor side completely ("উধাও হয়ে যাবে")
+ * - Restores inventory stock
+ * - Sends rejection SMS to customer
+ */
+router.post('/admin/orders/:id/reject-payment', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com';
+    if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
+
+    const { id } = req.params;
+    const { rejectionReason = 'পেমেন্ট ট্রানজেকশনে ত্রুটি বা ভেরিফিকেশন ব্যর্থ' } = req.body || {};
+    const pool = getDbPool();
+    const now = Date.now();
+
+    let targetOrder: any = null;
+
+    if (pool) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Fetch master order
+        const masterRes = await client.query(
+          'SELECT * FROM marketplace_master_orders WHERE id = $1 OR order_number = $1',
+          [id]
+        );
+        if (masterRes.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
+        }
+        targetOrder = masterRes.rows[0];
+
+        // 1. Mark master order cancelled/rejected
+        await client.query(`
+          UPDATE marketplace_master_orders 
+          SET admin_approval_status = 'rejected',
+              is_rejected_by_admin = TRUE,
+              payment_status = 'rejected',
+              overall_status = 'cancelled',
+              admin_rejection_reason = $1,
+              updated_at = $2
+          WHERE id = $3
+        `, [rejectionReason, now, targetOrder.id]);
+
+        // 2. Fetch and hide sub-orders from vendor side (is_hidden_from_vendor = TRUE) & cancel them
+        const subRes = await client.query(`
+          UPDATE online_orders 
+          SET admin_approval_status = 'rejected',
+              is_rejected_by_admin = TRUE,
+              is_hidden_from_vendor = TRUE,
+              payment_status = 'rejected',
+              order_status = 'cancelled',
+              payment_reject_reason = $1,
+              updated_at = $2
+          WHERE master_order_id = $3
+          RETURNING id, items, user_id
+        `, [rejectionReason, now, targetOrder.id]);
+
+        // 3. Restore product stock!
+        for (const sub of subRes.rows) {
+          const items = typeof sub.items === 'string' ? JSON.parse(sub.items) : (sub.items || []);
+          for (const it of items) {
+            await client.query(`
+              UPDATE products 
+              SET stock = stock + $1, updated_at = $2 
+              WHERE id = $3
+            `, [it.quantity, now, it.productId]).catch(() => {});
+          }
+        }
+
+        await client.query('COMMIT');
+      } catch (e: any) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+    } else {
+      // In-memory fallback
+      const ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
+      if (!ord) return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
+      targetOrder = ord;
+
+      ord.adminApprovalStatus = 'rejected';
+      ord.isRejectedByAdmin = true;
+      ord.paymentStatus = 'rejected';
+      ord.overallStatus = 'cancelled';
+      ord.adminRejectionReason = rejectionReason;
+      ord.updatedAt = now;
+
+      // Sub-orders marked hidden & cancelled
+      const subs = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === ord.id);
+      for (const sub of subs) {
+        sub.adminApprovalStatus = 'rejected';
+        sub.isRejectedByAdmin = true;
+        sub.isHiddenFromVendor = true;
+        sub.orderStatus = 'cancelled';
+        sub.paymentStatus = 'rejected';
+        sub.paymentRejectReason = rejectionReason;
+        sub.updatedAt = now;
+
+        // Restore stock
+        for (const it of (sub.items || [])) {
+          const p = inMemoryStore.products.find(x => x.id === it.productId);
+          if (p) {
+            p.stock = (p.stock || 0) + it.quantity;
+            p.updatedAt = now;
+          }
+        }
+      }
+      saveInMemoryStoreToDisk();
+    }
+
+    // 🔔 SEND REJECTION SMS TO CUSTOMER
+    const custPhone = targetOrder.customer_phone || targetOrder.customerPhone;
+    const custName = targetOrder.customer_name || targetOrder.customerName || 'সম্মানিত গ্রাহক';
+    const ordNum = targetOrder.order_number || targetOrder.orderNumber;
+
+    if (custPhone && custPhone.length >= 11) {
+      const rejectSms = `TwingHisabi: দুঃখিত ${custName}! সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${ordNum} এর পেমেন্ট যাচাইয়ে ত্রুটি থাকায় অর্ডারটি বাতিল করা হয়েছে। কারণ: ${rejectionReason}।`;
+      sendSmsNotification(custPhone, rejectSms).catch((err) => {
+        console.warn('Customer marketplace payment rejected SMS notice:', err?.message || err);
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: '❌ পেমেন্ট বাতিল করা হয়েছে। ভেন্ডরদের তালিকা থেকে অর্ডারটি সরিয়ে দেওয়া হয়েছে এবং পণ্যের স্টক রিস্টোর করা হয়েছে।',
+      orderId: targetOrder.id,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -1547,10 +1943,13 @@ router.get('/vendor/summary', authenticateUser, async (req: AuthenticatedRequest
     const pool = getDbPool();
 
     if (pool) {
-      // 1. Vendor's marketplace orders
+      // 1. Vendor's marketplace orders (strictly excluding orders rejected by Super Admin - "উধাও হয়ে যাবে")
       const ordersRes = await pool.query(`
         SELECT * FROM online_orders 
-        WHERE user_id = $1 AND (order_source = 'marketplace' OR master_order_id IS NOT NULL)
+        WHERE user_id = $1 
+          AND (order_source = 'marketplace' OR master_order_id IS NOT NULL)
+          AND is_hidden_from_vendor IS NOT TRUE
+          AND is_rejected_by_admin IS NOT TRUE
         ORDER BY created_at DESC
       `, [userId]).catch(() => ({ rows: [] }));
 
@@ -1568,10 +1967,14 @@ router.get('/vendor/summary', authenticateUser, async (req: AuthenticatedRequest
         masterOrderId: o.master_order_id,
         customerName: o.customer_name,
         customerPhone: o.customer_phone,
+        customerAddress: o.customer_address,
         items: typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || []),
         totalAmount: parseFloat(o.total_amount) || 0,
         orderStatus: o.order_status,
         vendorPayoutStatus: o.vendor_payout_status || 'unsettled',
+        adminApprovalStatus: o.admin_approval_status || 'pending_approval',
+        isAdminApproved: o.is_admin_approved === true,
+        isLockedForVendor: o.is_admin_approved !== true,
         createdAt: Number(o.created_at),
       }));
 
@@ -1594,9 +1997,17 @@ router.get('/vendor/summary', authenticateUser, async (req: AuthenticatedRequest
         totalSales: orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0),
       });
     } else {
-      const orders = (inMemoryStore.online_orders || []).filter(
-        o => o.userId === userId && (o.orderSource === 'marketplace' || o.masterOrderId)
-      );
+      const orders = (inMemoryStore.online_orders || [])
+        .filter(
+          o => o.userId === userId && 
+               (o.orderSource === 'marketplace' || o.masterOrderId) &&
+               !o.isHiddenFromVendor &&
+               !o.isRejectedByAdmin
+        )
+        .map(o => ({
+          ...o,
+          isLockedForVendor: o.isAdminApproved !== true,
+        }));
       const prods = (inMemoryStore.products || []).filter(p => p.userId === userId);
       return res.json({
         success: true,

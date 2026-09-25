@@ -1188,9 +1188,15 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS order_source VARCHAR(30) DEFAULT 'direct_store';
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS master_order_id VARCHAR(100);
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS vendor_payout_status VARCHAR(30) DEFAULT 'unsettled';
+      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_approval_status VARCHAR(50) DEFAULT 'pending_approval';
+      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_admin_approved BOOLEAN DEFAULT FALSE;
+      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_rejected_by_admin BOOLEAN DEFAULT FALSE;
+      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_rejection_reason TEXT;
+      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_hidden_from_vendor BOOLEAN DEFAULT FALSE;
 
       CREATE INDEX IF NOT EXISTS idx_online_orders_master ON online_orders(master_order_id);
       CREATE INDEX IF NOT EXISTS idx_online_orders_src ON online_orders(order_source);
+      CREATE INDEX IF NOT EXISTS idx_online_orders_admin_app ON online_orders(admin_approval_status, is_admin_approved);
 
       -- 3. Central Marketplace Master Orders Table
       CREATE TABLE IF NOT EXISTS marketplace_master_orders (
@@ -1212,9 +1218,17 @@ export async function initializeDatabaseSchema() {
         vendor_ids JSONB DEFAULT '[]'::jsonb,
         sub_order_ids JSONB DEFAULT '[]'::jsonb,
         overall_status VARCHAR(50) DEFAULT 'processing',
+        admin_approval_status VARCHAR(50) DEFAULT 'pending_approval',
+        is_admin_approved BOOLEAN DEFAULT FALSE,
+        is_rejected_by_admin BOOLEAN DEFAULT FALSE,
+        admin_rejection_reason TEXT,
         created_at BIGINT NOT NULL,
         updated_at BIGINT NOT NULL
       );
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS admin_approval_status VARCHAR(50) DEFAULT 'pending_approval';
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS is_admin_approved BOOLEAN DEFAULT FALSE;
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS is_rejected_by_admin BOOLEAN DEFAULT FALSE;
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS admin_rejection_reason TEXT;
       CREATE INDEX IF NOT EXISTS idx_mkt_orders_phone ON marketplace_master_orders(customer_phone);
       CREATE INDEX IF NOT EXISTS idx_mkt_orders_created ON marketplace_master_orders(created_at DESC);
 

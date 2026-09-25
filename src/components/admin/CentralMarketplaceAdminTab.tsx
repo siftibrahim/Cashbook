@@ -69,6 +69,11 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const [isProcessingPayout, setIsProcessingPayout] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Escrow Payment Approval & Rejection State
+  const [isApprovingPayment, setIsApprovingPayment] = useState<string | null>(null);
+  const [rejectingOrder, setRejectingOrder] = useState<any | null>(null);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState<string>('');
+
   // Filters
   const [orderSearch, setOrderSearch] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('all');
@@ -193,6 +198,64 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     }
   };
 
+  // Super Admin Approves Payment & Unlocks for Vendor
+  const handleApprovePayment = async (order: any) => {
+    const isConfirmed = confirm(
+      `পেমেন্ট অনুমোদন করবেন?\n\n• অর্ডার #${order.orderNumber}\n• গ্রাহক: ${order.customerName} (${order.customerPhone})\n• মোট বিল: ৳${order.grandTotal}\n\nঅনুমোদন দিলে:\n1. ভেন্ডরের সাইটে অর্ডারটি আনলক হবে এবং তারা পণ্য প্রস্তুত ও ডেলিভারি দিতে পারবে।\n2. গ্রাহকের ফোনে অফিসিয়াল কনফার্মেশন এসএমএস পাঠানো হবে।`
+    );
+    if (!isConfirmed) return;
+
+    setIsApprovingPayment(order.id);
+    try {
+      const res = await marketplaceAdminApi.approveOrderPayment(order.id);
+      showToast(res.message || '✅ পেমেন্ট সফলভাবে যাচাই ও অনুমোদন হয়েছে! ভেন্ডরের কাছে অর্ডার আনলক হয়েছে এবং ক্রেতাকে কনফার্মেশন এসএমএস গেছে।');
+      loadData();
+      if (selectedMasterOrder && (selectedMasterOrder.id === order.id || selectedMasterOrder.orderNumber === order.orderNumber)) {
+        setSelectedMasterOrder((prev: any) => ({
+          ...prev,
+          adminApprovalStatus: 'approved',
+          isAdminApproved: true,
+          paymentStatus: 'paid',
+          overallStatus: 'confirmed',
+        }));
+      }
+    } catch (err: any) {
+      alert(err.message || 'পেমেন্ট অনুমোদন ব্যর্থ হয়েছে');
+    } finally {
+      setIsApprovingPayment(null);
+    }
+  };
+
+  // Super Admin Rejects Payment & Hides from Vendor
+  const handleRejectPayment = async () => {
+    if (!rejectingOrder) return;
+    const reason = rejectionReasonInput.trim() || 'পেমেন্ট যাচাইয়ে অসঙ্গতি বা ট্রানজেকশন বাতিল';
+
+    setIsApprovingPayment(rejectingOrder.id);
+    try {
+      const res = await marketplaceAdminApi.rejectOrderPayment(rejectingOrder.id, {
+        rejectionReason: reason,
+      });
+      showToast(res.message || '❌ পেমেন্ট বাতিল করা হয়েছে। ভেন্ডরদের তালিকা থেকে অর্ডারটি উধাও হয়ে গেছে এবং পণ্যের স্টক রিস্টোর হয়েছে।');
+      setRejectingOrder(null);
+      setRejectionReasonInput('');
+      loadData();
+      if (selectedMasterOrder && (selectedMasterOrder.id === rejectingOrder.id || selectedMasterOrder.orderNumber === rejectingOrder.orderNumber)) {
+        setSelectedMasterOrder((prev: any) => ({
+          ...prev,
+          adminApprovalStatus: 'rejected',
+          isRejectedByAdmin: true,
+          paymentStatus: 'rejected',
+          overallStatus: 'cancelled',
+        }));
+      }
+    } catch (err: any) {
+      alert(err.message || 'পেমেন্ট বাতিল করতে সমস্যা হয়েছে');
+    } finally {
+      setIsApprovingPayment(null);
+    }
+  };
+
   // Settle Vendor Payout
   const handleSettlePayout = async (subOrderId: string, status: string) => {
     try {
@@ -272,16 +335,30 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const totalMasterOrders = data.masterOrders.length;
   const totalGmv = data.masterOrders.reduce((sum, o) => sum + (o.grandTotal || 0), 0);
   const pendingOrdersCount = data.masterOrders.filter(o => o.overallStatus === 'processing' || o.overallStatus === 'pending').length;
+  const pendingInquiriesCount = data.masterOrders.filter(
+    o => o.adminApprovalStatus === 'pending_approval' || (o.isAdminApproved !== true && o.isRejectedByAdmin !== true)
+  ).length;
   const totalListedProducts = data.products.length;
 
   // Filtered Orders
   const filteredOrders = data.masterOrders.filter((ord) => {
-    const matchesStatus = orderStatusFilter === 'all' || ord.overallStatus === orderStatusFilter;
+    let matchesStatus = true;
+    if (orderStatusFilter === 'pending_approval') {
+      matchesStatus = ord.adminApprovalStatus === 'pending_approval' || (ord.isAdminApproved !== true && ord.isRejectedByAdmin !== true);
+    } else if (orderStatusFilter === 'approved') {
+      matchesStatus = ord.adminApprovalStatus === 'approved' || ord.isAdminApproved === true;
+    } else if (orderStatusFilter === 'rejected') {
+      matchesStatus = ord.adminApprovalStatus === 'rejected' || ord.isRejectedByAdmin === true;
+    } else if (orderStatusFilter !== 'all') {
+      matchesStatus = ord.overallStatus === orderStatusFilter;
+    }
+
     const matchesSearch =
       !orderSearch.trim() ||
       ord.orderNumber.toLowerCase().includes(orderSearch.toLowerCase()) ||
       ord.customerName.toLowerCase().includes(orderSearch.toLowerCase()) ||
-      ord.customerPhone.includes(orderSearch.trim());
+      ord.customerPhone.includes(orderSearch.trim()) ||
+      (ord.paymentTrxId && ord.paymentTrxId.toLowerCase().includes(orderSearch.toLowerCase()));
     return matchesStatus && matchesSearch;
   });
 
@@ -361,11 +438,23 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs space-y-1">
-          <p className="text-xs text-slate-500 font-medium">অপেক্ষমাণ অর্ডার</p>
+        <div
+          onClick={() => { setActiveSubTab('orders'); setOrderStatusFilter('pending_approval'); }}
+          className={`p-4 rounded-xl border cursor-pointer transition shadow-xs space-y-1 ${
+            orderStatusFilter === 'pending_approval' && activeSubTab === 'orders'
+              ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-400/40'
+              : 'bg-amber-50/70 border-amber-200 hover:bg-amber-100/50'
+          }`}
+        >
+          <p className="text-xs text-amber-900 font-bold flex items-center justify-between">
+            <span>পেমেন্ট ইনকোয়ারি (লক)</span>
+            <Lock className="w-3.5 h-3.5 text-amber-600" />
+          </p>
           <div className="flex items-baseline justify-between">
-            <span className="text-xl sm:text-2xl font-black text-amber-600">{pendingOrdersCount}</span>
-            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">প্রসেসিং</span>
+            <span className="text-xl sm:text-2xl font-black text-amber-950">{pendingInquiriesCount}</span>
+            <span className="text-[10px] font-bold text-amber-800 bg-amber-200/80 px-2 py-0.5 rounded-full">
+              যাচাই বাকি
+            </span>
           </div>
         </div>
 
@@ -383,13 +472,18 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
         <button
           type="button"
           onClick={() => setActiveSubTab('orders')}
-          className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${
+          className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer flex items-center gap-1.5 ${
             activeSubTab === 'orders'
               ? 'border-teal-700 text-teal-900'
               : 'border-transparent text-slate-500 hover:text-slate-900'
           }`}
         >
-          📋 সেন্ট্রাল মাস্টার অর্ডার ({data.masterOrders.length})
+          <span>📋 সেন্ট্রাল মাস্টার অর্ডার ({data.masterOrders.length})</span>
+          {pendingInquiriesCount > 0 && (
+            <span className="px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-black animate-pulse">
+              {pendingInquiriesCount} ইনকোয়ারি
+            </span>
+          )}
         </button>
 
         <button
@@ -468,7 +562,10 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 onChange={(e) => setOrderStatusFilter(e.target.value)}
                 className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-700/30"
               >
-                <option value="all">সব স্ট্যাটাস ({data.masterOrders.length})</option>
+                <option value="all">সব অর্ডার ({data.masterOrders.length})</option>
+                <option value="pending_approval">🔔 পেমেন্ট যাচাই বাকি - ভেন্ডর লক ({pendingInquiriesCount})</option>
+                <option value="approved">🔓 অনুমোদিত ও আনলকড</option>
+                <option value="rejected">❌ বাতিল / ভেন্ডর থেকে লুকানো</option>
                 <option value="processing">প্রসেসিং (Processing)</option>
                 <option value="confirmed">নিশ্চিতকৃত (Confirmed)</option>
                 <option value="delivered">ডেলিভার্ড (Delivered)</option>
@@ -493,7 +590,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                       <th className="p-3.5">অর্ডার নম্বর ও তারিখ</th>
                       <th className="p-3.5">কাস্টমার তথ্য</th>
                       <th className="p-3.5">পরিমাণ ও মোট বিল</th>
-                      <th className="p-3.5">পেমেন্ট মেথড</th>
+                      <th className="p-3.5">পেমেন্ট ও ভেন্ডর লক স্ট্যাটাস</th>
                       <th className="p-3.5">অর্ডার স্ট্যাটাস</th>
                       <th className="p-3.5 text-right">অ্যাকশন</th>
                     </tr>
@@ -503,6 +600,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                       const relatedSubs = data.subOrders.filter(
                         (s) => s.masterOrderId === ord.id || (ord.subOrderIds && ord.subOrderIds.includes(s.id))
                       );
+                      const isPendingApproval = ord.adminApprovalStatus === 'pending_approval' || (!ord.isAdminApproved && !ord.isRejectedByAdmin);
 
                       return (
                         <tr key={ord.id} className="hover:bg-slate-50/70 transition">
@@ -532,20 +630,37 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                             </span>
                           </td>
                           <td className="p-3.5">
-                            <div className="space-y-0.5">
-                              <span className="font-semibold block uppercase">{ord.paymentMethod}</span>
-                              <span
-                                className={`text-[10px] px-1.5 py-0.5 rounded font-bold inline-block ${
-                                  ord.paymentStatus === 'paid'
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : 'bg-amber-50 text-amber-700'
-                                }`}
-                              >
-                                {ord.paymentStatus === 'paid' ? 'পরিশোধিত' : 'বকেয়া/COD'}
-                              </span>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-semibold block uppercase text-[11px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-800">
+                                  {ord.paymentMethod}
+                                </span>
+                                {ord.adminApprovalStatus === 'approved' || ord.isAdminApproved ? (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded font-black inline-flex items-center gap-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    <span>আনলক (অনুমোদিত)</span>
+                                  </span>
+                                ) : ord.adminApprovalStatus === 'rejected' || ord.isRejectedByAdmin ? (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded font-black inline-flex items-center gap-0.5 bg-rose-50 text-rose-700 border border-rose-200">
+                                    <X className="w-3 h-3 text-rose-600" />
+                                    <span>বাতিল (উধাও)</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded font-black inline-flex items-center gap-0.5 bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+                                    <Lock className="w-3 h-3 text-amber-700" />
+                                    <span>লক (যাচাই বাকি)</span>
+                                  </span>
+                                )}
+                              </div>
+
                               {ord.paymentTrxId && (
-                                <span className="text-[10px] font-mono text-slate-500 block truncate">
-                                  Trx: {ord.paymentTrxId}
+                                <span className="text-[10px] font-mono text-slate-600 block truncate">
+                                  Trx: <strong className="text-slate-900 font-bold">{ord.paymentTrxId}</strong>
+                                </span>
+                              )}
+                              {ord.senderPhone && (
+                                <span className="text-[10px] text-slate-500 font-mono block">
+                                  প্রেরক: {ord.senderPhone}
                                 </span>
                               )}
                             </div>
@@ -572,13 +687,40 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                             </span>
                           </td>
                           <td className="p-3.5 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedMasterOrder(ord)}
-                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-teal-50 hover:text-teal-800 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer"
-                            >
-                              বিস্তারিত ও পেআউট
-                            </button>
+                            <div className="flex flex-col items-end gap-1.5">
+                              {isPendingApproval && (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    disabled={isApprovingPayment === ord.id}
+                                    onClick={() => handleApprovePayment(ord)}
+                                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer shadow-2xs transition"
+                                    title="পেমেন্ট একসেপ্ট ও ভেন্ডরের জন্য আনলক করুন"
+                                  >
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span>একসেপ্ট</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isApprovingPayment === ord.id}
+                                    onClick={() => setRejectingOrder(ord)}
+                                    className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
+                                    title="পেমেন্ট রিজেক্ট করুন"
+                                  >
+                                    <X className="w-3 h-3" />
+                                    <span>রিজেক্ট</span>
+                                  </button>
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => setSelectedMasterOrder(ord)}
+                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-teal-50 hover:text-teal-800 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer"
+                              >
+                                বিস্তারিত ও পেআউট
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -676,9 +818,77 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                   </div>
                 </div>
 
+                {/* SUPER ADMIN PAYMENT VERIFICATION & VENDOR ESCROW UNLOCK BOX */}
+                <div
+                  className={`p-4 rounded-2xl border-2 space-y-3 ${
+                    selectedMasterOrder.adminApprovalStatus === 'approved' || selectedMasterOrder.isAdminApproved
+                      ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950'
+                      : selectedMasterOrder.adminApprovalStatus === 'rejected' || selectedMasterOrder.isRejectedByAdmin
+                      ? 'bg-rose-50/80 border-rose-300 text-rose-950'
+                      : 'bg-amber-50/90 border-amber-300 text-amber-950 shadow-sm'
+                  }`}
+                >
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      {selectedMasterOrder.adminApprovalStatus === 'approved' || selectedMasterOrder.isAdminApproved ? (
+                        <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white font-black text-xs flex items-center gap-1.5 shadow-2xs">
+                          <CheckCircle2 className="w-4 h-4" /> <span>পেমেন্ট অনুমোদিত ও আনলকড</span>
+                        </span>
+                      ) : selectedMasterOrder.adminApprovalStatus === 'rejected' || selectedMasterOrder.isRejectedByAdmin ? (
+                        <span className="px-2.5 py-1 rounded-xl bg-rose-600 text-white font-black text-xs flex items-center gap-1.5 shadow-2xs">
+                          <X className="w-4 h-4" /> <span>পেমেন্ট বাতিল (ভেন্ডর থেকে উধাও)</span>
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 rounded-xl bg-amber-500 text-slate-950 font-black text-xs flex items-center gap-1.5 animate-pulse shadow-2xs">
+                          <Lock className="w-4 h-4" /> <span>ভেন্ডরদের জন্য লক (সুপার এডমিনের অনুমোদন আবশ্যক)</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="text-xs leading-relaxed">
+                    {selectedMasterOrder.adminApprovalStatus === 'approved' || selectedMasterOrder.isAdminApproved
+                      ? '✅ এই অর্ডারের পেমেন্ট সুপার এডমিন কর্তৃক অনুমোদিত হয়েছে। ভেন্ডরদের সাইটে অর্ডারটি আনলক করা হয়েছে এবং তারা পণ্য প্রস্তুত ও ডেলিভারি দিতে পারছে। ক্রেতার কাছে কনফার্মেশন এসএমএস পাঠানো হয়েছে।'
+                      : selectedMasterOrder.adminApprovalStatus === 'rejected' || selectedMasterOrder.isRejectedByAdmin
+                      ? '❌ এই অর্ডারের পেমেন্ট বাতিল করা হয়েছে। ভেন্ডরদের ড্যাশবোর্ড থেকে অর্ডারটি স্বয়ংক্রিয়ভাবে মুছে ফেলা হয়েছে ("উধাও") এবং পণ্যের স্টক পুনরায় ফেরত এসেছে।'
+                      : '⚠️ কাস্টমার অর্ডার সাবমিট করেছেন। আপনি পেমেন্ট যাচাই-বাছাই করে "একসেপ্ট ও আনলক" করার পূর্ব পর্যন্ত ভেন্ডররা এটি প্রস্তুত বা ডেলিভারি করতে পারবে না (লক অবস্থায় থাকবে)। একসেপ্ট করলেই ক্রেতার কাছে কনফার্মেশন এসএমএস যাবে।'}
+                  </p>
+
+                  {/* Actions for Pending Inquiries */}
+                  {!selectedMasterOrder.isAdminApproved &&
+                    selectedMasterOrder.adminApprovalStatus !== 'approved' &&
+                    !selectedMasterOrder.isRejectedByAdmin && (
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-amber-200">
+                        <button
+                          type="button"
+                          disabled={isApprovingPayment === selectedMasterOrder.id}
+                          onClick={() => handleApprovePayment(selectedMasterOrder)}
+                          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>
+                            {isApprovingPayment === selectedMasterOrder.id
+                              ? 'অনুমোদন হচ্ছে...'
+                              : '✅ পেমেন্ট একসেপ্ট ও আনলক করুন (ভেন্ডর পারমিশন পাবে)'}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isApprovingPayment === selectedMasterOrder.id}
+                          onClick={() => setRejectingOrder(selectedMasterOrder)}
+                          className="px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                          <span>❌ পেমেন্ট রিজেক্ট করুন</span>
+                        </button>
+                      </div>
+                    )}
+                </div>
+
                 {/* Status Update Actions */}
-                <div className="p-3 bg-teal-50/70 border border-teal-100 rounded-xl space-y-2 text-xs">
-                  <p className="font-bold text-teal-950">মাস্টার অর্ডার স্ট্যাটাস পরিবর্তন:</p>
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
+                  <p className="font-bold text-slate-800">অন্যান্য মাস্টার অর্ডার ডেলিভারি স্ট্যাটাস পরিবর্তন:</p>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -693,13 +903,6 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                       className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold"
                     >
                       ডেলিভারি সম্পন্ন মার্ক করুন
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateOrderStatus(selectedMasterOrder.id, selectedMasterOrder.overallStatus, 'paid')}
-                      className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg font-bold"
-                    >
-                      পেমেন্ট ভেরিফাই করুন (Paid)
                     </button>
                     <button
                       type="button"

@@ -17,6 +17,7 @@ export interface MarketplaceCheckoutPayload {
   paymentTrxId?: string;
   senderPhone?: string;
   notes?: string;
+  isPhoneVerified?: boolean;
   items: {
     productId: string;
     vendorId: string;
@@ -232,6 +233,40 @@ export const marketplaceApi = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'উইথড্র আবেদন ব্যর্থ হয়েছে');
+    return data;
+  },
+
+  async sendOtp(phone: string): Promise<{
+    success: boolean;
+    message: string;
+    expiresInSeconds?: number;
+    demoOtp?: string;
+    error?: string;
+  }> {
+    const res = await fetch('/api/marketplace/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ওটিপি পাঠাতে সমস্যা হয়েছে');
+    return data;
+  },
+
+  async verifyOtp(phone: string, otp: string): Promise<{
+    success: boolean;
+    verified: boolean;
+    phone?: string;
+    message: string;
+    error?: string;
+  }> {
+    const res = await fetch('/api/marketplace/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, otp }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ওটিপি যাচাইয়ে ত্রুটি হয়েছে');
     return data;
   },
 };

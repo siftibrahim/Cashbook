@@ -29,6 +29,28 @@ export const marketplaceAdminApi = {
     return data;
   },
 
+  async approveOrderPayment(orderId: string, payload: { adminNote?: string } = {}): Promise<any> {
+    const res = await fetch(`/api/marketplace/admin/orders/${encodeURIComponent(orderId)}/approve-payment`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'পেমেন্ট অনুমোদন ব্যর্থ হয়েছে');
+    return data;
+  },
+
+  async rejectOrderPayment(orderId: string, payload: { rejectionReason?: string } = {}): Promise<any> {
+    const res = await fetch(`/api/marketplace/admin/orders/${encodeURIComponent(orderId)}/reject-payment`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'পেমেন্ট বাতিল ব্যর্থ হয়েছে');
+    return data;
+  },
+
   async settleVendorPayout(subOrderId: string, payload: { vendorPayoutStatus: string; adminNote?: string }): Promise<any> {
     const res = await fetch(`/api/marketplace/admin/orders/sub/${encodeURIComponent(subOrderId)}/payout`, {
       method: 'POST',

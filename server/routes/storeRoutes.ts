@@ -519,6 +519,14 @@ function mapDbRowToOrder(r: any) {
     paymentMethod: r.payment_method || 'cod',
     paymentStatus: r.payment_status || 'unpaid',
     orderStatus: r.order_status || 'pending',
+    orderSource: r.order_source || 'direct_store',
+    masterOrderId: r.master_order_id,
+    vendorPayoutStatus: r.vendor_payout_status || 'unsettled',
+    adminApprovalStatus: r.admin_approval_status || 'pending_approval',
+    isAdminApproved: r.is_admin_approved === true,
+    isLockedForVendor: r.order_source === 'marketplace' ? (r.is_admin_approved !== true) : false,
+    isRejectedByAdmin: r.is_rejected_by_admin === true,
+    isHiddenFromVendor: r.is_hidden_from_vendor === true,
     trxId: r.trx_id || '',
     senderPhone: r.sender_phone || '',
     paymentAmount: r.payment_amount ? parseFloat(r.payment_amount) : undefined,
@@ -545,14 +553,14 @@ router.get('/orders', authenticateUser, async (req: AuthenticatedRequest, res: R
 
     if (pool) {
       const result = await pool.query(
-        'SELECT * FROM online_orders WHERE user_id = $1 ORDER BY created_at DESC',
+        'SELECT * FROM online_orders WHERE user_id = $1 AND is_hidden_from_vendor IS NOT TRUE AND is_rejected_by_admin IS NOT TRUE ORDER BY created_at DESC',
         [userId]
       );
       const orders = result.rows.map(mapDbRowToOrder);
       return res.json({ orders });
     } else {
       const memoryOrders = (inMemoryStore.online_orders || [])
-        .filter((o) => o.userId === userId)
+        .filter((o) => o.userId === userId && !o.isHiddenFromVendor && !o.isRejectedByAdmin)
         .sort((a, b) => b.createdAt - a.createdAt);
       return res.json({ orders: memoryOrders });
     }
@@ -1714,7 +1722,31 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
     const pool = getDbPool();
     const now = Date.now();
 
-    const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin');
+    const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com');
+
+    // 🔒 Enforce Central Marketplace Escrow Lock:
+    // Vendor cannot change status, prepare, or deliver until Super Admin verifies & accepts payment!
+    if (!isSuperAdmin) {
+      let existingOrder: any = null;
+      if (pool) {
+        const chk = await pool.query(
+          'SELECT order_source, is_admin_approved, admin_approval_status, is_rejected_by_admin FROM online_orders WHERE id = $1 OR order_number = $1 LIMIT 1',
+          [orderId]
+        );
+        if (chk.rows.length > 0) existingOrder = chk.rows[0];
+      } else {
+        existingOrder = (inMemoryStore.online_orders || []).find((o) => o.id === orderId || o.orderNumber === orderId);
+      }
+
+      if (existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace')) {
+        const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved';
+        if (!isApproved) {
+          return res.status(403).json({
+            error: '🔒 সেন্ট্রাল মার্কেটপ্লেস অর্ডারটি এখনো লক হয়ে আছে। সুপার এডমিন পেমেন্ট যাচাই-বাছাই করে একসেপ্ট করার পূর্বে পণ্য রেডি বা ডেলিভারি করা যাবে না।',
+          });
+        }
+      }
+    }
 
     if (pool) {
       let result = await pool.query(

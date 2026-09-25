@@ -29,6 +29,7 @@ import {
   HelpCircle,
   ShieldCheck,
   BookOpen,
+  Lock,
 } from 'lucide-react';
 import { Product, OnlineOrder, StoreProfile, VendorPayoutRequest, VendorWalletSummary } from '../../types';
 import { marketplaceApi } from '../../services/marketplaceService';

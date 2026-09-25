@@ -36,6 +36,8 @@ import {
   Zap,
   QrCode,
   RefreshCw,
+  Lock,
+  KeyRound,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { MarketplaceProduct, MarketplaceCategory, MarketplaceCartItem } from '../../types';
@@ -142,6 +144,93 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও অরিজিনাল পণ্যের নিশ্চয়তা!',
     paymentInstructions: 'বিকাশ, নগদ বা রকেট নম্বরে প্রয়োজনীয় টাকা পাঠিয়ে TrxID এবং প্রেরক নম্বর দিয়ে অর্ডার কনফার্ম করুন।',
   });
+
+  // Customer Phone OTP Verification
+  const [isPhoneVerified, setIsPhoneVerified] = useState<boolean>(false);
+  const [verifiedPhone, setVerifiedPhone] = useState<string>('');
+  const [otpCodeInput, setOtpCodeInput] = useState<string>('');
+  const [isSendingOtp, setIsSendingOtp] = useState<boolean>(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
+  const [otpSent, setOtpSent] = useState<boolean>(false);
+  const [otpCountdown, setOtpCountdown] = useState<number>(0);
+  const [otpMessage, setOtpMessage] = useState<string>('');
+
+  // Send Customer OTP
+  const handleSendOtp = async () => {
+    const cleanDigits = customerPhone.replace(/[^\d+]/g, '').trim();
+    const standardPhone = cleanDigits.startsWith('+88') ? cleanDigits.slice(3) : (cleanDigits.startsWith('88') ? cleanDigits.slice(2) : cleanDigits);
+    if (standardPhone.length !== 11 || !standardPhone.startsWith('01')) {
+      showToast('⚠️ অনুগ্রহ করে সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 01XXXXXXXXX)');
+      return;
+    }
+
+    setIsSendingOtp(true);
+    setOtpMessage('');
+    try {
+      const res = await marketplaceApi.sendOtp(standardPhone);
+      if (res.success) {
+        setOtpSent(true);
+        setOtpCountdown(180); // 3 minutes
+        setOtpMessage(`নম্বর (${standardPhone})-এ ৬ ডিজিটের ওটিপি পাঠানো হয়েছে।${res.demoOtp ? ` [টেস্টিং কোড: ${res.demoOtp}]` : ''}`);
+        showToast('📲 ওটিপি কোড পাঠানো হয়েছে!');
+      } else {
+        throw new Error(res.error || 'ওটিপি পাঠানো যায়নি');
+      }
+    } catch (err: any) {
+      showToast('❌ ' + (err.message || 'ওটিপি পাঠাতে সমস্যা হয়েছে'));
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  // Verify Customer OTP
+  const handleVerifyOtp = async () => {
+    if (!otpCodeInput.trim()) {
+      showToast('⚠️ ওটিপি কোড লিখুন');
+      return;
+    }
+    const cleanDigits = customerPhone.replace(/[^\d+]/g, '').trim();
+    const standardPhone = cleanDigits.startsWith('+88') ? cleanDigits.slice(3) : (cleanDigits.startsWith('88') ? cleanDigits.slice(2) : cleanDigits);
+
+    setIsVerifyingOtp(true);
+    try {
+      const res = await marketplaceApi.verifyOtp(standardPhone, otpCodeInput.trim());
+      if (res.success && res.verified) {
+        setIsPhoneVerified(true);
+        setVerifiedPhone(standardPhone);
+        setOtpSent(false);
+        setOtpMessage('✅ মোবাইল নম্বর সফলভাবে ভেরিফাই সম্পন্ন হয়েছে!');
+        showToast('✅ মোবাইল নম্বর ভেরিফিকেশন সফল!');
+      } else {
+        throw new Error(res.error || 'ভুল ওটিপি কোড');
+      }
+    } catch (err: any) {
+      showToast('❌ ' + (err.message || 'ভুল ওটিপি কোড! সঠিক কোডটি দিন।'));
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  // Timer countdown
+  useEffect(() => {
+    if (otpCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpCountdown((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpCountdown]);
+
+  // Reset verification if customer changes the phone number
+  useEffect(() => {
+    const cleanDigits = customerPhone.replace(/[^\d+]/g, '').trim();
+    const standardPhone = cleanDigits.startsWith('+88') ? cleanDigits.slice(3) : (cleanDigits.startsWith('88') ? cleanDigits.slice(2) : cleanDigits);
+    if (verifiedPhone && standardPhone !== verifiedPhone) {
+      setIsPhoneVerified(false);
+      setVerifiedPhone('');
+      setOtpSent(false);
+      setOtpMessage('');
+    }
+  }, [customerPhone, verifiedPhone]);
 
   const handleCopyNumber = (num: string) => {
     try {
@@ -528,6 +617,11 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       return;
     }
 
+    if (!isPhoneVerified) {
+      showToast('⚠️ অর্ডার সম্পন্ন করার পূর্বে আপনার মোবাইল নম্বরটি ওটিপি কোড দিয়ে ভেরিফাই করুন');
+      return;
+    }
+
     if (cart.length === 0) {
       showToast('⚠️ কার্ট খালি');
       return;
@@ -545,6 +639,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           deliveryCity,
           paymentMethod: 'paymently',
           notes: notes.trim(),
+          isPhoneVerified: true,
           items: cart.map((it) => ({
             productId: it.product.id,
             vendorId: it.product.vendorId,
@@ -615,6 +710,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         paymentTrxId: paymentTrxId.trim(),
         senderPhone: senderPhone.trim(),
         notes: notes.trim(),
+        isPhoneVerified: true,
         items: cart.map((it) => ({
           productId: it.product.id,
           vendorId: it.product.vendorId,
@@ -1586,16 +1682,117 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                     />
                   </div>
 
-                  <div>
-                    <label className="font-bold text-slate-700 block mb-1">মোবাইল নম্বর *</label>
-                    <input
-                      type="tel"
-                      required
-                      value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
-                      placeholder="017XXXXXXXX"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#00897B]/30 focus:outline-none"
-                    />
+                  {/* Customer Mobile Phone with Mandatory OTP Verification */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold text-slate-700 text-xs sm:text-sm block">
+                        মোবাইল নম্বর (ওটিপি যাচাই আবশ্যক) *
+                      </label>
+                      {isPhoneVerified ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>ভেরিফাইড</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                          যাচাই বাকি
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="tel"
+                          required
+                          value={customerPhone}
+                          onChange={(e) => setCustomerPhone(e.target.value)}
+                          placeholder="017XXXXXXXX"
+                          className={`w-full px-3 py-2 text-xs sm:text-sm border rounded-xl focus:ring-2 focus:outline-none transition ${
+                            isPhoneVerified
+                              ? 'border-emerald-400 bg-emerald-50/30 text-emerald-950 focus:ring-emerald-500/30 font-bold'
+                              : 'border-slate-200 focus:ring-[#00897B]/30'
+                          }`}
+                        />
+                        {isPhoneVerified && (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 absolute right-3 top-1/2 -translate-y-1/2" />
+                        )}
+                      </div>
+
+                      {!isPhoneVerified && (
+                        <button
+                          type="button"
+                          disabled={isSendingOtp || customerPhone.replace(/[^\d+]/g, '').length < 11}
+                          onClick={handleSendOtp}
+                          className="px-3 py-2 bg-teal-800 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shrink-0 disabled:opacity-40 cursor-pointer shadow-xs"
+                        >
+                          {isSendingOtp ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <KeyRound className="w-3.5 h-3.5" />
+                          )}
+                          <span>{otpSent ? 'পুনরায় পাঠান' : 'ওটিপি পাঠান'}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* OTP Entry Box */}
+                    {!isPhoneVerified && otpSent && (
+                      <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-2 text-xs animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-teal-950 flex items-center gap-1">
+                            <KeyRound className="w-3.5 h-3.5 text-teal-700" />
+                            <span>মোবাইলে আসা ৬ ডিজিটের ওটিপি লিখুন:</span>
+                          </span>
+                          {otpCountdown > 0 ? (
+                            <span className="text-[11px] font-mono text-teal-800 bg-teal-100/70 px-2 py-0.5 rounded-md font-bold">
+                              ⏱️ {Math.floor(otpCountdown / 60)}:{(otpCountdown % 60).toString().padStart(2, '0')}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={handleSendOtp}
+                              className="text-[11px] text-teal-800 underline font-bold hover:text-teal-950"
+                            >
+                              কোড পাননি? আবার পাঠান
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            maxLength={6}
+                            value={otpCodeInput}
+                            onChange={(e) => setOtpCodeInput(e.target.value.replace(/\D/g, ''))}
+                            placeholder="যেমন: 123456"
+                            className="flex-1 px-3 py-2 bg-white border border-teal-300 rounded-xl text-center text-sm font-mono tracking-widest font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-700"
+                          />
+                          <button
+                            type="button"
+                            disabled={isVerifyingOtp || otpCodeInput.length < 4}
+                            onClick={handleVerifyOtp}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
+                          >
+                            {isVerifyingOtp ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                            <span>যাচাই সম্পন্ন করুন</span>
+                          </button>
+                        </div>
+
+                        {otpMessage && (
+                          <p className="text-[11px] text-teal-800 font-medium leading-relaxed bg-white/70 p-2 rounded-lg border border-teal-100">
+                            {otpMessage}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {isPhoneVerified && (
+                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-900 flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>✅ মোবাইল নম্বর <strong>{verifiedPhone}</strong> সফলভাবে যাচাই ও নিশ্চিত করা হয়েছে। আপনি এখন অর্ডার সম্পন্ন করতে পারবেন।</span>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -2192,15 +2389,22 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                     <button
                       type="submit"
                       form="checkout-form"
-                      disabled={isSubmittingOrder}
+                      disabled={isSubmittingOrder || !isPhoneVerified}
                       className={`flex-1 py-3 text-white rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 cursor-pointer disabled:opacity-50 ${
-                        paymentMethod === 'paymently'
+                        !isPhoneVerified
+                          ? 'bg-slate-400 cursor-not-allowed'
+                          : paymentMethod === 'paymently'
                           ? 'bg-gradient-to-r from-teal-600 via-emerald-600 to-teal-700 hover:from-teal-700 hover:to-emerald-800 shadow-teal-600/30'
                           : 'bg-[#00897B] hover:bg-[#00796B]'
                       }`}
                     >
                       {isSubmittingOrder ? (
                         <span>অর্ডার সম্পন্ন হচ্ছে...</span>
+                      ) : !isPhoneVerified ? (
+                        <>
+                          <Lock className="w-4 h-4 text-amber-200" />
+                          <span>মোবাইল ওটিপি যাচাই করুন (লক)</span>
+                        </>
                       ) : paymentMethod === 'paymently' ? (
                         activePaymentlySession ? (
                           <>
@@ -2226,6 +2430,12 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                       )}
                     </button>
                   </div>
+                )}
+                {isCheckoutStep && (
+                  <p className="text-[10px] text-slate-500 text-center flex items-center justify-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                    <span>সুপার এডমিন পেমেন্ট যাচাই-বাছাই সম্পন্ন করে অনুমোদন দিলে কনফার্মেশন এসএমএস পাঠানো হবে।</span>
+                  </p>
                 )}
               </div>
             )}
@@ -2292,16 +2502,18 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
               </div>
             </div>
 
-            <div className="p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-2xl text-[11px] text-emerald-900 flex items-center gap-2 text-left">
-              <span className="text-base">📩</span>
+            <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-2xl text-[11px] text-amber-950 flex items-start gap-2.5 text-left">
+              <span className="text-lg shrink-0">⏳</span>
               <div>
-                <strong className="block font-bold">এসএমএস কনফার্মেশন পাঠানো হয়েছে!</strong>
-                <span>আপনার দেওয়া মোবাইল নম্বরে অর্ডারের কনফার্মেশন এসএমএস পাঠানো হয়েছে।</span>
+                <strong className="block font-bold text-amber-900">পেমেন্ট ইনকোয়ারি সুপার এডমিনের কাছে পাঠানো হয়েছে!</strong>
+                <span className="text-amber-800 leading-relaxed block mt-0.5">
+                  সুপার এডমিন আপনার পেমেন্ট যাচাই-বাছাই সম্পন্ন করে অনুমোদন দিলে আপনার মোবাইল নম্বরে স্বয়ংক্রিয়ভাবে কনফার্মেশন এসএমএস পাঠানো হবে এবং ভেন্ডরদের কাছে অর্ডারটি আনলক হয়ে যাবে।
+                </span>
               </div>
             </div>
 
             <p className="text-[11px] text-slate-500">
-              সংশ্লিষ্ট ভেন্ডররা অতিদ্রুত আপনার পার্সেল ডেলিভারি পার্টনারের কাছে হ্যান্ডওভার করবেন।
+              সুপার এডমিন পেমেন্ট যাচাই করে একসেপ্ট করার পর ভেন্ডররা পণ্য প্রস্তুত ও ডেলিভারি পার্টনারের কাছে হ্যান্ডওভার করবেন।
             </p>
 
             <button

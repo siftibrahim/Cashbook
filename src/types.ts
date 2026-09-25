@@ -197,6 +197,10 @@ export interface MarketplaceMasterOrder {
   vendorIds: string[];
   subOrderIds: string[];
   overallStatus: string;
+  adminApprovalStatus?: 'pending_approval' | 'approved' | 'rejected';
+  isAdminApproved?: boolean;
+  isRejectedByAdmin?: boolean;
+  adminRejectionReason?: string;
   subOrders?: OnlineOrder[];
   createdAt: number;
   updatedAt: number;
@@ -357,6 +361,12 @@ export interface OnlineOrder {
   orderSource?: 'direct' | 'marketplace';
   masterOrderId?: string;
   vendorPayoutStatus?: 'pending' | 'settled';
+  adminApprovalStatus?: 'pending_approval' | 'approved' | 'rejected';
+  isAdminApproved?: boolean;
+  isLockedForVendor?: boolean;
+  isRejectedByAdmin?: boolean;
+  adminRejectionReason?: string;
+  isDeletedFromVendor?: boolean;
   createdAt: number;
   updatedAt: number;
 }
