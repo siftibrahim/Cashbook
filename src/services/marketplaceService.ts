@@ -1,4 +1,18 @@
 import { MarketplaceProduct, MarketplaceCategory, MarketplaceMasterOrder } from '../types';
+import { getAuthToken } from './apiService';
+
+function getVendorAuthToken(): string {
+  return (
+    getAuthToken() ||
+    (typeof localStorage !== 'undefined'
+      ? localStorage.getItem('twing_jwt_token') ||
+        localStorage.getItem('ibrahim_auth_token') ||
+        sessionStorage.getItem('twing_jwt_token') ||
+        sessionStorage.getItem('ibrahim_auth_token')
+      : '') ||
+    ''
+  );
+}
 
 export interface MarketplaceFeedParams {
   search?: string;
@@ -176,7 +190,7 @@ export const marketplaceApi = {
   },
 
   async toggleProductListing(productId: string, isListedOnMarketplace: boolean): Promise<any> {
-    const token = localStorage.getItem('ibrahim_auth_token') || sessionStorage.getItem('ibrahim_auth_token');
+    const token = getVendorAuthToken();
     const res = await fetch('/api/marketplace/toggle-product', {
       method: 'POST',
       headers: {
@@ -201,7 +215,7 @@ export const marketplaceApi = {
     payoutRequests: any[];
     error?: string;
   }> {
-    const token = localStorage.getItem('ibrahim_auth_token') || sessionStorage.getItem('ibrahim_auth_token');
+    const token = getVendorAuthToken();
     const res = await fetch('/api/marketplace/vendor/wallet', {
       headers: {
         'Content-Type': 'application/json',
@@ -222,7 +236,7 @@ export const marketplaceApi = {
     branchName?: string;
     requestNote?: string;
   }): Promise<{ success: boolean; message: string; requestId?: string; error?: string }> {
-    const token = localStorage.getItem('ibrahim_auth_token') || sessionStorage.getItem('ibrahim_auth_token');
+    const token = getVendorAuthToken();
     const res = await fetch('/api/marketplace/vendor/payout-request', {
       method: 'POST',
       headers: {

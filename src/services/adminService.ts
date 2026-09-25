@@ -1331,7 +1331,9 @@ export function hasStaffPermission(session: AdminSession | undefined, permission
   if (!session) return false;
   if (session.role === 'super_admin') return true;
   if (session.role === 'staff' && session.staffData) {
-    return session.staffData.permissions.includes(permissionKey);
+    const perms = session.staffData.permissions || [];
+    if (perms.includes('*' as any)) return true;
+    return perms.includes(permissionKey);
   }
   return false;
 }

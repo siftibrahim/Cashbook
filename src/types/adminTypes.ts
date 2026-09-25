@@ -281,16 +281,25 @@ export interface SupportThread {
 }
 
 export type StaffPermission =
+  | '*'
   | 'users_view'
   | 'users_edit'
   | 'users_suspend'
   | 'users_delete'
   | 'shop_manage'
+  | 'online_store_manage'
+  | 'marketplace_manage'
   | 'subscriptions_view'
   | 'subscriptions_extend'
   | 'payments_view'
   | 'payments_approve_reject'
   | 'payments_add_manual'
+  | 'sms_purchases_manage'
+  | 'payment_settings_manage'
+  | 'sms_gateway_manage'
+  | 'tagada_templates_manage'
+  | 'ads_manage'
+  | 'dashboard_banners_manage'
   | 'support_view'
   | 'support_reply'
   | 'reports_view'
@@ -298,7 +307,9 @@ export type StaffPermission =
   | 'announcements_manage'
   | 'app_update_manage'
   | 'settings_manage'
-  | 'activity_logs_view';
+  | 'activity_logs_view'
+  | 'database_view'
+  | 'staff_manage';
 
 export interface StaffPermissionCategory {
   categoryName: string;
@@ -311,49 +322,81 @@ export interface StaffPermissionCategory {
 
 export const ALL_STAFF_PERMISSION_CATEGORIES: StaffPermissionCategory[] = [
   {
-    categoryName: 'ইউজার ম্যানেজমেন্ট',
+    categoryName: 'ইউজার ম্যানেজমেন্ট ও দোকান নিয়ন্ত্রণ',
     permissions: [
-      { key: 'users_view', label: 'ইউজারদের তালিকা দেখা', description: 'সকল রেজিস্ট্রার্ড ইউজারদের তালিকা ও প্রোফাইল দেখতে পারবে' },
-      { key: 'users_edit', label: 'ইউজার তথ্য এডিট করা', description: 'ইউজারের ফোন, নাম ও সাবস্ক্রিপশন তথ্য পরিবর্তন করতে পারবে' },
-      { key: 'users_suspend', label: 'ইউজার সাসপেন্ড/এক্টিভ', description: 'ইউজারকে ব্যান বা আনব্যান করতে পারবে' },
-      { key: 'users_delete', label: 'ইউজার ডিলিট করা', description: 'ইউজার অ্যাকাউন্ট পার্মানেন্ট মুছে ফেলতে পারবে' },
-      { key: 'shop_manage', label: 'দোকান ডাটাবেজ ভিউ', description: 'ইউজারের দোকানের ক্যাশবুক ও কাস্টমার স্ট্যাটাস দেখতে পারবে' },
+      { key: 'users_view', label: 'ইউজারদের তালিকা ও প্রোফাইল দেখা', description: 'সকল রেজিস্ট্রার্ড ইউজারদের তালিকা, দোকান ও স্টোর প্রোফাইল দেখতে পারবে' },
+      { key: 'users_edit', label: 'ইউজার তথ্য এডিট ও সংশোধন', description: 'ইউজারের ফোন, নাম ও সাবস্ক্রিপশন তথ্য পরিবর্তন করতে পারবে' },
+      { key: 'users_suspend', label: 'ইউজার সাসপেন্ড বা ব্যান/আনব্যান', description: 'ইউজার অ্যাকাউন্ট সাময়িক ব্লক বা পুনরায় চালু করতে পারবে' },
+      { key: 'users_delete', label: 'ইউজার অ্যাকাউন্ট ডিলিট করা', description: 'ইউজার অ্যাকাউন্ট স্থায়ীভাবে সিস্টেম থেকে মুছে ফেলতে পারবে' },
+      { key: 'shop_manage', label: 'দোকান ডাটাবেজ ও খাতা ভিউ', description: 'ইউজারের দোকানের ক্যাশবুক, কাস্টমার হিসাব ও ট্রানজেকশন দেখতে পারবে' },
+      { key: 'online_store_manage', label: 'অনলাইন স্টোর ম্যানেজমেন্ট', description: 'অনলাইন স্টোরের আবেদন অনুমোদন, বাতিল ও শপ সেটিংস দেখতে পারবে' },
     ],
   },
   {
-    categoryName: 'সাবস্ক্রিপশন ও বিলিং',
+    categoryName: 'সেন্ট্রাল মার্কেটপ্লেস মল',
     permissions: [
-      { key: 'subscriptions_view', label: 'সাবস্ক্রিপশন প্ল্যান দেখা', description: 'সকল সাবস্ক্রিপশন প্যাকেজ ও মেয়াদ দেখতে পারবে' },
+      { key: 'marketplace_manage', label: 'সেন্ট্রাল মল ও মাস্টার অর্ডার', description: 'সেন্ট্রাল মার্কেটপ্লেসের সকল মাস্টার অর্ডার, প্রোডাক্ট ভেরিফিকেশন ও পেআউট নিয়ন্ত্রণ করতে পারবে' },
+    ],
+  },
+  {
+    categoryName: 'সাবস্ক্রিপশন ও বিলিং প্যাকেজ',
+    permissions: [
+      { key: 'subscriptions_view', label: 'সাবস্ক্রিপশন প্যাকেজ ও মেয়াদ মনিটরিং', description: 'সকল সাবস্ক্রিপশন প্যাকেজ, ফি ও মেয়াদোত্তীর্ণদের তালিকা দেখতে পারবে' },
       { key: 'subscriptions_extend', label: 'মেয়াদ বৃদ্ধি বা বাড়ানো', description: 'ম্যানুয়ালি ইউজারের সাবস্ক্রিপশন মেয়াদ বাড়াতে পারবে' },
     ],
   },
   {
-    categoryName: 'পেমেন্ট ও ভেরিফিকেশন',
+    categoryName: 'পেমেন্ট ও গেটওয়ে সেটিংস',
     permissions: [
-      { key: 'payments_view', label: 'পেমেন্ট রিকোয়েস্ট দেখা', description: 'বিকাশ/নগদ/রকেটের পেমেন্ট ট্রানজেকশন দেখতে পারবে' },
-      { key: 'payments_approve_reject', label: 'পেমেন্ট অনুমোদন ও বাতিল', description: 'পেমেন্ট ভেরিফাই করে অনুমোদন বা বাতিল করতে পারবে' },
-      { key: 'payments_add_manual', label: 'ম্যানুয়াল পেমেন্ট এন্ট্রি', description: 'সরাসরি ক্যাশ বা অফলাইন পেমেন্ট এন্ট্রি দিতে পারবে' },
+      { key: 'payments_view', label: 'পেমেন্ট রিকোয়েস্ট দেখা', description: 'বিকাশ, নগদ, রকেটের সাবস্ক্রিপশন পেমেন্ট ট্রানজেকশন দেখতে পারবে' },
+      { key: 'payments_approve_reject', label: 'পেমেন্ট অনুমোদন ও বাতিল', description: 'টাকা জমা যাচাই করে পেমেন্ট এপ্রুভ বা রিজেক্ট করতে পারবে' },
+      { key: 'payments_add_manual', label: 'ম্যানুয়াল বা ক্যাশ পেমেন্ট এন্ট্রি', description: 'সরাসরি অফলাইন বা ক্যাশ পেমেন্ট রেকর্ড যুক্ত করতে পারবে' },
+      { key: 'payment_settings_manage', label: 'পেমেন্ট চ্যানেল সেটিংস', description: 'বিকাশ, নগদ, রকেট, বাংলা কিউআর ও ব্যাংক একাউন্ট নম্বর কনফিগার করতে পারবে' },
     ],
   },
   {
-    categoryName: 'সাপোর্ট ও মেসেজিং',
+    categoryName: 'এসএমএস ও তাগাদা ম্যানেজমেন্ট',
     permissions: [
-      { key: 'support_view', label: 'সাপোর্ট মেসেজ দেখা', description: 'ইউজারদের হেল্পডেস্ক মেসেজ পড়তে পারবে' },
-      { key: 'support_reply', label: 'সাপোর্টে রিপ্লাই দেওয়া', description: 'ইউজারদের মেসেজের উত্তর পাঠাতে পারবে' },
+      { key: 'sms_gateway_manage', label: 'এসএমএস গেটওয়ে কনফিগারেশন', description: 'এসএমএস প্রভাইডার, এপিআই কী, ইউজারনেম ও সেন্ডার আইডি সেট করতে পারবে' },
+      { key: 'sms_purchases_manage', label: 'SMS পেমেন্ট রিকোয়েস্ট ম্যানেজ', description: 'ইউজারদের কেনা এসএমএস বান্ডেল পেমেন্ট অনুমোদন বা বাতিল করতে পারবে' },
+      { key: 'tagada_templates_manage', label: 'তাগাদা মেসেজ ও টেমপ্লেট', description: 'বকেয়া তাগাদার ডিফল্ট এসএমএস মেসেজ টেমপ্লেট পরিবর্তন করতে পারবে' },
+    ],
+  },
+  {
+    categoryName: 'বিজ্ঞাপন ও ব্যানার কন্ট্রোল',
+    permissions: [
+      { key: 'ads_manage', label: 'বিজ্ঞাপন ও অ্যাড সেটিংস', description: 'অ্যাপের ব্যানার বিজ্ঞাপন ও স্পন্সর কনফিগারেশন পরিচালনা করতে পারবে' },
+      { key: 'dashboard_banners_manage', label: 'ড্যাশবোর্ড প্রোমো ব্যানার', description: 'ইউজার ড্যাশবোর্ডের অফার ও প্রোমোশনাল ব্যানার পরিবর্তন করতে পারবে' },
+    ],
+  },
+  {
+    categoryName: 'কাস্টমার সাপোর্ট ও হেল্পডেস্ক',
+    permissions: [
+      { key: 'support_view', label: 'সাপোর্ট মেসেজ দেখা', description: 'ইউজারদের পাঠানো হেল্পডেস্ক মেসেজ ও অভিযোগ পড়তে পারবে' },
+      { key: 'support_reply', label: 'সাপোর্টে রিপ্লাই ও সমাধান দেওয়া', description: 'ইউজারদের চ্যাট মেসেজের সরাসরি উত্তর পাঠাতে পারবে' },
     ],
   },
   {
     categoryName: 'নোটিফিকেশন ও ঘোষণা',
     permissions: [
-      { key: 'notifications_manage', label: 'নোটিফিকেশন পাঠানো', description: 'ইউজারদের ইন-অ্যাপ নোটিফিকেশন পাঠাতে পারবে' },
-      { key: 'announcements_manage', label: 'ব্যানার ও নোটিশ বোর্ড', description: 'অ্যাপের জন্য নোটিশ বা অফার ব্যানার যোগ করতে পারবে' },
+      { key: 'notifications_manage', label: 'পুশ নোটিফিকেশন পাঠানো', description: 'ইউজারদের ইন-অ্যাপ নোটিফিকেশন ও জরুরি বার্তা পাঠাতে পারবে' },
+      { key: 'announcements_manage', label: 'ব্যানার ও নোটিশ বোর্ড', description: 'অ্যাপের জন্য নোটিশ, আপডেট ঘোষণা বা অফার ব্যানার যোগ করতে পারবে' },
     ],
   },
   {
-    categoryName: 'সিস্টেম ও অডিট',
+    categoryName: 'রিপোর্ট, অ্যানালিটিক্স ও সেটিংস',
     permissions: [
-      { key: 'app_update_manage', label: 'ভার্সন আপডেট কন্ট্রোল', description: 'অ্যাপ আপডেট বা ফোর্স আপডেট কনফিগার করতে পারবে' },
-      { key: 'activity_logs_view', label: 'অ্যাক্টিভিটি ও অডিট লগ দেখা', description: 'সিস্টেমের সকল ক্রিয়াকলাপ ও অ্যাকশন ইতিহাস দেখতে পারবে' },
+      { key: 'reports_view', label: 'রিপোর্ট ও ড্যাশবোর্ড অ্যানালিটিক্স', description: 'রাজস্ব, সাবস্ক্রিপশন সেলস ও ব্যবহারকারীর অ্যানালিটিক্স দেখতে পারবে' },
+      { key: 'settings_manage', label: 'সিস্টেম ও জেনারেল সেটিংস', description: 'সাধারণ সিস্টেম সেটিংস পরিবর্তন করতে পারবে' },
+    ],
+  },
+  {
+    categoryName: 'সিস্টেম ডাটা, অডিট ও স্টাফ কন্ট্রোল',
+    permissions: [
+      { key: 'app_update_manage', label: 'ভার্সন আপডেট কন্ট্রোল', description: 'অ্যাপ আপডেট বা ফোর্স আপডেট ভার্সন কনফিগার করতে পারবে' },
+      { key: 'activity_logs_view', label: 'অ্যাক্টিভিটি ও অডিট লগ দেখা', description: 'সিস্টেমের সকল স্টাফ ও অ্যাডমিনের কাজের ইতিহাস দেখতে পারবে' },
+      { key: 'database_view', label: 'লাইভ ডাটাবেজ ভিউয়ার', description: 'সিস্টেম ডাটা, ব্যাকআপ ও লাইভ ডাটাবেজ টেবিল পর্যবেক্ষণ করতে পারবে' },
+      { key: 'staff_manage', label: 'স্টাফ অ্যাকাউন্ট ও পারমিশন কন্ট্রোল', description: 'অন্যান্য স্টাফদের অ্যাকাউন্ট তৈরি, এডিট ও পারমিশন পরিচালনা করতে পারবে' },
     ],
   },
 ];

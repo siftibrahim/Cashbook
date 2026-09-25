@@ -15,7 +15,7 @@
       "subscriptionStatus": "active",
       "subscriptionExpiresAt": 1793592035262,
       "registered_at": 1789790435262,
-      "last_active_at": 1790184540277,
+      "last_active_at": 1790357161119,
       "notes": "অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে"
     },
     {
@@ -33,7 +33,25 @@
       "subscriptionStatus": "trial",
       "subscriptionExpiresAt": 1791364412052,
       "registered_at": 1790154812052,
-      "last_active_at": 1790173733212,
+      "last_active_at": 1790356824431,
+      "notes": null
+    },
+    {
+      "id": "usr_mufp15ah8y5a",
+      "name": "রমজান",
+      "phone": "01746713663",
+      "email": "01746713663@twing.com",
+      "password_hash": "$2b$10$xTALoccok9hqTwhAbDdD9.e4rXD9VqkxtBDB0NdoOjdUJf4c.ibly",
+      "shop_name": "রমজান স্টোর",
+      "business_type": "জেনারেল স্টোর",
+      "address": "বাংলাদেশ",
+      "role": "user",
+      "status": "active",
+      "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
+      "subscriptionStatus": "trial",
+      "subscriptionExpiresAt": 1791473716234,
+      "registered_at": 1790264116234,
+      "last_active_at": 1790264116234,
       "notes": null
     },
     {
@@ -86,5 +104,6 @@
   "store_chat_messages": [],
   "marketplace_master_orders": [],
   "marketplace_categories": [],
-  "marketplace_settings": {}
+  "marketplace_settings": {},
+  "vendor_payout_requests": []
 }

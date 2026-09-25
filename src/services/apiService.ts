@@ -1689,28 +1689,22 @@ export const adminApi = {
     }
   },
 
-  async createStaff(staffData: Partial<StaffMember>): Promise<void> {
-    try {
-      await apiRequest('/admin/staff', {
-        method: 'POST',
-        body: JSON.stringify(staffData),
-      });
-    } catch {}
+  async createStaff(staffData: Partial<StaffMember>): Promise<{ message: string; staffId?: string }> {
+    return await apiRequest<{ message: string; staffId?: string }>('/admin/staff', {
+      method: 'POST',
+      body: JSON.stringify(staffData),
+    });
   },
 
-  async updateStaff(staffId: string, staffData: Partial<StaffMember>): Promise<void> {
-    try {
-      await apiRequest(`/admin/staff/${staffId}`, {
-        method: 'PUT',
-        body: JSON.stringify(staffData),
-      });
-    } catch {}
+  async updateStaff(staffId: string, staffData: Partial<StaffMember>): Promise<{ message: string; staffId?: string }> {
+    return await apiRequest<{ message: string; staffId?: string }>(`/admin/staff/${staffId}`, {
+      method: 'PUT',
+      body: JSON.stringify(staffData),
+    });
   },
 
-  async deleteStaff(staffId: string): Promise<void> {
-    try {
-      await apiRequest(`/admin/staff/${staffId}`, { method: 'DELETE' });
-    } catch {}
+  async deleteStaff(staffId: string): Promise<{ message: string }> {
+    return await apiRequest<{ message: string }>(`/admin/staff/${staffId}`, { method: 'DELETE' });
   },
 
   async getDbStatus(): Promise<{ connected: boolean; message: string; provider: string; databaseName?: string; userCount?: number }> {
