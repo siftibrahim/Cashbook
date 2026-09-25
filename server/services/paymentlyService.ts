@@ -143,8 +143,11 @@ export class PaymentlyService {
     packageName?: string;
     smsCount?: number;
     amount?: number;
-    type?: 'subscription' | 'sms';
-    userId: string;
+    type?: 'subscription' | 'sms' | 'marketplace';
+    orderId?: string;
+    orderNumber?: string;
+    customerAddress?: string;
+    userId?: string;
     userEmail?: string;
     userName?: string;
     userPhone?: string;
@@ -160,7 +163,124 @@ export class PaymentlyService {
 
     const pool = getDbPool();
     const now = Date.now();
-    const isSmsPurchase = params.type === 'sms' || (!params.planId && !!params.packageId);
+    const isMarketplacePurchase = params.type === 'marketplace' || !!params.orderId;
+    const isSmsPurchase = !isMarketplacePurchase && (params.type === 'sms' || (!params.planId && !!params.packageId));
+
+    // ================== MARKETPLACE ORDER FLOW ==================
+    if (isMarketplacePurchase) {
+      const orderId = params.orderId || ('mkt_ord_' + now + '_' + Math.random().toString(36).substring(2, 7));
+      const paymentId = 'pay_mkt_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+      const amount = Number(params.amount) || 0;
+      if (amount <= 0) {
+        throw new Error('অবৈধ অর্ডারের পরিমাণ।');
+      }
+
+      const appBaseUrl = (params.appBaseUrl || 'http://localhost:3000').replace(/\/+$/, '');
+
+      // Check Sandbox mode
+      if (config.isSandbox || !config.apiKey) {
+        console.log('🧪 [Gateway] Sandbox Marketplace checkout initiated:', paymentId);
+        const simulatedPaymentUrl = `${appBaseUrl}/api/subscription/paymently/sandbox-checkout?payment_id=${paymentId}&type=marketplace&order_id=${encodeURIComponent(orderId)}&amount=${amount}&plan_name=${encodeURIComponent('সেন্ট্রাল মার্কেটপ্লেস অর্ডার')}`;
+        return {
+          success: true,
+          paymentUrl: simulatedPaymentUrl,
+          paymentId,
+          orderId,
+          isSandbox: true,
+          isMarketplace: true,
+        };
+      }
+
+      const callbackUrl = `${appBaseUrl}/api/subscription/paymently/callback?payment_id=${paymentId}&type=marketplace&order_id=${encodeURIComponent(orderId)}`;
+      const cancelUrl = `${appBaseUrl}/api/subscription/paymently/callback?status=cancelled&payment_id=${paymentId}&type=marketplace&order_id=${encodeURIComponent(orderId)}`;
+
+      const requestBody = {
+        full_name: params.userName || 'Marketplace Customer',
+        email: params.userEmail || `${(params.userPhone || '01700000000').replace(/\D/g, '')}@twing.com`,
+        amount: amount.toString(),
+        metadata: {
+          type: 'marketplace',
+          purchase_type: 'marketplace',
+          order_id: orderId,
+          master_order_id: orderId,
+          order_number: params.orderNumber || '',
+          user_id: params.userId || 'guest',
+          payment_id: paymentId,
+          customer_phone: params.userPhone || '',
+          customer_address: params.customerAddress || '',
+        },
+        redirect_url: callbackUrl,
+        cancel_url: cancelUrl,
+        return_type: 'GET',
+      };
+
+      const primaryUrl = `${config.baseUrl}/checkout`;
+      const secondaryUrl = `${config.baseUrl}/checkout-v2`;
+      let responseData: any = null;
+      let responseStatus = 0;
+
+      try {
+        const cleanKey = (config.apiKey || '').trim();
+        const authHeaders: Record<string, string> = {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: `Bearer ${cleanKey}`,
+          'RT-UDDOKTAPAY-API-KEY': cleanKey,
+          'X-API-KEY': cleanKey,
+        };
+
+        let apiRes = await fetch(primaryUrl, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify(requestBody),
+        });
+        responseStatus = apiRes.status;
+
+        if (responseStatus === 404) {
+          apiRes = await fetch(secondaryUrl, {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify(requestBody),
+          });
+          responseStatus = apiRes.status;
+        }
+
+        responseData = await apiRes.json().catch(() => null);
+
+        if (responseStatus === 401 || (responseData?.message && responseData.message.toLowerCase().includes('api key'))) {
+          const simulatedPaymentUrl = `${appBaseUrl}/api/subscription/paymently/sandbox-checkout?payment_id=${paymentId}&type=marketplace&order_id=${encodeURIComponent(orderId)}&amount=${amount}&plan_name=${encodeURIComponent('সেন্ট্রাল মার্কেটপ্লেস অর্ডার')}&notice=invalid_api_key`;
+          return {
+            success: true,
+            paymentUrl: simulatedPaymentUrl,
+            paymentId,
+            orderId,
+            isSandbox: true,
+            isMarketplace: true,
+          };
+        }
+
+        if (!apiRes.ok || !responseData) {
+          const errMsg = responseData?.message || responseData?.error || `HTTP ${responseStatus}`;
+          throw new Error(`পেমেন্ট গেটওয়ে সাড়া দেয়নি (${errMsg})।`);
+        }
+      } catch (fetchErr: any) {
+        throw new Error(fetchErr.message || 'পেমেন্ট সার্ভারে যোগাযোগ করতে সমস্যা হয়েছে');
+      }
+
+      const checkoutUrl = responseData.payment_url || responseData.checkout_url || responseData.url;
+      if (!checkoutUrl) {
+        throw new Error('পেমেন্ট গেটওয়ে থেকে পেমেন্ট লিংক পাওয়া যায়নি।');
+      }
+
+      return {
+        success: true,
+        paymentUrl: checkoutUrl,
+        paymentId,
+        orderId,
+        isSandbox: false,
+        isMarketplace: true,
+      };
+    }
 
     // ================== SMS PACKAGE FLOW ==================
     if (isSmsPurchase) {
@@ -781,12 +901,90 @@ export class PaymentlyService {
     const pool = getDbPool();
     const now = Date.now();
 
+    const isMarketplacePurchase =
+      params.rawGatewayData?.metadata?.type === 'marketplace' ||
+      params.rawGatewayData?.metadata?.purchase_type === 'marketplace' ||
+      (params.expectedPaymentId && (params.expectedPaymentId.startsWith('pay_mkt_') || params.expectedPaymentId.startsWith('mkt_ord_')));
+
     const isSmsPurchase =
-      params.rawGatewayData?.metadata?.type === 'sms' ||
+      !isMarketplacePurchase &&
+      (params.rawGatewayData?.metadata?.type === 'sms' ||
       params.rawGatewayData?.metadata?.purchase_type === 'sms' ||
-      (params.expectedPaymentId && (params.expectedPaymentId.startsWith('pay_sms_') || params.expectedPaymentId.startsWith('sms_')));
+      (params.expectedPaymentId && (params.expectedPaymentId.startsWith('pay_sms_') || params.expectedPaymentId.startsWith('sms_'))));
 
     let targetUserId = params.expectedUserId || params.rawGatewayData?.metadata?.user_id;
+
+    // ==========================================
+    // MARKETPLACE ORDER FINALIZATION
+    // ==========================================
+    if (isMarketplacePurchase) {
+      const orderId =
+        params.rawGatewayData?.metadata?.order_id ||
+        params.rawGatewayData?.metadata?.master_order_id ||
+        params.expectedPaymentId;
+
+      console.log(`🛍️ [PaymentGateway] Finalizing Marketplace order payment:`, orderId || params.invoiceId);
+
+      if (pool && orderId) {
+        try {
+          await pool.query(
+            `UPDATE marketplace_master_orders SET
+              payment_status = 'paid',
+              payment_trx_id = $1,
+              overall_status = 'confirmed',
+              updated_at = $2
+            WHERE id = $3 OR id = $4`,
+            [params.trxId, now, orderId, `mkt_ord_${orderId}`]
+          );
+
+          await pool.query(
+            `UPDATE online_orders SET
+              payment_status = 'paid',
+              order_status = 'confirmed',
+              trx_id = $1,
+              payment_amount = total_amount,
+              updated_at = $2
+            WHERE master_order_id = $3 OR master_order_id = $4`,
+            [params.trxId, now, orderId, `mkt_ord_${orderId}`]
+          );
+        } catch (mktDbErr) {
+          console.warn('⚠️ [PaymentGateway] Error updating marketplace order in DB:', mktDbErr);
+        }
+      } else if (orderId) {
+        if (inMemoryStore.marketplace_master_orders) {
+          const mo = inMemoryStore.marketplace_master_orders.find(
+            (o: any) => o.id === orderId || o.id === `mkt_ord_${orderId}`
+          );
+          if (mo) {
+            mo.paymentStatus = 'paid';
+            mo.paymentTrxId = params.trxId;
+            mo.overallStatus = 'confirmed';
+            mo.updatedAt = now;
+          }
+        }
+        if (inMemoryStore.online_orders) {
+          inMemoryStore.online_orders.forEach((o: any) => {
+            if (o.masterOrderId === orderId || o.masterOrderId === `mkt_ord_${orderId}`) {
+              o.paymentStatus = 'paid';
+              o.orderStatus = 'confirmed';
+              o.trxId = params.trxId;
+              o.paymentAmount = o.totalAmount;
+              o.updatedAt = now;
+            }
+          });
+        }
+      }
+
+      return {
+        success: true,
+        status: 'approved',
+        message: '🎉 আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডার পেমেন্ট সফল ও কনফার্ম হয়েছে!',
+        invoiceId: params.invoiceId,
+        trxId: params.trxId,
+        amount: params.amount,
+        paymentMethod: params.paymentMethod,
+      };
+    }
 
     // ==========================================
     // SMS PURCHASE FINALIZATION

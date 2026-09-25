@@ -26,6 +26,8 @@ import {
   MapPin,
   ExternalLink,
   Sparkles,
+  Zap,
+  CreditCard,
 } from 'lucide-react';
 import { marketplaceAdminApi } from '../../services/marketplaceAdminService';
 
@@ -60,13 +62,12 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const [isCatModalOpen, setIsCatModalOpen] = useState(false);
   const [catForm, setCatForm] = useState({ id: '', nameBn: '', nameEn: '', slug: '', icon: 'ShoppingBag', sortOrder: 1, isActive: true });
 
-  // Settings State
+  // Platform & Delivery Settings
   const [settingsForm, setSettingsForm] = useState({
     isMarketplaceActive: true,
     commissionPercent: 0,
     deliveryFeeDhaka: 70,
     deliveryFeeOutside: 130,
-    platformBkashNumber: '01306908115',
     bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও অরিজিনাল পণ্যের নিশ্চয়তা!',
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -90,14 +91,13 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           settings: res.settings || {},
         });
         if (res.settings) {
-          setSettingsForm({
+          setSettingsForm((prev) => ({
+            ...prev,
             isMarketplaceActive: res.settings.isMarketplaceActive !== false,
-            commissionPercent: res.settings.commissionPercent || 0,
-            deliveryFeeDhaka: res.settings.deliveryFeeDhaka || 70,
-            deliveryFeeOutside: res.settings.deliveryFeeOutside || 130,
-            platformBkashNumber: res.settings.platformBkashNumber || '01306908115',
-            bannerNotice: res.settings.bannerNotice || 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও অরিজিনাল পণ্যের নিশ্চয়তা!',
-          });
+            deliveryFeeDhaka: res.settings.deliveryFeeDhaka ?? 70,
+            deliveryFeeOutside: res.settings.deliveryFeeOutside ?? 130,
+            bannerNotice: res.settings.bannerNotice ?? prev.bannerNotice,
+          }));
         }
       }
     } catch (err: any) {
@@ -191,7 +191,10 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     e.preventDefault();
     setIsSavingSettings(true);
     try {
-      await marketplaceAdminApi.saveSettings(settingsForm);
+      await marketplaceAdminApi.saveSettings({
+        ...data.settings,
+        ...settingsForm,
+      });
       showToast('মার্কেটপ্লেস সেটিংস সফলভাবে সংরক্ষিত হয়েছে');
       loadData();
     } catch (err: any) {
@@ -525,19 +528,70 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                   </button>
                 </div>
 
-                {/* Customer Details Box */}
-                <div className="p-3.5 bg-slate-50 rounded-xl space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">গ্রাহকের নাম:</span>
-                    <span className="font-bold text-slate-900">{selectedMasterOrder.customerName}</span>
+                {/* Customer & Payment Details Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3.5 bg-slate-50 rounded-xl space-y-1.5 border border-slate-100">
+                    <span className="font-bold text-slate-800 block border-b border-slate-200 pb-1">
+                      গ্রাহকের বিবরণ:
+                    </span>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">নাম:</span>
+                      <span className="font-bold text-slate-900">{selectedMasterOrder.customerName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">মোবাইল:</span>
+                      <span className="font-bold font-mono text-slate-900">{selectedMasterOrder.customerPhone}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">ঠিকানা:</span>
+                      <span className="font-medium text-slate-800 text-right max-w-[180px]">{selectedMasterOrder.customerAddress}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">মোবাইল নম্বর:</span>
-                    <span className="font-bold font-mono text-slate-900">{selectedMasterOrder.customerPhone}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">ডেলিভারি ঠিকানা:</span>
-                    <span className="font-medium text-slate-800 text-right max-w-xs">{selectedMasterOrder.customerAddress}</span>
+
+                  <div className="p-3.5 bg-slate-50 rounded-xl space-y-1.5 border border-slate-100">
+                    <span className="font-bold text-slate-800 block border-b border-slate-200 pb-1">
+                      পেমেন্ট ও গেটওয়ে তথ্য:
+                    </span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500">মেথড:</span>
+                      <span className="font-bold text-slate-900 uppercase bg-slate-200/70 px-1.5 py-0.5 rounded text-[11px]">
+                        {selectedMasterOrder.paymentMethod}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500">স্ট্যাটাস:</span>
+                      <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] ${
+                        selectedMasterOrder.paymentStatus === 'paid'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : selectedMasterOrder.paymentStatus === 'paid_pending_verify'
+                          ? 'bg-purple-100 text-purple-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {selectedMasterOrder.paymentStatus === 'paid'
+                          ? 'পরিশোধিত (Paid)'
+                          : selectedMasterOrder.paymentStatus === 'paid_pending_verify'
+                          ? 'যাচাই বাকি (Pending)'
+                          : 'বকেয়া/COD'}
+                      </span>
+                    </div>
+                    {selectedMasterOrder.paymentTrxId && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500">TrxID:</span>
+                        <span className="font-mono font-bold text-slate-900 bg-teal-50 text-teal-800 px-1.5 py-0.5 rounded">
+                          {selectedMasterOrder.paymentTrxId}
+                        </span>
+                      </div>
+                    )}
+                    {selectedMasterOrder.senderPhone && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">প্রেরক নম্বর:</span>
+                        <span className="font-mono font-bold text-slate-900">{selectedMasterOrder.senderPhone}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between pt-1 border-t border-slate-200">
+                      <span className="text-slate-500">সর্বমোট বিল:</span>
+                      <span className="font-black text-teal-900 text-sm">৳{selectedMasterOrder.grandTotal}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -853,74 +907,88 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
 
       {/* SUB-TAB 4: SETTINGS */}
       {activeSubTab === 'settings' && (
-        <form onSubmit={handleSaveSettings} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 max-w-2xl text-xs">
-          <h3 className="font-bold text-sm text-slate-900 border-b border-slate-100 pb-2">
-            মার্কেটপ্লেস গ্লোবাল প্ল্যাটফর্ম সেটিংস
-          </h3>
+        <form onSubmit={handleSaveSettings} className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 space-y-6 max-w-3xl text-xs shadow-xs">
+          <div>
+            <h3 className="font-black text-sm sm:text-base text-slate-900">
+              মার্কেটপ্লেস প্ল্যাটফর্ম ও ডেলিভারি সেটিংস
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              সেন্ট্রাল মার্কেটপ্লেসের সার্বিক কার্যকারিতা, ডেলিভারি চার্জ এবং গ্রাহক নোটিশ ব্যানার নিয়ন্ত্রণ করুন।
+            </p>
+          </div>
 
-          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+          {/* Unified Platform Payment System Info Card */}
+          <div className="p-4 bg-gradient-to-br from-indigo-50/70 via-blue-50/50 to-slate-50 border border-indigo-200/80 rounded-2xl space-y-2">
+            <div className="flex items-center gap-2 text-indigo-900 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-indigo-600" />
+              <span>একীভূত প্ল্যাটফর্ম পেমেন্ট সিস্টেম (Unified System Payment Gateway)</span>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              সেন্ট্রাল মার্কেটপ্লেসের জন্য আলাদা কোনো পেমেন্ট গেটওয়ে রাখা হয়নি। সাবস্ক্রিপশন ও সেন্ট্রাল মার্কেটপ্লেস উভয়ই সুপার অ্যাডমিন প্যানেলের প্রধান <strong className="text-slate-800">"পেমেন্ট সেটিংস"</strong> (System Payment Settings) এর অন্তর্ভুক্ত অনলাইন গেটওয়ে (UddoktaPay/Paymently), বিকাশ, নগদ, রকেট, ব্যাংক ট্রান্সফার ও বাংলা কিউআর স্বয়ংক্রিয়ভাবে ব্যবহার করে।
+            </p>
+          </div>
+
+          {/* Marketplace Active Toggle */}
+          <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
             <div>
               <p className="font-bold text-slate-900">সেন্ট্রাল মার্কেটপ্লেস সক্রিয় রাখুন</p>
-              <p className="text-[11px] text-slate-500">বন্ধ রাখলে ভিজিটররা সেন্ট্রাল মলে প্রবেশ করতে পারবে না</p>
+              <p className="text-[11px] text-slate-500">বন্ধ রাখলে সাধারণ ভিজিটররা সেন্ট্রাল মলে প্রবেশ করতে পারবে না</p>
             </div>
             <button
               type="button"
               onClick={() => setSettingsForm({ ...settingsForm, isMarketplaceActive: !settingsForm.isMarketplaceActive })}
-              className={`w-12 h-6 flex items-center rounded-full p-1 transition ${
-                settingsForm.isMarketplaceActive ? 'bg-teal-600 justify-end' : 'bg-slate-300 justify-start'
+              className={`w-12 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
+                settingsForm.isMarketplaceActive ? 'bg-teal-700 justify-end' : 'bg-slate-300 justify-start'
               }`}
             >
               <div className="bg-white w-4 h-4 rounded-full shadow-md" />
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">ডেলিভারি চার্জ (ঢাকা সিটি ৳)</label>
-              <input
-                type="number"
-                value={settingsForm.deliveryFeeDhaka}
-                onChange={(e) => setSettingsForm({ ...settingsForm, deliveryFeeDhaka: Number(e.target.value) })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="font-bold text-slate-700 block mb-1">ডেলিভারি চার্জ (ঢাকার বাইরে ৳)</label>
-              <input
-                type="number"
-                value={settingsForm.deliveryFeeOutside}
-                onChange={(e) => setSettingsForm({ ...settingsForm, deliveryFeeOutside: Number(e.target.value) })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-              />
+          {/* Delivery Charges */}
+          <div className="space-y-3">
+            <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider">ডেলিভারি চার্জ নির্ধারণ</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">ডেলিভারি চার্জ (ঢাকা সিটি ৳)</label>
+                <input
+                  type="number"
+                  value={settingsForm.deliveryFeeDhaka}
+                  onChange={(e) => setSettingsForm({ ...settingsForm, deliveryFeeDhaka: Number(e.target.value) })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-700/30"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">ডেলিভারি চার্জ (ঢাকার বাইরে ৳)</label>
+                <input
+                  type="number"
+                  value={settingsForm.deliveryFeeOutside}
+                  onChange={(e) => setSettingsForm({ ...settingsForm, deliveryFeeOutside: Number(e.target.value) })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-700/30"
+                />
+              </div>
             </div>
           </div>
 
-          <div>
-            <label className="font-bold text-slate-700 block mb-1">প্ল্যাটফর্ম বিকাশ / পেমেন্ট নম্বর</label>
-            <input
-              type="text"
-              value={settingsForm.platformBkashNumber}
-              onChange={(e) => setSettingsForm({ ...settingsForm, platformBkashNumber: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-            />
-          </div>
-
-          <div>
-            <label className="font-bold text-slate-700 block mb-1">মার্কেটপ্লেস টপ নোটিশ বার্তা</label>
-            <textarea
-              rows={2}
-              value={settingsForm.bannerNotice}
-              onChange={(e) => setSettingsForm({ ...settingsForm, bannerNotice: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-            />
+          {/* Banner Notice */}
+          <div className="space-y-3 pt-2 border-t border-slate-100">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">মার্কেটপ্লেস টপ নোটিশ বার্তা</label>
+              <textarea
+                rows={2}
+                value={settingsForm.bannerNotice}
+                onChange={(e) => setSettingsForm({ ...settingsForm, bannerNotice: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl"
+              />
+            </div>
           </div>
 
           <button
             type="submit"
             disabled={isSavingSettings}
-            className="px-5 py-2.5 bg-teal-800 hover:bg-teal-900 text-white font-bold rounded-xl transition cursor-pointer shadow-xs disabled:opacity-50"
+            className="w-full sm:w-auto px-6 py-3 bg-teal-800 hover:bg-teal-900 text-white font-bold rounded-xl transition cursor-pointer shadow-md disabled:opacity-50 text-xs sm:text-sm"
           >
-            {isSavingSettings ? 'সংরক্ষণ হচ্ছে...' : 'সেটিংস সংরক্ষণ করুন'}
+            {isSavingSettings ? 'সংরক্ষণ হচ্ছে...' : 'মার্কেটপ্লেস সেটিংস সংরক্ষণ করুন'}
           </button>
         </form>
       )}

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
+import { PaymentlyService } from '../services/paymentlyService';
 
 const router = Router();
 
@@ -402,6 +403,130 @@ router.get('/featured', async (_req: Request, res: Response) => {
   }
 });
 
+const DEFAULT_MARKETPLACE_SETTINGS = {
+  isMarketplaceActive: true,
+  commissionPercent: 0,
+  deliveryFeeDhaka: 70,
+  deliveryFeeOutside: 130,
+  onlineGatewayEnabled: true,
+  onlineGatewayName: 'অটোমেটিক অনলাইন গেটওয়ে (bKash, Nagad, Card)',
+  codEnabled: true,
+  bkashEnabled: true,
+  bkashNumber: '01306908115',
+  bkashType: 'merchant',
+  nagadEnabled: true,
+  nagadNumber: '01306908115',
+  nagadType: 'merchant',
+  rocketEnabled: true,
+  rocketNumber: '01306908115',
+  rocketType: 'personal',
+  upayEnabled: false,
+  upayNumber: '01306908115',
+  upayType: 'personal',
+  bankEnabled: false,
+  bankName: 'ইসলামী ব্যাংক বাংলাদেশ পিএলসি',
+  bankAccountName: 'TWING MALL CENTRAL',
+  bankAccountNumber: '20503456789012345',
+  bankBranch: 'মতিঝিল কর্পোরেট শাখা, ঢাকা',
+  bankRouting: '125272643',
+  platformBkashNumber: '01306908115',
+  bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও অরিজিনাল পণ্যের নিশ্চয়তা!',
+  paymentInstructions: 'বিকাশ, নগদ বা রকেট নম্বরে প্রয়োজনীয় টাকা পাঠিয়ে TrxID এবং প্রেরক নম্বর দিয়ে অর্ডার কনফার্ম করুন।',
+};
+
+async function getStoredMarketplaceSettings(): Promise<any> {
+  let mktSettings = { ...DEFAULT_MARKETPLACE_SETTINGS };
+  try {
+    const pool = getDbPool();
+    if (pool) {
+      const res = await pool.query("SELECT data FROM marketplace_settings WHERE id = 'global_settings'").catch(() => ({ rows: [] }));
+      if (res.rows.length > 0 && res.rows[0].data) {
+        const raw = typeof res.rows[0].data === 'string' ? JSON.parse(res.rows[0].data) : res.rows[0].data;
+        mktSettings = { ...mktSettings, ...raw };
+      }
+    } else if (inMemoryStore.marketplace_settings && Object.keys(inMemoryStore.marketplace_settings).length > 0) {
+      mktSettings = { ...mktSettings, ...inMemoryStore.marketplace_settings };
+    }
+  } catch (err) {
+    console.warn('Error reading marketplace settings:', err);
+  }
+
+  // Fetch unified system_payment_settings (exact same as User Subscription!)
+  let systemPaymentSettings: any = null;
+  try {
+    const pool = getDbPool();
+    if (pool) {
+      const pRes = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings'").catch(() => ({ rows: [] }));
+      if (pRes.rows.length > 0 && pRes.rows[0].data) {
+        systemPaymentSettings = typeof pRes.rows[0].data === 'string' ? JSON.parse(pRes.rows[0].data) : pRes.rows[0].data;
+      }
+    } else if (inMemoryStore.system_config?.['system_payment_settings']) {
+      systemPaymentSettings = inMemoryStore.system_config['system_payment_settings'];
+    }
+  } catch (e) {
+    console.warn('Error loading system payment settings for marketplace:', e);
+  }
+
+  let plConfig = { isEnabled: true, baseUrl: '', isSandbox: false, apiKey: '' };
+  try {
+    plConfig = await PaymentlyService.getConfig();
+  } catch (e) {}
+
+  return {
+    ...mktSettings,
+    systemPaymentSettings,
+    paymently: {
+      isEnabled: plConfig.isEnabled !== false,
+      baseUrl: plConfig.baseUrl,
+      isConfigured: !!plConfig.apiKey,
+      isSandbox: plConfig.isSandbox,
+    },
+    // Merge live MFS, Bangla QR, and Bank details directly from systemPaymentSettings
+    bkash: systemPaymentSettings?.bkash || {
+      isEnabled: true,
+      personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ অ্যাপ থেকে Send Money করুন' },
+    },
+    nagad: systemPaymentSettings?.nagad || {
+      isEnabled: true,
+      personal: { number: '01306908115', accountType: 'personal', instructions: 'নগদ অ্যাপ থেকে Send Money করুন' },
+    },
+    rocket: systemPaymentSettings?.rocket || {
+      isEnabled: true,
+      personal: { number: '01306908115-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে Send Money করুন' },
+    },
+    upay: systemPaymentSettings?.upay || {
+      isEnabled: true,
+      personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে Send Money করুন' },
+    },
+    banglaQr: systemPaymentSettings?.banglaQr || {
+      isEnabled: true,
+      accountTitle: 'TWING হিসাবি / সুপার এডমিন',
+      merchantId: '01306908115',
+      bankOrMfsName: 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
+      terminalId: 'TWING-BQR-01',
+    },
+    bankTransfer: systemPaymentSettings?.bankTransfer || {
+      isEnabled: true,
+      accounts: [],
+    },
+  };
+}
+
+/**
+ * 3.1 GET /api/marketplace/settings - Public Central Marketplace Settings & Payment Gateways
+ */
+router.get('/settings', async (_req: Request, res: Response) => {
+  try {
+    const settings = await getStoredMarketplaceSettings();
+    return res.json({
+      success: true,
+      settings,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 /**
  * 4. POST /api/marketplace/checkout - Multi-Vendor Atomic Order Splitting Engine
  */
@@ -427,9 +552,32 @@ router.post('/checkout', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'কার্টে কমপক্ষে একটি পণ্য থাকা আবশ্যক।' });
     }
 
+    // Payment validation for online/MFS methods
+    const normalizedPaymentMethod = String(paymentMethod || 'cod').toLowerCase();
+    const isPaymently = normalizedPaymentMethod === 'paymently' || normalizedPaymentMethod === 'online_paymently';
+    const isAutoPaid = req.body.isAutoPaid === true || 
+      req.body.paymentStatus === 'paid';
+
+    if (normalizedPaymentMethod !== 'cod' && !isPaymently && !isAutoPaid) {
+      if (!paymentTrxId || !String(paymentTrxId).trim()) {
+        return res.status(400).json({ error: 'বিকাশ, নগদ বা রকেট পেমেন্টের জন্য Transaction ID (TrxID) দেওয়া আবশ্যক।' });
+      }
+      if (!senderPhone || !String(senderPhone).trim()) {
+        return res.status(400).json({ error: 'যে নম্বর থেকে টাকা পাঠিয়েছেন সেই প্রেরক মোবাইল নম্বরটি প্রদান করুন।' });
+      }
+    }
+
     const cleanPhone = customerPhone.trim();
     const cleanName = customerName.trim();
     const cleanAddress = customerAddress.trim();
+    const cleanTrxId = String(paymentTrxId || (isAutoPaid ? `PGW_${Date.now().toString(36).toUpperCase()}` : '')).trim();
+    const cleanSenderPhone = String(senderPhone || cleanPhone).trim();
+
+    // Fetch live settings for dynamic delivery rates
+    const settings = await getStoredMarketplaceSettings();
+    const deliveryRate = deliveryCity === 'dhaka' 
+      ? Number(settings.deliveryFeeDhaka || 70) 
+      : Number(settings.deliveryFeeOutside || 130);
 
     // Group items by vendorId
     const vendorItemsMap: Record<string, any[]> = {};
@@ -460,13 +608,16 @@ router.post('/checkout', async (req: Request, res: Response) => {
     const vendorCount = vendorIds.length;
 
     // Delivery calculation: flat standard rate for central marketplace order
-    const deliveryRate = deliveryCity === 'dhaka' ? 70 : 130;
     const totalDeliveryCharge = deliveryRate;
     const grandTotal = totalProductsAmount + totalDeliveryCharge;
 
     const now = Date.now();
     const masterOrderId = `mkt_ord_${now}_${Math.random().toString(36).substring(2, 7)}`;
     const masterOrderNumber = `MKT-${Math.floor(100000 + Math.random() * 900000)}`;
+    const initialPaymentStatus = isAutoPaid 
+      ? 'paid' 
+      : (normalizedPaymentMethod === 'cod' ? 'unpaid' : 'paid_pending_verify');
+    const initialOverallStatus = isAutoPaid ? 'confirmed' : 'processing';
 
     const pool = getDbPool();
     const createdSubOrders: any[] = [];
@@ -495,14 +646,14 @@ router.post('/checkout', async (req: Request, res: Response) => {
           totalProductsAmount,
           totalDeliveryCharge,
           grandTotal,
-          paymentMethod,
-          paymentMethod === 'cod' ? 'unpaid' : 'paid_pending_verify',
-          paymentTrxId,
-          senderPhone,
+          normalizedPaymentMethod,
+          initialPaymentStatus,
+          cleanTrxId,
+          cleanSenderPhone,
           notes,
           JSON.stringify(vendorIds),
           JSON.stringify([]),
-          'processing',
+          initialOverallStatus,
           now,
           now,
         ]);
@@ -540,12 +691,12 @@ router.post('/checkout', async (req: Request, res: Response) => {
             JSON.stringify(vItems),
             vSubtotal,
             vTotal,
-            paymentMethod,
-            paymentMethod === 'cod' ? 'unpaid' : 'paid_pending_verify',
-            'pending',
-            paymentTrxId,
-            senderPhone,
-            paymentMethod === 'cod' ? 0 : vTotal,
+            normalizedPaymentMethod,
+            initialPaymentStatus,
+            isAutoPaid ? 'confirmed' : 'pending',
+            cleanTrxId,
+            cleanSenderPhone,
+            normalizedPaymentMethod === 'cod' ? 0 : vTotal,
             `সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${masterOrderNumber}। ${notes}`.trim(),
             'marketplace',
             masterOrderId,
@@ -560,7 +711,7 @@ router.post('/checkout', async (req: Request, res: Response) => {
             vendorId: vId,
             items: vItems,
             totalAmount: vTotal,
-            status: 'pending',
+            status: isAutoPaid ? 'confirmed' : 'pending',
           });
         }
 
@@ -590,8 +741,8 @@ router.post('/checkout', async (req: Request, res: Response) => {
             ) VALUES ($1, $2, $3, 'order', 'user', $4, FALSE, $5)
           `, [
             notifId,
-            '🛍️ সেন্ট্রাল মার্কেটপ্লেস থেকে নতুন অর্ডার!',
-            `অর্ডার #${sub.orderNumber} (মাস্টার #${masterOrderNumber}) - মোট বিল: ৳${sub.totalAmount}। কাস্টমার: ${cleanName} (${cleanPhone})।`,
+            isAutoPaid ? '⚡ সেন্ট্রাল মার্কেটপ্লেস থেকে নতুন পেইড (PAID) অর্ডার!' : '🛍️ সেন্ট্রাল মার্কেটপ্লেস থেকে নতুন অর্ডার!',
+            `অর্ডার #${sub.orderNumber} (মাস্টার #${masterOrderNumber}) - মোট বিল: ৳${sub.totalAmount}। কাস্টমার: ${cleanName} (${cleanPhone})। ${isAutoPaid ? 'অনলাইন গেটওয়েতে পরিশোধিত।' : ''}`,
             sub.vendorId,
             now,
           ]).catch(() => {});
@@ -628,12 +779,14 @@ router.post('/checkout', async (req: Request, res: Response) => {
           items: vItems,
           subtotal: vSubtotal,
           totalAmount: vTotal,
-          paymentMethod,
-          paymentStatus: paymentMethod === 'cod' ? 'unpaid' : 'paid_pending_verify',
-          orderStatus: 'pending',
+          paymentMethod: normalizedPaymentMethod,
+          paymentStatus: initialPaymentStatus,
+          orderStatus: isAutoPaid ? 'confirmed' : 'pending',
           orderSource: 'marketplace',
           masterOrderId,
           vendorPayoutStatus: 'unsettled',
+          trxId: cleanTrxId,
+          senderPhone: cleanSenderPhone,
           notes,
           createdAt: now,
           updatedAt: now,
@@ -663,14 +816,14 @@ router.post('/checkout', async (req: Request, res: Response) => {
         totalProductsAmount,
         totalDeliveryCharge,
         grandTotal,
-        paymentMethod,
-        paymentStatus: paymentMethod === 'cod' ? 'unpaid' : 'paid_pending_verify',
-        paymentTrxId,
-        senderPhone,
+        paymentMethod: normalizedPaymentMethod,
+        paymentStatus: initialPaymentStatus,
+        paymentTrxId: cleanTrxId,
+        senderPhone: cleanSenderPhone,
         notes,
         vendorIds,
         subOrderIds,
-        overallStatus: 'processing',
+        overallStatus: initialOverallStatus,
         createdAt: now,
         updatedAt: now,
       };
@@ -678,6 +831,28 @@ router.post('/checkout', async (req: Request, res: Response) => {
       inMemoryStore.marketplace_master_orders = inMemoryStore.marketplace_master_orders || [];
       inMemoryStore.marketplace_master_orders.unshift(masterOrderObj);
       saveInMemoryStoreToDisk();
+    }
+
+    let checkoutSession: any = null;
+    if (isPaymently) {
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+      const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
+      const appBaseUrl = `${protocol}://${host}`;
+
+      try {
+        checkoutSession = await PaymentlyService.createCheckout({
+          type: 'marketplace',
+          orderId: masterOrderId,
+          orderNumber: masterOrderNumber,
+          amount: grandTotal,
+          userName: cleanName,
+          userPhone: cleanPhone,
+          customerAddress: cleanAddress,
+          appBaseUrl,
+        });
+      } catch (err: any) {
+        console.warn('Paymently session generation warning:', err);
+      }
     }
 
     return res.status(201).json({
@@ -692,15 +867,119 @@ router.post('/checkout', async (req: Request, res: Response) => {
         totalProductsAmount,
         totalDeliveryCharge,
         grandTotal,
-        paymentMethod,
+        paymentMethod: normalizedPaymentMethod,
+        paymentStatus: initialPaymentStatus,
+        paymentTrxId: cleanTrxId,
+        senderPhone: cleanSenderPhone,
         subOrdersCount: createdSubOrders.length,
       },
       subOrders: createdSubOrders,
+      checkoutSession,
       message: 'আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডার সফলভাবে গৃহীত হয়েছে!',
     });
   } catch (err: any) {
     console.error('Marketplace checkout error:', err);
     return res.status(500).json({ error: 'অর্ডার সম্পন্ন করতে সমস্যা হয়েছে: ' + err.message });
+  }
+});
+
+/**
+ * 4.1 POST /api/marketplace/paymently/checkout - Initiate / Retry UddoktaPay Session
+ */
+router.post('/paymently/checkout', async (req: Request, res: Response) => {
+  try {
+    const { orderId, amount, customerName, customerPhone, customerAddress } = req.body;
+    if (!orderId || !amount) {
+      return res.status(400).json({ error: 'অর্ডার আইডি এবং টাকার পরিমাণ আবশ্যক' });
+    }
+
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
+    const appBaseUrl = `${protocol}://${host}`;
+
+    const session = await PaymentlyService.createCheckout({
+      type: 'marketplace',
+      orderId,
+      amount: Number(amount),
+      userName: customerName || 'Marketplace Customer',
+      userPhone: customerPhone || '',
+      customerAddress: customerAddress || '',
+      appBaseUrl,
+    });
+
+    return res.json({ success: true, ...session });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'পেমেন্ট গেটওয়ে সেশন তৈরিতে সমস্যা হয়েছে' });
+  }
+});
+
+/**
+ * 4.2 GET /api/marketplace/paymently/status/:orderId - Check Live Payment Status of Order
+ */
+router.get('/paymently/status/:orderId', async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const pool = getDbPool();
+
+    if (pool) {
+      const resOrder = await pool.query(
+        'SELECT id, order_number, payment_status, overall_status, payment_trx_id, grand_total FROM marketplace_master_orders WHERE id = $1 OR order_number = $1',
+        [orderId]
+      );
+      if (resOrder.rows.length > 0) {
+        const o = resOrder.rows[0];
+        return res.json({
+          success: true,
+          orderId: o.id,
+          orderNumber: o.order_number,
+          paymentStatus: o.payment_status,
+          overallStatus: o.overall_status,
+          trxId: o.payment_trx_id,
+          amount: Number(o.grand_total),
+          isPaid: o.payment_status === 'paid',
+        });
+      }
+    } else {
+      const o = (inMemoryStore.marketplace_master_orders || []).find(
+        (x: any) => x.id === orderId || x.orderNumber === orderId
+      );
+      if (o) {
+        return res.json({
+          success: true,
+          orderId: o.id,
+          orderNumber: o.orderNumber,
+          paymentStatus: o.paymentStatus,
+          overallStatus: o.overallStatus,
+          trxId: o.paymentTrxId,
+          amount: Number(o.grandTotal),
+          isPaid: o.paymentStatus === 'paid',
+        });
+      }
+    }
+
+    return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 4.3 POST /api/marketplace/paymently/verify - Invoice ID Verification for Order
+ */
+router.post('/paymently/verify', async (req: Request, res: Response) => {
+  try {
+    const { invoiceId, orderId } = req.body;
+    if (!invoiceId) {
+      return res.status(400).json({ error: 'ইনভয়েস আইডি দিন' });
+    }
+
+    const verifyResult = await PaymentlyService.verifyAndActivatePayment(invoiceId, {
+      expectedPaymentId: orderId,
+    });
+
+    return res.json(verifyResult);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'ইনভয়েস ভেরিফিকেশন ব্যর্থ হয়েছে' });
   }
 });
 
@@ -899,18 +1178,7 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
       `).catch(() => ({ rows: [] }));
 
       // 5. Settings
-      const settingsRes = await pool.query(`
-        SELECT data FROM marketplace_settings WHERE id = 'global_settings'
-      `).catch(() => ({ rows: [] }));
-
-      const settings = settingsRes.rows[0]?.data || {
-        isMarketplaceActive: true,
-        commissionPercent: 0,
-        deliveryFeeDhaka: 70,
-        deliveryFeeOutside: 130,
-        platformBkashNumber: '01306908115',
-        bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও অরিজিনাল পণ্যের নিশ্চয়তা!',
-      };
+      const settings = await getStoredMarketplaceSettings();
 
       const masterOrders = ordersRes.rows.map(m => ({
         id: m.id,
@@ -994,14 +1262,7 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
         subOrders: (inMemoryStore.online_orders || []).filter(o => o.orderSource === 'marketplace' || o.masterOrderId),
         products: (inMemoryStore.products || []).filter(p => p.isListedOnMarketplace || p.isFeaturedOnMarketplace),
         categories: inMemoryStore.marketplace_categories || [],
-        settings: inMemoryStore.marketplace_settings || {
-          isMarketplaceActive: true,
-          commissionPercent: 0,
-          deliveryFeeDhaka: 70,
-          deliveryFeeOutside: 130,
-          platformBkashNumber: '01306908115',
-          bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও অরিজিনাল পণ্যের নিশ্চয়তা!',
-        },
+        settings: await getStoredMarketplaceSettings(),
       });
     }
   } catch (err: any) {

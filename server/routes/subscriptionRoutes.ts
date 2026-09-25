@@ -503,6 +503,7 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
     const paymentId = (req.query.payment_id || req.query.paymentId || req.body?.payment_id || '') as string;
     const statusParam = (req.query.status || req.body?.status || '') as string;
     const isSmsType = req.query.type === 'sms' || paymentId.startsWith('pay_sms_') || paymentId.startsWith('sms_');
+    const isMarketplaceType = req.query.type === 'marketplace' || paymentId.startsWith('pay_mkt_') || paymentId.startsWith('mkt_');
 
     if (statusParam.toLowerCase() === 'cancelled') {
       if (paymentId) {
@@ -516,6 +517,14 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
           } else {
             const sp = (inMemoryStore.sms_purchases || []).find((x: any) => x.id === paymentId);
             if (sp && (sp.status === 'initiated' || sp.status === 'pending')) sp.status = 'cancelled';
+          }
+        } else if (isMarketplaceType) {
+          const mktOrdId = req.query.order_id || paymentId;
+          if (pool) {
+            await pool.query(
+              "UPDATE marketplace_master_orders SET payment_status = 'cancelled', overall_status = 'cancelled' WHERE id = $1 AND payment_status = 'initiated'",
+              [mktOrdId]
+            ).catch(() => {});
           }
         } else {
           if (pool) {
@@ -531,7 +540,7 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
           }
         }
       }
-      return res.redirect(`/?payment_status=cancelled&payment_id=${encodeURIComponent(paymentId)}${isSmsType ? '&type=sms' : ''}`);
+      return res.redirect(`/?payment_status=cancelled&payment_id=${encodeURIComponent(paymentId)}${isSmsType ? '&type=sms' : isMarketplaceType ? '&type=marketplace' : ''}`);
     }
 
     if (!invoiceId) {
@@ -544,6 +553,14 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
               [paymentId]
             ).catch(() => {});
           }
+        } else if (isMarketplaceType) {
+          const mktOrdId = req.query.order_id || paymentId;
+          if (pool) {
+            await pool.query(
+              "UPDATE marketplace_master_orders SET payment_status = 'cancelled', overall_status = 'cancelled' WHERE id = $1 AND payment_status = 'initiated'",
+              [mktOrdId]
+            ).catch(() => {});
+          }
         } else {
           if (pool) {
             await pool.query(
@@ -553,10 +570,10 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
           }
         }
       }
-      return res.redirect(`/?payment_status=cancelled&message=${encodeURIComponent('পেমেন্ট সেশন সম্পন্ন করা হয়নি')}${isSmsType ? '&type=sms' : ''}`);
+      return res.redirect(`/?payment_status=cancelled&message=${encodeURIComponent('পেমেন্ট সেশন সম্পন্ন করা হয়নি')}${isSmsType ? '&type=sms' : isMarketplaceType ? '&type=marketplace' : ''}`);
     }
 
-    // Verify with Paymently Verify API before activating subscription or SMS!
+    // Verify with Paymently Verify API before activating subscription or SMS or Marketplace!
     const verifyResult = await PaymentlyService.verifyAndActivatePayment(invoiceId, {
       expectedPaymentId: paymentId,
     });
@@ -564,18 +581,18 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
     if (verifyResult.success && verifyResult.status === 'approved') {
       const trx = verifyResult.trxId || invoiceId;
       const amount = verifyResult.amount || '';
-      const plan = encodeURIComponent(verifyResult.planName || (verifyResult.isSms ? `${verifyResult.smsCount}টি SMS` : 'প্রো প্যাকেজ'));
-      const isSmsQuery = verifyResult.isSms ? `&type=sms&sms_count=${verifyResult.smsCount || ''}` : '';
+      const plan = encodeURIComponent(verifyResult.planName || (verifyResult.isSms ? `${verifyResult.smsCount}টি SMS` : isMarketplaceType ? 'সেন্ট্রাল অর্ডার' : 'প্রো প্যাকেজ'));
+      const typeQuery = verifyResult.isSms ? `&type=sms&sms_count=${verifyResult.smsCount || ''}` : isMarketplaceType ? `&type=marketplace&order_id=${encodeURIComponent(req.query.order_id || '')}` : '';
       return res.redirect(
-        `/?payment_status=success&invoice_id=${encodeURIComponent(invoiceId)}&trx_id=${encodeURIComponent(trx)}&amount=${amount}&plan=${plan}${isSmsQuery}`
+        `/?payment_status=success&invoice_id=${encodeURIComponent(invoiceId)}&trx_id=${encodeURIComponent(trx)}&amount=${amount}&plan=${plan}${typeQuery}`
       );
     } else if (verifyResult.status === 'pending') {
       return res.redirect(
-        `/?payment_status=pending&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}${verifyResult.isSms ? '&type=sms' : ''}`
+        `/?payment_status=pending&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}${verifyResult.isSms ? '&type=sms' : isMarketplaceType ? '&type=marketplace' : ''}`
       );
     } else {
       return res.redirect(
-        `/?payment_status=failed&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}${verifyResult.isSms ? '&type=sms' : ''}`
+        `/?payment_status=failed&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}${verifyResult.isSms ? '&type=sms' : isMarketplaceType ? '&type=marketplace' : ''}`
       );
     }
   } catch (err: any) {

@@ -72,6 +72,13 @@ export const marketplaceApi = {
     success: boolean;
     masterOrder?: MarketplaceMasterOrder;
     subOrders?: any[];
+    checkoutSession?: {
+      paymentUrl?: string;
+      paymentId?: string;
+      isSandbox?: boolean;
+      sessionData?: any;
+    } | null;
+    message?: string;
     error?: string;
   }> {
     const res = await fetch('/api/marketplace/checkout', {
@@ -91,6 +98,78 @@ export const marketplaceApi = {
     const data = await res.json();
     if (!res.ok) {
       throw new Error(data.error || 'অর্ডার পাওয়া যায়নি');
+    }
+    return data;
+  },
+
+  async getSettings(): Promise<{ success: boolean; settings?: any }> {
+    try {
+      const res = await fetch('/api/marketplace/settings');
+      if (!res.ok) throw new Error('মার্কেটপ্লেস সেটিংস লোড করা যায়নি');
+      return await res.json();
+    } catch (err: any) {
+      console.warn('Marketplace settings fetch error:', err.message);
+      return { success: false };
+    }
+  },
+
+  async createPaymentlySession(orderData: {
+    orderId: string;
+    amount: number;
+    customerName?: string;
+    customerPhone?: string;
+    customerAddress?: string;
+  }): Promise<{
+    success: boolean;
+    paymentUrl: string;
+    paymentId: string;
+    isSandbox?: boolean;
+  }> {
+    const res = await fetch('/api/marketplace/paymently/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderData),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'অনলাইন পেমেন্ট সেশন তৈরিতে সমস্যা হয়েছে');
+    }
+    return data;
+  },
+
+  async checkPaymentStatus(orderId: string): Promise<{
+    success: boolean;
+    orderId: string;
+    orderNumber: string;
+    paymentStatus: string;
+    overallStatus: string;
+    trxId?: string;
+    amount: number;
+    isPaid: boolean;
+  }> {
+    const res = await fetch(`/api/marketplace/paymently/status/${encodeURIComponent(orderId)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'পেমেন্ট স্ট্যাটাস চেক করা যায়নি');
+    }
+    return data;
+  },
+
+  async verifyPaymentInvoice(invoiceId: string, orderId?: string): Promise<{
+    success: boolean;
+    status: string;
+    message: string;
+    trxId?: string;
+    amount?: number;
+  }> {
+    const res = await fetch('/api/marketplace/paymently/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoiceId, orderId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'ইনভয়েস ভেরিফিকেশন ব্যর্থ হয়েছে');
     }
     return data;
   },
