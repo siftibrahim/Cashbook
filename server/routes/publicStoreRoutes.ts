@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getDbPool, inMemoryStore, ensureOnlineOrdersSchema } from '../db';
+import { getDbPool, inMemoryStore } from '../db';
 import { cleanDomainString, extractSubdomainFromHost } from '../utils/domainResolver';
 import { sendSmsNotification } from '../services/smsService';
 
@@ -585,15 +585,12 @@ router.post('/:identifier/orders', async (req: Request, res: Response) => {
     const totalAmount = parseFloat(body.totalAmount) || (subtotal + deliveryCharge);
     const paymentMethod = body.paymentMethod || 'cod';
 
-    // Verification check for digital/mobile banking payments on Vendor's Personal Store
-    const isDigitalPayment = ['bkash', 'nagad', 'rocket', 'upay', 'bank', 'bangla_qr'].includes(paymentMethod);
-    const paymentStatus = body.paymentStatus || (isDigitalPayment ? 'pending_verification' : 'unpaid');
+    // Verification check for mobile banking payments
+    const isMobileBanking = ['bkash', 'nagad', 'rocket'].includes(paymentMethod);
+    const paymentStatus = isMobileBanking ? 'pending_verification' : 'unpaid';
     const trxId = body.trxId ? String(body.trxId).trim() : undefined;
     const senderPhone = body.senderPhone ? String(body.senderPhone).trim() : customerPhone;
     const notes = body.notes ? String(body.notes).trim() : '';
-    const discountAmount = parseFloat(body.discountAmount) || 0;
-    const paidAmount = parseFloat(body.paidAmount) || 0;
-    const dueAmount = Math.max(0, totalAmount - paidAmount);
 
     const orderObj = {
       id: orderId,
@@ -604,19 +601,12 @@ router.post('/:identifier/orders', async (req: Request, res: Response) => {
       customerAddress,
       deliveryArea,
       deliveryCharge,
-      discountAmount,
       items,
       subtotal,
       totalAmount,
-      paidAmount,
-      dueAmount,
       paymentMethod,
       paymentStatus,
       orderStatus: 'pending',
-      orderSource: 'direct_store',
-      isAdminApproved: true,
-      adminApprovalStatus: 'not_required',
-      isLockedForVendor: false,
       trxId: trxId || null,
       senderPhone: senderPhone || null,
       paymentAmount: totalAmount,
@@ -627,15 +617,13 @@ router.post('/:identifier/orders', async (req: Request, res: Response) => {
 
     const pool = getDbPool();
     if (pool) {
-      await ensureOnlineOrdersSchema(pool);
       await pool.query(
         `INSERT INTO online_orders (
           id, user_id, order_number, customer_name, customer_phone, customer_address,
-          delivery_area, delivery_charge, discount_amount, items, subtotal, total_amount,
-          paid_amount, due_amount, payment_method, payment_status, order_status,
-          order_source, is_admin_approved, admin_approval_status,
-          trx_id, sender_phone, payment_amount, notes, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'direct_store', TRUE, 'not_required', $18, $19, $20, $21, $22, $23)`,
+          delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
+          payment_status, order_status, trx_id, sender_phone, payment_amount, notes,
+          created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
         [
           orderId,
           targetUserId,
@@ -645,12 +633,9 @@ router.post('/:identifier/orders', async (req: Request, res: Response) => {
           customerAddress,
           deliveryArea,
           deliveryCharge,
-          discountAmount,
           JSON.stringify(items),
           subtotal,
           totalAmount,
-          paidAmount,
-          dueAmount,
           paymentMethod,
           paymentStatus,
           'pending',
@@ -751,9 +736,11 @@ router.post('/:identifier/orders/batch-track', async (req: Request, res: Respons
     }
 
     if (pool) {
-      await ensureOnlineOrdersSchema(pool);
       let query = `
-        SELECT *
+        SELECT id, order_number, customer_name, customer_phone, customer_address,
+               delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
+               payment_status, order_status, trx_id, sender_phone, payment_reject_reason,
+               courier_name, courier_tracking_code, created_at, updated_at
         FROM online_orders
         WHERE (user_id = $1 OR user_id = 'default_vendor' OR user_id IS NULL) AND (
       `;
@@ -773,42 +760,28 @@ router.post('/:identifier/orders/batch-track', async (req: Request, res: Respons
       query += conditions.join(' OR ') + `) ORDER BY created_at DESC LIMIT 50`;
 
       const result = await pool.query(query, params);
-      const orders = result.rows.map((row) => {
-        const totalAmt = parseFloat(row.total_amount) || 0;
-        const pStat = row.payment_status || 'unpaid';
-        const rawPaid = row.paid_amount ? parseFloat(row.paid_amount) : (pStat === 'paid' ? totalAmt : 0);
-        const rawDue = pStat === 'paid' ? 0 : (row.due_amount ? parseFloat(row.due_amount) : Math.max(0, totalAmt - rawPaid));
-        return {
-          id: row.id,
-          orderNumber: row.order_number,
-          customerName: row.customer_name,
-          customerPhone: row.customer_phone,
-          customerAddress: row.customer_address,
-          deliveryArea: row.delivery_area,
-          deliveryCharge: parseFloat(row.delivery_charge) || 0,
-          discountAmount: parseFloat(row.discount_amount) || 0,
-          items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
-          subtotal: parseFloat(row.subtotal) || 0,
-          totalAmount: totalAmt,
-          paidAmount: rawPaid,
-          dueAmount: rawDue,
-          paymentMethod: row.payment_method,
-          paymentStatus: pStat,
-          orderStatus: row.order_status,
-          orderSource: row.order_source || 'direct_store',
-          trxId: row.trx_id,
-          senderPhone: row.sender_phone,
-          paymentRejectReason: row.payment_reject_reason,
-          courierName: row.courier_name,
-          courierTrackingCode: row.courier_tracking_code,
-          deliveryManName: row.delivery_man_name,
-          deliveryManPhone: row.delivery_man_phone,
-          estimatedDeliveryDate: row.estimated_delivery_date,
-          deliveryNote: row.delivery_note,
-          createdAt: Number(row.created_at),
-          updatedAt: Number(row.updated_at),
-        };
-      });
+      const orders = result.rows.map((row) => ({
+        id: row.id,
+        orderNumber: row.order_number,
+        customerName: row.customer_name,
+        customerPhone: row.customer_phone,
+        customerAddress: row.customer_address,
+        deliveryArea: row.delivery_area,
+        deliveryCharge: parseFloat(row.delivery_charge) || 0,
+        items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
+        subtotal: parseFloat(row.subtotal) || 0,
+        totalAmount: parseFloat(row.total_amount) || 0,
+        paymentMethod: row.payment_method,
+        paymentStatus: row.payment_status,
+        orderStatus: row.order_status,
+        trxId: row.trx_id,
+        senderPhone: row.sender_phone,
+        paymentRejectReason: row.payment_reject_reason,
+        courierName: row.courier_name,
+        courierTrackingCode: row.courier_tracking_code,
+        createdAt: Number(row.created_at),
+        updatedAt: Number(row.updated_at),
+      }));
 
       return res.json({ orders });
     } else {
@@ -846,9 +819,11 @@ router.get('/:identifier/orders/track/:orderNumber', async (req: Request, res: R
 
 
     if (pool) {
-      await ensureOnlineOrdersSchema(pool);
       let result = await pool.query(
-        `SELECT *
+        `SELECT id, order_number, customer_name, customer_phone, customer_address,
+                delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
+                payment_status, order_status, trx_id, sender_phone, payment_reject_reason,
+                courier_name, courier_tracking_code, created_at, updated_at
          FROM online_orders
          WHERE (order_number = $1 OR id = $1 OR customer_phone = $1) 
            AND (user_id = $2 OR user_id = 'default_vendor' OR user_id IS NULL)
@@ -860,7 +835,10 @@ router.get('/:identifier/orders/track/:orderNumber', async (req: Request, res: R
       if (result.rows.length === 0) {
         // Fallback: match by order_number directly
         result = await pool.query(
-          `SELECT *
+          `SELECT id, order_number, customer_name, customer_phone, customer_address,
+                  delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
+                  payment_status, order_status, trx_id, sender_phone, payment_reject_reason,
+                  courier_name, courier_tracking_code, created_at, updated_at
            FROM online_orders
            WHERE (order_number = $1 OR id = $1)
            ORDER BY created_at DESC
@@ -873,42 +851,28 @@ router.get('/:identifier/orders/track/:orderNumber', async (req: Request, res: R
         return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি। অনুগ্রহ করে সঠিক অর্ডার নম্বর বা মোবাইল নম্বর দিন।' });
       }
 
-      const mapRow = (row: any) => {
-        const totalAmt = parseFloat(row.total_amount) || 0;
-        const pStat = row.payment_status || 'unpaid';
-        const rawPaid = row.paid_amount ? parseFloat(row.paid_amount) : (pStat === 'paid' ? totalAmt : 0);
-        const rawDue = pStat === 'paid' ? 0 : (row.due_amount ? parseFloat(row.due_amount) : Math.max(0, totalAmt - rawPaid));
-        return {
-          id: row.id,
-          orderNumber: row.order_number,
-          customerName: row.customer_name,
-          customerPhone: row.customer_phone,
-          customerAddress: row.customer_address,
-          deliveryArea: row.delivery_area,
-          deliveryCharge: parseFloat(row.delivery_charge) || 0,
-          discountAmount: parseFloat(row.discount_amount) || 0,
-          items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
-          subtotal: parseFloat(row.subtotal) || 0,
-          totalAmount: totalAmt,
-          paidAmount: rawPaid,
-          dueAmount: rawDue,
-          paymentMethod: row.payment_method,
-          paymentStatus: pStat,
-          orderStatus: row.order_status,
-          orderSource: row.order_source || 'direct_store',
-          trxId: row.trx_id,
-          senderPhone: row.sender_phone,
-          paymentRejectReason: row.payment_reject_reason,
-          courierName: row.courier_name,
-          courierTrackingCode: row.courier_tracking_code,
-          deliveryManName: row.delivery_man_name,
-          deliveryManPhone: row.delivery_man_phone,
-          estimatedDeliveryDate: row.estimated_delivery_date,
-          deliveryNote: row.delivery_note,
-          createdAt: Number(row.created_at),
-          updatedAt: Number(row.updated_at),
-        };
-      };
+      const mapRow = (row: any) => ({
+        id: row.id,
+        orderNumber: row.order_number,
+        customerName: row.customer_name,
+        customerPhone: row.customer_phone,
+        customerAddress: row.customer_address,
+        deliveryArea: row.delivery_area,
+        deliveryCharge: parseFloat(row.delivery_charge) || 0,
+        items: typeof row.items === 'string' ? JSON.parse(row.items) : (row.items || []),
+        subtotal: parseFloat(row.subtotal) || 0,
+        totalAmount: parseFloat(row.total_amount) || 0,
+        paymentMethod: row.payment_method,
+        paymentStatus: row.payment_status,
+        orderStatus: row.order_status,
+        trxId: row.trx_id,
+        senderPhone: row.sender_phone,
+        paymentRejectReason: row.payment_reject_reason,
+        courierName: row.courier_name,
+        courierTrackingCode: row.courier_tracking_code,
+        createdAt: Number(row.created_at),
+        updatedAt: Number(row.updated_at),
+      });
 
       const orders = result.rows.map(mapRow);
       return res.json({

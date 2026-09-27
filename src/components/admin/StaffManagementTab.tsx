@@ -93,18 +93,6 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     setIsModalOpen(true);
   };
 
-  const getAllPermissionKeys = (): StaffPermission[] => {
-    const allKeys: StaffPermission[] = ['*'];
-    ALL_STAFF_PERMISSION_CATEGORIES.forEach((cat) => {
-      cat.permissions.forEach((p) => {
-        if (!allKeys.includes(p.key)) {
-          allKeys.push(p.key);
-        }
-      });
-    });
-    return allKeys;
-  };
-
   const openEditModal = (staff: StaffMember) => {
     setEditingStaff(staff);
     setName(staff.name);
@@ -114,106 +102,52 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     setShowPassword(false);
     setRole(staff.role);
     setStatus(staff.status);
-    const currentPerms = staff.permissions || [];
-    if (currentPerms.includes('*') || currentPerms.includes('all' as any)) {
-      setSelectedPermissions(getAllPermissionKeys());
-    } else {
-      setSelectedPermissions(currentPerms);
-    }
+    setSelectedPermissions(staff.permissions || []);
     setNotes(staff.notes || '');
     setIsModalOpen(true);
   };
 
   const handleTogglePermission = (permKey: StaffPermission) => {
     if (selectedPermissions.includes(permKey)) {
-      setSelectedPermissions(selectedPermissions.filter((p) => p !== permKey && p !== '*'));
+      setSelectedPermissions(selectedPermissions.filter((p) => p !== permKey));
     } else {
       setSelectedPermissions([...selectedPermissions, permKey]);
     }
   };
 
-  const handleToggleCategoryPermissions = (catKeys: StaffPermission[]) => {
-    const allSelected = catKeys.every((k) => selectedPermissions.includes(k));
-    if (allSelected) {
-      setSelectedPermissions(selectedPermissions.filter((p) => !catKeys.includes(p) && p !== '*'));
-    } else {
-      const merged = Array.from(new Set([...selectedPermissions, ...catKeys]));
-      setSelectedPermissions(merged);
-    }
-  };
-
   const handleSelectAllPermissions = () => {
-    setSelectedPermissions(getAllPermissionKeys());
+    const allKeys: StaffPermission[] = [];
+    ALL_STAFF_PERMISSION_CATEGORIES.forEach((cat) => {
+      cat.permissions.forEach((p) => allKeys.push(p.key));
+    });
+    setSelectedPermissions(allKeys);
   };
 
   const handleClearAllPermissions = () => {
     setSelectedPermissions([]);
   };
 
-  const handleGrantFullAccessDirect = async (staff: StaffMember) => {
-    try {
-      const allPerms = getAllPermissionKeys();
-      await onUpdatePermissions(staff.id, allPerms);
-      onShowToast(`👑 স্টাফ ${staff.name}-কে সফলভাবে সব ধরনের পারমিশন (ফুল এক্সেস) দেওয়া হয়েছে!`);
-    } catch (err: any) {
-      onShowToast(`ত্রুটি: ${err.message || 'পারমিশন আপডেট ব্যর্থ'}`);
-    }
-  };
-
-  const applyPreset = (preset: 'support' | 'accounts' | 'moderator' | 'marketplace' | 'system' | 'all') => {
+  const applyPreset = (preset: 'support' | 'accounts' | 'moderator' | 'all') => {
     if (preset === 'support') {
-      setSelectedPermissions(['support_view', 'support_reply', 'users_view', 'notifications_manage', 'announcements_manage']);
-      onShowToast('🎧 সাপোর্ট ও মেসেজিং প্রি-সেট সিলেক্ট করা হয়েছে');
+      setSelectedPermissions(['support_view', 'support_reply', 'users_view']);
+      onShowToast('সাপোর্ট এক্সিকিউটিভ প্রি-সেট সিলেক্ট করা হয়েছে');
     } else if (preset === 'accounts') {
       setSelectedPermissions([
         'payments_view',
         'payments_approve_reject',
         'payments_add_manual',
-        'sms_purchases_manage',
-        'payment_settings_manage',
         'subscriptions_view',
         'subscriptions_extend',
         'users_view',
         'reports_view',
       ]);
-      onShowToast('💳 একাউন্টস ও পেমেন্ট প্রি-সেট সিলেক্ট করা হয়েছে');
+      onShowToast('একাউন্টস ও পেমেন্ট প্রি-সেট সিলেক্ট করা হয়েছে');
     } else if (preset === 'moderator') {
-      setSelectedPermissions([
-        'users_view',
-        'users_edit',
-        'users_suspend',
-        'shop_manage',
-        'online_store_manage',
-        'ads_manage',
-        'dashboard_banners_manage',
-        'reports_view',
-      ]);
-      onShowToast('👥 ইউজার ও শপ মডারেটর প্রি-সেট সিলেক্ট করা হয়েছে');
-    } else if (preset === 'marketplace') {
-      setSelectedPermissions([
-        'marketplace_manage',
-        'online_store_manage',
-        'payments_view',
-        'payments_approve_reject',
-        'users_view',
-        'support_view',
-        'support_reply',
-      ]);
-      onShowToast('🛍️ সেন্ট্রাল মার্কেটপ্লেস ম্যানেজার প্রি-সেট সিলেক্ট করা হয়েছে');
-    } else if (preset === 'system') {
-      setSelectedPermissions([
-        'database_view',
-        'app_update_manage',
-        'sms_gateway_manage',
-        'tagada_templates_manage',
-        'activity_logs_view',
-        'settings_manage',
-        'staff_manage',
-      ]);
-      onShowToast('⚙️ সিস্টেম ও টেকনিক্যাল অ্যাডমিন প্রি-সেট সিলেক্ট করা হয়েছে');
+      setSelectedPermissions(['users_view', 'users_edit', 'users_suspend', 'reports_view']);
+      onShowToast('ইউজার মডারেটর প্রি-সেট সিলেক্ট করা হয়েছে');
     } else if (preset === 'all') {
       handleSelectAllPermissions();
-      onShowToast('👑 সব ধরনের পারমিশন (ফুল এক্সেস) সিলেক্ট করা হয়েছে');
+      onShowToast('ফুল এক্সেস প্রি-সেট সিলেক্ট করা হয়েছে');
     }
   };
 
@@ -490,17 +424,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleGrantFullAccessDirect(staff)}
-                      className="px-2.5 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-[11px] font-bold rounded-xl transition flex items-center gap-1 cursor-pointer border border-amber-500/30"
-                      title="এক ক্লিকে এই স্টাফকে সব ধরনের পারমিশন দিন"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      <span>সব পারমিশন দিন</span>
-                    </button>
-
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => openEditModal(staff)}
@@ -703,13 +627,6 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
                   </span>
                   <button
                     type="button"
-                    onClick={() => applyPreset('all')}
-                    className="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold rounded-xl hover:bg-amber-500 hover:text-slate-950 transition cursor-pointer"
-                  >
-                    👑 ফুল এক্সেস (সব পারমিশন)
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => applyPreset('support')}
                     className="px-2.5 py-1 bg-slate-800 text-slate-200 border border-slate-700 rounded-xl hover:bg-indigo-600 hover:text-white transition cursor-pointer"
                   >
@@ -720,7 +637,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
                     onClick={() => applyPreset('accounts')}
                     className="px-2.5 py-1 bg-slate-800 text-slate-200 border border-slate-700 rounded-xl hover:bg-indigo-600 hover:text-white transition cursor-pointer"
                   >
-                    💳 পেমেন্ট ও বিলিং
+                    💳 পেমেন্ট
                   </button>
                   <button
                     type="button"
@@ -731,81 +648,54 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => applyPreset('marketplace')}
+                    onClick={() => applyPreset('all')}
                     className="px-2.5 py-1 bg-slate-800 text-slate-200 border border-slate-700 rounded-xl hover:bg-indigo-600 hover:text-white transition cursor-pointer"
                   >
-                    🛍️ মার্কেটপ্লেস মল
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => applyPreset('system')}
-                    className="px-2.5 py-1 bg-slate-800 text-slate-200 border border-slate-700 rounded-xl hover:bg-indigo-600 hover:text-white transition cursor-pointer"
-                  >
-                    ⚙️ সিস্টেম ও ডাটাবেজ
+                    👑 ফুল এক্সেস
                   </button>
                 </div>
 
                 {/* Categorized Permissions Grid */}
-                <div className="space-y-3 max-h-80 overflow-y-auto p-1">
-                  {ALL_STAFF_PERMISSION_CATEGORIES.map((category) => {
-                    const catKeys = category.permissions.map((p) => p.key);
-                    const isAllCatSelected = catKeys.every(
-                      (k) => selectedPermissions.includes(k) || selectedPermissions.includes('*')
-                    );
-                    return (
-                      <div
-                        key={category.categoryName}
-                        className="bg-slate-900/70 p-3.5 rounded-2xl border border-slate-800"
-                      >
-                        <div className="flex items-center justify-between mb-2.5">
-                          <h5 className="text-[11px] font-black text-indigo-300 uppercase tracking-wider">
-                            {category.categoryName}
-                          </h5>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleCategoryPermissions(catKeys)}
-                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
-                              isAllCatSelected
-                                ? 'bg-indigo-600/30 border-indigo-500/50 text-indigo-200'
-                                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            {isAllCatSelected ? '✓ সব সিলেক্টেড' : '+ এই ক্যাটাগরির সব দিন'}
-                          </button>
-                        </div>
+                <div className="space-y-3 max-h-60 overflow-y-auto p-1">
+                  {ALL_STAFF_PERMISSION_CATEGORIES.map((category) => (
+                    <div
+                      key={category.categoryName}
+                      className="bg-slate-900/70 p-3.5 rounded-2xl border border-slate-800"
+                    >
+                      <h5 className="text-[11px] font-black text-indigo-300 uppercase tracking-wider mb-2.5">
+                        {category.categoryName}
+                      </h5>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {category.permissions.map((perm) => {
-                            const isChecked =
-                              selectedPermissions.includes(perm.key) || selectedPermissions.includes('*');
-                            return (
-                              <label
-                                key={perm.key}
-                                className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs cursor-pointer transition ${
-                                  isChecked
-                                    ? 'bg-indigo-950/40 border-indigo-500/50 text-indigo-200 font-bold'
-                                    : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:bg-slate-800/60'
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => handleTogglePermission(perm.key)}
-                                  className="mt-0.5 text-indigo-600 rounded-sm focus:ring-indigo-500 cursor-pointer"
-                                />
-                                <div>
-                                  <p className="leading-tight text-white">{perm.label}</p>
-                                  <p className="text-[10px] text-slate-400 font-normal mt-0.5 leading-snug">
-                                    {perm.description}
-                                  </p>
-                                </div>
-                              </label>
-                            );
-                          })}
-                        </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {category.permissions.map((perm) => {
+                          const isChecked = selectedPermissions.includes(perm.key);
+                          return (
+                            <label
+                              key={perm.key}
+                              className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs cursor-pointer transition ${
+                                isChecked
+                                  ? 'bg-indigo-950/40 border-indigo-500/50 text-indigo-200 font-bold'
+                                  : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleTogglePermission(perm.key)}
+                                className="mt-0.5 text-indigo-600 rounded-sm focus:ring-indigo-500 cursor-pointer"
+                              />
+                              <div>
+                                <p className="leading-tight text-white">{perm.label}</p>
+                                <p className="text-[10px] text-slate-400 font-normal mt-0.5 leading-snug">
+                                  {perm.description}
+                                </p>
+                              </div>
+                            </label>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               </div>
 

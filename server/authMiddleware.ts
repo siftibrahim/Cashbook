@@ -64,32 +64,13 @@ export function optionalAuth(req: AuthenticatedRequest, res: Response, next: Nex
   next();
 }
 
-export const SUPER_ADMIN_EMAILS = [
-  'siftraihan@gmail.com',
-  'siftibrahim@gmail.com',
-  'admin@twing.com',
-];
-
-export function isUserSuperAdmin(user?: AuthUserPayload | null): boolean {
-  if (!user) return false;
-  if (user.role === 'super_admin' || user.userId === 'usr_super_admin') return true;
-  if (user.email && SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase().trim())) return true;
-  if (user.permissions && (user.permissions.includes('*' as any) || user.permissions.includes('all' as any))) return true;
-  return false;
-}
-
 /**
  * Middleware: Require Admin or Staff
  */
 export function requireAdminOrStaff(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   authenticateUser(req, res, () => {
-    const user = req.user;
-    if (!user) return res.status(401).json({ error: 'অননুমোদিত অনুরোধ' });
-
-    if (isUserSuperAdmin(user)) return next();
-
-    const role = user.role;
-    if (role === 'admin' || role === 'staff' || role === 'manager') {
+    const role = req.user?.role;
+    if (role === 'super_admin' || role === 'admin' || role === 'staff') {
       return next();
     }
     return res.status(403).json({ error: 'শুধুমাত্র অ্যাডমিন বা অনুমোদিত স্টাফদের এই এক্সেস রয়েছে।' });
@@ -101,7 +82,7 @@ export function requireAdminOrStaff(req: AuthenticatedRequest, res: Response, ne
  */
 export function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   authenticateUser(req, res, () => {
-    if (isUserSuperAdmin(req.user)) {
+    if (req.user?.role === 'super_admin') {
       return next();
     }
     return res.status(403).json({ error: 'এই অপশনটি শুধুমাত্র সুপার অ্যাডমিনের জন্য অনুমোদিত।' });
@@ -117,18 +98,12 @@ export function requireStaffPermission(permission: StaffPermission) {
       const user = req.user;
       if (!user) return res.status(401).json({ error: 'অননুমোদিত অনুরোধ' });
 
-      if (isUserSuperAdmin(user)) {
+      if (user.role === 'super_admin') {
         return next();
       }
 
-      if ((user.role === 'staff' || user.role === 'manager' || user.role === 'admin') && user.permissions) {
-        if (
-          user.permissions.includes('*' as any) ||
-          user.permissions.includes('all' as any) ||
-          user.permissions.includes(permission)
-        ) {
-          return next();
-        }
+      if (user.role === 'staff' && user.permissions && user.permissions.includes(permission)) {
+        return next();
       }
 
       return res.status(403).json({ error: `আপনার এই কাজের জন্য প্রয়োজনীয় পারমিশন (${permission}) নেই।` });

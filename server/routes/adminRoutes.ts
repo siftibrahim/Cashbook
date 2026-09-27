@@ -5,7 +5,6 @@ import {
   AuthenticatedRequest,
   requireAdminOrStaff,
   requireSuperAdmin,
-  requireStaffPermission,
 } from '../authMiddleware';
 import { DEFAULT_PLANS } from '../../src/services/adminService';
 import {
@@ -869,14 +868,14 @@ router.get('/staff', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-router.post('/staff', requireStaffPermission('staff_manage'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/staff', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, phone, email, password, permissions, role, notes } = req.body;
     if (!name || !email || !password || !phone) {
       return res.status(400).json({ error: 'নাম, ফোন, ইমেইল ও পাসওয়ার্ড আবশ্যক' });
     }
 
-    const staffId = 'stf_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    const staffId = 'stf_' + Date.now().toString(36);
     const passwordHash = await bcrypt.hash(password, 10);
     const now = Date.now();
     const pool = getDbPool();
@@ -886,22 +885,13 @@ router.post('/staff', requireStaffPermission('staff_manage'), async (req: Authen
         INSERT INTO staff (
           id, name, phone, email, password_hash, role, status, permissions, created_by, notes, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        ON CONFLICT (email) DO UPDATE SET
-          name = EXCLUDED.name,
-          phone = EXCLUDED.phone,
-          password_hash = EXCLUDED.password_hash,
-          role = EXCLUDED.role,
-          status = EXCLUDED.status,
-          permissions = EXCLUDED.permissions,
-          notes = EXCLUDED.notes
       `, [
         staffId, name.trim(), phone.trim(), email.trim().toLowerCase(), passwordHash,
         role || 'staff', 'active', JSON.stringify(permissions || []),
         req.user?.email || 'admin', notes || '', now
       ]);
     } else {
-      const existingIdx = inMemoryStore.staff.findIndex(x => x.email.toLowerCase() === email.trim().toLowerCase());
-      const newStaff = {
+      inMemoryStore.staff.push({
         id: staffId,
         name: name.trim(),
         phone: phone.trim(),
@@ -913,21 +903,16 @@ router.post('/staff', requireStaffPermission('staff_manage'), async (req: Authen
         createdBy: req.user?.email,
         notes: notes || '',
         createdAt: now,
-      };
-      if (existingIdx >= 0) {
-        inMemoryStore.staff[existingIdx] = newStaff;
-      } else {
-        inMemoryStore.staff.push(newStaff);
-      }
+      });
     }
 
-    return res.status(201).json({ message: '✅ নতুন স্টাফ সদস্য সফলভাবে সংরক্ষিত হয়েছে', staffId });
+    return res.status(201).json({ message: '✅ নতুন স্টাফ সদস্য সফলভাবে তৈরি হয়েছে', staffId });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-router.put('/staff/:id', requireStaffPermission('staff_manage'), async (req: AuthenticatedRequest, res: Response) => {
+router.put('/staff/:id', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const staffId = req.params.id;
     const { name, phone, email, password, role, permissions, status, notes } = req.body;
@@ -937,8 +922,6 @@ router.put('/staff/:id', requireStaffPermission('staff_manage'), async (req: Aut
     if (password && password.trim()) {
       passwordHash = await bcrypt.hash(password.trim(), 10);
     }
-
-    const cleanEmail = email ? email.trim().toLowerCase() : null;
 
     if (pool) {
       await pool.query(`
@@ -951,11 +934,11 @@ router.put('/staff/:id', requireStaffPermission('staff_manage'), async (req: Aut
           permissions = COALESCE($6, permissions),
           status = COALESCE($7, status),
           notes = COALESCE($8, notes)
-        WHERE id = $9 OR (email = $3 AND $3 IS NOT NULL)
+        WHERE id = $9
       `, [
         name ? name.trim() : null,
         phone ? phone.trim() : null,
-        cleanEmail,
+        email ? email.trim().toLowerCase() : null,
         passwordHash,
         role || null,
         permissions ? JSON.stringify(permissions) : null,
@@ -964,11 +947,11 @@ router.put('/staff/:id', requireStaffPermission('staff_manage'), async (req: Aut
         staffId
       ]);
     } else {
-      const s = inMemoryStore.staff.find(x => x.id === staffId || (cleanEmail && x.email.toLowerCase() === cleanEmail));
+      const s = inMemoryStore.staff.find(x => x.id === staffId);
       if (s) {
         if (name) s.name = name.trim();
         if (phone) s.phone = phone.trim();
-        if (email) s.email = cleanEmail;
+        if (email) s.email = email.trim().toLowerCase();
         if (password) s.password = password.trim();
         if (passwordHash) s.password_hash = passwordHash;
         if (role) s.role = role;
@@ -978,13 +961,13 @@ router.put('/staff/:id', requireStaffPermission('staff_manage'), async (req: Aut
       }
     }
 
-    return res.json({ message: '✅ স্টাফ তথ্য, ইমেইল, পারমিশন ও পাসওয়ার্ড সফলভাবে আপডেট হয়েছে', staffId });
+    return res.json({ message: '✅ স্টাফ তথ্য, ইমেইল ও পাসওয়ার্ড সফলভাবে আপডেট হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-router.delete('/staff/:id', requireStaffPermission('staff_manage'), async (req: AuthenticatedRequest, res: Response) => {
+router.delete('/staff/:id', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const staffId = req.params.id;
     const pool = getDbPool();
@@ -1358,9 +1341,9 @@ router.get('/activity-logs', async (req: AuthenticatedRequest, res: Response) =>
 });
 
 /**
- * 12. SMS Gateway Configuration (Super Admin & Staff with sms_gateway_manage)
+ * 12. SMS Gateway Configuration (Super Admin)
  */
-router.get('/sms-config', requireStaffPermission('sms_gateway_manage'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/sms-config', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const config = await getSmsGatewaySettings();
     const serverIp = await getServerPublicIp();
@@ -1381,7 +1364,7 @@ router.get('/sms-config', requireStaffPermission('sms_gateway_manage'), async (r
   }
 });
 
-router.post('/sms-config', requireStaffPermission('sms_gateway_manage'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/sms-config', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { provider, apiKey, senderId, username, customUrl, isEnabled } = req.body;
     const current = await getSmsGatewaySettings();
@@ -1403,7 +1386,7 @@ router.post('/sms-config', requireStaffPermission('sms_gateway_manage'), async (
   }
 });
 
-router.post('/sms-test', requireStaffPermission('sms_gateway_manage'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/sms-test', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { phone, message } = req.body;
     if (!phone) {
@@ -1420,7 +1403,7 @@ router.post('/sms-test', requireStaffPermission('sms_gateway_manage'), async (re
 });
 
 /**
- * Super Admin & Staff Tagada Message Templates Management
+ * Super Admin Tagada Message Templates Management
  */
 router.get('/tagada-templates', async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -1431,7 +1414,7 @@ router.get('/tagada-templates', async (req: AuthenticatedRequest, res: Response)
   }
 });
 
-router.post('/tagada-templates', requireStaffPermission('tagada_templates_manage'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/tagada-templates', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { templates } = req.body;
     if (!Array.isArray(templates)) {
@@ -2756,7 +2739,7 @@ import {
  * GET /api/admin/data/summary
  * Retrieves record counts across active storage and Postgres
  */
-router.get('/data/summary', requireStaffPermission('database_view'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/data/summary', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const summary = await getSystemDataSummary();
     return res.json(summary);
@@ -2837,7 +2820,7 @@ router.post('/data/migrate-remote', requireSuperAdmin, async (req: Authenticated
  * GET /api/admin/live-db/overview
  * Real-time connection status, health, and table counts directly from CockroachDB
  */
-router.get('/live-db/overview', requireStaffPermission('database_view'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/live-db/overview', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const pool = getDbPool();
   const startTime = Date.now();
 
@@ -2940,7 +2923,7 @@ router.get('/live-db/overview', requireStaffPermission('database_view'), async (
  * GET /api/admin/live-db/table/:tableName
  * Paginated rows, schema, and search for any table
  */
-router.get('/live-db/table/:tableName', requireStaffPermission('database_view'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/live-db/table/:tableName', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const { tableName } = req.params;
   const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
   const limit = Math.min(100, Math.max(5, parseInt(req.query.limit as string || '25', 10)));
@@ -3053,7 +3036,7 @@ router.get('/live-db/table/:tableName', requireStaffPermission('database_view'),
  * POST /api/admin/live-db/query
  * Safe Read-Only SQL Query Runner (SELECT only)
  */
-router.post('/live-db/query', requireStaffPermission('database_view'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/live-db/query', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const { sql } = req.body;
   if (!sql || typeof sql !== 'string' || !sql.trim()) {
     return res.status(400).json({ error: 'এসকিউএল কুয়েরি লিখুন' });

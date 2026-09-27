@@ -446,112 +446,6 @@ export async function query(text: string, params?: any[]): Promise<pg.QueryResul
   }
 }
 
-let onlineOrdersSchemaEnsured = false;
-
-/**
- * Self-healing schema helper for online_orders & marketplace_master_orders
- * Ensures all columns (including discount_amount, paid_amount, due_amount, delivery details,
- * and marketplace vs personal store governance columns) exist before any query/update.
- */
-export async function ensureOnlineOrdersSchema(poolOrClient?: any, force = false): Promise<void> {
-  if (onlineOrdersSchemaEnsured && !force) return;
-  const target = poolOrClient || getDbPool();
-  if (!target) return;
-
-  try {
-    await target.query(`
-      CREATE TABLE IF NOT EXISTS online_orders (
-        id VARCHAR(100) PRIMARY KEY,
-        user_id VARCHAR(100) NOT NULL,
-        order_number VARCHAR(50) NOT NULL,
-        customer_name VARCHAR(150) NOT NULL,
-        customer_phone VARCHAR(50) NOT NULL,
-        customer_address TEXT,
-        delivery_area VARCHAR(50) DEFAULT 'inside_dhaka',
-        delivery_charge NUMERIC(12, 2) DEFAULT 0,
-        discount_amount NUMERIC(12, 2) DEFAULT 0,
-        items JSONB DEFAULT '[]'::jsonb,
-        subtotal NUMERIC(12, 2) DEFAULT 0,
-        total_amount NUMERIC(12, 2) DEFAULT 0,
-        paid_amount NUMERIC(12, 2) DEFAULT 0,
-        due_amount NUMERIC(12, 2) DEFAULT 0,
-        payment_method VARCHAR(50) DEFAULT 'cod',
-        payment_status VARCHAR(50) DEFAULT 'unpaid',
-        order_status VARCHAR(50) DEFAULT 'pending',
-        order_source VARCHAR(30) DEFAULT 'direct_store',
-        master_order_id VARCHAR(100),
-        vendor_payout_status VARCHAR(30) DEFAULT 'unsettled',
-        admin_approval_status VARCHAR(50) DEFAULT 'pending_approval',
-        is_admin_approved BOOLEAN DEFAULT FALSE,
-        is_rejected_by_admin BOOLEAN DEFAULT FALSE,
-        admin_rejection_reason TEXT,
-        is_hidden_from_vendor BOOLEAN DEFAULT FALSE,
-        trx_id VARCHAR(100),
-        sender_phone VARCHAR(50),
-        payment_amount NUMERIC(12, 2),
-        payment_proof TEXT,
-        payment_reject_reason TEXT,
-        payment_reviewed_at BIGINT,
-        notes TEXT,
-        courier_name VARCHAR(100),
-        courier_tracking_code VARCHAR(100),
-        delivery_man_name VARCHAR(150),
-        delivery_man_phone VARCHAR(50),
-        estimated_delivery_date VARCHAR(100),
-        delivery_note TEXT,
-        vendor_note TEXT,
-        cod_collected_amount NUMERIC(12, 2),
-        collected_at BIGINT,
-        is_stock_adjusted BOOLEAN DEFAULT FALSE,
-        is_ledger_synced BOOLEAN DEFAULT FALSE,
-        created_at BIGINT NOT NULL,
-        updated_at BIGINT NOT NULL
-      );
-
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12, 2) DEFAULT 0;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS due_amount NUMERIC(12, 2) DEFAULT 0;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_area VARCHAR(50) DEFAULT 'inside_dhaka';
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_charge NUMERIC(12, 2) DEFAULT 0;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS subtotal NUMERIC(12, 2) DEFAULT 0;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS total_amount NUMERIC(12, 2) DEFAULT 0;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'cod';
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) DEFAULT 'unpaid';
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS order_status VARCHAR(50) DEFAULT 'pending';
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS order_source VARCHAR(30) DEFAULT 'direct_store';
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS master_order_id VARCHAR(100);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS vendor_payout_status VARCHAR(30) DEFAULT 'unsettled';
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_approval_status VARCHAR(50) DEFAULT 'pending_approval';
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_admin_approved BOOLEAN DEFAULT FALSE;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_rejected_by_admin BOOLEAN DEFAULT FALSE;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_rejection_reason TEXT;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_hidden_from_vendor BOOLEAN DEFAULT FALSE;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS trx_id VARCHAR(100);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS sender_phone VARCHAR(50);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS payment_amount NUMERIC(12, 2);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS payment_proof TEXT;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS payment_reject_reason TEXT;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS payment_reviewed_at BIGINT;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS notes TEXT;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS courier_name VARCHAR(100);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS courier_tracking_code VARCHAR(100);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_man_name VARCHAR(150);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_man_phone VARCHAR(50);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS estimated_delivery_date VARCHAR(100);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_note TEXT;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS vendor_note TEXT;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS cod_collected_amount NUMERIC(12, 2);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS collected_at BIGINT;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_stock_adjusted BOOLEAN DEFAULT FALSE;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_ledger_synced BOOLEAN DEFAULT FALSE;
-    `);
-    onlineOrdersSchemaEnsured = true;
-  } catch (err) {
-    console.warn('⚠️ ensureOnlineOrdersSchema notice:', (err as any)?.message || err);
-  }
-}
-
 /**
  * Initialize PostgreSQL Schema for Neon
  */
@@ -763,10 +657,9 @@ export async function initializeDatabaseSchema() {
         is_read BOOLEAN DEFAULT FALSE,
         created_at BIGINT NOT NULL
       );
-      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_user_id VARCHAR(64);
-      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_user_name VARCHAR(255);
-      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'USER';
       CREATE INDEX IF NOT EXISTS idx_notifications_target_user ON notifications(target_user_id, target);
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'USER';
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_user_name VARCHAR(255);
 
       -- Per-user notification read tracking (for broadcast & audience notifications)
       CREATE TABLE IF NOT EXISTS user_notification_reads (
@@ -957,8 +850,36 @@ export async function initializeDatabaseSchema() {
     `);
 
     // 14. Online Store Orders & Customer Payments Table
-    await ensureOnlineOrdersSchema(client, true);
     await client.query(`
+      CREATE TABLE IF NOT EXISTS online_orders (
+        id VARCHAR(100) PRIMARY KEY,
+        user_id VARCHAR(100) NOT NULL,
+        order_number VARCHAR(50) NOT NULL,
+        customer_name VARCHAR(150) NOT NULL,
+        customer_phone VARCHAR(50) NOT NULL,
+        customer_address TEXT,
+        delivery_area VARCHAR(50) DEFAULT 'inside_dhaka',
+        delivery_charge NUMERIC(12, 2) DEFAULT 0,
+        items JSONB DEFAULT '[]'::jsonb,
+        subtotal NUMERIC(12, 2) DEFAULT 0,
+        total_amount NUMERIC(12, 2) DEFAULT 0,
+        payment_method VARCHAR(50) DEFAULT 'cod',
+        payment_status VARCHAR(50) DEFAULT 'unpaid',
+        order_status VARCHAR(50) DEFAULT 'pending',
+        trx_id VARCHAR(100),
+        sender_phone VARCHAR(50),
+        payment_amount NUMERIC(12, 2),
+        payment_proof TEXT,
+        payment_reject_reason TEXT,
+        payment_reviewed_at BIGINT,
+        notes TEXT,
+        courier_name VARCHAR(100),
+        courier_tracking_code VARCHAR(100),
+        cod_collected_amount NUMERIC(12, 2),
+        collected_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_online_orders_user ON online_orders(user_id);
       CREATE INDEX IF NOT EXISTS idx_online_orders_created ON online_orders(created_at DESC);
     `);
@@ -1012,9 +933,6 @@ export async function initializeDatabaseSchema() {
         created_at BIGINT NOT NULL,
         updated_at BIGINT NOT NULL
       );
-      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS id VARCHAR(100);
-      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
-      ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255);
       CREATE INDEX IF NOT EXISTS idx_online_store_configs_slug ON online_store_configs(store_slug);
       CREATE INDEX IF NOT EXISTS idx_online_store_configs_domain ON online_store_configs(custom_domain);
 
@@ -1266,7 +1184,7 @@ export async function initializeDatabaseSchema() {
       CREATE INDEX IF NOT EXISTS idx_products_mkt_feed 
       ON products(is_listed_on_marketplace, marketplace_status, stock);
 
-      -- 2. Online Orders Multi-Vendor Support & Personal E-Commerce Vendor Suite
+      -- 2. Online Orders Multi-Vendor Support
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS order_source VARCHAR(30) DEFAULT 'direct_store';
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS master_order_id VARCHAR(100);
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS vendor_payout_status VARCHAR(30) DEFAULT 'unsettled';
@@ -1275,24 +1193,6 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_rejected_by_admin BOOLEAN DEFAULT FALSE;
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_rejection_reason TEXT;
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_hidden_from_vendor BOOLEAN DEFAULT FALSE;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12, 2) DEFAULT 0;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS due_amount NUMERIC(12, 2) DEFAULT 0;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_man_name VARCHAR(150);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_man_phone VARCHAR(50);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS estimated_delivery_date VARCHAR(100);
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_note TEXT;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS vendor_note TEXT;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_stock_adjusted BOOLEAN DEFAULT FALSE;
-      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_ledger_synced BOOLEAN DEFAULT FALSE;
-
-      -- Personal store orders are 100% vendor-operated (never locked by admin)
-      UPDATE online_orders
-      SET is_admin_approved = TRUE,
-          admin_approval_status = 'not_required'
-      WHERE (order_source IS NULL OR order_source = 'direct_store')
-        AND master_order_id IS NULL
-        AND is_admin_approved IS NOT TRUE;
 
       CREATE INDEX IF NOT EXISTS idx_online_orders_master ON online_orders(master_order_id);
       CREATE INDEX IF NOT EXISTS idx_online_orders_src ON online_orders(order_source);
