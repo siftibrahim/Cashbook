@@ -35,6 +35,7 @@ import {
   Building,
   XCircle,
   Info,
+  Lock,
 } from 'lucide-react';
 import { marketplaceAdminApi } from '../../services/marketplaceAdminService';
 
@@ -78,6 +79,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const [orderSearch, setOrderSearch] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('all');
   const [productSearch, setProductSearch] = useState('');
+  const [productFilter, setProductFilter] = useState<'all' | 'listed' | 'unlisted'>('all');
   const [selectedMasterOrder, setSelectedMasterOrder] = useState<any | null>(null);
 
   // Category Modal State
@@ -94,17 +96,20 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date>(new Date());
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3000);
   };
 
-  const loadData = async () => {
-    setIsLoading(true);
+  const loadData = async (showSpinner = true) => {
+    if (showSpinner) setIsLoading(true);
+    setLoadError(null);
     try {
       const res = await marketplaceAdminApi.getOverview();
-      if (res.success) {
+      if (res && res.success) {
         setData({
           masterOrders: res.masterOrders || [],
           subOrders: res.subOrders || [],
@@ -112,6 +117,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           categories: res.categories || [],
           settings: res.settings || {},
         });
+        setLastSyncedAt(new Date());
         if (res.settings) {
           setSettingsForm((prev) => ({
             ...prev,
@@ -126,7 +132,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       // Load vendor payout requests
       try {
         const payoutsRes = await marketplaceAdminApi.getPayoutRequests();
-        if (payoutsRes.success) {
+        if (payoutsRes && payoutsRes.success) {
           setPayoutRequests(payoutsRes.requests || []);
         }
       } catch (e) {
@@ -134,13 +140,47 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       }
     } catch (err: any) {
       console.warn('Marketplace admin load error:', err);
+      setLoadError(err.message || 'মার্কেটপ্লেস ডাটা লোড হতে সমস্যা হয়েছে');
     } finally {
-      setIsLoading(false);
+      if (showSpinner) setIsLoading(false);
     }
   };
 
+  // Real-time automatic background polling + SSE push listener
   useEffect(() => {
-    loadData();
+    loadData(true);
+
+    const interval = setInterval(() => {
+      loadData(false);
+    }, 6000);
+
+    let eventSource: EventSource | null = null;
+    try {
+      const token =
+        (typeof localStorage !== 'undefined'
+          ? localStorage.getItem('twing_jwt_token') || localStorage.getItem('ibrahim_auth_token')
+          : null);
+      if (token && typeof EventSource !== 'undefined') {
+        eventSource = new EventSource(`/api/subscription/events?token=${encodeURIComponent(token)}`);
+        eventSource.addEventListener('marketplace_updated', () => {
+          loadData(false);
+        });
+        eventSource.addEventListener('marketplace_order_created', (e) => {
+          loadData(false);
+          try {
+            const parsed = JSON.parse(e.data);
+            showToast(`🔔 নতুন সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${parsed.orderNumber || ''} এসেছে!`);
+          } catch {}
+        });
+      }
+    } catch (e) {
+      console.debug('EventSource setup notice:', e);
+    }
+
+    return () => {
+      clearInterval(interval);
+      eventSource?.close();
+    };
   }, []);
 
   const handleCopy = (text: string, id: string) => {
@@ -338,7 +378,8 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const pendingInquiriesCount = data.masterOrders.filter(
     o => o.adminApprovalStatus === 'pending_approval' || (o.isAdminApproved !== true && o.isRejectedByAdmin !== true)
   ).length;
-  const totalListedProducts = data.products.length;
+  const totalListedProducts = data.products.filter(p => p.isListedOnMarketplace || p.isFeaturedOnMarketplace).length;
+  const totalAllProducts = data.products.length;
 
   // Filtered Orders
   const filteredOrders = data.masterOrders.filter((ord) => {
@@ -364,6 +405,8 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
 
   // Filtered Products
   const filteredProducts = data.products.filter((p) => {
+    if (productFilter === 'listed' && !p.isListedOnMarketplace && !p.isFeaturedOnMarketplace) return false;
+    if (productFilter === 'unlisted' && (p.isListedOnMarketplace || p.isFeaturedOnMarketplace)) return false;
     return (
       !productSearch.trim() ||
       p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
@@ -396,7 +439,15 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/20 border border-emerald-400/40 rounded-xl text-xs font-bold text-emerald-300">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>লাইভ সিঙ্ক</span>
+              <span className="text-[10px] text-teal-200">
+                ({lastSyncedAt.toLocaleTimeString('bn-BD')})
+              </span>
+            </div>
+
             <a
               href="/marketplace"
               target="_blank"
@@ -409,9 +460,9 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
 
             <button
               type="button"
-              onClick={loadData}
+              onClick={() => loadData(true)}
               disabled={isLoading}
-              className="px-3 py-2 bg-teal-700/60 hover:bg-teal-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
+              className="px-3 py-2 bg-teal-700/60 hover:bg-teal-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">রিফ্রেশ</span>
@@ -419,6 +470,23 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           </div>
         </div>
       </div>
+
+      {/* Error alert banner */}
+      {loadError && (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span className="font-semibold">{loadError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadData(true)}
+            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold rounded-lg transition cursor-pointer"
+          >
+            পুনরায় চেষ্টা করুন
+          </button>
+        </div>
+      )}
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -458,11 +526,18 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs space-y-1">
+        <div
+          onClick={() => setActiveSubTab('products')}
+          className={`p-4 rounded-xl border cursor-pointer transition shadow-xs space-y-1 ${
+            activeSubTab === 'products' ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-300/40' : 'bg-white border-slate-200/80 hover:bg-slate-50'
+          }`}
+        >
           <p className="text-xs text-slate-500 font-medium">মার্কেটপ্লেস লাইভ পণ্য</p>
           <div className="flex items-baseline justify-between">
             <span className="text-xl sm:text-2xl font-black text-indigo-900">{totalListedProducts}</span>
-            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">অন-মল</span>
+            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">
+              অন-মল ({totalAllProducts} পণ্য)
+            </span>
           </div>
         </div>
       </div>
@@ -543,6 +618,22 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       {/* SUB-TAB 1: MASTER ORDERS */}
       {activeSubTab === 'orders' && (
         <div className="space-y-4">
+          {/* Governance Policy Banner */}
+          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-indigo-50 via-teal-50/70 to-amber-50/70 border border-teal-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <span className="font-black text-slate-900 block">
+                  🏛️ পেমেন্ট যাচাই ও পারমিশন নীতিমালা (Central Marketplace vs Personal E-Commerce)
+                </span>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  <strong>সেন্ট্রাল মার্কেটপ্লেস:</strong> শুধুমাত্র এই মলের অর্ডারগুলোর পেমেন্ট সুপার অ্যাডমিন যাচাই করে অনুমোদন (আনলক) দিলে ভেন্ডর ডেলিভারি করতে পারবে।{' '}
+                  <strong>পার্সোনাল ই-কমার্স সাইট:</strong> ইউজারের নিজস্ব স্টোরের অর্ডার ও পেমেন্ট ১০০% ভেন্ডর নিজেই যাচাই, আপডেট ও ডেলিভারি পরিচালনা করবে (অ্যাডমিন পারমিশন প্রয়োজন নেই)।
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Search & Filter Bar */}
           <div className="flex flex-col sm:flex-row gap-2.5 justify-between">
             <div className="relative flex-1 max-w-md">
@@ -1227,15 +1318,53 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       {/* SUB-TAB 2: PRODUCT MODERATION */}
       {activeSubTab === 'products' && (
         <div className="space-y-4">
-          <div className="relative max-w-md">
-            <input
-              type="text"
-              value={productSearch}
-              onChange={(e) => setProductSearch(e.target.value)}
-              placeholder="পণ্যের নাম বা দোকানের নাম খুঁজুন..."
-              className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-700/30"
-            />
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center justify-between">
+            <div className="relative max-w-md flex-1">
+              <input
+                type="text"
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                placeholder="পণ্যের নাম বা দোকানের নাম খুঁজুন..."
+                className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-700/30"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              <button
+                type="button"
+                onClick={() => setProductFilter('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                  productFilter === 'all'
+                    ? 'bg-teal-800 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                সকল পণ্য ({totalAllProducts})
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductFilter('listed')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                  productFilter === 'listed'
+                    ? 'bg-teal-800 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                মল লাইভ ({totalListedProducts})
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductFilter('unlisted')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                  productFilter === 'unlisted'
+                    ? 'bg-teal-800 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                অপ্রদর্শিত ({Math.max(0, totalAllProducts - totalListedProducts)})
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

@@ -223,7 +223,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
     const unsubLogs = subscribeToActivityLogs(setLogs);
     const unsubSupport = subscribeToAllSupportThreads(setSupportThreads);
-    const unsubStaff = isSuperAdmin ? subscribeToStaffMembers(setStaffList) : () => {};
+    const canManageStaff = isSuperAdmin || hasStaffPermission(effectiveSession, 'staff_manage');
+    const unsubStaff = canManageStaff ? subscribeToStaffMembers(setStaffList) : () => {};
     const unsubSmsPurchases = subscribeToSmsPurchases(setSmsPurchases);
 
     return () => {
@@ -274,36 +275,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       id: 'payment_settings',
       label: 'পেমেন্ট গেটওয়ে সেটিংস',
       icon: Wallet,
-      isAllowed: isSuperAdmin,
-      isSuperOnly: true,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'payment_settings_manage'),
+      isSuperOnly: false,
     },
     {
       id: 'sms_gateway',
       label: 'এসএমএস ও ওটিপি গেটওয়ে',
       icon: Smartphone,
-      isAllowed: isSuperAdmin,
-      isSuperOnly: true,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'sms_gateway_manage'),
+      isSuperOnly: false,
     },
     {
       id: 'tagada_templates',
       label: 'তাগাদা মেসেজ অপশন ও টেমপ্লেট',
       icon: MessageCircle,
-      isAllowed: isSuperAdmin,
-      isSuperOnly: true,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'tagada_templates_manage'),
+      isSuperOnly: false,
     },
     {
       id: 'ads_management',
       label: 'বিজ্ঞাপন ও অ্যাড সেটিংস',
       icon: Megaphone,
-      isAllowed: isSuperAdmin,
-      isSuperOnly: true,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'ads_manage'),
+      isSuperOnly: false,
     },
     {
       id: 'dashboard_banners',
       label: 'ড্যাশবোর্ড প্রোমো ব্যানার',
       icon: Sparkles,
-      isAllowed: isSuperAdmin,
-      isSuperOnly: true,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'dashboard_banners_manage'),
+      isSuperOnly: false,
     },
     {
       id: 'super_admin_security',
@@ -318,8 +319,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       icon: Shield,
       badge: staffList.length > 0 ? staffList.length : undefined,
       badgeColor: 'bg-rose-600 text-white',
-      isAllowed: isSuperAdmin,
-      isSuperOnly: true,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'staff_manage'),
+      isSuperOnly: false,
     },
     {
       id: 'users',
@@ -335,7 +336,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       icon: Globe,
       badge: pendingStoreRequestsCount > 0 ? pendingStoreRequestsCount : undefined,
       badgeColor: 'bg-amber-400 text-slate-950 font-black animate-pulse',
-      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'users_view'),
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'online_store_manage') || hasStaffPermission(effectiveSession, 'users_view'),
     },
     {
       id: 'central_marketplace',
@@ -343,8 +344,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       icon: Store,
       badge: 'মল',
       badgeColor: 'bg-teal-600 text-white font-bold',
-      isAllowed: isSuperAdmin,
-      isSuperOnly: true,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'marketplace_manage'),
+      isSuperOnly: false,
     },
     {
       id: 'payments',
@@ -360,7 +361,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       icon: MessageSquare,
       badge: pendingSmsPurchasesCount > 0 ? pendingSmsPurchasesCount : undefined,
       badgeColor: 'bg-teal-500 text-slate-950 font-black animate-pulse',
-      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'payments_view'),
+      isAllowed:
+        isSuperAdmin ||
+        hasStaffPermission(effectiveSession, 'sms_purchases_manage') ||
+        hasStaffPermission(effectiveSession, 'payments_view'),
     },
     {
       id: 'expired',
@@ -407,15 +411,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       label: 'লাইভ ডাটাবেজ ভিউয়ার',
       icon: Database,
       badgeColor: 'bg-emerald-600 text-white',
-      isAllowed: isSuperAdmin,
-      isSuperOnly: true,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'database_view'),
+      isSuperOnly: false,
     },
     {
       id: 'data_management',
       label: 'সিস্টেম ডাটা ও ব্যাকআপ',
       icon: Layers,
-      isAllowed: isSuperAdmin,
-      isSuperOnly: true,
+      isAllowed: isSuperAdmin || hasStaffPermission(effectiveSession, 'database_view'),
+      isSuperOnly: false,
     },
     {
       id: 'activity_logs',
@@ -788,7 +792,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             />
           )}
 
-          {activeTab === 'payment_settings' && isSuperAdmin && (
+          {activeTab === 'payment_settings' && (isSuperAdmin || hasStaffPermission(effectiveSession, 'payment_settings_manage')) && (
             <PaymentSettingsTab
               settings={paymentSettings}
               onSaveSettings={async (newSettings) => {
@@ -798,19 +802,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             />
           )}
 
-          {activeTab === 'sms_gateway' && isSuperAdmin && (
+          {activeTab === 'sms_gateway' && (isSuperAdmin || hasStaffPermission(effectiveSession, 'sms_gateway_manage')) && (
             <SmsGatewayTab onShowToast={showToast} />
           )}
 
-          {activeTab === 'tagada_templates' && isSuperAdmin && (
+          {activeTab === 'tagada_templates' && (isSuperAdmin || hasStaffPermission(effectiveSession, 'tagada_templates_manage')) && (
             <TagadaTemplatesTab onShowToast={showToast} />
           )}
 
-          {activeTab === 'ads_management' && isSuperAdmin && (
+          {activeTab === 'ads_management' && (isSuperAdmin || hasStaffPermission(effectiveSession, 'ads_manage')) && (
             <AdsManagementTab onShowToast={showToast} />
           )}
 
-          {activeTab === 'dashboard_banners' && isSuperAdmin && (
+          {activeTab === 'dashboard_banners' && (isSuperAdmin || hasStaffPermission(effectiveSession, 'dashboard_banners_manage')) && (
             <DashboardBannersTab
               onShowToast={showToast}
               currentUserEmail={effectiveSession.email || currentUserEmail}
@@ -827,7 +831,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             />
           )}
 
-          {activeTab === 'staff_management' && isSuperAdmin && (
+          {activeTab === 'staff_management' && (isSuperAdmin || hasStaffPermission(effectiveSession, 'staff_manage')) && (
             <StaffManagementTab
               staffList={staffList}
               onSaveStaff={(staffData) => saveStaffMember(staffData, effectiveSession.email)}
@@ -838,11 +842,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             />
           )}
 
-          {activeTab === 'live_db_viewer' && isSuperAdmin && (
+          {activeTab === 'live_db_viewer' && (isSuperAdmin || hasStaffPermission(effectiveSession, 'database_view')) && (
             <LiveDbViewerTab onShowToast={showToast} />
           )}
 
-          {activeTab === 'data_management' && isSuperAdmin && (
+          {activeTab === 'data_management' && (isSuperAdmin || hasStaffPermission(effectiveSession, 'database_view')) && (
             <DataManagementTab
               onShowToast={showToast}
               onRefreshAll={checkDbAndRefresh}

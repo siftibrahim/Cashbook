@@ -3,8 +3,29 @@ import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { PaymentlyService } from '../services/paymentlyService';
 import { sendSmsNotification } from '../services/smsService';
+import { realtimeEvents } from '../services/realtimeEvents';
 
 const router = Router();
+
+export function checkIsSuperAdminOrStaff(req: AuthenticatedRequest): boolean {
+  if (!req.user) return false;
+  const role = req.user.role;
+  const email = (req.user.email || '').toLowerCase().trim();
+  const phone = (req.user.phone || '').replace(/\D/g, '');
+  const id = req.user.userId || '';
+
+  if (role === 'super_admin' || role === 'admin' || role === 'staff') return true;
+  if (id === 'usr_super_admin') return true;
+  if (
+    email === 'admin@twing.com' ||
+    email === 'siftibrahim@gmail.com' ||
+    email === 'siftibrahim75@gmail.com' ||
+    email === 'siftraihan@gmail.com'
+  ) return true;
+  if (process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.toLowerCase().trim()) return true;
+  if (phone === '01306908115' || phone === '01619665875') return true;
+  return false;
+}
 
 // Default showcase images for fallback if needed
 const SHOWCASE_PRODUCTS = [
@@ -983,6 +1004,15 @@ router.post('/checkout', async (req: Request, res: Response) => {
       saveInMemoryStoreToDisk();
     }
 
+    // Real-time broadcast to Admins for live order sync
+    realtimeEvents.broadcastToAdmins('marketplace_order_created', {
+      orderId: masterOrderId,
+      orderNumber: masterOrderNumber,
+      customerName: cleanName,
+      grandTotal,
+    });
+    realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'new_order' });
+
     let checkoutSession: any = null;
     if (isPaymently) {
       const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
@@ -1286,7 +1316,7 @@ router.post('/toggle-product', authenticateUser, async (req: AuthenticatedReques
  */
 router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com';
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
     if (!isSuperAdmin) {
       return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
     }
@@ -1314,7 +1344,7 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
         LIMIT 500
       `).catch(() => ({ rows: [] }));
 
-      // 3. Listed products
+      // 3. Listed & Store products (ordered with marketplace listed ones first)
       const productsRes = await pool.query(`
         SELECT p.*, 
                COALESCE(s.store_name, u.shop_name, 'ভেন্ডর') as vendor_shop_name,
@@ -1322,15 +1352,34 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
         FROM products p
         LEFT JOIN online_store_configs s ON s.user_id = p.user_id
         LEFT JOIN users u ON u.id = p.user_id
-        WHERE p.is_listed_on_marketplace = TRUE OR p.is_featured_on_marketplace = TRUE
-        ORDER BY p.updated_at DESC
-        LIMIT 300
+        ORDER BY (CASE WHEN (p.is_listed_on_marketplace = TRUE OR p.is_featured_on_marketplace = TRUE) THEN 0 ELSE 1 END), p.updated_at DESC
+        LIMIT 500
       `).catch(() => ({ rows: [] }));
 
-      // 4. Categories
-      const catsRes = await pool.query(`
+      // 4. Categories - ensure default categories exist
+      let catsRes = await pool.query(`
         SELECT * FROM marketplace_categories ORDER BY sort_order ASC
       `).catch(() => ({ rows: [] }));
+
+      if (!catsRes.rows || catsRes.rows.length === 0) {
+        const defaultCats = [
+          { id: 'cat_grocery', name_bn: 'চাল, ডাল ও মুদি', name_en: 'Grocery & Essentials', slug: 'grocery', icon: 'ShoppingBag', sort_order: 1 },
+          { id: 'cat_oil_ghee', name_bn: 'তেল ও খাঁটি ঘি', name_en: 'Oil & Pure Ghee', slug: 'oil-ghee', icon: 'Flame', sort_order: 2 },
+          { id: 'cat_fashion', name_bn: 'পোশাক ও ফ্যাশন', name_en: 'Clothing & Fashion', slug: 'fashion', icon: 'Shirt', sort_order: 3 },
+          { id: 'cat_electronics', name_bn: 'ইলেকট্রনিক্স ও গ্যাজেট', name_en: 'Electronics & Gadgets', slug: 'electronics', icon: 'Smartphone', sort_order: 4 },
+          { id: 'cat_beauty', name_bn: 'রূপচর্চা ও প্রসাধন', name_en: 'Beauty & Personal Care', slug: 'beauty', icon: 'Sparkles', sort_order: 5 },
+          { id: 'cat_home', name_bn: 'গৃহস্থালী ও রান্নাঘর', name_en: 'Home & Kitchen', slug: 'home-kitchen', icon: 'Home', sort_order: 6 },
+          { id: 'cat_health', name_bn: 'স্বাস্থ্য ও মেডিসিন', name_en: 'Health & Pharmacy', slug: 'health', icon: 'HeartPulse', sort_order: 7 },
+        ];
+        for (const cat of defaultCats) {
+          await pool.query(`
+            INSERT INTO marketplace_categories (id, name_bn, name_en, slug, icon, sort_order, is_active, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7)
+            ON CONFLICT (id) DO NOTHING;
+          `, [cat.id, cat.name_bn, cat.name_en, cat.slug, cat.icon, cat.sort_order, Date.now()]).catch(() => {});
+        }
+        catsRes = await pool.query(`SELECT * FROM marketplace_categories ORDER BY sort_order ASC`).catch(() => ({ rows: [] }));
+      }
 
       // 5. Settings
       const settings = await getStoredMarketplaceSettings();
@@ -1419,11 +1468,23 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
       });
     } else {
       // InMemoryStore Fallback
+      if (!inMemoryStore.marketplace_categories || inMemoryStore.marketplace_categories.length === 0) {
+        inMemoryStore.marketplace_categories = [
+          { id: 'cat_grocery', nameBn: 'চাল, ডাল ও মুদি', nameEn: 'Grocery & Essentials', slug: 'grocery', icon: 'ShoppingBag', sortOrder: 1, isActive: true },
+          { id: 'cat_oil_ghee', nameBn: 'তেল ও খাঁটি ঘি', nameEn: 'Oil & Pure Ghee', slug: 'oil-ghee', icon: 'Flame', sortOrder: 2, isActive: true },
+          { id: 'cat_fashion', nameBn: 'পোশাক ও ফ্যাশন', nameEn: 'Clothing & Fashion', slug: 'fashion', icon: 'Shirt', sortOrder: 3, isActive: true },
+          { id: 'cat_electronics', nameBn: 'ইলেকট্রনিক্স ও গ্যাজেট', nameEn: 'Electronics & Gadgets', slug: 'electronics', icon: 'Smartphone', sortOrder: 4, isActive: true },
+          { id: 'cat_beauty', nameBn: 'রূপচর্চা ও প্রসাধন', nameEn: 'Beauty & Personal Care', slug: 'beauty', icon: 'Sparkles', sortOrder: 5, isActive: true },
+          { id: 'cat_home', nameBn: 'গৃহস্থালী ও রান্নাঘর', nameEn: 'Home & Kitchen', slug: 'home-kitchen', icon: 'Home', sortOrder: 6, isActive: true },
+          { id: 'cat_health', nameBn: 'স্বাস্থ্য ও মেডিসিন', nameEn: 'Health & Pharmacy', slug: 'health', icon: 'HeartPulse', sortOrder: 7, isActive: true },
+        ];
+      }
+
       return res.json({
         success: true,
         masterOrders: inMemoryStore.marketplace_master_orders || [],
         subOrders: (inMemoryStore.online_orders || []).filter(o => o.orderSource === 'marketplace' || o.masterOrderId),
-        products: (inMemoryStore.products || []).filter(p => p.isListedOnMarketplace || p.isFeaturedOnMarketplace),
+        products: inMemoryStore.products || [],
         categories: inMemoryStore.marketplace_categories || [],
         settings: await getStoredMarketplaceSettings(),
       });
@@ -1439,7 +1500,7 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
  */
 router.post('/admin/orders/:id/status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com';
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const { id } = req.params;
@@ -1464,6 +1525,8 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
       }
     }
 
+    realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'order_status', id });
+
     return res.json({ success: true, message: 'অর্ডার স্ট্যাটাস সফলভাবে আপডেট হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1480,7 +1543,7 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
  */
 router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com';
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const { id } = req.params;
@@ -1593,6 +1656,8 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
       saveInMemoryStoreToDisk();
     }
 
+    realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'approve_payment', orderId: targetOrder.id });
+
     // 🔔 SEND OFFICIAL ORDER CONFIRMATION SMS TO CUSTOMER NOW!
     const custPhone = targetOrder.customer_phone || targetOrder.customerPhone;
     const custName = targetOrder.customer_name || targetOrder.customerName || 'সম্মানিত গ্রাহক';
@@ -1627,7 +1692,7 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
  */
 router.post('/admin/orders/:id/reject-payment', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com';
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const { id } = req.params;
@@ -1746,6 +1811,8 @@ router.post('/admin/orders/:id/reject-payment', authenticateUser, async (req: Au
       });
     }
 
+    realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'reject_payment', orderId: targetOrder.id });
+
     return res.json({
       success: true,
       message: '❌ পেমেন্ট বাতিল করা হয়েছে। ভেন্ডরদের তালিকা থেকে অর্ডারটি সরিয়ে দেওয়া হয়েছে এবং পণ্যের স্টক রিস্টোর করা হয়েছে।',
@@ -1761,7 +1828,7 @@ router.post('/admin/orders/:id/reject-payment', authenticateUser, async (req: Au
  */
 router.post('/admin/orders/sub/:subOrderId/payout', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com';
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const { subOrderId } = req.params;
@@ -1796,7 +1863,7 @@ router.post('/admin/orders/sub/:subOrderId/payout', authenticateUser, async (req
  */
 router.post('/admin/products/:productId/moderate', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com';
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const { productId } = req.params;
@@ -1840,7 +1907,7 @@ router.post('/admin/products/:productId/moderate', authenticateUser, async (req:
  */
 router.post('/admin/categories', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com';
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const { id, nameBn, nameEn, slug, icon, sortOrder, isActive, action = 'save' } = req.body;
@@ -1907,7 +1974,7 @@ router.post('/admin/categories', authenticateUser, async (req: AuthenticatedRequ
  */
 router.post('/admin/settings', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isSuperAdmin = req.user?.role === 'super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com';
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const settings = req.body;
@@ -2343,12 +2410,7 @@ router.post('/vendor/payout-request', authenticateUser, async (req: Authenticate
  */
 router.get('/admin/payout-requests', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isSuperAdmin =
-      req.user?.role === 'super_admin' ||
-      req.user?.role === 'admin' ||
-      req.user?.email === 'siftibrahim@gmail.com' ||
-      req.user?.email === 'siftibrahim75@gmail.com' ||
-      req.user?.email === process.env.ADMIN_EMAIL;
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
 
     if (!isSuperAdmin) {
       return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
@@ -2432,12 +2494,7 @@ router.get('/admin/payout-requests', authenticateUser, async (req: Authenticated
  */
 router.post('/admin/payout-requests/:id/process', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const isSuperAdmin =
-      req.user?.role === 'super_admin' ||
-      req.user?.role === 'admin' ||
-      req.user?.email === 'siftibrahim@gmail.com' ||
-      req.user?.email === 'siftibrahim75@gmail.com' ||
-      req.user?.email === process.env.ADMIN_EMAIL;
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
 
     if (!isSuperAdmin) {
       return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });

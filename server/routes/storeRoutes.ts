@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStoreToDisk } from '../db';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStoreToDisk, ensureOnlineOrdersSchema } from '../db';
 import { AuthenticatedRequest, authenticateUser, optionalAuth } from '../authMiddleware';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { validateStoreSlug, cleanDomainString } from '../utils/domainResolver';
@@ -505,6 +505,14 @@ router.post('/sync-all', authenticateUser, async (req: AuthenticatedRequest, res
 
 // Helper to format DB row to OnlineOrder object
 function mapDbRowToOrder(r: any) {
+  const isMarketplaceOrder = r.order_source === 'marketplace' || Boolean(r.master_order_id);
+  const totalAmount = parseFloat(r.total_amount) || 0;
+  const paymentStatus = r.payment_status || 'unpaid';
+  const rawPaidAmount = r.paid_amount !== undefined && r.paid_amount !== null ? parseFloat(r.paid_amount) : 0;
+  const paidAmount = rawPaidAmount > 0 ? rawPaidAmount : (paymentStatus === 'paid' ? totalAmount : 0);
+  const rawDueAmount = r.due_amount !== undefined && r.due_amount !== null ? parseFloat(r.due_amount) : 0;
+  const dueAmount = paymentStatus === 'paid' ? 0 : (rawDueAmount > 0 ? rawDueAmount : Math.max(0, totalAmount - paidAmount));
+
   return {
     id: r.id,
     orderNumber: r.order_number,
@@ -513,18 +521,21 @@ function mapDbRowToOrder(r: any) {
     customerAddress: r.customer_address || '',
     deliveryArea: r.delivery_area || 'inside_dhaka',
     deliveryCharge: parseFloat(r.delivery_charge) || 0,
+    discountAmount: parseFloat(r.discount_amount) || 0,
     items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || []),
     subtotal: parseFloat(r.subtotal) || 0,
-    totalAmount: parseFloat(r.total_amount) || 0,
+    totalAmount,
+    paidAmount,
+    dueAmount,
     paymentMethod: r.payment_method || 'cod',
-    paymentStatus: r.payment_status || 'unpaid',
+    paymentStatus,
     orderStatus: r.order_status || 'pending',
-    orderSource: r.order_source || 'direct_store',
+    orderSource: isMarketplaceOrder ? 'marketplace' : 'direct_store',
     masterOrderId: r.master_order_id,
     vendorPayoutStatus: r.vendor_payout_status || 'unsettled',
-    adminApprovalStatus: r.admin_approval_status || 'pending_approval',
-    isAdminApproved: r.is_admin_approved === true,
-    isLockedForVendor: r.order_source === 'marketplace' ? (r.is_admin_approved !== true) : false,
+    adminApprovalStatus: isMarketplaceOrder ? (r.admin_approval_status || 'pending_approval') : 'not_required',
+    isAdminApproved: isMarketplaceOrder ? (r.is_admin_approved === true) : true,
+    isLockedForVendor: isMarketplaceOrder ? (r.is_admin_approved !== true) : false,
     isRejectedByAdmin: r.is_rejected_by_admin === true,
     isHiddenFromVendor: r.is_hidden_from_vendor === true,
     trxId: r.trx_id || '',
@@ -536,8 +547,15 @@ function mapDbRowToOrder(r: any) {
     notes: r.notes || '',
     courierName: r.courier_name || '',
     courierTrackingCode: r.courier_tracking_code || '',
+    deliveryManName: r.delivery_man_name || '',
+    deliveryManPhone: r.delivery_man_phone || '',
+    estimatedDeliveryDate: r.estimated_delivery_date || '',
+    deliveryNote: r.delivery_note || '',
+    vendorNote: r.vendor_note || '',
     codCollectedAmount: r.cod_collected_amount ? parseFloat(r.cod_collected_amount) : undefined,
     collectedAt: r.collected_at ? parseInt(r.collected_at, 10) : undefined,
+    isStockAdjusted: r.is_stock_adjusted === true,
+    isLedgerSynced: r.is_ledger_synced === true,
     createdAt: parseInt(r.created_at, 10) || Date.now(),
     updatedAt: parseInt(r.updated_at, 10) || Date.now(),
   };
@@ -552,6 +570,8 @@ router.get('/orders', authenticateUser, async (req: AuthenticatedRequest, res: R
     const pool = getDbPool();
 
     if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+
       const result = await pool.query(
         'SELECT * FROM online_orders WHERE user_id = $1 AND is_hidden_from_vendor IS NOT TRUE AND is_rejected_by_admin IS NOT TRUE ORDER BY created_at DESC',
         [userId]
@@ -561,6 +581,15 @@ router.get('/orders', authenticateUser, async (req: AuthenticatedRequest, res: R
     } else {
       const memoryOrders = (inMemoryStore.online_orders || [])
         .filter((o) => o.userId === userId && !o.isHiddenFromVendor && !o.isRejectedByAdmin)
+        .map((o) => {
+          const isMkt = o.orderSource === 'marketplace' || Boolean(o.masterOrderId);
+          return {
+            ...o,
+            orderSource: isMkt ? 'marketplace' : 'direct_store',
+            isAdminApproved: isMkt ? Boolean(o.isAdminApproved) : true,
+            isLockedForVendor: isMkt ? (o.isAdminApproved !== true) : false,
+          };
+        })
         .sort((a, b) => b.createdAt - a.createdAt);
       return res.json({ orders: memoryOrders });
     }
@@ -1520,6 +1549,7 @@ router.post('/orders', optionalAuth, async (req: AuthenticatedRequest, res: Resp
     const now = Date.now();
 
     if (pool) {
+      await ensureOnlineOrdersSchema(pool);
       await pool.query(`
         INSERT INTO online_orders (
           id, user_id, order_number, customer_name, customer_phone, customer_address,
@@ -1631,78 +1661,215 @@ router.post('/orders', optionalAuth, async (req: AuthenticatedRequest, res: Resp
 });
 
 /**
- * PUT /api/store/orders/:orderId/payment - Vendor verifies (accepts or rejects) payment
+ * PUT /api/store/orders/:orderId/payment - Vendor verifies & manages payment for Personal E-Commerce Store orders
+ * Strictly prohibited for Central Marketplace orders (which are verified ONLY by Super Admin).
  */
 router.put('/orders/:orderId/payment', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { orderId } = req.params;
-    const { action, rejectReason } = req.body; // action: 'accept' | 'reject' | 'reset'
+    const {
+      action,
+      rejectReason,
+      paidAmount: rawPaidAmount,
+      dueAmount: rawDueAmount,
+      discountAmount: rawDiscountAmount,
+      paymentMethod,
+      trxId,
+      senderPhone,
+      notes,
+    } = req.body;
     const userId = req.user?.userId;
     const pool = getDbPool();
     const now = Date.now();
 
-    if (!action || !['accept', 'reject', 'reset'].includes(action)) {
-      return res.status(400).json({ error: "Invalid action. Must be 'accept', 'reject', or 'reset'" });
+    const validActions = ['accept', 'partial', 'cod_collect', 'reject', 'refund', 'reset', 'update_info'];
+    if (!action || !validActions.includes(action)) {
+      return res.status(400).json({ error: 'সঠিক পেমেন্ট অ্যাকশন নির্বাচন করুন।' });
     }
 
-    let targetPaymentStatus = 'pending_verification';
+    // 🔒 STRICT GOVERNANCE CHECK:
+    // Central Marketplace orders MUST ONLY be payment-verified by Super Admin!
+    // Personal E-Commerce site orders are 100% operated & verified by the Vendor!
+    let existingOrder: any = null;
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const chk = await pool.query(
+        'SELECT * FROM online_orders WHERE (id = $1 OR order_number = $1) AND (user_id = $2 OR user_id = \'default_vendor\' OR user_id IS NULL) LIMIT 1',
+        [orderId, userId]
+      );
+      if (chk.rows.length > 0) existingOrder = chk.rows[0];
+    } else {
+      existingOrder = (inMemoryStore.online_orders || []).find(
+        (o) => (o.id === orderId || o.orderNumber === orderId) && (o.userId === userId || o.userId === 'default_vendor' || !o.userId)
+      );
+    }
+
+    if (!existingOrder) {
+      return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার এই অর্ডারে কোনো অনুমতি নেই।' });
+    }
+
+    const isMarketplace = existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId);
+    if (isMarketplace) {
+      return res.status(403).json({
+        error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডারের পেমেন্ট শুধুমাত্র সুপার এডমিন যাচাই করে পারমিশন দেন। আপনার পার্সোনাল ই-কমার্স সাইটের অর্ডারগুলোর পেমেন্ট শুধুমাত্র আপনি (ভেন্ডর) পরিচালনা ও যাচাই করতে পারবেন।',
+      });
+    }
+
+    const currentTotal = parseFloat(existingOrder.total_amount ?? existingOrder.totalAmount) || 0;
+    let targetPaymentStatus = existingOrder.payment_status || existingOrder.paymentStatus || 'pending_verification';
     let newOrderStatus: string | null = null;
     let finalRejectReason: string | null = null;
+    let finalPaidAmount = parseFloat(existingOrder.paid_amount ?? existingOrder.paidAmount) || 0;
+    let finalDueAmount = parseFloat(existingOrder.due_amount ?? existingOrder.dueAmount) || Math.max(0, currentTotal - finalPaidAmount);
+    let finalCodCollected = existingOrder.cod_collected_amount ?? existingOrder.codCollectedAmount ?? null;
+    let finalCollectedAt = existingOrder.collected_at ?? existingOrder.collectedAt ?? null;
+    let finalDiscount = rawDiscountAmount !== undefined ? (parseFloat(rawDiscountAmount) || 0) : (parseFloat(existingOrder.discount_amount ?? existingOrder.discountAmount) || 0);
+    const adjustedTotal = rawDiscountAmount !== undefined
+      ? Math.max(0, (parseFloat(existingOrder.subtotal) || currentTotal) + (parseFloat(existingOrder.delivery_charge ?? existingOrder.deliveryCharge) || 0) - finalDiscount)
+      : currentTotal;
 
     if (action === 'accept') {
       targetPaymentStatus = 'paid';
-      // Automatically advance pending orders to confirmed when payment is verified
       newOrderStatus = 'confirmed';
+      finalPaidAmount = adjustedTotal;
+      finalDueAmount = 0;
+    } else if (action === 'partial') {
+      targetPaymentStatus = 'partial_paid';
+      newOrderStatus = 'confirmed';
+      finalPaidAmount = rawPaidAmount !== undefined ? (parseFloat(rawPaidAmount) || 0) : finalPaidAmount;
+      finalDueAmount = rawDueAmount !== undefined ? (parseFloat(rawDueAmount) || 0) : Math.max(0, adjustedTotal - finalPaidAmount);
+    } else if (action === 'cod_collect') {
+      targetPaymentStatus = 'paid';
+      finalPaidAmount = adjustedTotal;
+      finalDueAmount = 0;
+      finalCodCollected = adjustedTotal;
+      finalCollectedAt = now;
     } else if (action === 'reject') {
       targetPaymentStatus = 'rejected';
-      finalRejectReason = (rejectReason || 'ভুল TrxID বা অ্যাকাউন্টে টাকা পাওয়া যায়নি').trim();
+      finalRejectReason = (rejectReason || 'ভুল TrxID বা ভেন্ডর অ্যাকাউন্টে টাকা পাওয়া যায়নি').trim();
+      finalPaidAmount = 0;
+      finalDueAmount = adjustedTotal;
+    } else if (action === 'refund') {
+      targetPaymentStatus = 'refunded';
+      finalRejectReason = (rejectReason || 'কাস্টমারকে পেমেন্ট রিফান্ড করা হয়েছে').trim();
+      finalPaidAmount = 0;
+      finalDueAmount = 0;
     } else if (action === 'reset') {
       targetPaymentStatus = 'pending_verification';
+    } else if (action === 'update_info') {
+      if (req.body.paymentStatus) targetPaymentStatus = req.body.paymentStatus;
+      if (rawPaidAmount !== undefined) finalPaidAmount = parseFloat(rawPaidAmount) || 0;
+      if (rawDueAmount !== undefined) {
+        finalDueAmount = parseFloat(rawDueAmount) || 0;
+      } else {
+        finalDueAmount = targetPaymentStatus === 'paid' ? 0 : Math.max(0, adjustedTotal - finalPaidAmount);
+      }
+      if (finalPaidAmount >= adjustedTotal && adjustedTotal > 0 && !req.body.paymentStatus) {
+        targetPaymentStatus = 'paid';
+        finalDueAmount = 0;
+      } else if (finalPaidAmount > 0 && finalPaidAmount < adjustedTotal && !req.body.paymentStatus) {
+        targetPaymentStatus = 'partial_paid';
+      }
     }
 
     if (pool) {
-      let updateQuery = `
-        UPDATE online_orders
-        SET payment_status = $1,
-            payment_reject_reason = $2,
-            payment_reviewed_at = $3,
-            updated_at = $4
-      `;
-      const queryParams: any[] = [targetPaymentStatus, finalRejectReason, now, now];
+      const result = await pool.query(
+        `UPDATE online_orders
+         SET payment_status = $1,
+             payment_reject_reason = $2,
+             payment_reviewed_at = $3,
+             paid_amount = $4,
+             due_amount = $5,
+             discount_amount = $6,
+             total_amount = $7,
+             payment_method = COALESCE($8, payment_method),
+             trx_id = COALESCE($9, trx_id),
+             sender_phone = COALESCE($10, sender_phone),
+             notes = COALESCE($11, notes),
+             cod_collected_amount = COALESCE($12, cod_collected_amount),
+             collected_at = COALESCE($13, collected_at),
+             order_status = CASE WHEN $14::text IS NOT NULL AND order_status = 'pending' THEN $14 ELSE order_status END,
+             updated_at = $15
+         WHERE id = $16
+         RETURNING *`,
+        [
+          targetPaymentStatus,
+          finalRejectReason,
+          now,
+          finalPaidAmount,
+          finalDueAmount,
+          finalDiscount,
+          adjustedTotal,
+          paymentMethod || null,
+          trxId !== undefined ? trxId : null,
+          senderPhone !== undefined ? senderPhone : null,
+          notes !== undefined ? notes : null,
+          finalCodCollected,
+          finalCollectedAt,
+          newOrderStatus,
+          now,
+          existingOrder.id,
+        ]
+      );
 
-      if (newOrderStatus) {
-        updateQuery += `, order_status = CASE WHEN order_status = 'pending' THEN $5 ELSE order_status END WHERE id = $6 AND user_id = $7 RETURNING *`;
-        queryParams.push(newOrderStatus, orderId, userId);
-      } else {
-        updateQuery += ` WHERE id = $5 AND user_id = $6 RETURNING *`;
-        queryParams.push(orderId, userId);
+      const updatedOrder = mapDbRowToOrder(result.rows[0]);
+
+      // 🔔 Send Customer Payment Verification SMS from Vendor's Personal Store
+      const custPhone = updatedOrder.customerPhone;
+      const custName = updatedOrder.customerName || 'সম্মানিত গ্রাহক';
+      const ordNum = updatedOrder.orderNumber;
+      if (custPhone && custPhone.length >= 11) {
+        let smsMsg = '';
+        if (action === 'accept') {
+          smsMsg = `অভিনন্দন ${custName}! আপনার অর্ডার #${ordNum} এর পেমেন্ট (৳${adjustedTotal}) ভেন্ডর কর্তৃক সফলভাবে যাচাই ও অনুমোদন করা হয়েছে। আপনার পার্সেলটি ডেলিভারির জন্য প্রস্তুত হচ্ছে।`;
+        } else if (action === 'partial') {
+          smsMsg = `প্রিয় ${custName}, আপনার অর্ডার #${ordNum} এর অগ্রিম পেমেন্ট ৳${finalPaidAmount} গৃহীত হয়েছে। ডেলিভারির সময় পরিশোধযোগ্য বাকি টাকা: ৳${finalDueAmount}।`;
+        } else if (action === 'cod_collect') {
+          smsMsg = `ধন্যবাদ ${custName}! আপনার অর্ডার #${ordNum} এর ডেলিভারি বিল ৳${adjustedTotal} সফলভাবে পরিশোধিত হয়েছে।`;
+        } else if (action === 'reject') {
+          smsMsg = `দুঃখিত ${custName}! আপনার অর্ডার #${ordNum} এর প্রদত্ত পেমেন্ট যাচাই করা সম্ভব হয়নি (${finalRejectReason})। অনুগ্রহ করে সঠিক TrxID প্রদান করুন বা দোকানে যোগাযোগ করুন।`;
+        }
+        if (smsMsg) {
+          sendSmsNotification(custPhone, smsMsg).catch(() => {});
+        }
       }
 
-      const result = await pool.query(updateQuery, queryParams);
-
-      if (result.rows.length === 0) {
-        return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার এই অর্ডারে কোনো অনুমতি নেই।' });
-      }
+      const msgMap: Record<string, string> = {
+        accept: '✅ পেমেন্ট সফলভাবে যাচাই ও সম্পূর্ণ পরিশোধিত হিসেবে অনুমোদিত হয়েছে!',
+        partial: `✅ আংশিক পেমেন্ট (৳${finalPaidAmount}) গৃহীত হয়েছে! বাকি ডেলিভারিতে আদায়যোগ্য: ৳${finalDueAmount}`,
+        cod_collect: '✅ ক্যাশ অন ডেলিভারি (COD) পেমেন্ট সফলভাবে আদায় ও পরিশোধিত মার্ক করা হয়েছে!',
+        reject: '❌ পেমেন্ট বাতিল/রিজেক্ট করা হয়েছে এবং কাস্টমারকে নোটিফিকেশন পাঠানো হয়েছে।',
+        refund: '↩️ পেমেন্ট রিফান্ড হিসেবে মার্ক করা হয়েছে।',
+        reset: '🔄 পেমেন্ট যাচাই স্ট্যাটাস পুনরায় পেন্ডিং করা হয়েছে।',
+        update_info: '✅ পেমেন্ট ও বিলিং তথ্য সফলভাবে আপডেট করা হয়েছে!',
+      };
 
       return res.json({
-        message: action === 'accept' ? '✅ পেমেন্ট সফলভাবে অনুমোদিত হয়েছে!' : '❌ পেমেন্ট বাতিল/রিজেক্ট করা হয়েছে।',
-        order: mapDbRowToOrder(result.rows[0]),
+        message: msgMap[action] || '✅ পেমেন্ট আপডেট সম্পন্ন হয়েছে!',
+        order: updatedOrder,
       });
     } else {
-      const order = (inMemoryStore.online_orders || []).find((o) => o.id === orderId && o.userId === userId);
-      if (!order) {
-        return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার এই অর্ডারে কোনো অনুমতি নেই।' });
+      existingOrder.paymentStatus = targetPaymentStatus;
+      existingOrder.paymentRejectReason = finalRejectReason || undefined;
+      existingOrder.paymentReviewedAt = now;
+      existingOrder.paidAmount = finalPaidAmount;
+      existingOrder.dueAmount = finalDueAmount;
+      existingOrder.discountAmount = finalDiscount;
+      existingOrder.totalAmount = adjustedTotal;
+      if (paymentMethod) existingOrder.paymentMethod = paymentMethod;
+      if (trxId !== undefined) existingOrder.trxId = trxId;
+      if (senderPhone !== undefined) existingOrder.senderPhone = senderPhone;
+      if (notes !== undefined) existingOrder.notes = notes;
+      if (finalCodCollected !== null) existingOrder.codCollectedAmount = finalCodCollected;
+      if (finalCollectedAt !== null) existingOrder.collectedAt = finalCollectedAt;
+      existingOrder.updatedAt = now;
+      if (newOrderStatus && existingOrder.orderStatus === 'pending') {
+        existingOrder.orderStatus = newOrderStatus;
       }
-      order.paymentStatus = targetPaymentStatus;
-      order.paymentRejectReason = finalRejectReason || undefined;
-      order.paymentReviewedAt = now;
-      order.updatedAt = now;
-      if (newOrderStatus && order.orderStatus === 'pending') {
-        order.orderStatus = newOrderStatus;
-      }
+      saveInMemoryStoreToDisk();
       return res.json({
-        message: action === 'accept' ? '✅ পেমেন্ট সফলভাবে অনুমোদিত হয়েছে!' : '❌ পেমেন্ট বাতিল/রিজেক্ট করা হয়েছে।',
-        order,
+        message: '✅ পেমেন্ট তথ্য সফলভাবে আপডেট হয়েছে!',
+        order: existingOrder,
       });
     }
   } catch (err: any) {
@@ -1712,12 +1879,22 @@ router.put('/orders/:orderId/payment', authenticateUser, async (req: Authenticat
 });
 
 /**
- * PUT /api/store/orders/:orderId/status - Vendor updates overall order status (Strictly Isolated)
+ * PUT /api/store/orders/:orderId/status - Vendor updates order status, courier & delivery details
  */
 router.put('/orders/:orderId/status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { orderId } = req.params;
-    const { orderStatus, courierName, courierTrackingCode } = req.body;
+    const {
+      orderStatus,
+      courierName,
+      courierTrackingCode,
+      deliveryManName,
+      deliveryManPhone,
+      estimatedDeliveryDate,
+      deliveryNote,
+      vendorNote,
+      markCodPaid,
+    } = req.body;
     const userId = req.user?.userId;
     const pool = getDbPool();
     const now = Date.now();
@@ -1725,12 +1902,17 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
     const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com');
 
     // 🔒 Enforce Central Marketplace Escrow Lock:
-    // Vendor cannot change status, prepare, or deliver until Super Admin verifies & accepts payment!
+    // Vendor cannot change status, prepare, or deliver a Central Marketplace order until Super Admin verifies & accepts payment!
+    // Personal E-Commerce Store orders are NEVER locked by Admin and are 100% controlled by the Vendor!
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+    }
+
     if (!isSuperAdmin) {
       let existingOrder: any = null;
       if (pool) {
         const chk = await pool.query(
-          'SELECT order_source, is_admin_approved, admin_approval_status, is_rejected_by_admin FROM online_orders WHERE id = $1 OR order_number = $1 LIMIT 1',
+          'SELECT order_source, master_order_id, is_admin_approved, admin_approval_status, is_rejected_by_admin FROM online_orders WHERE id = $1 OR order_number = $1 LIMIT 1',
           [orderId]
         );
         if (chk.rows.length > 0) existingOrder = chk.rows[0];
@@ -1738,7 +1920,8 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         existingOrder = (inMemoryStore.online_orders || []).find((o) => o.id === orderId || o.orderNumber === orderId);
       }
 
-      if (existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace')) {
+      const isMktOrder = existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId));
+      if (isMktOrder) {
         const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved';
         if (!isApproved) {
           return res.status(403).json({
@@ -1751,29 +1934,39 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
     if (pool) {
       let result = await pool.query(
         `UPDATE online_orders 
-         SET order_status = $1, 
+         SET order_status = COALESCE($1, order_status), 
              courier_name = COALESCE($2, courier_name),
              courier_tracking_code = COALESCE($3, courier_tracking_code),
-             updated_at = $4 
-         WHERE (id = $5 OR order_number = $5) 
-           AND (user_id = $6 OR user_id = 'default_vendor' OR user_id IS NULL OR $7 = true) 
+             delivery_man_name = COALESCE($4, delivery_man_name),
+             delivery_man_phone = COALESCE($5, delivery_man_phone),
+             estimated_delivery_date = COALESCE($6, estimated_delivery_date),
+             delivery_note = COALESCE($7, delivery_note),
+             vendor_note = COALESCE($8, vendor_note),
+             payment_status = CASE WHEN $9 = true AND (order_source IS NULL OR order_source != 'marketplace') THEN 'paid' ELSE payment_status END,
+             paid_amount = CASE WHEN $9 = true AND (order_source IS NULL OR order_source != 'marketplace') THEN total_amount ELSE paid_amount END,
+             due_amount = CASE WHEN $9 = true AND (order_source IS NULL OR order_source != 'marketplace') THEN 0 ELSE due_amount END,
+             cod_collected_amount = CASE WHEN $9 = true THEN total_amount ELSE cod_collected_amount END,
+             collected_at = CASE WHEN $9 = true THEN $10 ELSE collected_at END,
+             updated_at = $10 
+         WHERE (id = $11 OR order_number = $11) 
+           AND (user_id = $12 OR user_id = 'default_vendor' OR user_id IS NULL OR $13 = true) 
          RETURNING *`,
-        [orderStatus, courierName || null, courierTrackingCode || null, now, orderId, userId, isSuperAdmin]
+        [
+          orderStatus || null,
+          courierName !== undefined ? courierName : null,
+          courierTrackingCode !== undefined ? courierTrackingCode : null,
+          deliveryManName !== undefined ? deliveryManName : null,
+          deliveryManPhone !== undefined ? deliveryManPhone : null,
+          estimatedDeliveryDate !== undefined ? estimatedDeliveryDate : null,
+          deliveryNote !== undefined ? deliveryNote : null,
+          vendorNote !== undefined ? vendorNote : null,
+          Boolean(markCodPaid),
+          now,
+          orderId,
+          userId,
+          isSuperAdmin,
+        ]
       );
-
-      if (result.rows.length === 0) {
-        // Fallback: match by ID/order_number directly
-        result = await pool.query(
-          `UPDATE online_orders 
-           SET order_status = $1, 
-               courier_name = COALESCE($2, courier_name),
-               courier_tracking_code = COALESCE($3, courier_tracking_code),
-               updated_at = $4 
-           WHERE (id = $5 OR order_number = $5) 
-           RETURNING *`,
-          [orderStatus, courierName || null, courierTrackingCode || null, now, orderId]
-        );
-      }
 
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
@@ -1785,46 +1978,449 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         if (memIdx >= 0) inMemoryStore.online_orders[memIdx] = { ...inMemoryStore.online_orders[memIdx], ...updatedOrder };
       }
 
-      // 🔔 Send Customer Order Status SMS (Cancelled, Confirmed, Shipped, Delivered)
+      // 🔔 Send Customer Order Status SMS
       sendCustomerOrderStatusSms(
         updatedOrder.customerPhone,
         updatedOrder.customerName,
         updatedOrder.orderNumber,
-        orderStatus,
-        courierName,
-        courierTrackingCode
+        updatedOrder.orderStatus,
+        updatedOrder.courierName,
+        updatedOrder.courierTrackingCode,
+        updatedOrder.deliveryManName,
+        updatedOrder.deliveryManPhone
       );
 
-      return res.json({ order: updatedOrder, message: 'অর্ডারের ডেলিভারি স্ট্যাটাস সফলভাবে আপডেট করা হয়েছে।' });
+      return res.json({ order: updatedOrder, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
     } else {
       let order = (inMemoryStore.online_orders || []).find(
         (o) => (o.id === orderId || o.orderNumber === orderId) && (o.userId === userId || o.userId === 'default_vendor' || !o.userId || isSuperAdmin)
       );
-      if (!order) {
-        order = (inMemoryStore.online_orders || []).find(
-          (o) => o.id === orderId || o.orderNumber === orderId
-        );
-      }
 
       if (order) {
-        order.orderStatus = orderStatus;
+        if (orderStatus) order.orderStatus = orderStatus;
         if (courierName !== undefined) order.courierName = courierName;
         if (courierTrackingCode !== undefined) order.courierTrackingCode = courierTrackingCode;
+        if (deliveryManName !== undefined) order.deliveryManName = deliveryManName;
+        if (deliveryManPhone !== undefined) order.deliveryManPhone = deliveryManPhone;
+        if (estimatedDeliveryDate !== undefined) order.estimatedDeliveryDate = estimatedDeliveryDate;
+        if (deliveryNote !== undefined) order.deliveryNote = deliveryNote;
+        if (vendorNote !== undefined) order.vendorNote = vendorNote;
+        if (markCodPaid && order.orderSource !== 'marketplace') {
+          order.paymentStatus = 'paid';
+          order.paidAmount = order.totalAmount;
+          order.dueAmount = 0;
+          order.codCollectedAmount = order.totalAmount;
+          order.collectedAt = now;
+        }
         order.updatedAt = now;
+        saveInMemoryStoreToDisk();
 
-        // 🔔 Send Customer Order Status SMS (Cancelled, Confirmed, Shipped, Delivered)
         sendCustomerOrderStatusSms(
           order.customerPhone,
           order.customerName,
           order.orderNumber,
-          orderStatus,
-          courierName,
-          courierTrackingCode
+          order.orderStatus,
+          order.courierName,
+          order.courierTrackingCode,
+          order.deliveryManName,
+          order.deliveryManPhone
         );
 
-        return res.json({ order, message: 'অর্ডারের ডেলিভারি স্ট্যাটাস সফলভাবে আপডেট করা হয়েছে।' });
+        return res.json({ order, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
       }
       return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/store/orders/:orderId/full-update
+ * Vendor complete update for Personal E-Commerce Store orders:
+ * Customer info, items, pricing, discount, payment, courier, rider & delivery status
+ */
+router.put('/orders/:orderId/full-update', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+    const now = Date.now();
+    const body = req.body || {};
+
+    let existingOrder: any = null;
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const chk = await pool.query(
+        'SELECT * FROM online_orders WHERE (id = $1 OR order_number = $1) AND (user_id = $2 OR user_id = \'default_vendor\' OR user_id IS NULL) LIMIT 1',
+        [orderId, userId]
+      );
+      if (chk.rows.length > 0) existingOrder = chk.rows[0];
+    } else {
+      existingOrder = (inMemoryStore.online_orders || []).find(
+        (o) => (o.id === orderId || o.orderNumber === orderId) && (o.userId === userId || o.userId === 'default_vendor' || !o.userId)
+      );
+    }
+
+    if (!existingOrder) {
+      return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+    }
+
+    const isMkt = existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId);
+    if (isMkt && (body.paymentStatus !== undefined || body.paidAmount !== undefined)) {
+      return res.status(403).json({
+        error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডারের পেমেন্ট শুধুমাত্র সুপার এডমিন যাচাই করেন। পার্সোনাল ই-কমার্স স্টোরের অর্ডার আপনি সম্পূর্ণ আপডেট করতে পারবেন।',
+      });
+    }
+
+    const customerName = body.customerName !== undefined ? String(body.customerName).trim() : (existingOrder.customer_name || existingOrder.customerName);
+    const customerPhone = body.customerPhone !== undefined ? String(body.customerPhone).trim() : (existingOrder.customer_phone || existingOrder.customerPhone);
+    const customerAddress = body.customerAddress !== undefined ? String(body.customerAddress).trim() : (existingOrder.customer_address || existingOrder.customerAddress);
+    const deliveryArea = body.deliveryArea !== undefined ? body.deliveryArea : (existingOrder.delivery_area || existingOrder.deliveryArea || 'inside_dhaka');
+    const items = Array.isArray(body.items) ? body.items : (typeof existingOrder.items === 'string' ? JSON.parse(existingOrder.items) : (existingOrder.items || []));
+    const subtotal = body.subtotal !== undefined ? (parseFloat(body.subtotal) || 0) : items.reduce((s: number, it: any) => s + ((parseFloat(it.unitPrice) || 0) * (parseFloat(it.quantity) || 1)), 0);
+    const deliveryCharge = body.deliveryCharge !== undefined ? (parseFloat(body.deliveryCharge) || 0) : (parseFloat(existingOrder.delivery_charge ?? existingOrder.deliveryCharge) || 0);
+    const discountAmount = body.discountAmount !== undefined ? (parseFloat(body.discountAmount) || 0) : (parseFloat(existingOrder.discount_amount ?? existingOrder.discountAmount) || 0);
+    const totalAmount = body.totalAmount !== undefined ? (parseFloat(body.totalAmount) || 0) : Math.max(0, subtotal + deliveryCharge - discountAmount);
+    const paymentMethod = body.paymentMethod || existingOrder.payment_method || existingOrder.paymentMethod || 'cod';
+    const paymentStatus = isMkt
+      ? (existingOrder.payment_status || existingOrder.paymentStatus)
+      : (body.paymentStatus || existingOrder.payment_status || existingOrder.paymentStatus || 'unpaid');
+    const paidAmount = paymentStatus === 'paid'
+      ? totalAmount
+      : (body.paidAmount !== undefined ? (parseFloat(body.paidAmount) || 0) : (parseFloat(existingOrder.paid_amount ?? existingOrder.paidAmount) || 0));
+    const dueAmount = paymentStatus === 'paid' ? 0 : Math.max(0, totalAmount - paidAmount);
+    const orderStatus = body.orderStatus || existingOrder.order_status || existingOrder.orderStatus || 'pending';
+    const trxId = body.trxId !== undefined ? String(body.trxId).trim() : (existingOrder.trx_id || existingOrder.trxId || '');
+    const senderPhone = body.senderPhone !== undefined ? String(body.senderPhone).trim() : (existingOrder.sender_phone || existingOrder.senderPhone || '');
+    const courierName = body.courierName !== undefined ? String(body.courierName).trim() : (existingOrder.courier_name || existingOrder.courierName || '');
+    const courierTrackingCode = body.courierTrackingCode !== undefined ? String(body.courierTrackingCode).trim() : (existingOrder.courier_tracking_code || existingOrder.courierTrackingCode || '');
+    const deliveryManName = body.deliveryManName !== undefined ? String(body.deliveryManName).trim() : (existingOrder.delivery_man_name || existingOrder.deliveryManName || '');
+    const deliveryManPhone = body.deliveryManPhone !== undefined ? String(body.deliveryManPhone).trim() : (existingOrder.delivery_man_phone || existingOrder.deliveryManPhone || '');
+    const estimatedDeliveryDate = body.estimatedDeliveryDate !== undefined ? String(body.estimatedDeliveryDate).trim() : (existingOrder.estimated_delivery_date || existingOrder.estimatedDeliveryDate || '');
+    const deliveryNote = body.deliveryNote !== undefined ? String(body.deliveryNote).trim() : (existingOrder.delivery_note || existingOrder.deliveryNote || '');
+    const vendorNote = body.vendorNote !== undefined ? String(body.vendorNote).trim() : (existingOrder.vendor_note || existingOrder.vendorNote || '');
+    const notes = body.notes !== undefined ? String(body.notes).trim() : (existingOrder.notes || '');
+
+    if (pool) {
+      const result = await pool.query(
+        `UPDATE online_orders
+         SET customer_name = $1,
+             customer_phone = $2,
+             customer_address = $3,
+             delivery_area = $4,
+             items = $5,
+             subtotal = $6,
+             delivery_charge = $7,
+             discount_amount = $8,
+             total_amount = $9,
+             paid_amount = $10,
+             due_amount = $11,
+             payment_method = $12,
+             payment_status = $13,
+             order_status = $14,
+             trx_id = $15,
+             sender_phone = $16,
+             courier_name = $17,
+             courier_tracking_code = $18,
+             delivery_man_name = $19,
+             delivery_man_phone = $20,
+             estimated_delivery_date = $21,
+             delivery_note = $22,
+             vendor_note = $23,
+             notes = $24,
+             updated_at = $25
+         WHERE id = $26
+         RETURNING *`,
+        [
+          customerName,
+          customerPhone,
+          customerAddress,
+          deliveryArea,
+          JSON.stringify(items),
+          subtotal,
+          deliveryCharge,
+          discountAmount,
+          totalAmount,
+          paidAmount,
+          dueAmount,
+          paymentMethod,
+          paymentStatus,
+          orderStatus,
+          trxId,
+          senderPhone,
+          courierName,
+          courierTrackingCode,
+          deliveryManName,
+          deliveryManPhone,
+          estimatedDeliveryDate,
+          deliveryNote,
+          vendorNote,
+          notes,
+          now,
+          existingOrder.id,
+        ]
+      );
+
+      const updatedOrder = mapDbRowToOrder(result.rows[0]);
+      if (body.sendSmsToCustomer && customerPhone && customerPhone.length >= 11) {
+        sendCustomerOrderStatusSms(
+          customerPhone,
+          customerName,
+          updatedOrder.orderNumber,
+          orderStatus,
+          courierName,
+          courierTrackingCode,
+          deliveryManName,
+          deliveryManPhone
+        );
+      }
+
+      return res.json({
+        success: true,
+        message: '✅ অর্ডারের সকল তথ্য, পেমেন্ট ও ডেলিভারি ডিটেইলস সফলভাবে আপডেট হয়েছে!',
+        order: updatedOrder,
+      });
+    } else {
+      Object.assign(existingOrder, {
+        customerName,
+        customerPhone,
+        customerAddress,
+        deliveryArea,
+        items,
+        subtotal,
+        deliveryCharge,
+        discountAmount,
+        totalAmount,
+        paidAmount,
+        dueAmount,
+        paymentMethod,
+        paymentStatus,
+        orderStatus,
+        trxId,
+        senderPhone,
+        courierName,
+        courierTrackingCode,
+        deliveryManName,
+        deliveryManPhone,
+        estimatedDeliveryDate,
+        deliveryNote,
+        vendorNote,
+        notes,
+        updatedAt: now,
+      });
+      saveInMemoryStoreToDisk();
+      return res.json({
+        success: true,
+        message: '✅ অর্ডারের সকল তথ্য সফলভাবে আপডেট হয়েছে!',
+        order: existingOrder,
+      });
+    }
+  } catch (err: any) {
+    console.error('Error in full order update:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/orders/:orderId/sync-stock-ledger
+ * Vendor 1-Click Stock Deduction & Cashbook / Ledger Entry for Personal E-Commerce Store orders
+ */
+router.post('/orders/:orderId/sync-stock-ledger', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const { syncStock = true, syncLedger = true } = req.body || {};
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const ordRes = await pool.query(
+        'SELECT * FROM online_orders WHERE (id = $1 OR order_number = $1) AND user_id = $2 LIMIT 1',
+        [orderId, userId]
+      );
+      if (ordRes.rows.length === 0) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+      }
+      const ord = ordRes.rows[0];
+      const items = typeof ord.items === 'string' ? JSON.parse(ord.items) : (ord.items || []);
+      let stockAdjusted = ord.is_stock_adjusted === true;
+      let ledgerSynced = ord.is_ledger_synced === true;
+
+      // 1. Adjust product stock if requested and not yet adjusted
+      if (syncStock && !stockAdjusted) {
+        for (const it of items) {
+          if (it.productId) {
+            await pool.query(
+              'UPDATE products SET stock = GREATEST(0, COALESCE(stock, 0) - $1), updated_at = $2 WHERE id = $3 AND user_id = $4',
+              [parseFloat(it.quantity) || 1, now, it.productId, userId]
+            ).catch(() => {});
+          }
+        }
+        stockAdjusted = true;
+      }
+
+      // 2. Add income entry into vendor's Cashbook (expenses table with type = 'income')
+      if (syncLedger && !ledgerSynced) {
+        const amountToRecord = parseFloat(ord.paid_amount) > 0 ? parseFloat(ord.paid_amount) : (parseFloat(ord.total_amount) || 0);
+        if (amountToRecord > 0) {
+          const expId = `exp_ecom_${ord.id}`;
+          const dateStr = new Date(now).toISOString().split('T')[0];
+          const timeStr = new Date(now).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
+          await pool.query(
+            `INSERT INTO expenses (id, user_id, type, category, amount, description, date, time, created_at)
+             VALUES ($1, $2, 'income', 'অনলাইন স্টোর বিক্রয়', $3, $4, $5, $6, $7)
+             ON CONFLICT (id) DO UPDATE SET amount = EXCLUDED.amount, description = EXCLUDED.description`,
+            [
+              expId,
+              userId,
+              amountToRecord,
+              `অনলাইন অর্ডার #${ord.order_number} (${ord.customer_name} - ${ord.customer_phone}) পেমেন্ট: ${(ord.payment_method || 'cod').toUpperCase()}`,
+              dateStr,
+              timeStr,
+              now,
+            ]
+          ).catch(() => {});
+          ledgerSynced = true;
+        }
+      }
+
+      const upd = await pool.query(
+        `UPDATE online_orders
+         SET is_stock_adjusted = $1,
+             is_ledger_synced = $2,
+             updated_at = $3
+         WHERE id = $4
+         RETURNING *`,
+        [stockAdjusted, ledgerSynced, now, ord.id]
+      );
+
+      return res.json({
+        success: true,
+        message: '✅ ইনভেন্টরি স্টক সমন্বয় এবং দোকানের ক্যাশবুকে বিক্রয় এন্ট্রি সফলভাবে সম্পন্ন হয়েছে!',
+        order: mapDbRowToOrder(upd.rows[0]),
+      });
+    } else {
+      const ord = (inMemoryStore.online_orders || []).find((o) => (o.id === orderId || o.orderNumber === orderId) && o.userId === userId);
+      if (!ord) return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+
+      if (syncStock && !ord.isStockAdjusted) {
+        for (const it of (ord.items || [])) {
+          const p = (inMemoryStore.products || []).find((x) => x.id === it.productId && x.userId === userId);
+          if (p) {
+            p.stock = Math.max(0, (Number(p.stock) || 0) - (Number(it.quantity) || 1));
+          }
+        }
+        ord.isStockAdjusted = true;
+      }
+
+      if (syncLedger && !ord.isLedgerSynced) {
+        const amountToRecord = Number(ord.paidAmount) > 0 ? Number(ord.paidAmount) : (Number(ord.totalAmount) || 0);
+        if (amountToRecord > 0) {
+          if (!inMemoryStore.expenses) inMemoryStore.expenses = [];
+          inMemoryStore.expenses.unshift({
+            id: `exp_ecom_${ord.id}`,
+            userId,
+            type: 'income',
+            category: 'অনলাইন স্টোর বিক্রয়',
+            amount: amountToRecord,
+            description: `অনলাইন অর্ডার #${ord.orderNumber} (${ord.customerName})`,
+            date: new Date(now).toISOString().split('T')[0],
+            time: new Date(now).toLocaleTimeString(),
+            createdAt: now,
+          });
+          ord.isLedgerSynced = true;
+        }
+      }
+      ord.updatedAt = now;
+      saveInMemoryStoreToDisk();
+
+      return res.json({
+        success: true,
+        message: '✅ ইনভেন্টরি স্টক সমন্বয় এবং দোকানের ক্যাশবুকে বিক্রয় এন্ট্রি সম্পন্ন হয়েছে!',
+        order: ord,
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/orders/track/:orderNumber/submit-payment
+ * Customer submits or re-submits payment TrxID & Sender Phone for a Personal Store order
+ */
+router.post('/orders/track/:orderNumber/submit-payment', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderNumber } = req.params;
+    const { paymentMethod, trxId, senderPhone, paidAmount } = req.body || {};
+    if (!trxId || !String(trxId).trim()) {
+      return res.status(400).json({ error: 'অনুগ্রহ করে সঠিক ট্রানজেকশন আইডি (TrxID) লিখুন।' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const chk = await pool.query(
+        'SELECT * FROM online_orders WHERE order_number = $1 OR id = $1 LIMIT 1',
+        [orderNumber]
+      );
+      if (chk.rows.length === 0) {
+        return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });
+      }
+      const ord = chk.rows[0];
+      if (ord.order_source === 'marketplace' || ord.master_order_id) {
+        return res.status(400).json({ error: 'সেন্ট্রাল মার্কেটপ্লেস অর্ডারের পেমেন্ট সেন্ট্রাল মল ট্র্যাকার থেকে জমা দিন।' });
+      }
+
+      const upd = await pool.query(
+        `UPDATE online_orders
+         SET payment_method = COALESCE($1, payment_method),
+             trx_id = $2,
+             sender_phone = COALESCE($3, sender_phone),
+             paid_amount = COALESCE($4, paid_amount),
+             payment_status = 'pending_verification',
+             payment_reject_reason = NULL,
+             updated_at = $5
+         WHERE id = $6
+         RETURNING *`,
+        [
+          paymentMethod || null,
+          String(trxId).trim().toUpperCase(),
+          senderPhone ? String(senderPhone).trim() : null,
+          paidAmount ? parseFloat(paidAmount) : null,
+          now,
+          ord.id,
+        ]
+      );
+
+      return res.json({
+        success: true,
+        message: '✅ আপনার পেমেন্ট তথ্য (TrxID) ভেন্ডরের কাছে যাচাইয়ের জন্য পাঠানো হয়েছে!',
+        order: mapDbRowToOrder(upd.rows[0]),
+      });
+    } else {
+      const ord = (inMemoryStore.online_orders || []).find(
+        (o) => o.orderNumber === orderNumber || o.id === orderNumber
+      );
+      if (!ord) return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });
+      if (paymentMethod) ord.paymentMethod = paymentMethod;
+      ord.trxId = String(trxId).trim().toUpperCase();
+      if (senderPhone) ord.senderPhone = String(senderPhone).trim();
+      if (paidAmount) ord.paidAmount = parseFloat(paidAmount);
+      ord.paymentStatus = 'pending_verification';
+      ord.paymentRejectReason = undefined;
+      ord.updatedAt = now;
+      saveInMemoryStoreToDisk();
+
+      return res.json({
+        success: true,
+        message: '✅ আপনার পেমেন্ট তথ্য ভেন্ডরের কাছে যাচাইয়ের জন্য পাঠানো হয়েছে!',
+        order: ord,
+      });
     }
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1837,19 +2433,24 @@ function sendCustomerOrderStatusSms(
   orderNumber?: string,
   status?: string,
   courierName?: string,
-  courierTrackingCode?: string
+  courierTrackingCode?: string,
+  deliveryManName?: string,
+  deliveryManPhone?: string
 ) {
   if (!customerPhone || customerPhone.length < 11 || !status) return;
   const name = customerName || 'গ্রাহক';
   const num = orderNumber || '';
+  const riderInfo = deliveryManName ? ` ডেলিভারি ম্যান: ${deliveryManName}${deliveryManPhone ? ` (${deliveryManPhone})` : ''}।` : '';
 
   let msg = '';
   if (status === 'cancelled') {
-    msg = `TwingHisabi: দুঃখিত ${name}! আপনার অর্ডার #${num} বাতিল (Cancelled) করা হয়েছে। বিস্তারিত জানতে আমাদের সাথে যোগাযোগ করুন।`;
+    msg = `TwingHisabi: দুঃখিত ${name}! আপনার অর্ডার #${num} বাতিল (Cancelled) করা হয়েছে। বিস্তারিত জানতে দোকানে যোগাযোগ করুন।`;
   } else if (status === 'confirmed') {
     msg = `TwingHisabi: অভিনন্দন ${name}! আপনার অর্ডার #${num} নিশ্চিত (Confirmed) করা হয়েছে এবং পার্সেল প্রস্তুত হচ্ছে।`;
-  } else if (status === 'shipped') {
-    msg = `TwingHisabi: আপনার অর্ডার #${num} কুরিয়ারে পাঠানো হয়েছে। কুরিয়ার: ${courierName || 'কুরিয়ার সার্ভিস'}${courierTrackingCode ? ` (ট্র্যাকিং: ${courierTrackingCode})` : ''}।`;
+  } else if (status === 'processing' || status === 'packed') {
+    msg = `TwingHisabi: প্রিয় ${name}, আপনার অর্ডার #${num} প্যাকিং সম্পন্ন হয়েছে এবং শীঘ্রই ডেলিভারিতে পাঠানো হবে।${riderInfo}`;
+  } else if (status === 'shipped' || status === 'out_for_delivery') {
+    msg = `TwingHisabi: আপনার অর্ডার #${num} ডেলিভারির জন্য পাঠানো হয়েছে। মাধ্যম: ${courierName || 'ডেলিভারি সার্ভিস'}${courierTrackingCode ? ` (ট্র্যাকিং: ${courierTrackingCode})` : ''}।${riderInfo}`;
   } else if (status === 'delivered') {
     msg = `TwingHisabi: আপনার অর্ডার #${num} সফলভাবে ডেলিভারি সম্পন্ন হয়েছে। আমাদের সাথে কেনাকাটার জন্য ধন্যবাদ!`;
   }
@@ -1901,6 +2502,7 @@ router.get('/orders/track/:orderNumber', optionalAuth, async (req: Authenticated
     const pool = getDbPool();
 
     if (pool) {
+      await ensureOnlineOrdersSchema(pool);
       const result = await pool.query(
         'SELECT * FROM online_orders WHERE order_number = $1 OR id = $1 LIMIT 1',
         [orderNumber]
