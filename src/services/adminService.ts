@@ -17,7 +17,6 @@ import {
   StaffMember,
   StaffPermission,
   StaffPermissionCategory,
-  ALL_STAFF_PERMISSION_CATEGORIES as DEFINED_PERMISSION_CATEGORIES,
   AdminSession,
   DashboardBannerItem,
   DashboardBannerSettings,
@@ -291,7 +290,46 @@ const ONE_DAY_MS = 86400000;
 
 export const INITIAL_STAFF: StaffMember[] = [];
 
-export const ALL_STAFF_PERMISSION_CATEGORIES: StaffPermissionCategory[] = DEFINED_PERMISSION_CATEGORIES;
+export const ALL_STAFF_PERMISSION_CATEGORIES: StaffPermissionCategory[] = [
+  {
+    categoryName: 'ইউজার ও শপ ম্যানেজমেন্ট',
+    permissions: [
+      { key: 'users_view', label: 'ইউজার তালিকা ও বিবরণ দেখা', description: 'সকল রেজিস্ট্রেশনকৃত দোকানের তথ্য দেখতে পারবে' },
+      { key: 'users_edit', label: 'ইউজার তথ্য এডিট ও সংশোধন', description: 'দোকান ও মালিকের তথ্য আপডেট করার অনুমতি' },
+      { key: 'users_suspend', label: 'ইউজার সাময়িক বন্ধ / চালু', description: 'দোকান একাউন্ট সাসপেন্ড বা পুনরায় সক্রিয় করার ক্ষমতা' },
+      { key: 'users_delete', label: 'ইউজার একাউন্ট ডিলিট', description: 'স্থায়ীভাবে ইউজার মুছে ফেলার অনুমতি' },
+      { key: 'shop_manage', label: 'শপ প্রোফাইল ও ডাটা ম্যানেজমেন্ট', description: 'শপ সেটিংস ও কাস্টমার হিসাব পর্যবেক্ষণ' },
+    ],
+  },
+  {
+    categoryName: 'পেমেন্ট ও সাবস্ক্রিপশন',
+    permissions: [
+      { key: 'payments_view', label: 'পেমেন্ট রিকোয়েস্ট দেখা', description: 'বিকাশ/নগদ/রকেট পেমেন্ট স্লিপ দেখার অনুমতি' },
+      { key: 'payments_approve_reject', label: 'পেমেন্ট অনুমোদন ও বাতিল', description: 'টাকা যাচাই করে পেইড হিসেবে এপ্রুভ বা রিজেক্ট করা' },
+      { key: 'payments_add_manual', label: 'ম্যানুয়াল ক্যাশ পেমেন্ট এন্ট্রি', description: 'অফলাইন পেমেন্ট রেকর্ড যুক্ত করার সুবিধা' },
+      { key: 'subscriptions_view', label: 'সাবস্ক্রিপশন প্ল্যান দেখা', description: 'সকল প্যাকেজ ও মেয়াদ তালিকা দেখা' },
+      { key: 'subscriptions_extend', label: 'সাবস্ক্রিপশন মেয়াদ বৃদ্ধি', description: 'ইউজারের সাবস্ক্রিপশন দিন বা মেয়াদ বাড়ানোর অনুমতি' },
+    ],
+  },
+  {
+    categoryName: 'কাস্টমার সাপোর্ট ও মেসেজিং',
+    permissions: [
+      { key: 'support_view', label: 'সাপোর্ট ইনবক্স দেখা', description: 'দোকানদারদের সাপোর্ট মেসেজ পড়ার অনুমতি' },
+      { key: 'support_reply', label: 'সাপোর্ট রিপ্লাই ও সমাধান', description: 'সরাসরি চ্যাটে উত্তর দেওয়া ও সমস্যা সমাধান করা' },
+      { key: 'notifications_manage', label: 'নোটিফিকেশন পাঠানো', description: 'ইউজারদের জরুরি পুশ নোটিফিকেশন পাঠানোর অনুমতি' },
+      { key: 'announcements_manage', label: 'ঘোষণা ও ব্যানার তৈরি', description: 'অ্যাপে পপআপ নোটিশ ও ব্যানার প্রকাশ' },
+    ],
+  },
+  {
+    categoryName: 'রিপোর্ট ও কনফিগারেশন',
+    permissions: [
+      { key: 'reports_view', label: 'রিপোর্ট ও ড্যাশবোর্ড অ্যানালিটিক্স', description: 'আয়-ব্যয়, রাজস্ব ও ইউজার মেট্রিক্স চার্ট দেখা' },
+      { key: 'activity_logs_view', label: 'অডিট ও অ্যাক্টিভিটি লগ দেখা', description: 'সিস্টেমের কাজের রেকর্ড পর্যবেক্ষণ করা' },
+      { key: 'app_update_manage', label: 'অ্যাপ আপডেট ও রিলিজ নোটস', description: 'নতুন ভার্সন নোটিশ কন্ট্রোল করা' },
+      { key: 'settings_manage', label: 'পেমেন্ট ও সিস্টেম সেটিংস', description: 'বিকাশ/নগদ মার্চেন্ট নম্বর কনফিগারেশন' },
+    ],
+  },
+];
 
 export const INITIAL_USERS: AppUser[] = [];
 
@@ -1208,21 +1246,10 @@ export async function markSupportMessagesAsReadByUser(userId: string): Promise<v
 // ----------------------------------------------------
 // 9. STAFF MEMBERS MANAGEMENT
 // ----------------------------------------------------
-const staffListeners = new Set<(staff: StaffMember[]) => void>();
-
-function notifyStaffListeners(list: StaffMember[]) {
-  staffListeners.forEach((cb) => {
-    try {
-      cb(list);
-    } catch {}
-  });
-}
-
 export function subscribeToStaff(
   onUpdate: (staff: StaffMember[]) => void,
   onError?: (err: Error) => void
 ) {
-  staffListeners.add(onUpdate);
   const cached = getCached<StaffMember[]>(STORAGE_KEYS.STAFF, INITIAL_STAFF);
   onUpdate(cached);
 
@@ -1230,11 +1257,9 @@ export function subscribeToStaff(
   const fetchStaff = async () => {
     try {
       const list = await adminApi.getStaff();
-      if (isSubscribed && Array.isArray(list)) {
-        if (list.length > 0 || cached.length === 0) {
-          setCached(STORAGE_KEYS.STAFF, list);
-          notifyStaffListeners(list);
-        }
+      if (isSubscribed && list.length > 0) {
+        setCached(STORAGE_KEYS.STAFF, list);
+        onUpdate(list);
       }
     } catch (err: any) {
       if (onError) onError(err);
@@ -1245,7 +1270,6 @@ export function subscribeToStaff(
   const interval = setInterval(fetchStaff, 15000);
   return () => {
     isSubscribed = false;
-    staffListeners.delete(onUpdate);
     clearInterval(interval);
   };
 }
@@ -1254,36 +1278,17 @@ export const subscribeToStaffMembers = subscribeToStaff;
 
 export async function saveStaffMember(staff: StaffMember, performedBy?: string): Promise<void> {
   const list = getCached<StaffMember[]>(STORAGE_KEYS.STAFF, INITIAL_STAFF);
-  const existingIdx = list.findIndex(
-    (s) => (staff.id && s.id === staff.id) || (staff.email && s.email?.toLowerCase() === staff.email.toLowerCase())
-  );
-
-  if (existingIdx >= 0 && (staff.id || list[existingIdx].id)) {
-    const resolvedId = staff.id || list[existingIdx].id;
-    const updatedStaff: StaffMember = {
-      ...list[existingIdx],
-      ...staff,
-      id: resolvedId,
-      permissions: Array.isArray(staff.permissions) ? staff.permissions : [],
-    };
-    await adminApi.updateStaff(resolvedId, updatedStaff);
-    const updated = [...list];
-    updated[existingIdx] = updatedStaff;
-    setCached(STORAGE_KEYS.STAFF, updated);
-    notifyStaffListeners(updated);
+  const idx = list.findIndex((s) => s.id === staff.id);
+  let updated: StaffMember[];
+  if (idx >= 0) {
+    updated = [...list];
+    updated[idx] = staff;
+    await adminApi.updateStaff(staff.id, staff);
   } else {
-    const res = await adminApi.createStaff(staff);
-    const resolvedId = res?.staffId || staff.id || 'stf_' + Date.now().toString(36);
-    const newStaff: StaffMember = {
-      ...staff,
-      id: resolvedId,
-      createdAt: staff.createdAt || Date.now(),
-      permissions: Array.isArray(staff.permissions) ? staff.permissions : [],
-    };
-    const updated = [newStaff, ...list.filter((s) => s.email?.toLowerCase() !== newStaff.email?.toLowerCase())];
-    setCached(STORAGE_KEYS.STAFF, updated);
-    notifyStaffListeners(updated);
+    updated = [staff, ...list];
+    await adminApi.createStaff(staff);
   }
+  setCached(STORAGE_KEYS.STAFF, updated);
 }
 
 export async function updateStaffStatus(
@@ -1309,16 +1314,12 @@ export async function updateStaffPermissions(
   if (target) {
     const updated = { ...target, permissions };
     await saveStaffMember(updated, performedBy);
-  } else {
-    await adminApi.updateStaff(staffId, { permissions });
   }
 }
 
 export async function deleteStaffMember(staffId: string, performedBy?: string): Promise<void> {
   const list = getCached<StaffMember[]>(STORAGE_KEYS.STAFF, INITIAL_STAFF);
-  const filtered = list.filter((s) => s.id !== staffId);
-  setCached(STORAGE_KEYS.STAFF, filtered);
-  notifyStaffListeners(filtered);
+  setCached(STORAGE_KEYS.STAFF, list.filter((s) => s.id !== staffId));
   try {
     await adminApi.deleteStaff(staffId);
   } catch (err) {
@@ -1329,17 +1330,8 @@ export async function deleteStaffMember(staffId: string, performedBy?: string): 
 export function hasStaffPermission(session: AdminSession | undefined, permissionKey: StaffPermission): boolean {
   if (!session) return false;
   if (session.role === 'super_admin') return true;
-  if (
-    session.email &&
-    ['siftraihan@gmail.com', 'siftibrahim@gmail.com', 'admin@twing.com'].includes(session.email.toLowerCase().trim())
-  ) {
-    return true;
-  }
-  const perms: StaffPermission[] =
-    session.staffData?.permissions || (session as any).permissions || [];
-  if (Array.isArray(perms)) {
-    if (perms.includes('*' as any) || perms.includes('all' as any)) return true;
-    return perms.includes(permissionKey);
+  if (session.role === 'staff' && session.staffData) {
+    return session.staffData.permissions.includes(permissionKey);
   }
   return false;
 }

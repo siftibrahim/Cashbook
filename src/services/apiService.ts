@@ -864,58 +864,33 @@ export const storeApi = {
 
   async updatePaymentStatus(
     orderId: string,
-    action: 'accept' | 'partial' | 'cod_collect' | 'reject' | 'refund' | 'reset' | 'update_info',
-    rejectReason?: string,
-    extraData?: {
-      paidAmount?: number;
-      dueAmount?: number;
-      discountAmount?: number;
-      paymentMethod?: string;
-      paymentStatus?: string;
-      trxId?: string;
-      senderPhone?: string;
-      notes?: string;
-    }
+    action: 'accept' | 'reject' | 'reset',
+    rejectReason?: string
   ): Promise<OnlineOrder | null> {
     try {
       const res = await apiRequest<{ message: string; order: OnlineOrder }>(`/store/orders/${encodeURIComponent(orderId)}/payment`, {
         method: 'PUT',
-        body: JSON.stringify({ action, rejectReason, ...(extraData || {}) }),
+        body: JSON.stringify({ action, rejectReason }),
       });
       return res?.order || null;
     } catch (err) {
       console.error('API updatePaymentStatus error:', err);
-      throw err;
+      return null;
     }
   },
 
   async updateOrderStatus(
     orderId: string,
     orderStatus: OnlineOrder['orderStatus'],
-    courierInfo?: {
-      courierName?: string;
-      courierTrackingCode?: string;
-      deliveryManName?: string;
-      deliveryManPhone?: string;
-      estimatedDeliveryDate?: string;
-      deliveryNote?: string;
-      vendorNote?: string;
-      markCodPaid?: boolean;
-    }
+    courierInfo?: { courierName?: string; courierTrackingCode?: string }
   ): Promise<OnlineOrder | null> {
     try {
-      const res = await apiRequest<{ order: OnlineOrder; message?: string }>(`/store/orders/${encodeURIComponent(orderId)}/status`, {
+      const res = await apiRequest<{ order: OnlineOrder }>(`/store/orders/${encodeURIComponent(orderId)}/status`, {
         method: 'PUT',
         body: JSON.stringify({
           orderStatus,
           courierName: courierInfo?.courierName,
           courierTrackingCode: courierInfo?.courierTrackingCode,
-          deliveryManName: courierInfo?.deliveryManName,
-          deliveryManPhone: courierInfo?.deliveryManPhone,
-          estimatedDeliveryDate: courierInfo?.estimatedDeliveryDate,
-          deliveryNote: courierInfo?.deliveryNote,
-          vendorNote: courierInfo?.vendorNote,
-          markCodPaid: courierInfo?.markCodPaid,
         }),
       });
       return res?.order || null;
@@ -923,42 +898,6 @@ export const storeApi = {
       console.error('API updateOrderStatus error:', err);
       return null;
     }
-  },
-
-  async fullUpdateOrder(orderId: string, payload: Partial<OnlineOrder> & { sendSmsToCustomer?: boolean }): Promise<{ success: boolean; message: string; order: OnlineOrder }> {
-    return apiRequest<{ success: boolean; message: string; order: OnlineOrder }>(
-      `/store/orders/${encodeURIComponent(orderId)}/full-update`,
-      {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      }
-    );
-  },
-
-  async syncOrderStockAndLedger(
-    orderId: string,
-    options?: { syncStock?: boolean; syncLedger?: boolean }
-  ): Promise<{ success: boolean; message: string; order: OnlineOrder }> {
-    return apiRequest<{ success: boolean; message: string; order: OnlineOrder }>(
-      `/store/orders/${encodeURIComponent(orderId)}/sync-stock-ledger`,
-      {
-        method: 'POST',
-        body: JSON.stringify(options || { syncStock: true, syncLedger: true }),
-      }
-    );
-  },
-
-  async submitOrderTrackPayment(
-    orderNumber: string,
-    payload: { paymentMethod: string; trxId: string; senderPhone?: string; paidAmount?: number }
-  ): Promise<{ success: boolean; message: string; order: OnlineOrder }> {
-    return apiRequest<{ success: boolean; message: string; order: OnlineOrder }>(
-      `/store/orders/track/${encodeURIComponent(orderNumber)}/submit-payment`,
-      {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }
-    );
   },
 
   async trackOrder(orderNumber: string): Promise<OnlineOrder | null> {
@@ -1750,22 +1689,28 @@ export const adminApi = {
     }
   },
 
-  async createStaff(staffData: Partial<StaffMember>): Promise<{ message: string; staffId?: string }> {
-    return await apiRequest<{ message: string; staffId?: string }>('/admin/staff', {
-      method: 'POST',
-      body: JSON.stringify(staffData),
-    });
+  async createStaff(staffData: Partial<StaffMember>): Promise<void> {
+    try {
+      await apiRequest('/admin/staff', {
+        method: 'POST',
+        body: JSON.stringify(staffData),
+      });
+    } catch {}
   },
 
-  async updateStaff(staffId: string, staffData: Partial<StaffMember>): Promise<{ message: string; staffId?: string }> {
-    return await apiRequest<{ message: string; staffId?: string }>(`/admin/staff/${staffId}`, {
-      method: 'PUT',
-      body: JSON.stringify(staffData),
-    });
+  async updateStaff(staffId: string, staffData: Partial<StaffMember>): Promise<void> {
+    try {
+      await apiRequest(`/admin/staff/${staffId}`, {
+        method: 'PUT',
+        body: JSON.stringify(staffData),
+      });
+    } catch {}
   },
 
-  async deleteStaff(staffId: string): Promise<{ message: string }> {
-    return await apiRequest<{ message: string }>(`/admin/staff/${staffId}`, { method: 'DELETE' });
+  async deleteStaff(staffId: string): Promise<void> {
+    try {
+      await apiRequest(`/admin/staff/${staffId}`, { method: 'DELETE' });
+    } catch {}
   },
 
   async getDbStatus(): Promise<{ connected: boolean; message: string; provider: string; databaseName?: string; userCount?: number }> {

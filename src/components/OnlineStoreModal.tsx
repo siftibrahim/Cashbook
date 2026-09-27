@@ -45,11 +45,9 @@ import {
   Edit3,
   ChevronDown,
   ChevronUp,
-  Printer,
 } from 'lucide-react';
 import { VendorChatInboxTab } from './vendor/VendorChatInboxTab';
 import { VendorMarketplaceHubTab } from './marketplace/VendorMarketplaceHubTab';
-import { VendorOrderControlModal } from './storefront/VendorOrderControlModal';
 import { getTotalUnreadVendorMessages, CHAT_SYNC_EVENT } from '../utils/storeChatStorage';
 import { storeApi } from '../services/apiService';
 import { STOREFRONT_BEST_OFFERS, STOREFRONT_RECENT_PRODUCTS } from '../data/storefrontDemoCatalog';
@@ -269,14 +267,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [newCouponMaxDiscount, setNewCouponMaxDiscount] = useState<number | undefined>(200);
   const [newCouponDescription, setNewCouponDescription] = useState('');
 
-  // Personal E-Commerce vs Central Marketplace Source Filter & Control Modal
-  const [orderSourceFilter, setOrderSourceFilter] = useState<'all' | 'personal' | 'marketplace'>('all');
-  const [paymentTabFilter, setPaymentTabFilter] = useState<'all' | 'pending' | 'cod_due' | 'paid' | 'rejected'>('all');
-  const [vendorControlModalOrder, setVendorControlModalOrder] = useState<{
-    order: OnlineOrder;
-    initialTab: 'payment' | 'delivery' | 'edit' | 'print';
-  } | null>(null);
-
   const handleRequestStoreActivation = async () => {
     try {
       setIsSubmittingRequest(true);
@@ -409,12 +399,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
     : `${formData.storeSlug || 'shop'}.twinghisabi.site`;
 
   const handleAcceptPayment = async (order: OnlineOrder) => {
-    if (order.orderSource === 'marketplace' || Boolean(order.masterOrderId)) {
-      if (onShowToast) {
-        onShowToast('🔒 সেন্ট্রাল মার্কেটপ্লেস অর্ডারের পেমেন্ট শুধুমাত্র সুপার এডমিন যাচাই করে পারমিশন দেন।');
-      }
-      return;
-    }
     try {
       setIsProcessingPayment(order.id);
       const now = Date.now();
@@ -423,8 +407,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           ? {
               ...o,
               paymentStatus: 'paid' as const,
-              paidAmount: o.totalAmount,
-              dueAmount: 0,
               paymentReviewedAt: now,
               orderStatus: o.orderStatus === 'pending' ? ('confirmed' as const) : o.orderStatus,
               updatedAt: now,
@@ -432,45 +414,9 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           : o
       );
       onUpdateOrders(updatedOrders);
-      const serverOrd = await storeApi.updatePaymentStatus(order.id, 'accept');
-      if (serverOrd) {
-        onUpdateOrders(orders.map((o) => (o.id === order.id ? serverOrd : o)));
-      }
+      await storeApi.updatePaymentStatus(order.id, 'accept');
       if (onShowToast) {
-        onShowToast(`✅ অর্ডার #${order.orderNumber} এর পেমেন্ট ভেন্ডর কর্তৃক যাচাই ও অনুমোদিত হয়েছে!`);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsProcessingPayment(null);
-    }
-  };
-
-  const handleCollectCodPayment = async (order: OnlineOrder) => {
-    if (order.orderSource === 'marketplace' || Boolean(order.masterOrderId)) return;
-    try {
-      setIsProcessingPayment(order.id);
-      const now = Date.now();
-      const updatedOrders = orders.map((o) =>
-        o.id === order.id
-          ? {
-              ...o,
-              paymentStatus: 'paid' as const,
-              paidAmount: o.totalAmount,
-              dueAmount: 0,
-              codCollectedAmount: o.totalAmount,
-              collectedAt: now,
-              updatedAt: now,
-            }
-          : o
-      );
-      onUpdateOrders(updatedOrders);
-      const serverOrd = await storeApi.updatePaymentStatus(order.id, 'cod_collect');
-      if (serverOrd) {
-        onUpdateOrders(orders.map((o) => (o.id === order.id ? serverOrd : o)));
-      }
-      if (onShowToast) {
-        onShowToast(`💵 অর্ডার #${order.orderNumber} এর COD/বকেয়া বিল (৳${formatMoney(order.totalAmount)}) আদায় সম্পন্ন হয়েছে!`);
+        onShowToast(`✅ অর্ডার #${order.orderNumber} এর পেমেন্ট একসেপ্ট ও ভেরিফাই করা হয়েছে!`);
       }
     } catch (e) {
       console.error(e);
@@ -3621,46 +3567,26 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           {/* TAB 5: ONLINE ORDERS (CLEAN STEP-BY-STEP WORKFLOW) */}
           {activeTab === 'orders' && (() => {
             // Strictly exclude orders rejected by Super Admin - "ভেন্ডরসাইট থেকে এটা উধাও হয়ে যাবে"
-            const allVisibleOrders = orders.filter(
+            const visibleOrders = orders.filter(
               (o) => !o.isRejectedByAdmin && (o as any).isHiddenFromVendor !== true && o.adminApprovalStatus !== 'rejected'
             );
 
-            const personalStoreOrdersCount = allVisibleOrders.filter(
-              (o) => o.orderSource !== 'marketplace' && !o.masterOrderId
-            ).length;
-            const centralMarketplaceOrdersCount = allVisibleOrders.filter(
-              (o) => o.orderSource === 'marketplace' || Boolean(o.masterOrderId)
-            ).length;
-
-            // Apply Source Filter (All vs Personal E-Commerce Store vs Central Marketplace)
-            const visibleOrders = allVisibleOrders.filter((o) => {
-              const isMkt = o.orderSource === 'marketplace' || Boolean(o.masterOrderId);
-              if (orderSourceFilter === 'personal') return !isMkt;
-              if (orderSourceFilter === 'marketplace') return isMkt;
-              return true;
-            });
-
             const newOrdersCount = visibleOrders.filter(
-              (o) => o.orderStatus === 'pending' || (o.orderSource !== 'marketplace' && !o.masterOrderId && o.paymentMethod !== 'cod' && o.paymentStatus === 'pending_verification')
+              (o) => o.orderStatus === 'pending' || (o.paymentMethod !== 'cod' && o.paymentStatus === 'pending_verification')
             ).length;
 
             const processingOrdersCount = visibleOrders.filter(
-              (o) => o.orderStatus === 'confirmed' || o.orderStatus === 'processing' || o.orderStatus === 'packed'
+              (o) => o.orderStatus === 'confirmed' || o.orderStatus === 'processing'
             ).length;
 
-            const shippedOrdersCount = visibleOrders.filter(
-              (o) => o.orderStatus === 'shipped' || o.orderStatus === 'out_for_delivery'
-            ).length;
+            const shippedOrdersCount = visibleOrders.filter((o) => o.orderStatus === 'shipped').length;
 
             const deliveredOrdersCount = visibleOrders.filter((o) => o.orderStatus === 'delivered').length;
 
-            const cancelledOrdersCount = visibleOrders.filter((o) => o.orderStatus === 'cancelled' || o.orderStatus === 'returned').length;
+            const cancelledOrdersCount = visibleOrders.filter((o) => o.orderStatus === 'cancelled').length;
 
-            // ONLY Personal Store orders have Vendor Payment Verification! Central Marketplace orders are verified by Super Admin.
             const pendingPaymentOrdersCount = visibleOrders.filter(
               (o) =>
-                o.orderSource !== 'marketplace' &&
-                !o.masterOrderId &&
                 o.paymentMethod !== 'cod' &&
                 (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
             ).length;
@@ -3671,24 +3597,22 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
             const filteredOrders = visibleOrders.filter((o) => {
               if (orderFilter === 'new') {
-                return o.orderStatus === 'pending' || (o.orderSource !== 'marketplace' && !o.masterOrderId && o.paymentMethod !== 'cod' && o.paymentStatus === 'pending_verification');
+                return o.orderStatus === 'pending' || (o.paymentMethod !== 'cod' && o.paymentStatus === 'pending_verification');
               }
               if (orderFilter === 'processing') {
-                return o.orderStatus === 'confirmed' || o.orderStatus === 'processing' || o.orderStatus === 'packed';
+                return o.orderStatus === 'confirmed' || o.orderStatus === 'processing';
               }
               if (orderFilter === 'shipped') {
-                return o.orderStatus === 'shipped' || o.orderStatus === 'out_for_delivery';
+                return o.orderStatus === 'shipped';
               }
               if (orderFilter === 'delivered') {
                 return o.orderStatus === 'delivered';
               }
               if (orderFilter === 'cancelled') {
-                return o.orderStatus === 'cancelled' || o.orderStatus === 'returned';
+                return o.orderStatus === 'cancelled';
               }
               if (orderFilter === 'pending_verification') {
                 return (
-                  o.orderSource !== 'marketplace' &&
-                  !o.masterOrderId &&
                   o.paymentMethod !== 'cod' &&
                   (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
                 );
@@ -3700,74 +3624,22 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               pending: 'bg-amber-100 text-amber-900 border-amber-300',
               confirmed: 'bg-blue-100 text-blue-900 border-blue-300',
               processing: 'bg-indigo-100 text-indigo-900 border-indigo-300',
-              packed: 'bg-purple-100 text-purple-900 border-purple-300',
               shipped: 'bg-purple-100 text-purple-900 border-purple-300',
-              out_for_delivery: 'bg-cyan-100 text-cyan-900 border-cyan-300',
               delivered: 'bg-emerald-100 text-emerald-900 border-emerald-300',
               cancelled: 'bg-rose-100 text-rose-900 border-rose-300',
-              returned: 'bg-rose-100 text-rose-900 border-rose-300',
             };
 
             const statusLabels: Record<string, string> = {
               pending: '🔔 নতুন অর্ডার',
               confirmed: '🔵 অর্ডার নিশ্চিত (প্যাকিং রেডি)',
               processing: '📦 প্যাকিং চলছে',
-              packed: '🎁 প্যাকিং সম্পন্ন',
               shipped: '🚚 কুরিয়ারে হস্তান্তর',
-              out_for_delivery: '🛵 ডেলিভারির পথে',
               delivered: '✅ ডেলিভারি সম্পন্ন',
               cancelled: '❌ বাতিল',
-              returned: '↩️ রিটার্ন',
             };
 
             return (
               <div className="space-y-4">
-                {/* GOVERNANCE & ORDER SOURCE SWITCHER BAR */}
-                <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => setOrderSourceFilter('all')}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${
-                        orderSourceFilter === 'all'
-                          ? 'bg-slate-900 text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      <span>সকল অর্ডার ({allVisibleOrders.length})</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setOrderSourceFilter('personal')}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${
-                        orderSourceFilter === 'personal'
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100'
-                      }`}
-                    >
-                      <span>🏠 পার্সোনাল ই-কমার্স সাইট অর্ডার ({personalStoreOrdersCount})</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setOrderSourceFilter('marketplace')}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${
-                        orderSourceFilter === 'marketplace'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-indigo-50 text-indigo-900 border border-indigo-200 hover:bg-indigo-100'
-                      }`}
-                    >
-                      <span>🏛️ সেন্ট্রাল মার্কেটপ্লেস অর্ডার ({centralMarketplaceOrdersCount})</span>
-                    </button>
-                  </div>
-
-                  <div className="text-[11px] text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/80">
-                    {orderSourceFilter === 'marketplace' ? (
-                      <span>🔒 <strong>সেন্ট্রাল মল অর্ডার:</strong> শুধুমাত্র সুপার এডমিন পেমেন্ট যাচাই করে পারমিশন দেন</span>
-                    ) : (
-                      <span>✅ <strong>পার্সোনাল সাইট অর্ডার:</strong> পেমেন্ট যাচাই, আপডেট ও ডেলিভারি ১০০% আপনি (ভেন্ডর) পরিচালনা করবেন</span>
-                    )}
-                  </div>
-                </div>
                 {/* 4-STEP LIFECYCLE SUMMARY PIPELINE CARDS */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
                   {/* Step 1: New */}
@@ -4143,156 +4015,67 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                               </div>
                             </div>
 
-                            {/* CENTRAL MARKETPLACE ORDER ESCROW STATUS NOTICES vs PERSONAL E-COMMERCE VENDOR CONTROL */}
+                            {/* CENTRAL MARKETPLACE ORDER ESCROW STATUS NOTICES */}
                             {isMarketplaceOrder ? (
                               isMarketplaceLocked ? (
                                 <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-3 space-y-1.5 text-xs text-amber-950 shadow-2xs">
                                   <div className="flex items-center gap-2 font-black text-amber-900">
                                     <Lock className="w-4 h-4 text-amber-700 shrink-0 animate-pulse" />
-                                    <span>🔒 সেন্ট্রাল মল অর্ডার - শুধুমাত্র সুপার এডমিন পেমেন্ট যাচাই করে পারমিশন দিবেন (লক)</span>
+                                    <span>🔒 সেন্ট্রাল মল অর্ডার - সুপার এডমিন কর্তৃক পেমেন্ট যাচাই প্রক্রিয়াধীন (লক)</span>
                                   </div>
                                   <p className="text-[11px] text-amber-800 leading-relaxed">
-                                    গ্রাহক সেন্ট্রাল মার্কেটপ্লেসের মাধ্যমে অর্ডার দিয়েছেন। নীতি অনুযায়ী শুধুমাত্র সুপার এডমিন পেমেন্ট যাচাই করে পারমিশন দিলে অর্ডারটি আনলক হবে এবং আপনি ডেলিভারি দিতে পারবেন।
+                                    গ্রাহক সেন্ট্রাল মলের মাধ্যমে অর্ডার ও পেমেন্ট সাবমিট করেছেন। নীতি অনুযায়ী সুপার এডমিন পেমেন্ট যাচাই-বাছাই শেষ করে একসেপ্ট করলে অর্ডারটি আনলক হবে এবং আপনার কাছে পণ্য রেডি করার অনুমতি আসবে। তার আগে পণ্য ডেলিভারি দেওয়া যাবে না।
                                   </p>
                                 </div>
                               ) : isMarketplaceApproved ? (
-                                <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-2.5 text-xs text-emerald-950 flex items-center justify-between gap-2 shadow-2xs flex-wrap">
+                                <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-2.5 text-xs text-emerald-950 flex items-center justify-between gap-2 shadow-2xs">
                                   <div className="flex items-center gap-1.5 font-bold text-emerald-900">
                                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                                    <span>✅ সুপার এডমিন কর্তৃক পেমেন্ট যাচাই সম্পন্ন ও পারমিশন প্রাপ্ত (আনলকড)</span>
+                                    <span>✅ সুপার এডমিন কর্তৃক পেমেন্ট যাচাই সম্পন্ন ও অনুমোদিত (আনলকড)</span>
                                   </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'delivery' })}
-                                      className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
-                                    >
-                                      <Truck className="w-3 h-3" /> ডেলিভারি ও কুরিয়ার আপডেট
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'print' })}
-                                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
-                                    >
-                                      <Printer className="w-3 h-3" /> পার্সেল স্লিপ
-                                    </button>
-                                  </div>
+                                  <span className="text-[10px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                                    পণ্য রেডি ও ডেলিভারি দিন
+                                  </span>
                                 </div>
                               ) : null
                             ) : (
-                              /* PERSONAL E-COMMERCE SITE: 100% VENDOR OPERATED PAYMENT VERIFICATION, UPDATE & DELIVERY SUITE */
-                              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 space-y-2.5">
-                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <div className="flex items-center gap-2 text-xs text-slate-800 font-bold flex-wrap">
-                                    <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-black">
-                                      🏠 পার্সোনাল ই-কমার্স স্টোর (ভেন্ডর নিয়ন্ত্রিত)
-                                    </span>
-                                    <span>
-                                      পেমেন্ট:{' '}
-                                      <strong className="uppercase text-teal-900">{ord.paymentMethod}</strong>
-                                      {ord.trxId && (
-                                        <span className="ml-1.5 font-mono bg-white px-2 py-0.5 rounded border border-emerald-300 text-slate-900 select-all">
-                                          TrxID: {ord.trxId}
-                                        </span>
-                                      )}
-                                      {ord.senderPhone && (
-                                        <span className="ml-1.5 font-mono text-slate-600">
-                                          ({ord.senderPhone})
-                                        </span>
-                                      )}
-                                    </span>
-                                    <span className="text-[11px] font-black text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">
-                                      জমা: ৳{formatMoney(ord.paidAmount ?? (ord.paymentStatus === 'paid' ? ord.totalAmount : 0))} • বাকি/COD: ৳
-                                      {formatMoney(
-                                        ord.dueAmount ??
-                                          (ord.paymentStatus === 'paid'
-                                            ? 0
-                                            : Math.max(0, ord.totalAmount - (ord.paidAmount || 0)))
-                                      )}
-                                    </span>
-                                  </div>
-
-                                  {/* Quick Vendor Payment Verification Buttons */}
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {ord.paymentStatus !== 'paid' && (
+                              /* DIRECT STORE PAYMENT VERIFICATION (Only for direct vendor store orders) */
+                              ord.paymentMethod !== 'cod' && isPendingReview && (
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <div className="flex items-center gap-2 text-xs text-amber-900 font-bold">
+                                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                                      <span>
+                                        {ord.paymentMethod.toUpperCase()} পেমেন্ট যাচাই প্রয়োজন (TrxID:{' '}
+                                        <strong className="font-mono text-slate-900 select-all">
+                                          {ord.trxId || 'পাওয়া যায়নি'}
+                                        </strong>
+                                        )
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
                                       <button
                                         type="button"
                                         disabled={isProcessingPayment === ord.id}
-                                        onClick={() =>
-                                          ord.paymentMethod === 'cod'
-                                            ? handleCollectCodPayment(ord)
-                                            : handleAcceptPayment(ord)
-                                        }
-                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                                        onClick={() => handleAcceptPayment(ord)}
+                                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition shadow-2xs"
                                       >
                                         <CheckCircle2 className="w-3.5 h-3.5" />
-                                        <span>
-                                          {ord.paymentMethod === 'cod'
-                                            ? 'COD টাকা আদায় সম্পন্ন'
-                                            : 'পেমেন্ট যাচাই ও একসেপ্ট'}
-                                        </span>
+                                        <span>পেমেন্ট একসেপ্ট</span>
                                       </button>
-                                    )}
-                                    {ord.paymentMethod !== 'cod' && ord.paymentStatus !== 'rejected' && ord.paymentStatus !== 'paid' && (
                                       <button
                                         type="button"
                                         disabled={isProcessingPayment === ord.id}
                                         onClick={() => handleOpenRejectModal(ord)}
-                                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition"
+                                        className="px-3 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition"
                                       >
                                         <XCircle className="w-3.5 h-3.5" />
                                         <span>রিজেক্ট</span>
                                       </button>
-                                    )}
+                                    </div>
                                   </div>
                                 </div>
-
-                                {/* Complete Vendor Control Suite Buttons (Payment, Delivery, Edit, Print) */}
-                                <div className="pt-2 border-t border-emerald-200/70 flex items-center justify-between gap-2 flex-wrap">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <button
-                                      type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'payment' })}
-                                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-black flex items-center gap-1 cursor-pointer transition"
-                                    >
-                                      <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
-                                      <span>পেমেন্ট যাচাই / আংশিক জমা / বিল</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'delivery' })}
-                                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-teal-100 text-teal-900 border border-teal-300 text-[11px] font-black flex items-center gap-1 cursor-pointer transition"
-                                    >
-                                      <Truck className="w-3.5 h-3.5 text-teal-600" />
-                                      <span>ডেলিভারি, কুরিয়ার ও রাইডার</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'edit' })}
-                                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-300 text-[11px] font-black flex items-center gap-1 cursor-pointer transition"
-                                    >
-                                      <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
-                                      <span>অর্ডার ও পণ্য এডিট</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'print' })}
-                                      className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer transition"
-                                    >
-                                      <Printer className="w-3.5 h-3.5 text-amber-400" />
-                                      <span>পার্সেল স্লিপ / ইনভয়েস প্রিন্ট</span>
-                                    </button>
-                                  </div>
-
-                                  {(ord.deliveryManName || ord.courierName) && (
-                                    <span className="text-[11px] font-bold text-teal-900 bg-teal-100/80 px-2.5 py-1 rounded-lg">
-                                      🚚 {ord.courierName || ord.deliveryManName}
-                                      {ord.courierTrackingCode ? ` (#${ord.courierTrackingCode})` : ''}
-                                      {ord.deliveryManPhone ? ` • 📞 ${ord.deliveryManPhone}` : ''}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
+                              )
                             )}
 
                             {/* COURIER INFO DISPLAY (If already shipped) */}
@@ -4923,212 +4706,9 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
             </div>
           )}
 
-          {/* TAB 8: VENDOR PAYMENT VERIFICATION CENTER & PAYMENT GATEWAYS */}
-          {activeTab === 'payments' && (() => {
-            // Strictly Personal E-Commerce Store orders ONLY! Central Marketplace payments are verified by Super Admin.
-            const personalOrders = orders.filter(
-              (o) => o.orderSource !== 'marketplace' && !o.masterOrderId && !o.isRejectedByAdmin
-            );
-            const pendingVerifyList = personalOrders.filter(
-              (o) =>
-                o.paymentMethod !== 'cod' &&
-                (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
-            );
-            const codAndPartialList = personalOrders.filter(
-              (o) =>
-                o.paymentStatus === 'partial' ||
-                o.paymentStatus === 'partial_paid' ||
-                (o.paymentMethod === 'cod' && o.paymentStatus !== 'paid' && o.orderStatus !== 'cancelled')
-            );
-            const paidList = personalOrders.filter((o) => o.paymentStatus === 'paid');
-            const rejectedList = personalOrders.filter((o) => o.paymentStatus === 'rejected');
-
-            const filteredPaymentOrders = personalOrders.filter((o) => {
-              if (paymentTabFilter === 'pending') {
-                return (
-                  o.paymentMethod !== 'cod' &&
-                  (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
-                );
-              }
-              if (paymentTabFilter === 'cod_due') {
-                return (
-                  o.paymentStatus === 'partial' ||
-                  o.paymentStatus === 'partial_paid' ||
-                  (o.paymentMethod === 'cod' && o.paymentStatus !== 'paid' && o.orderStatus !== 'cancelled')
-                );
-              }
-              if (paymentTabFilter === 'paid') return o.paymentStatus === 'paid';
-              if (paymentTabFilter === 'rejected') return o.paymentStatus === 'rejected';
-              return true;
-            });
-
-            const totalCollectedAmount = personalOrders.reduce(
-              (sum, o) => sum + (o.paymentStatus === 'paid' ? o.totalAmount : (o.paidAmount || 0)),
-              0
-            );
-            const totalDueCodAmount = personalOrders
-              .filter((o) => o.orderStatus !== 'cancelled' && o.paymentStatus !== 'paid')
-              .reduce((sum, o) => sum + Math.max(0, (o.totalAmount || 0) - (o.paidAmount || 0)), 0);
-
-            return (
+          {/* TAB 8: VENDOR PAYMENT GATEWAYS & METHODS */}
+          {activeTab === 'payments' && (
             <div className="space-y-6">
-              {/* PERSONAL STORE VENDOR PAYMENT VERIFICATION & COLLECTION DASHBOARD */}
-              <div className="bg-white rounded-3xl p-5 border border-emerald-200 shadow-xs space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                      <ShieldCheck className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-black text-slate-900 text-sm sm:text-base">
-                          পার্সোনাল ই-কমার্স পেমেন্ট যাচাই ও ক্যাশ কালেকশন সেন্টার
-                        </h3>
-                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black border border-emerald-300">
-                          ১০০% ভেন্ডর নিয়ন্ত্রিত
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600 mt-0.5">
-                        আপনার পার্সোনাল ই-কমার্স সাইটের সকল পেমেন্ট (বিকাশ/নগদ/রকেট/উপায়/ব্যাংক TrxID যাচাই, আংশিক অগ্রিম ও COD আদায়) শুধুমাত্র আপনি পরিচালনা করবেন। (সেন্ট্রাল মার্কেটপ্লেস অর্ডারের পেমেন্ট শুধুমাত্র সুপার এডমিন যাচাই করে পারমিশন দেন।)
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Summary Metrics */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentTabFilter('pending')}
-                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
-                      paymentTabFilter === 'pending'
-                        ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
-                        : 'bg-amber-50/70 text-amber-950 border-amber-200 hover:bg-amber-100/70'
-                    }`}
-                  >
-                    <p className="text-[11px] font-bold opacity-85">যাচাইয়ের অপেক্ষায় (TrxID)</p>
-                    <p className="text-xl font-black mt-0.5">{pendingVerifyList.length} টি</p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPaymentTabFilter('cod_due')}
-                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
-                      paymentTabFilter === 'cod_due'
-                        ? 'bg-teal-600 text-white border-teal-700 shadow-sm'
-                        : 'bg-teal-50/70 text-teal-950 border-teal-200 hover:bg-teal-100/70'
-                    }`}
-                  >
-                    <p className="text-[11px] font-bold opacity-85">COD ও ডেলিভারিতে বাকি</p>
-                    <p className="text-xl font-black mt-0.5">৳{formatMoney(totalDueCodAmount)} ({codAndPartialList.length})</p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPaymentTabFilter('paid')}
-                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
-                      paymentTabFilter === 'paid'
-                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
-                        : 'bg-emerald-50/70 text-emerald-950 border-emerald-200 hover:bg-emerald-100/70'
-                    }`}
-                  >
-                    <p className="text-[11px] font-bold opacity-85">মোট আদায়কৃত ও পরিশোধিত</p>
-                    <p className="text-xl font-black mt-0.5">৳{formatMoney(totalCollectedAmount)} ({paidList.length})</p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPaymentTabFilter('all')}
-                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
-                      paymentTabFilter === 'all'
-                        ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                        : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    <p className="text-[11px] font-bold opacity-85">সকল পার্সোনাল অর্ডার</p>
-                    <p className="text-xl font-black mt-0.5">{personalOrders.length} টি</p>
-                  </button>
-                </div>
-
-                {/* Personal Store Orders Payment List */}
-                {filteredPaymentOrders.length === 0 ? (
-                  <div className="p-6 text-center bg-slate-50 rounded-2xl border border-slate-200/80 text-xs text-slate-500">
-                    এই ফিল্টারে বর্তমানে কোনো পার্সোনাল ই-কমার্স পেমেন্ট রেকর্ড নেই।
-                  </div>
-                ) : (
-                  <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
-                    {filteredPaymentOrders.map((ord) => {
-                      const paidAmt = ord.paidAmount ?? (ord.paymentStatus === 'paid' ? ord.totalAmount : 0);
-                      const dueAmt = ord.paymentStatus === 'paid' ? 0 : Math.max(0, (ord.totalAmount || 0) - paidAmt);
-                      return (
-                        <div
-                          key={ord.id}
-                          className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-mono font-black text-xs text-teal-950 bg-white px-2 py-0.5 rounded border border-slate-300">
-                                #{ord.orderNumber}
-                              </span>
-                              <span className="font-bold text-xs text-slate-900">{ord.customerName}</span>
-                              <span className="text-[11px] font-mono text-slate-500">({ord.customerPhone})</span>
-                              <span className="px-2 py-0.5 rounded bg-teal-100 text-teal-900 text-[10px] font-black uppercase">
-                                {ord.paymentMethod}
-                              </span>
-                              {ord.trxId && (
-                                <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-950 font-mono text-[11px] font-black border border-amber-300 select-all">
-                                  TrxID: {ord.trxId}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-xs text-slate-600 flex items-center gap-3 flex-wrap">
-                              <span>মোট বিল: <strong>৳{formatMoney(ord.totalAmount)}</strong></span>
-                              <span className="text-emerald-700 font-bold">জমা: ৳{formatMoney(paidAmt)}</span>
-                              <span className="text-amber-800 font-bold">বাকি/COD: ৳{formatMoney(dueAmt)}</span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 flex-wrap shrink-0">
-                            {ord.paymentStatus !== 'paid' && (
-                              <button
-                                type="button"
-                                disabled={isProcessingPayment === ord.id}
-                                onClick={() =>
-                                  ord.paymentMethod === 'cod'
-                                    ? handleCollectCodPayment(ord)
-                                    : handleAcceptPayment(ord)
-                                }
-                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1 cursor-pointer"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>{ord.paymentMethod === 'cod' ? 'COD আদায় সম্পন্ন' : 'ভেরিফাই ও একসেপ্ট'}</span>
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'payment' })}
-                              className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1 cursor-pointer"
-                            >
-                              <Edit3 className="w-3.5 h-3.5 text-teal-600" />
-                              <span>পেমেন্ট / আংশিক জমা এডিট</span>
-                            </button>
-                            {ord.paymentMethod !== 'cod' && ord.paymentStatus !== 'rejected' && ord.paymentStatus !== 'paid' && (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenRejectModal(ord)}
-                                className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
-                              >
-                                রিজেক্ট
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
               {/* Header Card */}
               <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -5568,27 +5148,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                 </button>
               </div>
             </div>
-            );
-          })()}
-
-          {/* VENDOR COMPLETE ORDER, PAYMENT, DELIVERY & PARCEL SLIP MODAL */}
-          {vendorControlModalOrder && (
-            <VendorOrderControlModal
-              order={vendorControlModalOrder.order}
-              storeName={formData.storeName || store?.name || 'অনলাইন স্টোর'}
-              storePhone={formData.phone || store?.phone || ''}
-              storeAddress={formData.address || store?.address || ''}
-              initialTab={vendorControlModalOrder.initialTab}
-              onClose={() => setVendorControlModalOrder(null)}
-              onOrderUpdated={(updatedOrder, msg) => {
-                const nextOrders = orders.map((o) => (o.id === updatedOrder.id ? updatedOrder : o));
-                onUpdateOrders(nextOrders);
-                setVendorControlModalOrder((prev) => (prev ? { ...prev, order: updatedOrder } : null));
-                if (msg && onShowToast) {
-                  onShowToast(msg);
-                }
-              }}
-            />
           )}
 
           {/* TAB 10: CENTRAL MARKETPLACE HUB */}

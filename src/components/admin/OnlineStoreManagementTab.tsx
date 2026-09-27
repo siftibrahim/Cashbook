@@ -443,22 +443,6 @@ export const OnlineStoreManagementTab: React.FC<OnlineStoreManagementTabProps> =
         </div>
       )}
 
-      {/* Governance Info Banner */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-50 via-emerald-50/70 to-indigo-50/60 border border-teal-200/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-2xs">
-        <div className="flex items-start gap-2.5">
-          <ShieldCheck className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
-          <div className="space-y-0.5">
-            <h4 className="font-black text-slate-900">
-              🏠 ইউজারের পার্সোনাল ই-কমার্স সাইট বনাম 🏛️ সেন্ট্রাল মার্কেটপ্লেস অর্ডার ব্যবস্থাপনা
-            </h4>
-            <p className="text-slate-600 text-[11px] leading-relaxed">
-              • <strong>পার্সোনাল ই-কমার্স সাইট:</strong> ইউজারের নিজস্ব স্টোরের সকল অর্ডার, পেমেন্ট যাচাই (bKash/Nagad/Rocket/Upay/Bank/COD), বিল/পণ্য এডিট, কুরিয়ার ও ডেলিভারি <strong>১০০% ভেন্ডর নিজেই পরিচালনা করবেন</strong> (এডমিন পারমিশন ছাড়াই)।<br />
-              • <strong>সেন্ট্রাল মার্কেটপ্লেস:</strong> শুধুমাত্র সেন্ট্রাল মার্কেটপ্লেসের অর্ডারগুলোর পেমেন্ট যাচাই করে সুপার অ্যাডমিন ভেন্ডরকে পারমিশন (আনলক) দিবেন।
-            </p>
-          </div>
-        </div>
-      </div>
-
       {/* Main Filter & Search Bar */}
       <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row items-center justify-between gap-3">
