@@ -72,6 +72,8 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
 
   // Escrow Payment Approval & Rejection State
   const [isApprovingPayment, setIsApprovingPayment] = useState<string | null>(null);
+  const [approvingOrder, setApprovingOrder] = useState<any | null>(null);
+  const [approvalAdminNote, setApprovalAdminNote] = useState<string>('');
   const [rejectingOrder, setRejectingOrder] = useState<any | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState<string>('');
 
@@ -239,28 +241,62 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   };
 
   // Super Admin Approves Payment & Unlocks for Vendor
-  const handleApprovePayment = async (order: any) => {
-    const isConfirmed = confirm(
-      `পেমেন্ট অনুমোদন করবেন?\n\n• অর্ডার #${order.orderNumber}\n• গ্রাহক: ${order.customerName} (${order.customerPhone})\n• মোট বিল: ৳${order.grandTotal}\n\nঅনুমোদন দিলে:\n1. ভেন্ডরের সাইটে অর্ডারটি আনলক হবে এবং তারা পণ্য প্রস্তুত ও ডেলিভারি দিতে পারবে।\n2. গ্রাহকের ফোনে অফিসিয়াল কনফার্মেশন এসএমএস পাঠানো হবে।`
-    );
-    if (!isConfirmed) return;
+  const handleApprovePayment = async (order?: any) => {
+    const target = order || approvingOrder;
+    if (!target) return;
 
-    setIsApprovingPayment(order.id);
+    setIsApprovingPayment(target.id);
+    const note = approvalAdminNote.trim() || undefined;
+
+    // Immediately update local UI state for snappy feedback
+    setData((prev) => ({
+      ...prev,
+      masterOrders: prev.masterOrders.map((m) =>
+        m.id === target.id || m.orderNumber === target.orderNumber
+          ? {
+              ...m,
+              adminApprovalStatus: 'approved',
+              isAdminApproved: true,
+              paymentStatus: 'paid',
+              overallStatus: 'confirmed',
+            }
+          : m
+      ),
+      subOrders: prev.subOrders.map((s) =>
+        s.masterOrderId === target.id || (target.subOrderIds && target.subOrderIds.includes(s.id))
+          ? {
+              ...s,
+              adminApprovalStatus: 'approved',
+              isAdminApproved: true,
+              isLockedForVendor: false,
+              paymentStatus: 'paid',
+              orderStatus: 'confirmed',
+            }
+          : s
+      ),
+    }));
+
+    if (selectedMasterOrder && (selectedMasterOrder.id === target.id || selectedMasterOrder.orderNumber === target.orderNumber)) {
+      setSelectedMasterOrder((prev: any) => ({
+        ...prev,
+        adminApprovalStatus: 'approved',
+        isAdminApproved: true,
+        paymentStatus: 'paid',
+        overallStatus: 'confirmed',
+      }));
+    }
+
     try {
-      const res = await marketplaceAdminApi.approveOrderPayment(order.id);
-      showToast(res.message || '✅ পেমেন্ট সফলভাবে যাচাই ও অনুমোদন হয়েছে! ভেন্ডরের কাছে অর্ডার আনলক হয়েছে এবং ক্রেতাকে কনফার্মেশন এসএমএস গেছে।');
-      loadData();
-      if (selectedMasterOrder && (selectedMasterOrder.id === order.id || selectedMasterOrder.orderNumber === order.orderNumber)) {
-        setSelectedMasterOrder((prev: any) => ({
-          ...prev,
-          adminApprovalStatus: 'approved',
-          isAdminApproved: true,
-          paymentStatus: 'paid',
-          overallStatus: 'confirmed',
-        }));
-      }
+      const res = await marketplaceAdminApi.approveOrderPayment(target.id, { adminNote: note });
+      showToast(res.message || `✅ অর্ডার #${target.orderNumber} এর পেমেন্ট সফলভাবে একসেপ্ট ও আনলক হয়েছে!`);
+      setApprovingOrder(null);
+      setApprovalAdminNote('');
+      loadData(false);
     } catch (err: any) {
-      alert(err.message || 'পেমেন্ট অনুমোদন ব্যর্থ হয়েছে');
+      console.error('Payment approval error:', err);
+      showToast(`⚠️ পেমেন্ট অনুমোদন ব্যর্থ: ${err.message || 'সমস্যা হয়েছে'}`);
+      setApprovingOrder(null);
+      loadData(false);
     } finally {
       setIsApprovingPayment(null);
     }
@@ -269,28 +305,51 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   // Super Admin Rejects Payment & Hides from Vendor
   const handleRejectPayment = async () => {
     if (!rejectingOrder) return;
+    const target = rejectingOrder;
     const reason = rejectionReasonInput.trim() || 'পেমেন্ট যাচাইয়ে অসঙ্গতি বা ট্রানজেকশন বাতিল';
 
-    setIsApprovingPayment(rejectingOrder.id);
+    setIsApprovingPayment(target.id);
+
+    // Immediately update local UI state
+    setData((prev) => ({
+      ...prev,
+      masterOrders: prev.masterOrders.map((m) =>
+        m.id === target.id || m.orderNumber === target.orderNumber
+          ? {
+              ...m,
+              adminApprovalStatus: 'rejected',
+              isRejectedByAdmin: true,
+              paymentStatus: 'rejected',
+              overallStatus: 'cancelled',
+              adminRejectionReason: reason,
+            }
+          : m
+      ),
+    }));
+
+    if (selectedMasterOrder && (selectedMasterOrder.id === target.id || selectedMasterOrder.orderNumber === target.orderNumber)) {
+      setSelectedMasterOrder((prev: any) => ({
+        ...prev,
+        adminApprovalStatus: 'rejected',
+        isRejectedByAdmin: true,
+        paymentStatus: 'rejected',
+        overallStatus: 'cancelled',
+      }));
+    }
+
     try {
-      const res = await marketplaceAdminApi.rejectOrderPayment(rejectingOrder.id, {
+      const res = await marketplaceAdminApi.rejectOrderPayment(target.id, {
         rejectionReason: reason,
       });
-      showToast(res.message || '❌ পেমেন্ট বাতিল করা হয়েছে। ভেন্ডরদের তালিকা থেকে অর্ডারটি উধাও হয়ে গেছে এবং পণ্যের স্টক রিস্টোর হয়েছে।');
+      showToast(res.message || `❌ অর্ডার #${target.orderNumber} এর পেমেন্ট বাতিল করা হয়েছে।`);
       setRejectingOrder(null);
       setRejectionReasonInput('');
-      loadData();
-      if (selectedMasterOrder && (selectedMasterOrder.id === rejectingOrder.id || selectedMasterOrder.orderNumber === rejectingOrder.orderNumber)) {
-        setSelectedMasterOrder((prev: any) => ({
-          ...prev,
-          adminApprovalStatus: 'rejected',
-          isRejectedByAdmin: true,
-          paymentStatus: 'rejected',
-          overallStatus: 'cancelled',
-        }));
-      }
+      loadData(false);
     } catch (err: any) {
-      alert(err.message || 'পেমেন্ট বাতিল করতে সমস্যা হয়েছে');
+      console.error('Payment rejection error:', err);
+      showToast(`⚠️ পেমেন্ট বাতিল করতে সমস্যা: ${err.message || 'সমস্যা হয়েছে'}`);
+      setRejectingOrder(null);
+      loadData(false);
     } finally {
       setIsApprovingPayment(null);
     }
@@ -418,8 +477,8 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     <div className="space-y-6">
       {/* Toast Notification */}
       {toastMsg && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xl border border-slate-700 animate-in fade-in">
-          {toastMsg}
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-2xl border border-slate-700 animate-in fade-in flex items-center gap-2">
+          <span>{toastMsg}</span>
         </div>
       )}
 
@@ -779,30 +838,33 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                           </td>
                           <td className="p-3.5 text-right">
                             <div className="flex flex-col items-end gap-1.5">
-                              {isPendingApproval && (
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    disabled={isApprovingPayment === ord.id}
-                                    onClick={() => handleApprovePayment(ord)}
-                                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer shadow-2xs transition"
-                                    title="পেমেন্ট একসেপ্ট ও ভেন্ডরের জন্য আনলক করুন"
-                                  >
-                                    <CheckCircle2 className="w-3 h-3" />
-                                    <span>একসেপ্ট</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={isApprovingPayment === ord.id}
-                                    onClick={() => setRejectingOrder(ord)}
-                                    className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer transition"
-                                    title="পেমেন্ট রিজেক্ট করুন"
-                                  >
-                                    <X className="w-3 h-3" />
-                                    <span>রিজেক্ট</span>
-                                  </button>
-                                </div>
-                              )}
+                                {isPendingApproval && (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={isApprovingPayment === ord.id}
+                                      onClick={() => setApprovingOrder(ord)}
+                                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer shadow-2xs transition"
+                                      title="পেমেন্ট একসেপ্ট ও ভেন্ডরের জন্য আনলক করুন"
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>একসেপ্ট</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={isApprovingPayment === ord.id}
+                                      onClick={() => {
+                                        setRejectionReasonInput('');
+                                        setRejectingOrder(ord);
+                                      }}
+                                      className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer transition"
+                                      title="পেমেন্ট রিজেক্ট করুন"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                      <span>রিজেক্ট</span>
+                                    </button>
+                                  </div>
+                                )}
 
                               <button
                                 type="button"
@@ -953,7 +1015,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                         <button
                           type="button"
                           disabled={isApprovingPayment === selectedMasterOrder.id}
-                          onClick={() => handleApprovePayment(selectedMasterOrder)}
+                          onClick={() => setApprovingOrder(selectedMasterOrder)}
                           className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                         >
                           <CheckCircle2 className="w-4 h-4" />
@@ -967,7 +1029,10 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                         <button
                           type="button"
                           disabled={isApprovingPayment === selectedMasterOrder.id}
-                          onClick={() => setRejectingOrder(selectedMasterOrder)}
+                          onClick={() => {
+                            setRejectionReasonInput('');
+                            setRejectingOrder(selectedMasterOrder);
+                          }}
                           className="px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
                         >
                           <X className="w-4 h-4" />
@@ -1772,11 +1837,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                   <button
                     type="button"
                     disabled={isProcessingPayout}
-                    onClick={() => {
-                      if (confirm('আপনি কি নিশ্চিত যে এই আবেদনটি বাতিল করতে চান?')) {
-                        handleProcessPayout('reject');
-                      }
-                    }}
+                    onClick={() => handleProcessPayout('reject')}
                     className="py-2.5 px-3 border border-rose-200 hover:bg-rose-50 text-rose-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1 transition cursor-pointer disabled:opacity-50"
                   >
                     <XCircle className="w-3.5 h-3.5" />
@@ -1792,6 +1853,251 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                   বন্ধ
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUPER ADMIN PAYMENT APPROVAL MODAL */}
+      {approvingOrder && (
+        <div className="fixed inset-0 z-[70] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">পেমেন্ট অনুমোদন ও একসেপ্ট</h3>
+                  <span className="text-[11px] font-mono text-teal-800 font-bold block">
+                    অর্ডার #{approvingOrder.orderNumber}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setApprovingOrder(null)}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Order summary box */}
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">গ্রাহকের নাম:</span>
+                <span className="font-bold text-slate-900">{approvingOrder.customerName}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">মোবাইল নম্বর:</span>
+                <span className="font-mono font-bold text-slate-800">{approvingOrder.customerPhone}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">মোট বিল:</span>
+                <span className="font-black text-emerald-800 text-sm">৳{approvingOrder.grandTotal}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">পেমেন্ট মেথড:</span>
+                <span className="font-bold uppercase text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">
+                  {approvingOrder.paymentMethod}
+                </span>
+              </div>
+              {approvingOrder.paymentTrxId && (
+                <div className="flex justify-between items-center bg-amber-50 p-2 rounded-lg border border-amber-200">
+                  <span className="text-amber-900 font-bold text-[11px]">TrxID:</span>
+                  <span className="font-mono font-black text-amber-950 select-all text-xs">
+                    {approvingOrder.paymentTrxId}
+                  </span>
+                </div>
+              )}
+              {approvingOrder.senderPhone && (
+                <div className="flex justify-between items-center text-[11px] text-slate-600">
+                  <span>টাকা প্রেরকের ফোন:</span>
+                  <span className="font-mono font-bold">{approvingOrder.senderPhone}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Permission preview */}
+            <div className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-200 text-[11px] text-emerald-950 space-y-1">
+              <p className="font-bold flex items-center gap-1 text-emerald-900">
+                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                <span>অনুমোদন দিলে যা ঘটবে:</span>
+              </p>
+              <ul className="list-disc list-inside space-y-0.5 text-slate-700">
+                <li>ভেন্ডরের সাইটে অর্ডারটি সাথে সাথে আনলক হবে (পণ্য প্রস্তুত ও ডেলিভারির অনুমতি পাবে)।</li>
+                <li>গ্রাহকের নম্বরে অফিসিয়াল কনফার্মেশন SMS পাঠানো হবে।</li>
+              </ul>
+            </div>
+
+            {/* Optional Admin Note */}
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700 block">অ্যাডমিন নোট (ঐচ্ছিক):</label>
+              <input
+                type="text"
+                value={approvalAdminNote}
+                onChange={(e) => setApprovalAdminNote(e.target.value)}
+                placeholder="যেমন: পেমেন্ট বিকাশ মার্চেন্টে যাচাইকৃত"
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              />
+            </div>
+
+            {/* Submit Action Buttons */}
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isApprovingPayment === approvingOrder.id}
+                onClick={() => handleApprovePayment(approvingOrder)}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer disabled:opacity-50"
+              >
+                {isApprovingPayment === approvingOrder.id ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {isApprovingPayment === approvingOrder.id
+                    ? 'অনুমোদন হচ্ছে...'
+                    : '✓ পেমেন্ট একসেপ্ট ও আনলক সাবমিট করুন'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setApprovingOrder(null)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                বাতিল
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUPER ADMIN PAYMENT REJECTION MODAL */}
+      {rejectingOrder && (
+        <div className="fixed inset-0 z-[70] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                  <XCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-rose-900">পেমেন্ট রিজেক্ট ও অর্ডার বাতিল</h3>
+                  <span className="text-[11px] font-mono text-slate-500 font-bold block">
+                    অর্ডার #{rejectingOrder.orderNumber}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRejectingOrder(null)}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Order summary box */}
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">গ্রাহকের নাম:</span>
+                <span className="font-bold text-slate-900">{rejectingOrder.customerName}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">মোবাইল নম্বর:</span>
+                <span className="font-mono font-bold text-slate-800">{rejectingOrder.customerPhone}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">মোট বিল:</span>
+                <span className="font-black text-slate-900 text-sm">৳{rejectingOrder.grandTotal}</span>
+              </div>
+              {rejectingOrder.paymentTrxId && (
+                <div className="flex justify-between items-center bg-rose-50 p-2 rounded-lg border border-rose-200">
+                  <span className="text-rose-800 font-bold text-[11px]">প্রদত্ত TrxID:</span>
+                  <span className="font-mono font-black text-rose-950 select-all text-xs">
+                    {rejectingOrder.paymentTrxId}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Rejection reason choice & input */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-800 block">
+                বাতিলের কারণ নির্বাচন করুন বা লিখুন:
+              </label>
+
+              {/* Quick tags */}
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'TrxID সঠিক নয় বা ভুয়া',
+                  'পেমেন্ট অ্যাকাউন্টে জমা হয়নি',
+                  'ভুল টাকার পরিমাণ পাঠানো হয়েছে',
+                  'গ্রাহকের অনুরোধে বাতিল',
+                ].map((quick) => (
+                  <button
+                    key={quick}
+                    type="button"
+                    onClick={() => setRejectionReasonInput(quick)}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg font-bold border transition cursor-pointer ${
+                      rejectionReasonInput === quick
+                        ? 'bg-rose-100 border-rose-400 text-rose-950 font-black'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {quick}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                rows={2}
+                value={rejectionReasonInput}
+                onChange={(e) => setRejectionReasonInput(e.target.value)}
+                placeholder="বাতিলের সুনির্দিষ্ট কারণ লিখুন (গ্রাহকের ফোনে এসএমএস যাবে)..."
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none"
+              />
+            </div>
+
+            {/* Warning Note */}
+            <div className="p-3 bg-rose-50/80 rounded-xl border border-rose-200 text-[11px] text-rose-950 space-y-1">
+              <p className="font-bold flex items-center gap-1 text-rose-900">
+                <AlertTriangle className="w-4 h-4 text-rose-600" />
+                <span>সতর্কতা:</span>
+              </p>
+              <p className="text-slate-700 text-[11px] leading-relaxed">
+                রিজেক্ট সাবমিট করলে ভেন্ডরদের ড্যাশবোর্ড থেকে অর্ডারটি উধাও হয়ে যাবে, পণ্যের স্টক স্বয়ংক্রিয়ভাবে ফেরত আসবে এবং গ্রাহককে এসএমএসে জানানো হবে।
+              </p>
+            </div>
+
+            {/* Submit Action Buttons */}
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isApprovingPayment === rejectingOrder.id}
+                onClick={handleRejectPayment}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer disabled:opacity-50"
+              >
+                {isApprovingPayment === rejectingOrder.id ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <XCircle className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {isApprovingPayment === rejectingOrder.id
+                    ? 'বাতিল হচ্ছে...'
+                    : '❌ রিজেক্ট সাবমিট করুন'}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRejectingOrder(null)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                ফিরে যান
+              </button>
             </div>
           </div>
         </div>

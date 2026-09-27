@@ -418,6 +418,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
     try {
       setIsProcessingPayment(order.id);
       const now = Date.now();
+      const nextOrderStatus = order.orderStatus === 'pending' ? ('confirmed' as const) : order.orderStatus;
       const updatedOrders = orders.map((o) =>
         o.id === order.id
           ? {
@@ -426,21 +427,70 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               paidAmount: o.totalAmount,
               dueAmount: 0,
               paymentReviewedAt: now,
-              orderStatus: o.orderStatus === 'pending' ? ('confirmed' as const) : o.orderStatus,
+              orderStatus: nextOrderStatus,
               updatedAt: now,
             }
           : o
       );
       onUpdateOrders(updatedOrders);
-      const serverOrd = await storeApi.updatePaymentStatus(order.id, 'accept');
-      if (serverOrd) {
-        onUpdateOrders(orders.map((o) => (o.id === order.id ? serverOrd : o)));
+
+      // 1. Sync to customer localStorage on this browser
+      try {
+        const rawCustomerOrders = localStorage.getItem('ibrahim_khata_online_customer_orders_v1');
+        if (rawCustomerOrders) {
+          const custOrders: OnlineOrder[] = JSON.parse(rawCustomerOrders);
+          const updatedCustOrders = custOrders.map((co) =>
+            co.id === order.id || co.orderNumber === order.orderNumber
+              ? {
+                  ...co,
+                  paymentStatus: 'paid' as const,
+                  paidAmount: co.totalAmount,
+                  dueAmount: 0,
+                  paymentReviewedAt: now,
+                  orderStatus: nextOrderStatus,
+                  updatedAt: now,
+                }
+              : co
+          );
+          localStorage.setItem('ibrahim_khata_online_customer_orders_v1', JSON.stringify(updatedCustOrders));
+        }
+      } catch (err) {
+        console.warn('Customer storage sync:', err);
       }
+
+      // 2. Dispatch global event
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('twing_order_updated', {
+            detail: {
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              paymentStatus: 'paid',
+              orderStatus: nextOrderStatus,
+              updatedAt: now,
+            },
+          })
+        );
+      }
+
+      // 3. Persist to server database safely
+      try {
+        const serverOrd = await storeApi.updatePaymentStatus(order.id, 'accept');
+        if (serverOrd) {
+          onUpdateOrders(updatedOrders.map((o) => (o.id === order.id ? { ...o, ...serverOrd } : o)));
+        }
+      } catch (apiErr) {
+        console.warn('API updatePaymentStatus error (optimistic update preserved):', apiErr);
+      }
+
       if (onShowToast) {
-        onShowToast(`✅ অর্ডার #${order.orderNumber} এর পেমেন্ট ভেন্ডর কর্তৃক যাচাই ও অনুমোদিত হয়েছে!`);
+        onShowToast(`✅ অর্ডার #${order.orderNumber} এর পেমেন্ট একসেপ্ট ও ভেরিফাই সম্পন্ন হয়েছে!`);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      if (onShowToast) {
+        onShowToast(`⚠️ সমস্যা হয়েছে: ${e.message || 'ত্রুটি'}`);
+      }
     } finally {
       setIsProcessingPayment(null);
     }
@@ -465,15 +515,63 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           : o
       );
       onUpdateOrders(updatedOrders);
-      const serverOrd = await storeApi.updatePaymentStatus(order.id, 'cod_collect');
-      if (serverOrd) {
-        onUpdateOrders(orders.map((o) => (o.id === order.id ? serverOrd : o)));
+
+      // 1. Sync to customer storage
+      try {
+        const rawCustomerOrders = localStorage.getItem('ibrahim_khata_online_customer_orders_v1');
+        if (rawCustomerOrders) {
+          const custOrders: OnlineOrder[] = JSON.parse(rawCustomerOrders);
+          const updatedCustOrders = custOrders.map((co) =>
+            co.id === order.id || co.orderNumber === order.orderNumber
+              ? {
+                  ...co,
+                  paymentStatus: 'paid' as const,
+                  paidAmount: co.totalAmount,
+                  dueAmount: 0,
+                  codCollectedAmount: co.totalAmount,
+                  collectedAt: now,
+                  updatedAt: now,
+                }
+              : co
+          );
+          localStorage.setItem('ibrahim_khata_online_customer_orders_v1', JSON.stringify(updatedCustOrders));
+        }
+      } catch (err) {
+        console.warn('Customer storage sync:', err);
       }
+
+      // 2. Dispatch event
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('twing_order_updated', {
+            detail: {
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              paymentStatus: 'paid',
+              updatedAt: now,
+            },
+          })
+        );
+      }
+
+      // 3. Persist to server backend gracefully
+      try {
+        const serverOrd = await storeApi.updatePaymentStatus(order.id, 'cod_collect');
+        if (serverOrd) {
+          onUpdateOrders(updatedOrders.map((o) => (o.id === order.id ? { ...o, ...serverOrd } : o)));
+        }
+      } catch (apiErr) {
+        console.warn('API updatePaymentStatus cod_collect error:', apiErr);
+      }
+
       if (onShowToast) {
-        onShowToast(`💵 অর্ডার #${order.orderNumber} এর COD/বকেয়া বিল (৳${formatMoney(order.totalAmount)}) আদায় সম্পন্ন হয়েছে!`);
+        onShowToast(`💵 অর্ডার #${order.orderNumber} এর COD আদায় (৳${formatMoney(order.totalAmount)}) সফল হয়েছে!`);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      if (onShowToast) {
+        onShowToast(`⚠️ সমস্যা হয়েছে: ${e.message || 'ত্রুটি'}`);
+      }
     } finally {
       setIsProcessingPayment(null);
     }
@@ -849,12 +947,16 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
     onUpdateConfig(updated);
   };
 
-  const handleSubmitOrderStatus = async (orderId: string) => {
+  const handleSubmitOrderStatus = async (
+    orderId: string,
+    forcedStatus?: OnlineOrder['orderStatus'],
+    courierData?: { courierName?: string; courierTrackingCode?: string }
+  ) => {
     const ord = orders.find((o) => o.id === orderId);
     if (!ord) return;
 
-    const newStatus = orderStatusDrafts[orderId] ?? ord.orderStatus;
-    const courierDraft = orderCourierDrafts[orderId];
+    const newStatus = forcedStatus || orderStatusDrafts[orderId] || ord.orderStatus;
+    const courierDraft = courierData || orderCourierDrafts[orderId];
     const courierName = courierDraft?.courierName !== undefined ? courierDraft.courierName : ord.courierName;
     const courierTrackingCode = courierDraft?.courierTrackingCode !== undefined ? courierDraft.courierTrackingCode : ord.courierTrackingCode;
 
@@ -912,17 +1014,21 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
         );
       }
 
-      // 3. Persist to server database
-      const serverRes = await storeApi.updateOrderStatus(orderId, newStatus, {
-        courierName: courierName || undefined,
-        courierTrackingCode: courierTrackingCode || undefined,
-      });
+      // 3. Persist to server database safely
+      try {
+        const serverRes = await storeApi.updateOrderStatus(orderId, newStatus, {
+          courierName: courierName || undefined,
+          courierTrackingCode: courierTrackingCode || undefined,
+        });
 
-      if (serverRes) {
-        const finalOrders = orders.map((o) =>
-          o.id === orderId ? { ...o, ...serverRes } : o
-        );
-        onUpdateOrders(finalOrders);
+        if (serverRes) {
+          const finalOrders = updatedOrders.map((o) =>
+            o.id === orderId ? { ...o, ...serverRes } : o
+          );
+          onUpdateOrders(finalOrders);
+        }
+      } catch (serverErr) {
+        console.warn('Server status update warning (local update preserved):', serverErr);
       }
 
       setStatusUpdateSuccessId(orderId);
@@ -938,13 +1044,13 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           : newStatus === 'processing'
           ? 'প্যাকিং চলছে'
           : newStatus === 'shipped'
-          ? 'ডেলিভারিতে আছে'
+          ? 'কুরিয়ারে পাঠানো হয়েছে'
           : newStatus === 'delivered'
           ? 'ডেলিভারি সম্পন্ন'
           : 'বাতিল';
 
       if (onShowToast) {
-        onShowToast(`✅ অর্ডার #${ord.orderNumber} এর স্ট্যাটাস '${statusBnName}' সাবমিট হয়েছে এবং কাস্টমার সাইডে পাঠানো হয়েছে!`);
+        onShowToast(`✅ অর্ডার #${ord.orderNumber} এর স্ট্যাটাস '${statusBnName}' আপডেট হয়েছে!`);
       }
     } catch (err: any) {
       console.error('Failed to submit order status update:', err);
@@ -958,10 +1064,10 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: OnlineOrder['orderStatus']) => {
     setOrderStatusDrafts((prev) => ({ ...prev, [orderId]: newStatus }));
-    await handleSubmitOrderStatus(orderId);
+    await handleSubmitOrderStatus(orderId, newStatus);
   };
 
-  const handleGenerateTestOrder = () => {
+  const handleGenerateTestOrder = async () => {
     const sampleProduct = products[0] || {
       id: 'prd_demo',
       name: 'প্রিমিয়াম সুতি পাঞ্জাবি / টি-শার্ট',
@@ -989,8 +1095,10 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
       ],
       subtotal: sampleProduct.salePrice * 2,
       totalAmount: sampleProduct.salePrice * 2 + (formData.deliveryInsideDhaka || 60),
-      paymentMethod: 'cod',
-      paymentStatus: 'unpaid',
+      paymentMethod: 'bkash',
+      paymentStatus: 'pending_verification',
+      trxId: `TRX${Date.now().toString().slice(-8).toUpperCase()}`,
+      senderPhone: '01712345678',
       orderStatus: 'pending',
       notes: 'অফিস টাইমে ডেলিভারি দিলে ভালো হয়।',
       createdAt: Date.now(),
@@ -999,6 +1107,16 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
     onUpdateOrders([testOrder, ...orders]);
     setActiveTab('orders');
+    setOrderFilter('new');
+    if (onShowToast) {
+      onShowToast(`🎉 টেস্ট অর্ডার #${testOrder.orderNumber} যুক্ত হয়েছে!`);
+    }
+
+    try {
+      await storeApi.placeOrder(testOrder);
+    } catch (e) {
+      console.warn('Test order backend sync notice:', e);
+    }
   };
 
   const handleShareOnWhatsApp = () => {
@@ -4180,118 +4298,95 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                 </div>
                               ) : null
                             ) : (
-                              /* PERSONAL E-COMMERCE SITE: 100% VENDOR OPERATED PAYMENT VERIFICATION, UPDATE & DELIVERY SUITE */
-                              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 space-y-2.5">
-                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <div className="flex items-center gap-2 text-xs text-slate-800 font-bold flex-wrap">
-                                    <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-black">
-                                      🏠 পার্সোনাল ই-কমার্স স্টোর (ভেন্ডর নিয়ন্ত্রিত)
-                                    </span>
-                                    <span>
-                                      পেমেন্ট:{' '}
-                                      <strong className="uppercase text-teal-900">{ord.paymentMethod}</strong>
-                                      {ord.trxId && (
-                                        <span className="ml-1.5 font-mono bg-white px-2 py-0.5 rounded border border-emerald-300 text-slate-900 select-all">
-                                          TrxID: {ord.trxId}
+                              /* CLEAN UNIFIED PERSONAL STORE PAYMENT ROW (NO CONFUSING NESTED CARDS) */
+                              <div className="space-y-2">
+                                {isPendingReview ? (
+                                  /* Payment verification needed prompt */
+                                  <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="px-2 py-0.5 rounded bg-amber-200 text-amber-950 text-[10px] font-black uppercase">
+                                          {ord.paymentMethod} পেমেন্ট যাচাই বাকি
                                         </span>
-                                      )}
-                                      {ord.senderPhone && (
-                                        <span className="ml-1.5 font-mono text-slate-600">
-                                          ({ord.senderPhone})
-                                        </span>
-                                      )}
-                                    </span>
-                                    <span className="text-[11px] font-black text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">
-                                      জমা: ৳{formatMoney(ord.paidAmount ?? (ord.paymentStatus === 'paid' ? ord.totalAmount : 0))} • বাকি/COD: ৳
-                                      {formatMoney(
-                                        ord.dueAmount ??
-                                          (ord.paymentStatus === 'paid'
-                                            ? 0
-                                            : Math.max(0, ord.totalAmount - (ord.paidAmount || 0)))
-                                      )}
-                                    </span>
-                                  </div>
+                                        {ord.trxId && (
+                                          <span className="font-mono text-xs font-black bg-white px-2 py-0.5 rounded border border-amber-300 text-slate-900 select-all">
+                                            TrxID: {ord.trxId}
+                                          </span>
+                                        )}
+                                        {ord.senderPhone && (
+                                          <span className="text-xs font-mono text-slate-700">
+                                            প্রেরক: {ord.senderPhone}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[11px] text-amber-900">
+                                        গ্রাহক TrxID পাঠিয়েছেন। অ্যাকাউন্টে <strong>৳{formatMoney(ord.totalAmount)}</strong> ক্রেডিট চেক করে একসেপ্ট করুন।
+                                      </p>
+                                    </div>
 
-                                  {/* Quick Vendor Payment Verification Buttons */}
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {ord.paymentStatus !== 'paid' && (
+                                    <div className="flex items-center gap-2 shrink-0">
                                       <button
                                         type="button"
                                         disabled={isProcessingPayment === ord.id}
-                                        onClick={() =>
-                                          ord.paymentMethod === 'cod'
-                                            ? handleCollectCodPayment(ord)
-                                            : handleAcceptPayment(ord)
-                                        }
-                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                                        onClick={() => handleAcceptPayment(ord)}
+                                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition"
                                       >
-                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                        <span>
-                                          {ord.paymentMethod === 'cod'
-                                            ? 'COD টাকা আদায় সম্পন্ন'
-                                            : 'পেমেন্ট যাচাই ও একসেপ্ট'}
-                                        </span>
+                                        <CheckCircle2 className="w-4 h-4" />
+                                        <span>{isProcessingPayment === ord.id ? 'একসেপ্ট হচ্ছে...' : 'পেমেন্ট একসেপ্ট করুন'}</span>
                                       </button>
-                                    )}
-                                    {ord.paymentMethod !== 'cod' && ord.paymentStatus !== 'rejected' && ord.paymentStatus !== 'paid' && (
                                       <button
                                         type="button"
                                         disabled={isProcessingPayment === ord.id}
                                         onClick={() => handleOpenRejectModal(ord)}
-                                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition"
+                                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition"
                                       >
                                         <XCircle className="w-3.5 h-3.5" />
                                         <span>রিজেক্ট</span>
                                       </button>
-                                    )}
+                                    </div>
                                   </div>
-                                </div>
-
-                                {/* Complete Vendor Control Suite Buttons (Payment, Delivery, Edit, Print) */}
-                                <div className="pt-2 border-t border-emerald-200/70 flex items-center justify-between gap-2 flex-wrap">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                ) : isPaid ? (
+                                  /* Payment already paid */
+                                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-2.5 flex items-center justify-between gap-2 text-xs text-emerald-900 flex-wrap">
+                                    <div className="flex items-center gap-2">
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                      <span className="font-bold">পেমেন্ট পরিশোধিত:</span>
+                                      <span className="font-semibold uppercase">{ord.paymentMethod} (৳{formatMoney(ord.paidAmount || ord.totalAmount)})</span>
+                                      {ord.trxId && (
+                                        <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-emerald-300 text-slate-800">
+                                          TrxID: {ord.trxId}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'print' })}
+                                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <Printer className="w-3 h-3 text-amber-400" />
+                                        <span>চালান প্রিন্ট</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  /* COD (Cash On Delivery) */
+                                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2 flex-wrap text-xs text-slate-700">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-slate-900">💵 ক্যাশ অন ডেলিভারি (COD):</span>
+                                      <span>পণ্য হাতে পেয়ে গ্রাহক <strong>৳{formatMoney(ord.totalAmount)}</strong> পরিশোধ করবেন।</span>
+                                    </div>
                                     <button
                                       type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'payment' })}
-                                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-black flex items-center gap-1 cursor-pointer transition"
+                                      disabled={isProcessingPayment === ord.id}
+                                      onClick={() => handleCollectCodPayment(ord)}
+                                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer transition shadow-2xs"
                                     >
-                                      <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
-                                      <span>পেমেন্ট যাচাই / আংশিক জমা / বিল</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'delivery' })}
-                                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-teal-100 text-teal-900 border border-teal-300 text-[11px] font-black flex items-center gap-1 cursor-pointer transition"
-                                    >
-                                      <Truck className="w-3.5 h-3.5 text-teal-600" />
-                                      <span>ডেলিভারি, কুরিয়ার ও রাইডার</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'edit' })}
-                                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-300 text-[11px] font-black flex items-center gap-1 cursor-pointer transition"
-                                    >
-                                      <Edit3 className="w-3.5 h-3.5 text-indigo-600" />
-                                      <span>অর্ডার ও পণ্য এডিট</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'print' })}
-                                      className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer transition"
-                                    >
-                                      <Printer className="w-3.5 h-3.5 text-amber-400" />
-                                      <span>পার্সেল স্লিপ / ইনভয়েস প্রিন্ট</span>
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>{isProcessingPayment === ord.id ? 'আদায় হচ্ছে...' : 'COD আদায় সম্পন্ন'}</span>
                                     </button>
                                   </div>
-
-                                  {(ord.deliveryManName || ord.courierName) && (
-                                    <span className="text-[11px] font-bold text-teal-900 bg-teal-100/80 px-2.5 py-1 rounded-lg">
-                                      🚚 {ord.courierName || ord.deliveryManName}
-                                      {ord.courierTrackingCode ? ` (#${ord.courierTrackingCode})` : ''}
-                                      {ord.deliveryManPhone ? ` • 📞 ${ord.deliveryManPhone}` : ''}
-                                    </span>
-                                  )}
-                                </div>
+                                )}
                               </div>
                             )}
 
@@ -4367,8 +4462,10 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                           onClick={() => handleUpdateOrderStatus(ord.id, 'confirmed')}
                                           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
                                         >
-                                          <CheckCircle2 className="w-3.5 h-3.5" />
-                                          <span>অর্ডার কনফার্ম করুন</span>
+                                          <CheckCircle2 className="w-4 h-4" />
+                                          <span>
+                                            {updatingOrderId === ord.id ? 'একসেপ্ট হচ্ছে...' : '✓ অর্ডার একসেপ্ট ও কনফার্ম'}
+                                          </span>
                                         </button>
 
                                         <button

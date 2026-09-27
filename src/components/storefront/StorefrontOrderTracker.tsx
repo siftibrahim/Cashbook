@@ -130,16 +130,16 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
     setFeedbackMsg(null);
     try {
       const amountNum = Number(paidAmountInput) || order.totalAmount || 0;
-      const updated = await storeApi.submitOrderTrackPayment(order.orderNumber || order.id, {
+      const res = await storeApi.submitOrderTrackPayment(order.orderNumber || order.id, {
         paymentMethod: payMethod,
         trxId: trxIdInput.trim(),
         senderPhone: senderPhoneInput.trim() || order.customerPhone,
         paidAmount: amountNum,
       });
 
-      if (updated) {
+      if (res && res.order) {
         if (onOrderUpdatedLocally) {
-          onOrderUpdatedLocally(updated);
+          onOrderUpdatedLocally(res.order);
         }
         setFeedbackMsg({
           orderId: order.id || order.orderNumber,

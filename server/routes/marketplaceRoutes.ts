@@ -14,13 +14,15 @@ export function checkIsSuperAdminOrStaff(req: AuthenticatedRequest): boolean {
   const phone = (req.user.phone || '').replace(/\D/g, '');
   const id = req.user.userId || '';
 
-  if (role === 'super_admin' || role === 'admin' || role === 'staff') return true;
+  if (role === 'super_admin' || role === 'admin' || role === 'staff' || (req.user as any).isSuperAdmin === true || (req.user as any).isAdmin === true) return true;
   if (id === 'usr_super_admin') return true;
   if (
     email === 'admin@twing.com' ||
     email === 'siftibrahim@gmail.com' ||
     email === 'siftibrahim75@gmail.com' ||
-    email === 'siftraihan@gmail.com'
+    email === 'siftraihan@gmail.com' ||
+    email === 'twinginfobd@gmail.com' ||
+    email === 'twinginfobd@mail.com'
   ) return true;
   if (process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.toLowerCase().trim()) return true;
   if (phone === '01306908115' || phone === '01619665875') return true;
@@ -1560,41 +1562,87 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
         await client.query('BEGIN');
 
         // Fetch master order
-        const masterRes = await client.query(
+        let masterRes = await client.query(
           'SELECT * FROM marketplace_master_orders WHERE id = $1 OR order_number = $1',
           [id]
         );
+        let directSubOrder: any = null;
         if (masterRes.rows.length === 0) {
+          const subCheck = await client.query(
+            'SELECT * FROM online_orders WHERE id = $1 OR order_number = $1',
+            [id]
+          );
+          if (subCheck.rows.length > 0) {
+            if (subCheck.rows[0].master_order_id) {
+              masterRes = await client.query(
+                'SELECT * FROM marketplace_master_orders WHERE id = $1 OR order_number = $1',
+                [subCheck.rows[0].master_order_id]
+              );
+            }
+            if (masterRes.rows.length === 0) {
+              directSubOrder = subCheck.rows[0];
+            }
+          }
+        }
+        if (masterRes.rows.length === 0 && !directSubOrder) {
           await client.query('ROLLBACK');
           return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
         }
-        targetOrder = masterRes.rows[0];
 
-        // 1. Update Master Order to Approved
-        await client.query(`
-          UPDATE marketplace_master_orders 
-          SET admin_approval_status = 'approved',
-              is_admin_approved = TRUE,
-              payment_status = 'paid',
-              overall_status = 'confirmed',
-              notes = CASE WHEN $1 IS NOT NULL THEN COALESCE(notes, '') || ' [এডমিন পেমেন্ট অনুমোদন: ' || $1 || ']' ELSE notes END,
-              updated_at = $2
-          WHERE id = $3
-        `, [adminNote || null, now, targetOrder.id]);
+        const noteText = adminNote ? String(adminNote).trim() : null;
 
-        // 2. Unlock ALL sub-orders for vendors!
-        const subRes = await client.query(`
-          UPDATE online_orders 
-          SET admin_approval_status = 'approved',
-              is_admin_approved = TRUE,
-              payment_status = 'paid',
-              order_status = 'confirmed',
-              updated_at = $1
-          WHERE master_order_id = $2
-          RETURNING id, order_number, user_id, total_amount
-        `, [now, targetOrder.id]);
+        if (masterRes.rows.length > 0) {
+          targetOrder = masterRes.rows[0];
 
-        subOrders = subRes.rows;
+          // 1. Update Master Order to Approved
+          await client.query(`
+            UPDATE marketplace_master_orders 
+            SET admin_approval_status = 'approved',
+                is_admin_approved = TRUE,
+                payment_status = 'paid',
+                overall_status = 'confirmed',
+                notes = CASE 
+                  WHEN $1::text IS NOT NULL AND $1::text != '' 
+                  THEN COALESCE(notes, '') || ' [এডমিন পেমেন্ট অনুমোদন: ' || $1::text || ']' 
+                  ELSE notes 
+                END,
+                updated_at = $2::bigint
+            WHERE id = $3::text
+          `, [noteText, now, targetOrder.id]);
+
+          // 2. Unlock ALL sub-orders for vendors!
+          const subRes = await client.query(`
+            UPDATE online_orders 
+            SET admin_approval_status = 'approved',
+                is_admin_approved = TRUE,
+                payment_status = 'paid',
+                order_status = 'confirmed',
+                updated_at = $1::bigint
+            WHERE master_order_id = $2::text OR master_order_id = $3::text OR id = $2::text OR id = $4::text
+            RETURNING id, order_number, user_id, total_amount
+          `, [now, targetOrder.id, targetOrder.order_number, id]);
+
+          subOrders = subRes.rows;
+        } else if (directSubOrder) {
+          targetOrder = directSubOrder;
+          const subRes = await client.query(`
+            UPDATE online_orders 
+            SET admin_approval_status = 'approved',
+                is_admin_approved = TRUE,
+                payment_status = 'paid',
+                order_status = 'confirmed',
+                notes = CASE 
+                  WHEN $1::text IS NOT NULL AND $1::text != '' 
+                  THEN COALESCE(notes, '') || ' [এডমিন পেমেন্ট অনুমোদন: ' || $1::text || ']' 
+                  ELSE notes 
+                END,
+                updated_at = $2::bigint
+            WHERE id = $3::text OR order_number = $3::text
+            RETURNING id, order_number, user_id, total_amount
+          `, [noteText, now, directSubOrder.id]);
+
+          subOrders = subRes.rows;
+        }
 
         // 3. Send notification to vendors that the order is unlocked and ready for fulfillment
         for (const sub of subOrders) {
@@ -1621,38 +1669,51 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
       }
     } else {
       // In-memory fallback
-      const ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
-      if (!ord) return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
-      targetOrder = ord;
+      let ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
+      if (!ord) {
+        const sub = (inMemoryStore.online_orders || []).find(o => o.id === id || o.orderNumber === id);
+        if (sub) {
+          sub.adminApprovalStatus = 'approved';
+          sub.isAdminApproved = true;
+          sub.isLockedForVendor = false;
+          sub.paymentStatus = 'paid';
+          sub.orderStatus = 'confirmed';
+          sub.updatedAt = now;
+          targetOrder = sub;
+          subOrders = [sub];
+        }
+      } else {
+        targetOrder = ord;
+        ord.adminApprovalStatus = 'approved';
+        ord.isAdminApproved = true;
+        ord.paymentStatus = 'paid';
+        ord.overallStatus = 'confirmed';
+        ord.updatedAt = now;
 
-      ord.adminApprovalStatus = 'approved';
-      ord.isAdminApproved = true;
-      ord.paymentStatus = 'paid';
-      ord.overallStatus = 'confirmed';
-      ord.updatedAt = now;
+        subOrders = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === ord.id);
+        for (const sub of subOrders) {
+          sub.adminApprovalStatus = 'approved';
+          sub.isAdminApproved = true;
+          sub.isLockedForVendor = false;
+          sub.paymentStatus = 'paid';
+          sub.orderStatus = 'confirmed';
+          sub.updatedAt = now;
 
-      subOrders = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === ord.id);
-      for (const sub of subOrders) {
-        sub.adminApprovalStatus = 'approved';
-        sub.isAdminApproved = true;
-        sub.isLockedForVendor = false;
-        sub.paymentStatus = 'paid';
-        sub.orderStatus = 'confirmed';
-        sub.updatedAt = now;
-
-        if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
-        inMemoryStore.notifications.unshift({
-          id: `notif_unlock_${now}`,
-          title: '🔓 সেন্ট্রাল মল অর্ডার আনলক হয়েছে (প্রোডাক্ট রেডি করুন)!',
-          message: `অর্ডার #${sub.orderNumber} এর পেমেন্ট সুপার এডমিন অনুমোদন করেছেন! অর্ডারটি আনলক হয়েছে, এখন পণ্য প্রস্তুত ও ডেলিভারি দিন।`,
-          type: 'order',
-          target: 'user',
-          target_user_id: sub.userId,
-          priority: 'high',
-          isRead: false,
-          createdAt: now,
-        });
+          if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+          inMemoryStore.notifications.unshift({
+            id: `notif_unlock_${now}`,
+            title: '🔓 সেন্ট্রাল মল অর্ডার আনলক হয়েছে (প্রোডাক্ট রেডি করুন)!',
+            message: `অর্ডার #${sub.orderNumber} এর পেমেন্ট সুপার এডমিন অনুমোদন করেছেন! অর্ডারটি আনলক হয়েছে, এখন পণ্য প্রস্তুত ও ডেলিভারি দিন।`,
+            type: 'order',
+            target: 'user',
+            target_user_id: sub.userId,
+            priority: 'high',
+            isRead: false,
+            createdAt: now,
+          });
+        }
       }
+      if (!targetOrder) return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
       saveInMemoryStoreToDisk();
     }
 
@@ -1696,9 +1757,10 @@ router.post('/admin/orders/:id/reject-payment', authenticateUser, async (req: Au
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const { id } = req.params;
-    const { rejectionReason = 'পেমেন্ট ট্রানজেকশনে ত্রুটি বা ভেরিফিকেশন ব্যর্থ' } = req.body || {};
+    const { rejectionReason } = req.body || {};
     const pool = getDbPool();
     const now = Date.now();
+    const cleanReason = (rejectionReason && String(rejectionReason).trim()) || 'পেমেন্ট ট্রানজেকশনে ত্রুটি বা ভেরিফিকেশন ব্যর্থ';
 
     let targetOrder: any = null;
 
@@ -1708,51 +1770,93 @@ router.post('/admin/orders/:id/reject-payment', authenticateUser, async (req: Au
         await client.query('BEGIN');
 
         // Fetch master order
-        const masterRes = await client.query(
+        let masterRes = await client.query(
           'SELECT * FROM marketplace_master_orders WHERE id = $1 OR order_number = $1',
           [id]
         );
+        let directSubOrder: any = null;
         if (masterRes.rows.length === 0) {
+          const subCheck = await client.query(
+            'SELECT * FROM online_orders WHERE id = $1 OR order_number = $1',
+            [id]
+          );
+          if (subCheck.rows.length > 0) {
+            if (subCheck.rows[0].master_order_id) {
+              masterRes = await client.query(
+                'SELECT * FROM marketplace_master_orders WHERE id = $1 OR order_number = $1',
+                [subCheck.rows[0].master_order_id]
+              );
+            }
+            if (masterRes.rows.length === 0) {
+              directSubOrder = subCheck.rows[0];
+            }
+          }
+        }
+        if (masterRes.rows.length === 0 && !directSubOrder) {
           await client.query('ROLLBACK');
           return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
         }
-        targetOrder = masterRes.rows[0];
 
-        // 1. Mark master order cancelled/rejected
-        await client.query(`
-          UPDATE marketplace_master_orders 
-          SET admin_approval_status = 'rejected',
-              is_rejected_by_admin = TRUE,
-              payment_status = 'rejected',
-              overall_status = 'cancelled',
-              admin_rejection_reason = $1,
-              updated_at = $2
-          WHERE id = $3
-        `, [rejectionReason, now, targetOrder.id]);
+        let cancelledSubOrders: any[] = [];
+        if (masterRes.rows.length > 0) {
+          targetOrder = masterRes.rows[0];
 
-        // 2. Fetch and hide sub-orders from vendor side (is_hidden_from_vendor = TRUE) & cancel them
-        const subRes = await client.query(`
-          UPDATE online_orders 
-          SET admin_approval_status = 'rejected',
-              is_rejected_by_admin = TRUE,
-              is_hidden_from_vendor = TRUE,
-              payment_status = 'rejected',
-              order_status = 'cancelled',
-              payment_reject_reason = $1,
-              updated_at = $2
-          WHERE master_order_id = $3
-          RETURNING id, items, user_id
-        `, [rejectionReason, now, targetOrder.id]);
+          // 1. Mark master order cancelled/rejected
+          await client.query(`
+            UPDATE marketplace_master_orders 
+            SET admin_approval_status = 'rejected',
+                is_rejected_by_admin = TRUE,
+                payment_status = 'rejected',
+                overall_status = 'cancelled',
+                admin_rejection_reason = $1::text,
+                updated_at = $2::bigint
+            WHERE id = $3::text
+          `, [cleanReason, now, targetOrder.id]);
+
+          // 2. Fetch and hide sub-orders from vendor side (is_hidden_from_vendor = TRUE) & cancel them
+          const subRes = await client.query(`
+            UPDATE online_orders 
+            SET admin_approval_status = 'rejected',
+                is_rejected_by_admin = TRUE,
+                is_hidden_from_vendor = TRUE,
+                payment_status = 'rejected',
+                order_status = 'cancelled',
+                payment_reject_reason = $1::text,
+                updated_at = $2::bigint
+            WHERE master_order_id = $3::text OR master_order_id = $4::text OR id = $3::text OR id = $5::text
+            RETURNING id, items, user_id
+          `, [cleanReason, now, targetOrder.id, targetOrder.order_number, id]);
+
+          cancelledSubOrders = subRes.rows;
+        } else if (directSubOrder) {
+          targetOrder = directSubOrder;
+          const subRes = await client.query(`
+            UPDATE online_orders 
+            SET admin_approval_status = 'rejected',
+                is_rejected_by_admin = TRUE,
+                is_hidden_from_vendor = TRUE,
+                payment_status = 'rejected',
+                order_status = 'cancelled',
+                payment_reject_reason = $1::text,
+                updated_at = $2::bigint
+            WHERE id = $3::text OR order_number = $3::text
+            RETURNING id, items, user_id
+          `, [cleanReason, now, directSubOrder.id]);
+
+          cancelledSubOrders = subRes.rows;
+        }
 
         // 3. Restore product stock!
-        for (const sub of subRes.rows) {
+        for (const sub of cancelledSubOrders) {
           const items = typeof sub.items === 'string' ? JSON.parse(sub.items) : (sub.items || []);
           for (const it of items) {
-            await client.query(`
-              UPDATE products 
-              SET stock = stock + $1, updated_at = $2 
-              WHERE id = $3
-            `, [it.quantity, now, it.productId]).catch(() => {});
+            if (it && it.productId) {
+              await client.query(`
+                UPDATE products 
+                SET stock = stock + $1, updated_at = $2::bigint 
+                WHERE id = $3::text
+              `, [it.quantity || 1, now, it.productId]).catch(() => {});
+            }
           }
         }
 
@@ -1765,37 +1869,58 @@ router.post('/admin/orders/:id/reject-payment', authenticateUser, async (req: Au
       }
     } else {
       // In-memory fallback
-      const ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
-      if (!ord) return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
-      targetOrder = ord;
+      let ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
+      if (!ord) {
+        const sub = (inMemoryStore.online_orders || []).find(o => o.id === id || o.orderNumber === id);
+        if (sub) {
+          sub.adminApprovalStatus = 'rejected';
+          sub.isRejectedByAdmin = true;
+          sub.isHiddenFromVendor = true;
+          sub.orderStatus = 'cancelled';
+          sub.paymentStatus = 'rejected';
+          sub.paymentRejectReason = cleanReason;
+          sub.updatedAt = now;
+          targetOrder = sub;
 
-      ord.adminApprovalStatus = 'rejected';
-      ord.isRejectedByAdmin = true;
-      ord.paymentStatus = 'rejected';
-      ord.overallStatus = 'cancelled';
-      ord.adminRejectionReason = rejectionReason;
-      ord.updatedAt = now;
+          for (const it of (sub.items || [])) {
+            const p = (inMemoryStore.products || []).find(x => x.id === it.productId);
+            if (p) {
+              p.stock = (p.stock || 0) + (it.quantity || 1);
+              p.updatedAt = now;
+            }
+          }
+        }
+      } else {
+        targetOrder = ord;
+        ord.adminApprovalStatus = 'rejected';
+        ord.isRejectedByAdmin = true;
+        ord.paymentStatus = 'rejected';
+        ord.overallStatus = 'cancelled';
+        ord.adminRejectionReason = cleanReason;
+        ord.updatedAt = now;
 
-      // Sub-orders marked hidden & cancelled
-      const subs = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === ord.id);
-      for (const sub of subs) {
-        sub.adminApprovalStatus = 'rejected';
-        sub.isRejectedByAdmin = true;
-        sub.isHiddenFromVendor = true;
-        sub.orderStatus = 'cancelled';
-        sub.paymentStatus = 'rejected';
-        sub.paymentRejectReason = rejectionReason;
-        sub.updatedAt = now;
+        // Sub-orders marked hidden & cancelled
+        const subs = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === ord.id);
+        for (const sub of subs) {
+          sub.adminApprovalStatus = 'rejected';
+          sub.isRejectedByAdmin = true;
+          sub.isHiddenFromVendor = true;
+          sub.orderStatus = 'cancelled';
+          sub.paymentStatus = 'rejected';
+          sub.paymentRejectReason = cleanReason;
+          sub.updatedAt = now;
 
-        // Restore stock
-        for (const it of (sub.items || [])) {
-          const p = inMemoryStore.products.find(x => x.id === it.productId);
-          if (p) {
-            p.stock = (p.stock || 0) + it.quantity;
-            p.updatedAt = now;
+          // Restore stock
+          for (const it of (sub.items || [])) {
+            const p = (inMemoryStore.products || []).find(x => x.id === it.productId);
+            if (p) {
+              p.stock = (p.stock || 0) + (it.quantity || 1);
+              p.updatedAt = now;
+            }
           }
         }
       }
+      if (!targetOrder) return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি' });
       saveInMemoryStoreToDisk();
     }
 
@@ -1805,7 +1930,7 @@ router.post('/admin/orders/:id/reject-payment', authenticateUser, async (req: Au
     const ordNum = targetOrder.order_number || targetOrder.orderNumber;
 
     if (custPhone && custPhone.length >= 11) {
-      const rejectSms = `TwingHisabi: দুঃখিত ${custName}! সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${ordNum} এর পেমেন্ট যাচাইয়ে ত্রুটি থাকায় অর্ডারটি বাতিল করা হয়েছে। কারণ: ${rejectionReason}।`;
+      const rejectSms = `TwingHisabi: দুঃখিত ${custName}! সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${ordNum} এর পেমেন্ট যাচাইয়ে ত্রুটি থাকায় অর্ডারটি বাতিল করা হয়েছে। কারণ: ${cleanReason}।`;
       sendSmsNotification(custPhone, rejectSms).catch((err) => {
         console.warn('Customer marketplace payment rejected SMS notice:', err?.message || err);
       });
@@ -1834,15 +1959,20 @@ router.post('/admin/orders/sub/:subOrderId/payout', authenticateUser, async (req
     const { subOrderId } = req.params;
     const { vendorPayoutStatus, adminNote } = req.body;
     const pool = getDbPool();
+    const noteText = adminNote ? String(adminNote).trim() : null;
 
     if (pool) {
       await pool.query(`
         UPDATE online_orders 
-        SET vendor_payout_status = $1,
-            notes = CASE WHEN $2 IS NOT NULL THEN COALESCE(notes, '') || ' [পেআউট নোট: ' || $2 || ']' ELSE notes END,
-            updated_at = $3
-        WHERE id = $4 OR order_number = $4
-      `, [vendorPayoutStatus, adminNote || null, Date.now(), subOrderId]);
+        SET vendor_payout_status = $1::text,
+            notes = CASE 
+              WHEN $2::text IS NOT NULL AND $2::text != '' 
+              THEN COALESCE(notes, '') || ' [পেআউট নোট: ' || $2::text || ']' 
+              ELSE notes 
+            END,
+            updated_at = $3::bigint
+        WHERE id = $4::text OR order_number = $4::text
+      `, [vendorPayoutStatus, noteText, Date.now(), subOrderId]);
     } else {
       const sub = (inMemoryStore.online_orders || []).find(o => o.id === subOrderId || o.orderNumber === subOrderId);
       if (sub) {
