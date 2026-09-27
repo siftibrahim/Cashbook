@@ -618,6 +618,22 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       {/* SUB-TAB 1: MASTER ORDERS */}
       {activeSubTab === 'orders' && (
         <div className="space-y-4">
+          {/* Governance Policy Banner */}
+          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-indigo-50 via-teal-50/70 to-amber-50/70 border border-teal-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <span className="font-black text-slate-900 block">
+                  🏛️ পেমেন্ট যাচাই ও পারমিশন নীতিমালা (Central Marketplace vs Personal E-Commerce)
+                </span>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  <strong>সেন্ট্রাল মার্কেটপ্লেস:</strong> শুধুমাত্র এই মলের অর্ডারগুলোর পেমেন্ট সুপার অ্যাডমিন যাচাই করে অনুমোদন (আনলক) দিলে ভেন্ডর ডেলিভারি করতে পারবে।{' '}
+                  <strong>পার্সোনাল ই-কমার্স সাইট:</strong> ইউজারের নিজস্ব স্টোরের অর্ডার ও পেমেন্ট ১০০% ভেন্ডর নিজেই যাচাই, আপডেট ও ডেলিভারি পরিচালনা করবে (অ্যাডমিন পারমিশন প্রয়োজন নেই)।
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Search & Filter Bar */}
           <div className="flex flex-col sm:flex-row gap-2.5 justify-between">
             <div className="relative flex-1 max-w-md">

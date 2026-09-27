@@ -267,8 +267,16 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
             } else if (
               existing.orderStatus !== f.orderStatus ||
               existing.paymentStatus !== f.paymentStatus ||
+              existing.paidAmount !== f.paidAmount ||
+              existing.dueAmount !== f.dueAmount ||
+              existing.trxId !== f.trxId ||
               existing.courierName !== f.courierName ||
               existing.courierTrackingCode !== f.courierTrackingCode ||
+              existing.deliveryManName !== f.deliveryManName ||
+              existing.deliveryManPhone !== f.deliveryManPhone ||
+              existing.estimatedDeliveryDate !== f.estimatedDeliveryDate ||
+              existing.deliveryNote !== f.deliveryNote ||
+              existing.vendorNote !== f.vendorNote ||
               existing.paymentRejectReason !== f.paymentRejectReason ||
               existing.updatedAt !== f.updatedAt
             ) {
@@ -901,8 +909,22 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
               <StorefrontOrderTracker
                 orders={customerOrders}
                 whatsappPhone={config.whatsappPhone || config.phone}
+                storeConfig={config}
                 onRefresh={() => refreshCustomerOrders(true)}
                 isRefreshing={isRefreshingOrders}
+                onOrderUpdatedLocally={(updatedOrd) => {
+                  setCustomerOrders((prev) => {
+                    const next = prev.map((o) =>
+                      o.id === updatedOrd.id || o.orderNumber === updatedOrd.orderNumber
+                        ? { ...o, ...updatedOrd }
+                        : o
+                    );
+                    try {
+                      localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(next));
+                    } catch {}
+                    return next;
+                  });
+                }}
               />
             </div>
           )}
