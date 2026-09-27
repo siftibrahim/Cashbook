@@ -171,12 +171,15 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
           min_stock_alert = EXCLUDED.min_stock_alert,
           sku = EXCLUDED.sku,
           qr_code = EXCLUDED.qr_code,
-          image_url = EXCLUDED.image_url,
+          image_url = CASE WHEN EXCLUDED.image_url IS NOT NULL AND EXCLUDED.image_url != '' THEN EXCLUDED.image_url ELSE products.image_url END,
           description = EXCLUDED.description,
           original_price = EXCLUDED.original_price,
           discount_percent = EXCLUDED.discount_percent,
           is_published_online = EXCLUDED.is_published_online,
-          is_listed_on_marketplace = EXCLUDED.is_listed_on_marketplace,
+          is_listed_on_marketplace = CASE 
+            WHEN EXCLUDED.is_listed_on_marketplace IS NOT NULL THEN EXCLUDED.is_listed_on_marketplace 
+            ELSE products.is_listed_on_marketplace 
+          END,
           rating = EXCLUDED.rating,
           updated_at = EXCLUDED.updated_at
         WHERE products.user_id = EXCLUDED.user_id
@@ -196,6 +199,10 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       }
 
       const idx = inMemoryStore.products.findIndex(p => p.id === prodId && p.userId === userId);
+      const memExisting = idx >= 0 ? inMemoryStore.products[idx] : null;
+      const finalImg = imageUrl && imageUrl.trim() ? imageUrl.trim() : (memExisting?.imageUrl || '');
+      const finalMarketplace = isListedOnMarketplace !== undefined ? cleanMarketplace : (memExisting?.isListedOnMarketplace ?? true);
+
       const prodObj = {
         id: prodId,
         userId,
@@ -208,12 +215,12 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         minStockAlert: cleanAlert,
         sku: assignedSku,
         qrCode: qrCode || '',
-        imageUrl: imageUrl || '',
+        imageUrl: finalImg,
         description: description || '',
         originalPrice: cleanOriginal ?? undefined,
         discountPercent: cleanDiscount ?? undefined,
         isPublishedOnline: cleanOnline,
-        isListedOnMarketplace: cleanMarketplace,
+        isListedOnMarketplace: finalMarketplace,
         rating: cleanRating,
         updatedAt: now,
       };

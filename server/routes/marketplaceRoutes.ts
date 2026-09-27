@@ -29,102 +29,7 @@ export function checkIsSuperAdminOrStaff(req: AuthenticatedRequest): boolean {
   return false;
 }
 
-// Default showcase images for fallback if needed
-const SHOWCASE_PRODUCTS = [
-  {
-    id: 'mkt_showcase_ghee',
-    name: 'খাঁটি গাওয়া ঘি (প্রিমিয়াম কোয়ালিটি)',
-    category: 'তেল ও খাঁটি ঘি',
-    unit: 'কেজি',
-    buyPrice: 1100,
-    salePrice: 1450,
-    originalPrice: 1750,
-    discountPercent: 17,
-    rating: 4.9,
-    reviewCount: 142,
-    stock: 45,
-    isPublishedOnline: true,
-    isListedOnMarketplace: true,
-    isFeaturedOnMarketplace: true,
-    imageUrl: 'https://images.unsplash.com/photo-1589927986089-35812388d1f4?w=500&auto=format&fit=crop&q=80',
-    description: 'গ্রামের গাভীর খাঁটি দুধ থেকে তৈরি সুস্বাদু ও পুষ্টিকর গাওয়া ঘি। ১০০% ভেজালমুক্ত ও ল্যাব টেস্টেড।',
-    vendorShopName: 'তানজিনা অর্গানিক শপ',
-    vendorSlug: 'tanjina',
-    vendorPhone: '01711000001',
-    vendorAddress: 'মিরপুর-১০, ঢাকা',
-    updatedAt: Date.now(),
-  },
-  {
-    id: 'mkt_showcase_honey',
-    name: 'সুন্দরবনের প্রাকৃতিক খলিসা ফুলের মধু',
-    category: 'তেল ও খাঁটি ঘি',
-    unit: 'কেজি',
-    buyPrice: 750,
-    salePrice: 980,
-    originalPrice: 1250,
-    discountPercent: 22,
-    rating: 4.8,
-    reviewCount: 96,
-    stock: 60,
-    isPublishedOnline: true,
-    isListedOnMarketplace: true,
-    isFeaturedOnMarketplace: true,
-    imageUrl: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=500&auto=format&fit=crop&q=80',
-    description: 'সরাসরি সুন্দরবনের মৌয়ালদের থেকে সংগৃহীত খাঁটি মধু। কোনো চিনি বা রাসায়নিক মিশ্রণ নেই।',
-    vendorShopName: 'মৌবন ন্যাচারালস',
-    vendorSlug: 'moubon',
-    vendorPhone: '01811000002',
-    vendorAddress: 'খুলনা সদর, খুলনা',
-    updatedAt: Date.now(),
-  },
-  {
-    id: 'mkt_showcase_smartwatch',
-    name: 'T500 প্লাস ব্লুটুথ কলিং স্মার্ট ওয়াচ',
-    category: 'ইলেকট্রনিক্স ও গ্যাজেট',
-    unit: 'পিস',
-    buyPrice: 1150,
-    salePrice: 1590,
-    originalPrice: 2200,
-    discountPercent: 28,
-    rating: 4.7,
-    reviewCount: 215,
-    stock: 35,
-    isPublishedOnline: true,
-    isListedOnMarketplace: true,
-    isFeaturedOnMarketplace: true,
-    imageUrl: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500&auto=format&fit=crop&q=80',
-    description: 'ফুল এইচডি ডিসপ্লে, হার্ট রেট ও স্লিপ মনিটরিং, ওয়াটারপ্রুফ এবং দীর্ঘস্থায়ী ব্যাটারি ব্যাকআপ।',
-    vendorShopName: 'ইভা গ্যাজেট পয়েন্ট',
-    vendorSlug: 'evagadgets',
-    vendorPhone: '01911000003',
-    vendorAddress: 'মতিঝিল, ঢাকা',
-    updatedAt: Date.now(),
-  },
-  {
-    id: 'mkt_showcase_sari',
-    name: 'টাঙ্গাইল হ্যান্ডলুম জামদানি কটন শাড়ি',
-    category: 'পোশাক ও ফ্যাশন',
-    unit: 'পিস',
-    buyPrice: 1400,
-    salePrice: 1950,
-    originalPrice: 2600,
-    discountPercent: 25,
-    rating: 4.9,
-    reviewCount: 78,
-    stock: 20,
-    isPublishedOnline: true,
-    isListedOnMarketplace: true,
-    isFeaturedOnMarketplace: true,
-    imageUrl: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=500&auto=format&fit=crop&q=80',
-    description: 'ঐতিহ্যবাহী তাঁতের নিখুঁত কাজের আরামদায়ক পিওর কটন শাড়ি। উৎসব কিংবা দৈনন্দিন ব্যবহারে দারুণ মানানসই।',
-    vendorShopName: 'রূপসী বাংলা ফ্যাশন',
-    vendorSlug: 'rupashibangla',
-    vendorPhone: '01611000004',
-    vendorAddress: 'টাঙ্গাইল',
-    updatedAt: Date.now(),
-  },
-];
-
+// Central Marketplace Feed - purely vendor products from database/store, NO mock default products
 const CATEGORY_SLUG_MAP: Record<string, string[]> = {
   'rice-pulses': ['চাল', 'ডাল', 'মুদি'],
   'oil-ghee': ['তেল', 'ঘি', 'গাওয়া'],
@@ -148,11 +53,12 @@ router.get('/feed', async (req: Request, res: Response) => {
 
     if (pool) {
       const conditions: string[] = [
-        '(p.is_listed_on_marketplace = TRUE OR p.is_featured_on_marketplace = TRUE)',
+        '(p.is_listed_on_marketplace = TRUE OR p.is_featured_on_marketplace = TRUE OR p.is_published_online = TRUE)',
+        "COALESCE(p.marketplace_status, 'approved') != 'rejected'",
       ];
       const params: any[] = [];
 
-      if (inStockOnly !== 'false') {
+      if (inStockOnly === 'true') {
         conditions.push('p.stock > 0');
       }
 
@@ -271,34 +177,7 @@ router.get('/feed', async (req: Request, res: Response) => {
       });
     }
 
-    // If no products have been flagged on marketplace yet, include showcase products so the marketplace is stunning on first launch
-    if (products.length === 0) {
-      let showcase = [...SHOWCASE_PRODUCTS];
-      if (category && category !== 'all') {
-        const catStr = String(category).toLowerCase();
-        const keywords = CATEGORY_SLUG_MAP[catStr] || [catStr];
-        const matched = showcase.filter(p => {
-          const pCat = (p.category || '').toLowerCase();
-          const pName = (p.name || '').toLowerCase();
-          return keywords.some(k => pCat.includes(k) || pName.includes(k));
-        });
-        if (matched.length > 0) {
-          showcase = matched;
-        }
-      }
-      if (search && typeof search === 'string') {
-        const s = search.toLowerCase();
-        const matchedSearch = showcase.filter(p => p.name.toLowerCase().includes(s) || p.description.toLowerCase().includes(s));
-        if (matchedSearch.length > 0) {
-          showcase = matchedSearch;
-        }
-      }
-      products = showcase.map(p => ({
-        ...p,
-        vendorId: 'vendor_official',
-      }));
-    }
-
+    // Never inject mock/demo showcase products: Only real products updated/listed by vendors are returned
     return res.json({
       success: true,
       count: products.length,
@@ -641,6 +520,9 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
   }
 });
 
+// In-memory checkout deduplication cache (15 seconds window to prevent double order submissions)
+const recentCheckoutCache = new Map<string, { timestamp: number; responseData: any }>();
+
 /**
  * 4. POST /api/marketplace/checkout - Multi-Vendor Atomic Order Splitting Engine
  */
@@ -677,8 +559,15 @@ router.post('/checkout', async (req: Request, res: Response) => {
       });
     }
 
-    // Payment validation for online/MFS methods
+    // Deduplication check: prevent accidental double-tap/clicks creating duplicate orders
     const normalizedPaymentMethod = String(paymentMethod || 'cod').toLowerCase();
+    const itemSignature = items.map((i: any) => `${i.id || i.productId || ''}:${i.quantity || 1}`).sort().join('|');
+    const dedupeKey = `${standardPhone}_${normalizedPaymentMethod}_${paymentTrxId || ''}_${itemSignature}`;
+    const cachedOrder = recentCheckoutCache.get(dedupeKey);
+    if (cachedOrder && (Date.now() - cachedOrder.timestamp) < 15000) {
+      console.log('⚡ Debounced duplicate checkout request detected. Returning existing order.');
+      return res.status(200).json(cachedOrder.responseData);
+    }
     const isPaymently = normalizedPaymentMethod === 'paymently' || normalizedPaymentMethod === 'online_paymently';
     const isAutoPaid = req.body.isAutoPaid === true || 
       req.body.paymentStatus === 'paid';
@@ -1040,7 +929,7 @@ router.post('/checkout', async (req: Request, res: Response) => {
     // NOTE: Customer confirmation SMS is NOT sent now!
     // As per user specification: Confirmation SMS is sent ONLY when Super Admin verifies and accepts the payment!
 
-    return res.status(201).json({
+    const responsePayload = {
       success: true,
       masterOrder: {
         id: masterOrderId,
@@ -1063,7 +952,17 @@ router.post('/checkout', async (req: Request, res: Response) => {
       subOrders: createdSubOrders,
       checkoutSession,
       message: 'আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডারটি সফলভাবে জমা হয়েছে। সুপার এডমিন পেমেন্ট যাচাই করে একসেপ্ট করার সাথে সাথে কনফার্মেশন এসএমএস পাবেন।',
-    });
+    };
+
+    recentCheckoutCache.set(dedupeKey, { timestamp: Date.now(), responseData: responsePayload });
+    if (recentCheckoutCache.size > 100) {
+      const nowTs = Date.now();
+      for (const [k, v] of recentCheckoutCache.entries()) {
+        if (nowTs - v.timestamp > 30000) recentCheckoutCache.delete(k);
+      }
+    }
+
+    return res.status(201).json(responsePayload);
   } catch (err: any) {
     console.error('Marketplace checkout error:', err);
     return res.status(500).json({ error: 'অর্ডার সম্পন্ন করতে সমস্যা হয়েছে: ' + err.message });
@@ -1610,13 +1509,14 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
             WHERE id = $3::text
           `, [noteText, now, targetOrder.id]);
 
-          // 2. Unlock ALL sub-orders for vendors!
+          // 2. Unlock ALL sub-orders for vendors (keep order_status = 'pending' so it appears under 'নতুন অর্ডার' for vendor to accept)!
           const subRes = await client.query(`
             UPDATE online_orders 
             SET admin_approval_status = 'approved',
                 is_admin_approved = TRUE,
                 payment_status = 'paid',
-                order_status = 'confirmed',
+                order_status = 'pending',
+                is_locked_for_vendor = FALSE,
                 updated_at = $1::bigint
             WHERE master_order_id = $2::text OR master_order_id = $3::text OR id = $2::text OR id = $4::text
             RETURNING id, order_number, user_id, total_amount
@@ -1630,7 +1530,8 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
             SET admin_approval_status = 'approved',
                 is_admin_approved = TRUE,
                 payment_status = 'paid',
-                order_status = 'confirmed',
+                order_status = 'pending',
+                is_locked_for_vendor = FALSE,
                 notes = CASE 
                   WHEN $1::text IS NOT NULL AND $1::text != '' 
                   THEN COALESCE(notes, '') || ' [এডমিন পেমেন্ট অনুমোদন: ' || $1::text || ']' 
@@ -1677,7 +1578,7 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
           sub.isAdminApproved = true;
           sub.isLockedForVendor = false;
           sub.paymentStatus = 'paid';
-          sub.orderStatus = 'confirmed';
+          sub.orderStatus = 'pending';
           sub.updatedAt = now;
           targetOrder = sub;
           subOrders = [sub];
@@ -1696,7 +1597,7 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
           sub.isAdminApproved = true;
           sub.isLockedForVendor = false;
           sub.paymentStatus = 'paid';
-          sub.orderStatus = 'confirmed';
+          sub.orderStatus = 'pending';
           sub.updatedAt = now;
 
           if (!inMemoryStore.notifications) inMemoryStore.notifications = [];

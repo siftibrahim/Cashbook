@@ -79,7 +79,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [showUrlInput, setShowUrlInput] = useState(false);
-  const [isListedOnMarketplace, setIsListedOnMarketplace] = useState(false);
+  const [isListedOnMarketplace, setIsListedOnMarketplace] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -183,7 +183,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setMinAlert('10');
     setImageUrl('');
     setDescription('');
-    setIsListedOnMarketplace(false);
+    setIsListedOnMarketplace(true);
     setShowPresetPicker(false);
     setShowUrlInput(false);
     setIsModalOpen(true);
@@ -201,7 +201,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setMinAlert((p.minStockAlert || 10).toString());
     setImageUrl(p.imageUrl || '');
     setDescription(p.description || '');
-    setIsListedOnMarketplace(p.isListedOnMarketplace || false);
+    setIsListedOnMarketplace(p.isListedOnMarketplace !== false);
     setShowPresetPicker(false);
     setShowUrlInput(false);
     setIsModalOpen(true);
@@ -239,7 +239,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     const finalCategory = isCustomCategoryMode && customCategoryInput.trim()
       ? customCategoryInput.trim()
       : (category || 'অন্যান্য');
-    const finalImageUrl = imageUrl.trim() || getFallbackProductImage(name.trim(), finalCategory);
+    const finalImageUrl = imageUrl.trim() || (editingProduct ? (editingProduct.imageUrl || '') : getFallbackProductImage(name.trim(), finalCategory));
 
     if (editingProduct) {
       onUpdateProduct({

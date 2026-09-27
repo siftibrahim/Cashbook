@@ -120,6 +120,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [selectedBankAccountIndex, setSelectedBankAccountIndex] = useState<number>(0);
   const [notes, setNotes] = useState<string>('');
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
+  const isSubmittingOrderRef = useRef<boolean>(false);
   const [copiedNumber, setCopiedNumber] = useState<string | null>(null);
 
   // Unified System Payment Settings (exact same as User Dashboard Subscription System)
@@ -612,6 +613,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   // Submit Order
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingOrderRef.current || isSubmittingOrder) return;
+
     if (!customerName.trim() || !customerPhone.trim() || !customerAddress.trim()) {
       showToast('⚠️ নাম, ফোন নম্বর ও পূর্ণ ঠিকানা প্রদান করুন');
       return;
@@ -626,6 +629,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       showToast('⚠️ কার্ট খালি');
       return;
     }
+
+    isSubmittingOrderRef.current = true;
 
     // If online automatic gateway (Paymently / UddoktaPay) is selected
     if (paymentMethod === 'paymently') {
@@ -675,6 +680,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       } catch (err: any) {
         showToast('❌ ' + (err.message || 'অনলাইন পেমেন্ট শুরু করা যায়নি'));
       } finally {
+        isSubmittingOrderRef.current = false;
         setIsInitiatingPaymently(false);
         setIsSubmittingOrder(false);
       }
@@ -683,17 +689,20 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
     if (paymentMethod !== 'cod') {
       if (!senderPhone.trim()) {
+        isSubmittingOrderRef.current = false;
         showToast('⚠️ যে নম্বর বা একাউন্ট থেকে টাকা পাঠিয়েছেন সেই প্রেরক নম্বর দিন');
         return;
       }
       if (['bkash', 'nagad', 'rocket', 'upay'].includes(paymentMethod)) {
         const cleanDigits = senderPhone.replace(/\D/g, '');
         if (cleanDigits.length !== 11 || !cleanDigits.startsWith('01')) {
+          isSubmittingOrderRef.current = false;
           showToast('⚠️ অনুগ্রহ করে সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 017XXXXXXXX)');
           return;
         }
       }
       if (!paymentTrxId.trim()) {
+        isSubmittingOrderRef.current = false;
         showToast('⚠️ অনুগ্রহ করে ট্রানজেকশন আইডি (TrxID) বা রেফারেন্স নম্বর দিন');
         return;
       }
@@ -735,6 +744,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     } catch (err: any) {
       showToast('❌ ' + (err.message || 'অর্ডার সম্পূর্ণ করা যায়নি। আবার চেষ্টা করুন।'));
     } finally {
+      isSubmittingOrderRef.current = false;
       setIsSubmittingOrder(false);
     }
   };
