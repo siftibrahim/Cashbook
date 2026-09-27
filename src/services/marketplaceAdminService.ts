@@ -1,6 +1,16 @@
+import { getAuthToken } from './apiService';
+
 export const marketplaceAdminApi = {
   getAuthHeaders(): Record<string, string> {
-    const token = localStorage.getItem('ibrahim_auth_token') || sessionStorage.getItem('ibrahim_auth_token');
+    const token =
+      getAuthToken() ||
+      (typeof localStorage !== 'undefined'
+        ? localStorage.getItem('twing_jwt_token') ||
+          localStorage.getItem('ibrahim_auth_token') ||
+          sessionStorage.getItem('twing_jwt_token') ||
+          sessionStorage.getItem('ibrahim_auth_token')
+        : '') ||
+      '';
     return {
       'Content-Type': 'application/json',
       Authorization: token ? `Bearer ${token}` : '',
