@@ -1,7 +1,7 @@
 import http from 'http';
 import https from 'https';
 import { URL } from 'url';
-import { getDbPool, inMemoryStore } from '../db';
+import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk } from '../db';
 
 export interface SmsSendResult {
   success: boolean;
@@ -537,5 +537,205 @@ export async function sendSmsNotification(recipientPhone: string, messageText: s
     recipient: cleanPhone,
     isSimulated: true,
     serverIp,
+  };
+}
+
+export interface DeductSmsOptions {
+  customerName?: string;
+  smsType?: string; // 'marketplace_order' | 'order_confirm' | 'order_status' | 'shipping'
+  orderNumber?: string;
+  vendorShopName?: string;
+}
+
+export interface DeductSmsResult {
+  success: boolean;
+  deducted: boolean;
+  message: string;
+  costSms: number;
+  remainingBalance: number;
+  gatewayResponse?: any;
+}
+
+/**
+ * Deduct 1 SMS from vendor account balance and send customer confirmation/status SMS
+ * - Checks vendor's current SMS balance (users.sms_balance)
+ * - If balance < 1: skips sending and sends alert notification to vendor to recharge SMS pack
+ * - If balance >= 1: sends real SMS, deducts 1 SMS, and records in sms_logs
+ */
+export async function deductVendorSmsAndSend(
+  vendorId: string | undefined | null,
+  recipientPhone: string,
+  messageText: string,
+  options: DeductSmsOptions = {}
+): Promise<DeductSmsResult> {
+  const cleanPhone = normalizePhone(recipientPhone);
+  if (!cleanPhone || cleanPhone.length < 11) {
+    return {
+      success: false,
+      deducted: false,
+      message: 'ভুল মোবাইল নম্বর ফরম্যাট',
+      costSms: 0,
+      remainingBalance: 0,
+    };
+  }
+
+  const pool = getDbPool();
+  const now = Date.now();
+  let matchedUserId = (vendorId || '').trim();
+  let currentBalance = 0;
+  let vendorName = options.vendorShopName || 'ভেন্ডর';
+
+  // 1. Resolve vendor user ID and current balance
+  if (pool) {
+    try {
+      let uRes = await pool.query(
+        'SELECT id, name, shop_name, phone, sms_balance FROM users WHERE id = $1 OR phone = $1 OR shop_name = $1 LIMIT 1',
+        [matchedUserId]
+      );
+      if (uRes.rows.length === 0 && (!matchedUserId || matchedUserId === 'vendor_official' || matchedUserId === 'default_vendor')) {
+        // Fallback to active vendor only if vendorId is generic or demo
+        uRes = await pool.query(
+          "SELECT id, name, shop_name, phone, sms_balance FROM users WHERE role != 'super_admin' ORDER BY id ASC LIMIT 1"
+        );
+      }
+      if (uRes.rows.length > 0) {
+        matchedUserId = uRes.rows[0].id;
+        vendorName = uRes.rows[0].shop_name || uRes.rows[0].name || vendorName;
+        currentBalance = uRes.rows[0].sms_balance !== null && uRes.rows[0].sms_balance !== undefined
+          ? Number(uRes.rows[0].sms_balance)
+          : 0;
+      } else {
+        return {
+          success: false,
+          deducted: false,
+          message: 'নির্দিষ্ট ভেন্ডর অ্যাকাউন্ট খুঁজে পাওয়া যায়নি',
+          costSms: 0,
+          remainingBalance: 0,
+        };
+      }
+    } catch (e: any) {
+      console.warn('deductVendorSmsAndSend DB user lookup error:', e?.message || e);
+    }
+  } else {
+    let u = (inMemoryStore.users || []).find((x: any) => x.id === matchedUserId || x.phone === matchedUserId || x.shopName === matchedUserId);
+    if (!u && (!matchedUserId || matchedUserId === 'vendor_official' || matchedUserId === 'default_vendor')) {
+      u = (inMemoryStore.users || []).find((x: any) => x.role !== 'super_admin') || (inMemoryStore.users || [])[0];
+    }
+    if (u) {
+      matchedUserId = u.id;
+      vendorName = u.shopName || u.name || vendorName;
+      currentBalance = u.smsBalance !== null && u.smsBalance !== undefined ? Number(u.smsBalance) : 0;
+    } else {
+      return {
+        success: false,
+        deducted: false,
+        message: 'নির্দিষ্ট ভেন্ডর অ্যাকাউন্ট খুঁজে পাওয়া যায়নি',
+        costSms: 0,
+        remainingBalance: 0,
+      };
+    }
+  }
+
+  // 2. Enforce vendor balance check: must have at least 1 SMS
+  if (currentBalance < 1) {
+    console.warn(`⚠️ [Vendor SMS Skipped] ভেন্ডর '${matchedUserId}' (${vendorName}) এর পর্যাপ্ত এসএমএস ব্যালেন্স নেই (${currentBalance} টি)। কাস্টমার ${cleanPhone} কে এসএমএস পাঠানো যায়নি।`);
+
+    // Notify vendor in-app about insufficient balance
+    const notifId = `notif_low_sms_${now}_${Math.random().toString(36).substring(2, 6)}`;
+    const notifMsg = `আপনার এসএমএস ব্যালেন্স শেষ (${currentBalance} টি)! সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${options.orderNumber || ''} এর কাস্টমার (${cleanPhone})-কে স্বয়ংক্রিয় এসএমএস পাঠানো যায়নি। গ্রাহকদের নিয়মিত এসএমএস আপডেট পাঠাতে অনুগ্রহ করে ড্যাশবোর্ড থেকে এসএমএস প্যাকেজ রিচার্জ করুন।`;
+
+    if (pool && matchedUserId) {
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, target_user_id, priority, is_read, created_at)
+        VALUES ($1, '⚠️ এসএমএস ব্যালেন্স শেষ!', $2, 'sms', 'user', $3, 'high', FALSE, $4)
+      `, [notifId, notifMsg, matchedUserId, now]).catch(() => {});
+    } else if (matchedUserId) {
+      if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+      inMemoryStore.notifications.unshift({
+        id: notifId,
+        title: '⚠️ এসএমএস ব্যালেন্স শেষ!',
+        message: notifMsg,
+        type: 'sms',
+        target: 'user',
+        target_user_id: matchedUserId,
+        priority: 'high',
+        isRead: false,
+        createdAt: now,
+      });
+      saveInMemoryStoreToDisk();
+    }
+
+    return {
+      success: false,
+      deducted: false,
+      message: `ভেন্ডরের পর্যাপ্ত এসএমএস ব্যালেন্স নেই (বর্তমান ব্যালেন্স: ${currentBalance} টি)`,
+      costSms: 0,
+      remainingBalance: currentBalance,
+    };
+  }
+
+  // 3. Dispatch real SMS via gateway
+  const sendResult = await sendSmsNotification(cleanPhone, messageText);
+
+  // 4. Deduct 1 SMS from vendor balance atomically and write log
+  let newBalance = Math.max(0, currentBalance - 1);
+  const logId = 'sms_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+
+  if (pool && matchedUserId) {
+    try {
+      const updRes = await pool.query(
+        'UPDATE users SET sms_balance = GREATEST(0, COALESCE(sms_balance, 0) - 1) WHERE id = $1 RETURNING sms_balance',
+        [matchedUserId]
+      );
+      if (updRes.rows.length > 0 && updRes.rows[0].sms_balance !== undefined) {
+        newBalance = Number(updRes.rows[0].sms_balance);
+      }
+      await pool.query(`
+        INSERT INTO sms_logs (id, user_id, customer_name, customer_phone, message, sms_type, status, cost_sms, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8)
+      `, [
+        logId,
+        matchedUserId,
+        options.customerName || 'সেন্ট্রাল মল গ্রাহক',
+        cleanPhone,
+        messageText,
+        options.smsType || 'marketplace_order',
+        sendResult.success ? 'sent' : 'failed',
+        now,
+      ]);
+    } catch (dbErr: any) {
+      console.warn('deductVendorSmsAndSend DB update error:', dbErr?.message || dbErr);
+    }
+  }
+
+  // Also sync in-memory store
+  if (matchedUserId) {
+    const memUser = (inMemoryStore.users || []).find((x: any) => x.id === matchedUserId);
+    if (memUser) memUser.smsBalance = newBalance;
+
+    if (!inMemoryStore.sms_logs) inMemoryStore.sms_logs = [];
+    inMemoryStore.sms_logs.unshift({
+      id: logId,
+      userId: matchedUserId,
+      customerName: options.customerName || 'সেন্ট্রাল মল গ্রাহক',
+      customerPhone: cleanPhone,
+      message: messageText,
+      smsType: options.smsType || 'marketplace_order',
+      status: sendResult.success ? 'sent' : 'failed',
+      costSms: 1,
+      createdAt: now,
+    });
+    saveInMemoryStoreToDisk();
+  }
+
+  console.log(`✅ [Vendor SMS Deducted] 1 SMS deducted from vendor '${matchedUserId}' (${vendorName}). Remaining balance: ${newBalance}. Status: ${sendResult.success ? 'Sent' : 'Failed'}`);
+
+  return {
+    success: sendResult.success,
+    deducted: true,
+    message: sendResult.message,
+    costSms: 1,
+    remainingBalance: newBalance,
+    gatewayResponse: sendResult.gatewayResponse,
   };
 }

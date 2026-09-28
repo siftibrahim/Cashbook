@@ -925,6 +925,13 @@ export const storeApi = {
     }
   },
 
+  async updateOnlineOrderStatus(
+    orderId: string,
+    orderStatus: OnlineOrder['orderStatus']
+  ): Promise<OnlineOrder | null> {
+    return this.updateOrderStatus(orderId, orderStatus);
+  },
+
   async fullUpdateOrder(orderId: string, payload: Partial<OnlineOrder> & { sendSmsToCustomer?: boolean }): Promise<{ success: boolean; message: string; order: OnlineOrder }> {
     return apiRequest<{ success: boolean; message: string; order: OnlineOrder }>(
       `/store/orders/${encodeURIComponent(orderId)}/full-update`,

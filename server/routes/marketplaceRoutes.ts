@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk, ensureOnlineOrdersSchema } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { PaymentlyService } from '../services/paymentlyService';
-import { sendSmsNotification } from '../services/smsService';
+import { sendSmsNotification, deductVendorSmsAndSend } from '../services/smsService';
 import { realtimeEvents } from '../services/realtimeEvents';
 
 const router = Router();
@@ -863,11 +863,20 @@ router.post('/checkout', async (req: Request, res: Response) => {
     // Group items by vendorId with robust fallback from product lookup
     const vendorItemsMap: Record<string, any[]> = {};
     let totalProductsAmount = 0;
+    const pool = getDbPool();
 
     for (const item of items) {
       const pId = item.id || item.productId;
       let vId = item.vendorId || item.userId;
-      if (!vId && inMemoryStore.products) {
+      if ((!vId || vId === 'vendor_official') && pool) {
+        try {
+          const pRes = await pool.query('SELECT user_id FROM products WHERE id = $1', [pId]);
+          if (pRes.rows.length > 0 && pRes.rows[0].user_id) {
+            vId = pRes.rows[0].user_id;
+          }
+        } catch {}
+      }
+      if ((!vId || vId === 'vendor_official') && inMemoryStore.products) {
         const found = inMemoryStore.products.find(p => p.id === pId);
         if (found && found.userId) vId = found.userId;
       }
@@ -907,7 +916,6 @@ router.post('/checkout', async (req: Request, res: Response) => {
       : (normalizedPaymentMethod === 'cod' ? 'unpaid' : 'paid_pending_verify');
     const initialOverallStatus = isAutoPaid ? 'confirmed' : 'processing';
 
-    const pool = getDbPool();
     const createdSubOrders: any[] = [];
 
     if (pool) {
@@ -1200,8 +1208,50 @@ router.post('/checkout', async (req: Request, res: Response) => {
       }
     }
 
-    // NOTE: Customer confirmation SMS is NOT sent now!
-    // As per user specification: Confirmation SMS is sent ONLY when Super Admin verifies and accepts the payment!
+    // 🔔 SEND CUSTOMER ORDER CONFIRMATION SMS FROM THE SPECIFIC VENDOR'S ACCOUNT
+    // "কাস্টমার যার প্রোডাক্ট কিনবে তার সেই ব্যক্তির ভেন্ডর একাউন্ট থেকেই থেকে মেসেজগুলো খরচ করবে"
+    if (cleanPhone && cleanPhone.length >= 11 && createdSubOrders.length > 0) {
+      for (const sub of createdSubOrders) {
+        const vId = sub.vendorId || sub.userId;
+        const subTotal = sub.totalAmount || sub.total_amount || 0;
+        const subOrderNum = sub.orderNumber || sub.order_number;
+        const payMethodText = normalizedPaymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : 'অনলাইন পরিশোধ';
+
+        // Async deduction and dispatch per vendor without blocking checkout response
+        (async () => {
+          let vShopName = 'ভেন্ডর শপ';
+          if (pool) {
+            try {
+              const vRes = await pool.query('SELECT name, shop_name FROM users WHERE id = $1', [vId]);
+              if (vRes.rows.length > 0) {
+                vShopName = vRes.rows[0].shop_name || vRes.rows[0].name || vShopName;
+              }
+            } catch {}
+          } else {
+            const u = (inMemoryStore.users || []).find((x: any) => x.id === vId);
+            if (u) vShopName = u.shopName || u.name || vShopName;
+          }
+
+          const orderConfirmMsg = `${vShopName}: ধন্যবাদ ${cleanName}! সেন্ট্রাল মার্কেটপ্লেসে আপনার অর্ডার #${subOrderNum} সফলভাবে জমা হয়েছে। মোট বিল: ৳${subTotal} (${payMethodText})। শীঘ্রই ডেলিভারির জন্য যোগাযোগ করা হবে।`;
+
+          try {
+            const deductRes = await deductVendorSmsAndSend(vId, cleanPhone, orderConfirmMsg, {
+              smsType: 'marketplace_order_confirm',
+              orderNumber: subOrderNum,
+              customerName: cleanName,
+              vendorShopName: vShopName,
+            });
+            if (deductRes.deducted) {
+              console.log(`✅ [Vendor SMS Charged] Order #${subOrderNum} confirmation SMS sent to ${cleanPhone}. Charged from vendor '${vId}' (${vShopName}). Remaining: ${deductRes.remainingBalance}`);
+            } else {
+              console.warn(`⚠️ [Vendor SMS Skipped] Vendor '${vId}' (${vShopName}) insufficient SMS balance: ${deductRes.message}`);
+            }
+          } catch (err: any) {
+            console.warn(`Customer marketplace checkout confirmation SMS error for vendor ${vId}:`, err?.message || err);
+          }
+        })();
+      }
+    }
 
     const responsePayload = {
       success: true,
@@ -1225,7 +1275,7 @@ router.post('/checkout', async (req: Request, res: Response) => {
       },
       subOrders: createdSubOrders,
       checkoutSession,
-      message: 'আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডারটি সফলভাবে জমা হয়েছে। সুপার এডমিন পেমেন্ট যাচাই করে একসেপ্ট করার সাথে সাথে কনফার্মেশন এসএমএস পাবেন।',
+      message: 'আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডারটি সফলভাবে জমা হয়েছে। আপনার মোবাইলে কনফার্মেশন এসএমএস পাঠানো হয়েছে।',
     };
 
     recentCheckoutCache.set(dedupeKey, { timestamp: Date.now(), responseData: responsePayload });
@@ -1369,23 +1419,23 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
     ): string => {
       if (isRejectedFlag) return 'cancelled';
       if (!isAdminApprovedFlag) {
-        return masterRow?.overall_status === 'cancelled' || masterRow?.overallStatus === 'cancelled'
-          ? 'cancelled'
-          : 'pending_verification';
+        const st = String(masterRow?.overall_status || masterRow?.overallStatus || '').toLowerCase();
+        return st === 'cancelled' ? 'cancelled' : 'pending_verification';
       }
       if (!subOrderList || subOrderList.length === 0) {
-        const st = String(masterRow?.overall_status || masterRow?.overallStatus || 'confirmed').toLowerCase();
-        return st === 'pending_verification' || st === 'pending' ? 'confirmed' : st;
+        const st = String(masterRow?.overall_status || masterRow?.overallStatus || 'pending').toLowerCase();
+        return st === 'pending_verification' ? 'pending' : st;
       }
       const statuses = subOrderList.map((s) => String(s.status || s.orderStatus || 'pending').toLowerCase());
       if (statuses.every((s) => s === 'delivered')) return 'delivered';
       if (statuses.every((s) => s === 'cancelled' || s === 'returned')) return statuses[0];
-      if (statuses.some((s) => s === 'shipped' || s === 'delivered')) return 'shipped';
-      if (statuses.some((s) => s === 'processing')) return 'processing';
+      if (statuses.some((s) => s === 'shipped' || s === 'out_for_delivery')) return 'shipped';
+      if (statuses.some((s) => s === 'processing' || s === 'packed')) return 'processing';
       if (statuses.some((s) => s === 'confirmed')) return 'confirmed';
+      if (statuses.every((s) => s === 'pending')) return 'pending';
       const masterSt = String(masterRow?.overall_status || masterRow?.overallStatus || '').toLowerCase();
-      if (['processing', 'shipped', 'delivered', 'cancelled'].includes(masterSt)) return masterSt;
-      return 'confirmed';
+      if (['processing', 'shipped', 'delivered', 'cancelled', 'confirmed'].includes(masterSt)) return masterSt;
+      return 'pending';
     };
 
     if (pool) {
@@ -1426,6 +1476,18 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
       if (masterRes.rows.length > 0) {
         const m = masterRes.rows[0];
 
+        // Parse sub_order_ids if present
+        let parsedSubOrderIds: string[] = [];
+        try {
+          if (Array.isArray(m.sub_order_ids)) {
+            parsedSubOrderIds = m.sub_order_ids;
+          } else if (typeof m.sub_order_ids === 'string') {
+            parsedSubOrderIds = JSON.parse(m.sub_order_ids);
+          }
+        } catch {
+          parsedSubOrderIds = [];
+        }
+
         // Fetch sub-orders with full real-time vendor & courier details
         const subRes = await pool.query(`
           SELECT o.*, 
@@ -1434,9 +1496,11 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
           FROM online_orders o
           LEFT JOIN online_store_configs s ON s.user_id = o.user_id
           LEFT JOIN users u ON u.id = o.user_id
-          WHERE o.master_order_id = $1 OR o.master_order_id = $2
+          WHERE o.master_order_id = $1 
+             OR o.master_order_id = $2 
+             OR (ARRAY_LENGTH($3::text[], 1) > 0 AND (o.id = ANY($3::text[]) OR o.order_number = ANY($3::text[])))
           ORDER BY o.created_at ASC
-        `, [m.id, m.order_number]);
+        `, [m.id, m.order_number, parsedSubOrderIds]);
 
         const masterApproved = m.is_admin_approved === true || m.admin_approval_status === 'approved' || m.payment_status === 'paid';
         const masterRejected = m.is_rejected_by_admin === true || m.admin_approval_status === 'rejected';
@@ -1552,16 +1616,27 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
         });
       }
     } else {
-      const m = (inMemoryStore.marketplace_master_orders || []).find(
+      let m = (inMemoryStore.marketplace_master_orders || []).find(
         x => x.orderNumber === cleanOrderNumber || x.id === cleanOrderNumber || x.customerPhone === cleanOrderNumber || x.orderNumber === rawInput
       );
+      if (!m) {
+        const sub = (inMemoryStore.online_orders || []).find(
+          o => o.orderNumber === cleanOrderNumber || o.id === cleanOrderNumber || o.customerPhone === cleanOrderNumber || o.orderNumber === rawInput
+        );
+        if (sub && sub.masterOrderId) {
+          m = (inMemoryStore.marketplace_master_orders || []).find(
+            x => x.id === sub.masterOrderId || x.orderNumber === sub.masterOrderId
+          );
+        }
+      }
       if (!m) {
         return res.status(404).json({ error: 'অর্ডারের কোনো তথ্য পাওয়া যায়নি।' });
       }
       const masterApproved = m.isAdminApproved === true || m.adminApprovalStatus === 'approved' || m.paymentStatus === 'paid';
       const masterRejected = m.isRejectedByAdmin === true || m.adminApprovalStatus === 'rejected';
+      const masterIds = new Set([m.id, m.orderNumber, ...(Array.isArray(m.subOrderIds) ? m.subOrderIds : [])].filter(Boolean));
       const subs = (inMemoryStore.online_orders || [])
-        .filter(o => o.masterOrderId === m.id || o.masterOrderId === m.orderNumber)
+        .filter(o => masterIds.has(o.masterOrderId) || masterIds.has(o.master_order_id) || masterIds.has(o.id) || masterIds.has(o.orderNumber))
         .map(o => ({
           ...o,
           status: o.orderStatus || (o as any).status || 'pending',
@@ -2009,16 +2084,33 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
     realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'approve_payment', orderId: targetOrder.id });
 
     // 🔔 SEND OFFICIAL ORDER CONFIRMATION SMS TO CUSTOMER NOW!
+    // Deducted from the participating vendor(s) SMS balance!
     const custPhone = targetOrder.customer_phone || targetOrder.customerPhone;
     const custName = targetOrder.customer_name || targetOrder.customerName || 'সম্মানিত গ্রাহক';
     const ordNum = targetOrder.order_number || targetOrder.orderNumber;
     const grandTotal = targetOrder.grand_total || targetOrder.grandTotal;
 
     if (custPhone && custPhone.length >= 11) {
-      const confirmSms = `TwingHisabi: অভিনন্দন ${custName}! সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${ordNum} এর পেমেন্ট সুপার এডমিন কর্তৃক সফলভাবে যাচাই ও নিশ্চিত (Confirmed) করা হয়েছে। ভেন্ডর পার্সেল প্রস্তুত করছেন। মোট পরিশোধিত: ৳${grandTotal}।`;
-      sendSmsNotification(custPhone, confirmSms).catch((err) => {
-        console.warn('Customer marketplace payment approved SMS error:', err?.message || err);
-      });
+      if (subOrders && subOrders.length > 0) {
+        for (const sub of subOrders) {
+          const vId = sub.user_id || sub.userId;
+          const subNum = sub.order_number || sub.orderNumber;
+          const subTotal = sub.total_amount || sub.totalAmount;
+          const confirmSms = `অভিনন্দন ${custName}! সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${subNum} (মাস্টার #${ordNum}) এর পেমেন্ট সুপার এডমিন কর্তৃক সফলভাবে যাচাই ও নিশ্চিত (Confirmed) করা হয়েছে। ভেন্ডর পার্সেল প্রস্তুত করছেন। মোট পরিশোধিত: ৳${subTotal}।`;
+          deductVendorSmsAndSend(vId, custPhone, confirmSms, {
+            smsType: 'marketplace_payment_approved',
+            orderNumber: subNum,
+            customerName: custName,
+          }).catch((err) => {
+            console.warn('Customer marketplace payment approved SMS error:', err?.message || err);
+          });
+        }
+      } else {
+        const confirmSms = `TwingHisabi: অভিনন্দন ${custName}! সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${ordNum} এর পেমেন্ট সুপার এডমিন কর্তৃক সফলভাবে যাচাই ও নিশ্চিত (Confirmed) করা হয়েছে। ভেন্ডর পার্সেল প্রস্তুত করছেন। মোট পরিশোধিত: ৳${grandTotal}।`;
+        sendSmsNotification(custPhone, confirmSms).catch((err) => {
+          console.warn('Customer marketplace payment approved SMS error:', err?.message || err);
+        });
+      }
     }
 
     return res.json({

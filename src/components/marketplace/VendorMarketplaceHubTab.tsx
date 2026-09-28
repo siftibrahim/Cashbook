@@ -912,9 +912,21 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                               const nextSt = e.target.value as OnlineOrder['orderStatus'];
                               setUpdatingOrderId(ord.id);
                               try {
-                                await storeApi.updateOnlineOrderStatus(ord.id, nextSt);
+                                const res = await storeApi.updateOrderStatus(ord.id, nextSt);
                                 ord.orderStatus = nextSt;
                                 setLocalOrderStatuses((prev) => ({ ...prev, [ord.id]: nextSt }));
+                                if (typeof window !== 'undefined') {
+                                  window.dispatchEvent(
+                                    new CustomEvent('twing_order_updated', {
+                                      detail: {
+                                        orderId: ord.id,
+                                        orderNumber: ord.orderNumber,
+                                        orderStatus: nextSt,
+                                        updatedAt: Date.now(),
+                                      },
+                                    })
+                                  );
+                                }
                                 if (onShowToast) {
                                   onShowToast(`✅ অর্ডার #${ord.orderNumber} এর স্ট্যাটাস "${statusLabelMap[nextSt] || nextSt}" এ আপডেট হয়েছে!`);
                                 }

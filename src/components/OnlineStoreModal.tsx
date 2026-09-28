@@ -4465,6 +4465,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                         if (nextSt === 'shipped') {
                                           setCourierModalOrder(ord);
                                           setCourierInputCode(ord.courierTrackingCode || '');
+                                          setCourierInputName(ord.courierName || 'Steadfast Courier');
                                         } else {
                                           handleUpdateOrderStatus(ord.id, nextSt);
                                         }
@@ -4514,6 +4515,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                           onClick={() => {
                                             setCourierModalOrder(ord);
                                             setCourierInputCode(ord.courierTrackingCode || '');
+                                            setCourierInputName(ord.courierName || 'Steadfast Courier');
                                           }}
                                           className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
                                         >
@@ -4725,14 +4727,19 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                           type="button"
                           onClick={async () => {
                             const ord = courierModalOrder;
+                            const finalCourierName = (courierInputName || '').trim() || 'Steadfast Courier';
+                            const finalTrackingCode = (courierInputCode || '').trim();
                             setCourierModalOrder(null);
                             if (ord) {
                               setOrderCourierDrafts((prev) => ({
                                 ...prev,
-                                [ord.id]: { courierName: courierInputName, courierTrackingCode: courierInputCode },
+                                [ord.id]: { courierName: finalCourierName, courierTrackingCode: finalTrackingCode },
                               }));
                               setOrderStatusDrafts((prev) => ({ ...prev, [ord.id]: 'shipped' }));
-                              await handleSubmitOrderStatus(ord.id);
+                              await handleSubmitOrderStatus(ord.id, 'shipped', {
+                                courierName: finalCourierName,
+                                courierTrackingCode: finalTrackingCode,
+                              });
                             }
                           }}
                           className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black shadow-xs cursor-pointer transition"

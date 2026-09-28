@@ -4,7 +4,7 @@ import { AuthenticatedRequest, authenticateUser, optionalAuth } from '../authMid
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { validateStoreSlug, cleanDomainString } from '../utils/domainResolver';
 import { realtimeEvents } from '../services/realtimeEvents';
-import { sendSmsNotification } from '../services/smsService';
+import { sendSmsNotification, deductVendorSmsAndSend } from '../services/smsService';
 
 const router = Router();
 
@@ -1650,6 +1650,34 @@ router.post('/orders', optionalAuth, async (req: AuthenticatedRequest, res: Resp
       updatedAt: now,
     };
 
+    // 🔔 Send Instant Customer Order Confirmation SMS (deducted from vendor's SMS balance)
+    if (customerPhone && customerPhone.length >= 11) {
+      let storeName = 'অনলাইন স্টোর';
+      if (pool) {
+        try {
+          const uRes = await pool.query('SELECT shop_name, name FROM users WHERE id = $1', [targetUserId]);
+          if (uRes.rows.length > 0) {
+            storeName = uRes.rows[0].shop_name || uRes.rows[0].name || storeName;
+          }
+        } catch {}
+      } else {
+        const u = (inMemoryStore.users || []).find((x: any) => x.id === targetUserId);
+        if (u) storeName = u.shopName || u.name || storeName;
+      }
+
+      const payMethodText = paymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : 'অনলাইন পরিশোধ';
+      const custSms = `${storeName}: ধন্যবাদ ${customerName}! আপনার অর্ডার #${orderNumber} সফলভাবে গৃহীত হয়েছে। মোট বিল: ৳${totalAmount} (${payMethodText})। শীঘ্রই ডেলিভারির জন্য যোগাযোগ করা হবে।`;
+
+      deductVendorSmsAndSend(targetUserId, customerPhone, custSms, {
+        smsType: 'store_order_confirm',
+        orderNumber,
+        customerName,
+        vendorShopName: storeName,
+      }).catch((err) => {
+        console.warn('Customer store order SMS confirmation notice:', err?.message || err);
+      });
+    }
+
     return res.status(201).json({
       message: '✅ নতুন অনলাইন অর্ডার সফলভাবে গ্রহণ করা হয়েছে!',
       order: createdOrder,
@@ -1869,7 +1897,11 @@ router.put('/orders/:orderId/payment', authenticateUser, async (req: Authenticat
           smsMsg = `দুঃখিত ${custName}! আপনার অর্ডার #${ordNum} এর প্রদত্ত পেমেন্ট যাচাই করা সম্ভব হয়নি (${finalRejectReason})। অনুগ্রহ করে সঠিক TrxID প্রদান করুন বা দোকানে যোগাযোগ করুন।`;
         }
         if (smsMsg) {
-          sendSmsNotification(custPhone, smsMsg).catch(() => {});
+          deductVendorSmsAndSend(userId, custPhone, smsMsg, {
+            smsType: 'store_payment_' + action,
+            orderNumber: ordNum,
+            customerName: custName,
+          }).catch(() => {});
         }
       }
 
@@ -1906,6 +1938,31 @@ router.put('/orders/:orderId/payment', authenticateUser, async (req: Authenticat
         existingOrder.orderStatus = newOrderStatus;
       }
       saveInMemoryStoreToDisk();
+
+      // 🔔 Send Customer Payment Verification SMS from Vendor's Personal Store
+      const memCustPhone = existingOrder.customerPhone || existingOrder.customer_phone;
+      const memCustName = existingOrder.customerName || existingOrder.customer_name || 'সম্মানিত গ্রাহক';
+      const memOrdNum = existingOrder.orderNumber || existingOrder.order_number;
+      if (memCustPhone && memCustPhone.length >= 11) {
+        let smsMsg = '';
+        if (action === 'accept') {
+          smsMsg = `অভিনন্দন ${memCustName}! আপনার অর্ডার #${memOrdNum} এর পেমেন্ট (৳${adjustedTotal}) ভেন্ডর কর্তৃক সফলভাবে যাচাই ও অনুমোদন করা হয়েছে। আপনার পার্সেলটি ডেলিভারির জন্য প্রস্তুত হচ্ছে।`;
+        } else if (action === 'partial') {
+          smsMsg = `প্রিয় ${memCustName}, আপনার অর্ডার #${memOrdNum} এর অগ্রিম পেমেন্ট ৳${finalPaidAmount} গৃহীত হয়েছে। ডেলিভারির সময় পরিশোধযোগ্য বাকি টাকা: ৳${finalDueAmount}।`;
+        } else if (action === 'cod_collect') {
+          smsMsg = `ধন্যবাদ ${memCustName}! আপনার অর্ডার #${memOrdNum} এর ডেলিভারি বিল ৳${adjustedTotal} সফলভাবে পরিশোধিত হয়েছে।`;
+        } else if (action === 'reject') {
+          smsMsg = `দুঃখিত ${memCustName}! আপনার অর্ডার #${memOrdNum} এর প্রদত্ত পেমেন্ট যাচাই করা সম্ভব হয়নি (${finalRejectReason})। অনুগ্রহ করে সঠিক TrxID প্রদান করুন বা দোকানে যোগাযোগ করুন।`;
+        }
+        if (smsMsg) {
+          deductVendorSmsAndSend(userId, memCustPhone, smsMsg, {
+            smsType: 'store_payment_' + action,
+            orderNumber: memOrdNum,
+            customerName: memCustName,
+          }).catch(() => {});
+        }
+      }
+
       return res.json({
         message: '✅ পেমেন্ট তথ্য সফলভাবে আপডেট হয়েছে!',
         order: existingOrder,
@@ -1928,27 +1985,33 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
     let statuses: string[] = [];
     if (pool) {
       const subRes = await pool.query(
-        'SELECT order_status FROM online_orders WHERE master_order_id = $1 AND is_rejected_by_admin IS NOT TRUE',
+        `SELECT order_status FROM online_orders 
+         WHERE (master_order_id = $1 
+            OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $1 OR order_number = $1)
+            OR master_order_id IN (SELECT order_number FROM marketplace_master_orders WHERE id = $1 OR order_number = $1))
+           AND is_rejected_by_admin IS NOT TRUE`,
         [masterOrderId]
       );
       statuses = subRes.rows.map((r: any) => String(r.order_status || 'pending').toLowerCase());
     } else {
+      const master = (inMemoryStore.marketplace_master_orders || []).find((m: any) => m.id === masterOrderId || m.orderNumber === masterOrderId);
+      const masterIds = new Set([masterOrderId, master?.id, master?.orderNumber].filter(Boolean));
       const subs = (inMemoryStore.online_orders || []).filter(
-        (o: any) => (o.masterOrderId === masterOrderId || o.master_order_id === masterOrderId) && !o.isRejectedByAdmin
+        (o: any) => (masterIds.has(o.masterOrderId) || masterIds.has(o.master_order_id)) && !o.isRejectedByAdmin
       );
       statuses = subs.map((o: any) => String(o.orderStatus || o.order_status || 'pending').toLowerCase());
     }
 
     if (statuses.length === 0) return;
 
-    let nextOverall = 'confirmed';
+    let nextOverall = 'pending';
     if (statuses.every((s) => s === 'delivered')) {
       nextOverall = 'delivered';
     } else if (statuses.every((s) => s === 'cancelled' || s === 'returned')) {
       nextOverall = statuses[0];
-    } else if (statuses.some((s) => s === 'shipped' || s === 'delivered')) {
+    } else if (statuses.some((s) => s === 'shipped' || s === 'out_for_delivery')) {
       nextOverall = 'shipped';
-    } else if (statuses.some((s) => s === 'processing')) {
+    } else if (statuses.some((s) => s === 'processing' || s === 'packed')) {
       nextOverall = 'processing';
     } else if (statuses.some((s) => s === 'confirmed')) {
       nextOverall = 'confirmed';
@@ -1971,6 +2034,17 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
         m.updatedAt = now;
       }
     }
+    saveInMemoryStoreToDisk();
+
+    realtimeEvents.broadcastToAdmins('marketplace_order_updated', {
+      masterOrderId,
+      overallStatus: nextOverall,
+    });
+    realtimeEvents.broadcastToAdmins('marketplace_updated', {
+      type: 'order_status_sync',
+      masterOrderId,
+      overallStatus: nextOverall,
+    });
   } catch (err) {
     console.warn('syncMasterOrderOverallStatus warning:', err);
   }
@@ -1982,6 +2056,7 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
 router.put('/orders/:orderId/status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { orderId } = req.params;
+    const cleanOrderId = (orderId || '').replace(/^#/, '').trim();
     const {
       orderStatus,
       courierName,
@@ -2010,12 +2085,12 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
       let existingOrder: any = null;
       if (pool) {
         const chk = await pool.query(
-          'SELECT order_source, master_order_id, is_admin_approved, admin_approval_status, is_rejected_by_admin FROM online_orders WHERE id = $1 OR order_number = $1 LIMIT 1',
-          [orderId]
+          'SELECT order_source, master_order_id, is_admin_approved, admin_approval_status, is_rejected_by_admin FROM online_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
+          [orderId, cleanOrderId]
         );
         if (chk.rows.length > 0) existingOrder = chk.rows[0];
       } else {
-        existingOrder = (inMemoryStore.online_orders || []).find((o) => o.id === orderId || o.orderNumber === orderId);
+        existingOrder = (inMemoryStore.online_orders || []).find((o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId);
       }
 
       const isMktOrder = existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId));
@@ -2046,8 +2121,8 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
              cod_collected_amount = CASE WHEN $9 = true THEN total_amount ELSE cod_collected_amount END,
              collected_at = CASE WHEN $9 = true THEN $10 ELSE collected_at END,
              updated_at = $10 
-         WHERE (id = $11 OR order_number = $11) 
-           AND (user_id = $12 OR user_id = 'default_vendor' OR user_id IS NULL OR $13 = true) 
+         WHERE (id = $11 OR order_number = $11 OR id = $14 OR order_number = $14) 
+           AND (user_id = $12 OR user_id = 'default_vendor' OR user_id = 'vendor_official' OR user_id IS NULL OR $13 = true) 
          RETURNING *`,
         [
           orderStatus || null,
@@ -2063,12 +2138,13 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           orderId,
           userId,
           isSuperAdmin,
+          cleanOrderId,
         ]
       );
 
       if (result.rows.length === 0) {
         let order = (inMemoryStore.online_orders || []).find(
-          (o) => o.id === orderId || o.orderNumber === orderId
+          (o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId
         );
         if (order) {
           if (orderStatus) order.orderStatus = orderStatus;
@@ -2076,6 +2152,7 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           if (courierTrackingCode !== undefined) order.courierTrackingCode = courierTrackingCode;
           order.updatedAt = now;
           await syncMasterOrderOverallStatus(pool, order.masterOrderId);
+          saveInMemoryStoreToDisk();
           return res.json({ order, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
         }
         return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
@@ -2085,6 +2162,7 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
       if (inMemoryStore.online_orders) {
         const memIdx = inMemoryStore.online_orders.findIndex((o) => o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber);
         if (memIdx >= 0) inMemoryStore.online_orders[memIdx] = { ...inMemoryStore.online_orders[memIdx], ...updatedOrder };
+        saveInMemoryStoreToDisk();
       }
 
       // Sync parent Central Marketplace Master Order status in real-time
@@ -2099,7 +2177,8 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         updatedOrder.courierName,
         updatedOrder.courierTrackingCode,
         updatedOrder.deliveryManName,
-        updatedOrder.deliveryManPhone
+        updatedOrder.deliveryManPhone,
+        updatedOrder.userId || userId
       );
 
       return res.json({ order: updatedOrder, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
@@ -2136,7 +2215,8 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           order.courierName,
           order.courierTrackingCode,
           order.deliveryManName,
-          order.deliveryManPhone
+          order.deliveryManPhone,
+          order.userId || userId
         );
 
         return res.json({ order, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
@@ -2298,7 +2378,8 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
           courierName,
           courierTrackingCode,
           deliveryManName,
-          deliveryManPhone
+          deliveryManPhone,
+          updatedOrder.userId || userId
         );
       }
 
@@ -2562,7 +2643,8 @@ function sendCustomerOrderStatusSms(
   courierName?: string,
   courierTrackingCode?: string,
   deliveryManName?: string,
-  deliveryManPhone?: string
+  deliveryManPhone?: string,
+  vendorId?: string
 ) {
   if (!customerPhone || customerPhone.length < 11 || !status) return;
   const name = customerName || 'গ্রাহক';
@@ -2583,9 +2665,19 @@ function sendCustomerOrderStatusSms(
   }
 
   if (msg) {
-    sendSmsNotification(customerPhone, msg).catch((err) => {
-      console.warn('Customer store order status SMS notification notice:', err?.message || err);
-    });
+    if (vendorId) {
+      deductVendorSmsAndSend(vendorId, customerPhone, msg, {
+        smsType: 'order_status_' + status,
+        orderNumber: num,
+        customerName: name,
+      }).catch((err) => {
+        console.warn('Customer store order status SMS deduct notification notice:', err?.message || err);
+      });
+    } else {
+      sendSmsNotification(customerPhone, msg).catch((err) => {
+        console.warn('Customer store order status SMS notification notice:', err?.message || err);
+      });
+    }
   }
 }
 
@@ -2626,13 +2718,14 @@ router.delete('/orders/:orderId', authenticateUser, async (req: AuthenticatedReq
 router.get('/orders/track/:orderNumber', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { orderNumber } = req.params;
+    const cleanOrderNumber = (orderNumber || '').replace(/^#/, '').trim();
     const pool = getDbPool();
 
     if (pool) {
       await ensureOnlineOrdersSchema(pool);
       const result = await pool.query(
-        'SELECT * FROM online_orders WHERE order_number = $1 OR id = $1 LIMIT 1',
-        [orderNumber]
+        'SELECT * FROM online_orders WHERE order_number = $1 OR id = $1 OR order_number = $2 OR id = $2 LIMIT 1',
+        [cleanOrderNumber, orderNumber]
       );
       if (result.rows.length > 0) {
         return res.json({ order: mapDbRowToOrder(result.rows[0]) });
@@ -2640,7 +2733,7 @@ router.get('/orders/track/:orderNumber', optionalAuth, async (req: Authenticated
       return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });
     } else {
       const order = (inMemoryStore.online_orders || []).find(
-        (o) => o.orderNumber === orderNumber || o.id === orderNumber
+        (o) => o.orderNumber === cleanOrderNumber || o.id === cleanOrderNumber || o.orderNumber === orderNumber || o.id === orderNumber
       );
       if (order) return res.json({ order });
       return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });

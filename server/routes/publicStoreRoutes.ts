@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getDbPool, inMemoryStore, ensureOnlineOrdersSchema, saveInMemoryStoreToDisk } from '../db';
 import { cleanDomainString, extractSubdomainFromHost } from '../utils/domainResolver';
-import { sendSmsNotification } from '../services/smsService';
+import { sendSmsNotification, deductVendorSmsAndSend } from '../services/smsService';
 
 const router = Router();
 
@@ -687,11 +687,16 @@ router.post('/:identifier/orders', async (req: Request, res: Response) => {
       saveInMemoryStoreToDisk();
     }
 
-    // 🔔 Send Instant Customer Order Confirmation SMS
+    // 🔔 Send Instant Customer Order Confirmation SMS (deducted from vendor's SMS balance)
     if (customerPhone && customerPhone.length >= 11) {
       const storeName = ctx.resolved?.storeConfig?.storeName || 'অনলাইন স্টোর';
       const custSms = `${storeName}: ধন্যবাদ ${customerName}! আপনার অর্ডার #${orderNumber} সফলভাবে গৃহীত হয়েছে। মোট বিল: ৳${totalAmount} (${paymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : 'অনলাইন পরিশোধ'})। শীঘ্রই ডেলিভারির জন্য যোগাযোগ করা হবে।`;
-      sendSmsNotification(customerPhone, custSms).catch((err) => {
+      deductVendorSmsAndSend(targetUserId, customerPhone, custSms, {
+        smsType: 'store_order_confirm',
+        orderNumber,
+        customerName,
+        vendorShopName: storeName,
+      }).catch((err) => {
         console.warn('Customer public store order SMS notification notice:', err?.message || err);
       });
     }

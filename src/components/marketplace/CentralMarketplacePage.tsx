@@ -879,6 +879,29 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return () => clearInterval(timer);
   }, [isTrackModalOpen, trackedOrderData?.orderNumber, trackInput]);
 
+  // Real-time synchronization when vendor updates order anywhere in the application
+  useEffect(() => {
+    const handleOrderUpdate = (e: any) => {
+      const updatedOrdNum = e.detail?.orderNumber;
+      const updatedOrdId = e.detail?.orderId;
+      if (
+        trackedOrderData &&
+        (trackedOrderData.orderNumber === updatedOrdNum ||
+          trackedOrderData.id === updatedOrdId ||
+          (Array.isArray(trackedOrderData.subOrders) &&
+            trackedOrderData.subOrders.some(
+              (s: any) => s.id === updatedOrdId || s.orderNumber === updatedOrdNum
+            )))
+      ) {
+        fetchLiveTracking(trackedOrderData.orderNumber, true);
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('twing_order_updated', handleOrderUpdate);
+      return () => window.removeEventListener('twing_order_updated', handleOrderUpdate);
+    }
+  }, [trackedOrderData]);
+
   return (
     <div
       ref={pageContainerRef}
@@ -2761,9 +2784,11 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
               const statusLabelBn: Record<string, string> = {
                 pending_verification: '⏳ সুপার এডমিন পেমেন্ট যাচাই করছেন',
                 pending: isAdminApproved ? '✅ পেমেন্ট অনুমোদিত (ভেন্ডর কনফার্মেশনের অপেক্ষায়)' : '⏳ পেমেন্ট যাচাই চলছে',
-                confirmed: '✅ অর্ডার কনফার্মড',
+                confirmed: '✅ ভেন্ডর অর্ডার একসেপ্ট ও কনফার্ম করেছেন',
                 processing: '📦 পণ্য প্রস্তুত হচ্ছে (প্যাকেজিং)',
+                packed: '📦 পণ্য প্যাকেজিং সম্পন্ন',
                 shipped: '🚚 কুরিয়ারে পাঠানো হয়েছে (ডেলিভারির পথে)',
+                out_for_delivery: '🛵 ডেলিভারি রাইডার বের হয়েছে (আজকেই পৌঁছাবে)',
                 delivered: '🎉 ডেলিভারি সম্পন্ন হয়েছে',
                 cancelled: '❌ অর্ডার বাতিল',
                 returned: '↩️ অর্ডার রিটার্নড',
@@ -2771,17 +2796,21 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
               // Determine active step index (1 to 5)
               let currentStep = 1;
-              if (isAdminApproved) currentStep = 2;
-              if (isAdminApproved && ['confirmed', 'processing', 'shipped', 'delivered'].includes(rawOverall)) {
-                currentStep = rawOverall === 'confirmed' ? 2 : 3;
+              if (!isAdminApproved) {
+                currentStep = 1; // Step 1: অর্ডার গৃহীত (পেমেন্ট যাচাই বাকি)
+              } else if (rawOverall === 'pending') {
+                currentStep = 2; // Step 2: পেমেন্ট অনুমোদিত (ভেন্ডর কনফার্মেশনের অপেক্ষায়)
+              } else if (rawOverall === 'confirmed' || rawOverall === 'processing' || rawOverall === 'packed') {
+                currentStep = 3; // Step 3: প্রস্তুত হচ্ছে (ভেন্ডর একসেপ্ট করেছে ও প্যাকেজিং করছে)
+              } else if (rawOverall === 'shipped' || rawOverall === 'out_for_delivery') {
+                currentStep = 4; // Step 4: কুরিয়ারে পথে
+              } else if (rawOverall === 'delivered') {
+                currentStep = 5; // Step 5: ডেলিভার্ড
               }
-              if (isAdminApproved && rawOverall === 'processing') currentStep = 3;
-              if (isAdminApproved && rawOverall === 'shipped') currentStep = 4;
-              if (isAdminApproved && rawOverall === 'delivered') currentStep = 5;
 
               const steps = [
                 { step: 1, label: 'অর্ডার গৃহীত' },
-                { step: 2, label: 'পেমেন্ট যাচাই ও কনফার্ম' },
+                { step: 2, label: 'পেমেন্ট অনুমোদিত' },
                 { step: 3, label: 'প্রস্তুত হচ্ছে' },
                 { step: 4, label: 'কুরিয়ারে পথে' },
                 { step: 5, label: 'ডেলিভার্ড' },
@@ -2934,17 +2963,21 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                                     ? 'bg-amber-50 text-amber-900 border-amber-300'
                                     : subStatus === 'delivered'
                                     ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                    : subStatus === 'shipped'
+                                    : subStatus === 'shipped' || subStatus === 'out_for_delivery'
                                     ? 'bg-purple-100 text-purple-800 border-purple-300'
                                     : subStatus === 'cancelled'
                                     ? 'bg-rose-100 text-rose-800 border-rose-300'
-                                    : subStatus === 'processing'
+                                    : subStatus === 'processing' || subStatus === 'packed'
                                     ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                    : subStatus === 'confirmed'
+                                    ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
                                     : 'bg-teal-50 text-teal-900 border-teal-300'
                                 }`}
                               >
                                 {!subApproved
                                   ? '⏳ পেমেন্ট যাচাই বাকি'
+                                  : subStatus === 'pending'
+                                  ? '⏳ ভেন্ডর কনফার্মেশনের অপেক্ষায়'
                                   : statusLabelBn[subStatus] || subStatus}
                               </span>
                             </div>

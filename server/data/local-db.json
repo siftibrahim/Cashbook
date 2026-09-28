@@ -15,8 +15,9 @@
       "subscriptionStatus": "active",
       "subscriptionExpiresAt": 1793592035262,
       "registered_at": 1789790435262,
-      "last_active_at": 1790357161119,
-      "notes": "অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে"
+      "last_active_at": 1790489990086,
+      "notes": "অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে",
+      "smsBalance": 8
     },
     {
       "id": "usr_mudvydt9klkw",
@@ -33,7 +34,7 @@
       "subscriptionStatus": "trial",
       "subscriptionExpiresAt": 1791364412052,
       "registered_at": 1790154812052,
-      "last_active_at": 1790480957858,
+      "last_active_at": 1790610886466,
       "notes": null
     },
     {
@@ -97,7 +98,30 @@
     }
   ],
   "trusted_devices": [],
-  "sms_logs": [],
+  "sms_logs": [
+    {
+      "id": "sms_1790613407889_g9i4",
+      "userId": "usr_mu7v0ixqnql8",
+      "customerName": "গ্রাহক",
+      "customerPhone": "01711122233",
+      "message": "Test zero balance",
+      "smsType": "marketplace_order",
+      "status": "sent",
+      "costSms": 1,
+      "createdAt": 1790613406972
+    },
+    {
+      "id": "sms_1790613392852_coq6",
+      "userId": "usr_mu7v0ixqnql8",
+      "customerName": "টেস্ট কাস্টমার",
+      "customerPhone": "01711122233",
+      "message": "Test marketplace order confirmation message",
+      "smsType": "marketplace_order_confirm",
+      "status": "sent",
+      "costSms": 1,
+      "createdAt": 1790613391905
+    }
+  ],
   "sms_purchases": [],
   "online_orders": [],
   "online_store_configs": [],
