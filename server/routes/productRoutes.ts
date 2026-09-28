@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStoreToDisk } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { notifySearchEnginesOnProductPublish } from '../services/productSeoHelper';
 
@@ -201,7 +201,10 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       const idx = inMemoryStore.products.findIndex(p => p.id === prodId && p.userId === userId);
       const memExisting = idx >= 0 ? inMemoryStore.products[idx] : null;
       const finalImg = imageUrl && imageUrl.trim() ? imageUrl.trim() : (memExisting?.imageUrl || '');
-      const finalMarketplace = isListedOnMarketplace !== undefined ? cleanMarketplace : (memExisting?.isListedOnMarketplace ?? true);
+      // Product is only published on Central Marketplace if Super Admin approves it
+      const existingMarketplaceStatus = memExisting?.marketplaceStatus || 'pending';
+      const isApprovedByAdmin = existingMarketplaceStatus === 'approved';
+      const finalMarketplace = isApprovedByAdmin && (isListedOnMarketplace !== false);
 
       const prodObj = {
         id: prodId,
@@ -221,11 +224,15 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         discountPercent: cleanDiscount ?? undefined,
         isPublishedOnline: cleanOnline,
         isListedOnMarketplace: finalMarketplace,
+        marketplaceStatus: existingMarketplaceStatus,
         rating: cleanRating,
         updatedAt: now,
       };
       if (idx >= 0) inMemoryStore.products[idx] = prodObj;
       else inMemoryStore.products.unshift(prodObj);
+
+      // Persist permanently to disk so products never disappear on restart
+      saveInMemoryStoreToDisk();
     }
 
     const savedProduct = {
@@ -287,6 +294,7 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
           return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি অন্য ভেন্ডরের পণ্য মুছতে পারবেন না।' });
         }
         inMemoryStore.products = inMemoryStore.products.filter(p => !(p.id === id && p.userId === userId));
+        saveInMemoryStoreToDisk();
       }
     }
 
@@ -377,6 +385,7 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
         if (idx >= 0) inMemoryStore.products[idx] = item;
         else inMemoryStore.products.push(item);
       }
+      saveInMemoryStoreToDisk();
     }
 
     return res.json({ message: `✅ ${products.length}টি পণ্য সফলভাবে সিঙ্ক হয়েছে` });

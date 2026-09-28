@@ -53,8 +53,8 @@ router.get('/feed', async (req: Request, res: Response) => {
 
     if (pool) {
       const conditions: string[] = [
-        '(p.is_listed_on_marketplace = TRUE OR p.is_featured_on_marketplace = TRUE OR p.is_published_online = TRUE)',
-        "COALESCE(p.marketplace_status, 'approved') != 'rejected'",
+        '(p.is_listed_on_marketplace = TRUE OR p.is_featured_on_marketplace = TRUE)',
+        "p.marketplace_status = 'approved'",
       ];
       const params: any[] = [];
 
@@ -145,8 +145,9 @@ router.get('/feed', async (req: Request, res: Response) => {
       const allMem = inMemoryStore.products || [];
       const catKeywords = category && category !== 'all' ? (CATEGORY_SLUG_MAP[String(category).toLowerCase()] || [String(category).toLowerCase()]) : [];
       const filtered = allMem.filter(p => {
-        const isListed = p.isListedOnMarketplace || p.isFeaturedOnMarketplace;
-        if (!isListed) return false;
+        // Only products explicitly approved and published by Super Admin on Central Marketplace
+        const isApproved = (p.isListedOnMarketplace || p.isFeaturedOnMarketplace) && p.marketplaceStatus === 'approved';
+        if (!isApproved) return false;
         if (inStockOnly !== 'false' && (p.stock || 0) <= 0) return false;
         if (catKeywords.length > 0) {
           const pCat = (p.category || '').toLowerCase();
@@ -520,13 +521,15 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
   }
 });
 
-// In-memory checkout deduplication cache (15 seconds window to prevent double order submissions)
+// In-memory checkout deduplication cache (60 seconds window to prevent double order submissions)
 const recentCheckoutCache = new Map<string, { timestamp: number; responseData: any }>();
+const inFlightCheckoutKeys = new Set<string>();
 
 /**
  * 4. POST /api/marketplace/checkout - Multi-Vendor Atomic Order Splitting Engine
  */
 router.post('/checkout', async (req: Request, res: Response) => {
+  let activeDedupeKey = '';
   try {
     const {
       customerName,
@@ -559,24 +562,54 @@ router.post('/checkout', async (req: Request, res: Response) => {
       });
     }
 
-    // Deduplication check: prevent accidental double-tap/clicks creating duplicate orders
+    // Strict deduplication check: prevent accidental double-tap/clicks creating duplicate orders
     const normalizedPaymentMethod = String(paymentMethod || 'cod').toLowerCase();
     const itemSignature = items.map((i: any) => `${i.id || i.productId || ''}:${i.quantity || 1}`).sort().join('|');
     const dedupeKey = `${standardPhone}_${normalizedPaymentMethod}_${paymentTrxId || ''}_${itemSignature}`;
+    activeDedupeKey = dedupeKey;
+
     const cachedOrder = recentCheckoutCache.get(dedupeKey);
-    if (cachedOrder && (Date.now() - cachedOrder.timestamp) < 15000) {
-      console.log('⚡ Debounced duplicate checkout request detected. Returning existing order.');
+    if (cachedOrder && (Date.now() - cachedOrder.timestamp) < 60000) {
+      console.log('⚡ Returning cached checkout to prevent duplicate order for:', standardPhone);
       return res.status(200).json(cachedOrder.responseData);
     }
+
+    if (inFlightCheckoutKeys.has(dedupeKey)) {
+      console.log('⚡ In-flight checkout in progress, blocking concurrent duplicate request:', dedupeKey);
+      return res.status(429).json({ error: 'অর্ডার প্রক্রিয়াধীন রয়েছে, অনুগ্রহ করে কয়েক সেকেন্ড অপেক্ষা করুন...' });
+    }
+    inFlightCheckoutKeys.add(dedupeKey);
+
+    // Also check in-memory store for recent duplicate master order (within 60 seconds)
+    const recentMaster = (inMemoryStore.marketplace_master_orders || []).find((m) => {
+      const isSamePhone = (m.customerPhone || '').replace(/\D/g, '').endsWith(standardPhone.slice(-10));
+      const isRecent = (Date.now() - Number(m.createdAt || 0)) < 60000;
+      return isSamePhone && isRecent;
+    });
+
+    if (recentMaster) {
+      console.log('⚡ Found existing recent marketplace master order within 60s, returning existing order:', recentMaster.orderNumber);
+      inFlightCheckoutKeys.delete(dedupeKey);
+      const subOrders = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === recentMaster.id);
+      return res.status(200).json({
+        success: true,
+        masterOrder: recentMaster,
+        subOrders,
+        message: 'আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডারটি সফলভাবে জমা হয়েছে।',
+      });
+    }
+
     const isPaymently = normalizedPaymentMethod === 'paymently' || normalizedPaymentMethod === 'online_paymently';
     const isAutoPaid = req.body.isAutoPaid === true || 
       req.body.paymentStatus === 'paid';
 
     if (normalizedPaymentMethod !== 'cod' && !isPaymently && !isAutoPaid) {
       if (!paymentTrxId || !String(paymentTrxId).trim()) {
+        inFlightCheckoutKeys.delete(dedupeKey);
         return res.status(400).json({ error: 'বিকাশ, নগদ বা রকেট পেমেন্টের জন্য Transaction ID (TrxID) দেওয়া আবশ্যক।' });
       }
       if (!senderPhone || !String(senderPhone).trim()) {
+        inFlightCheckoutKeys.delete(dedupeKey);
         return res.status(400).json({ error: 'যে নম্বর থেকে টাকা পাঠিয়েছেন সেই প্রেরক মোবাইল নম্বরটি প্রদান করুন।' });
       }
     }
@@ -593,12 +626,19 @@ router.post('/checkout', async (req: Request, res: Response) => {
       ? Number(settings.deliveryFeeDhaka || 70) 
       : Number(settings.deliveryFeeOutside || 130);
 
-    // Group items by vendorId
+    // Group items by vendorId with robust fallback from product lookup
     const vendorItemsMap: Record<string, any[]> = {};
     let totalProductsAmount = 0;
 
     for (const item of items) {
-      const vId = item.vendorId || item.userId || 'vendor_official';
+      const pId = item.id || item.productId;
+      let vId = item.vendorId || item.userId;
+      if (!vId && inMemoryStore.products) {
+        const found = inMemoryStore.products.find(p => p.id === pId);
+        if (found && found.userId) vId = found.userId;
+      }
+      if (!vId) vId = 'vendor_official';
+
       if (!vendorItemsMap[vId]) {
         vendorItemsMap[vId] = [];
       }
@@ -608,7 +648,7 @@ router.post('/checkout', async (req: Request, res: Response) => {
       totalProductsAmount += subtotal;
 
       vendorItemsMap[vId].push({
-        productId: item.id || item.productId,
+        productId: pId,
         name: item.name,
         unit: item.unit || 'পিস',
         unitPrice,
@@ -966,6 +1006,10 @@ router.post('/checkout', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Marketplace checkout error:', err);
     return res.status(500).json({ error: 'অর্ডার সম্পন্ন করতে সমস্যা হয়েছে: ' + err.message });
+  } finally {
+    if (activeDedupeKey) {
+      inFlightCheckoutKeys.delete(activeDedupeKey);
+    }
   }
 });
 
@@ -1579,6 +1623,7 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
           sub.isLockedForVendor = false;
           sub.paymentStatus = 'paid';
           sub.orderStatus = 'pending';
+          sub.notes = `[✅ সুপার এডমিন কর্তৃক পেমেন্ট ভেরিফাইড] ${sub.notes || ''}`.trim();
           sub.updatedAt = now;
           targetOrder = sub;
           subOrders = [sub];
@@ -1598,6 +1643,7 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
           sub.isLockedForVendor = false;
           sub.paymentStatus = 'paid';
           sub.orderStatus = 'pending';
+          sub.notes = `[✅ সুপার এডমিন কর্তৃক পেমেন্ট ভেরিফাইড] ${sub.notes || ''}`.trim();
           sub.updatedAt = now;
 
           if (!inMemoryStore.notifications) inMemoryStore.notifications = [];

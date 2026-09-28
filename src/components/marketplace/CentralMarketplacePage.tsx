@@ -306,16 +306,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
         if (isMounted) {
           if (feedRes.success && Array.isArray(feedRes.products)) {
-            const enriched = feedRes.products.map((p) => {
-              if (p.name.includes('ঘি') && GHEE_IMG) {
-                return { ...p, imageUrl: GHEE_IMG };
-              }
-              if ((p.name.includes('স্মার্ট') || p.name.includes('ওয়াচ') || p.name.includes('গ্যাজেট')) && GADGET_IMG) {
-                return { ...p, imageUrl: GADGET_IMG };
-              }
-              return p;
-            });
-            setProducts(enriched);
+            // Keep genuine vendor product image untouched without mock overrides
+            setProducts(feedRes.products);
           }
           if (catRes.success && Array.isArray(catRes.categories)) {
             setCategories(catRes.categories);
@@ -614,28 +606,33 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmittingOrderRef.current || isSubmittingOrder) return;
+    isSubmittingOrderRef.current = true;
+    setIsSubmittingOrder(true);
 
     if (!customerName.trim() || !customerPhone.trim() || !customerAddress.trim()) {
+      isSubmittingOrderRef.current = false;
+      setIsSubmittingOrder(false);
       showToast('⚠️ নাম, ফোন নম্বর ও পূর্ণ ঠিকানা প্রদান করুন');
       return;
     }
 
     if (!isPhoneVerified) {
+      isSubmittingOrderRef.current = false;
+      setIsSubmittingOrder(false);
       showToast('⚠️ অর্ডার সম্পন্ন করার পূর্বে আপনার মোবাইল নম্বরটি ওটিপি কোড দিয়ে ভেরিফাই করুন');
       return;
     }
 
     if (cart.length === 0) {
+      isSubmittingOrderRef.current = false;
+      setIsSubmittingOrder(false);
       showToast('⚠️ কার্ট খালি');
       return;
     }
 
-    isSubmittingOrderRef.current = true;
-
     // If online automatic gateway (Paymently / UddoktaPay) is selected
     if (paymentMethod === 'paymently') {
       setIsInitiatingPaymently(true);
-      setIsSubmittingOrder(true);
       try {
         const payload = {
           customerName: customerName.trim(),
