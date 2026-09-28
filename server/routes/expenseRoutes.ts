@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStoreToDisk } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 
 const router = Router();
@@ -81,6 +81,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       const idx = inMemoryStore.expenses.findIndex(e => e.id === expId);
       if (idx >= 0) inMemoryStore.expenses[idx] = newExp;
       else inMemoryStore.expenses.push(newExp);
+      saveInMemoryStoreToDisk();
     }
 
     return res.json({ message: '✅ খরচ/আয় সংরক্ষিত হয়েছে', id: expId });
@@ -102,6 +103,7 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
       await pool.query('DELETE FROM expenses WHERE id = $1 AND user_id = $2', [expId, userId]);
     } else {
       inMemoryStore.expenses = inMemoryStore.expenses.filter(e => !(e.id === expId && (e.userId === userId || !e.userId)));
+      saveInMemoryStoreToDisk();
     }
 
     return res.json({ message: '✅ এন্ট্রি মুছে ফেলা হয়েছে' });

@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStoreToDisk } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 
 const router = Router();
@@ -222,6 +222,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
         cust.balance = cleanBalanceAfter;
         cust.updatedAt = now;
       }
+      saveInMemoryStoreToDisk();
     }
 
     return res.json({
@@ -264,6 +265,7 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
       await pool.query('UPDATE users SET total_transactions = $1 WHERE id = $2', [totalTx, userId]);
     } else {
       inMemoryStore.transactions = inMemoryStore.transactions.filter(t => !(t.id === txId && (t.userId === userId || !t.userId)));
+      saveInMemoryStoreToDisk();
     }
 
     return res.json({ message: '✅ লেনদেন মুছে ফেলা হয়েছে' });

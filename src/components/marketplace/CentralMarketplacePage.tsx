@@ -42,7 +42,13 @@ import {
 import QRCode from 'qrcode';
 import { MarketplaceProduct, MarketplaceCategory, MarketplaceCartItem } from '../../types';
 import { marketplaceApi } from '../../services/marketplaceService';
-import { formatMoney } from '../../utils/storage';
+import {
+  formatMoney,
+  getSavedCustomerProfile,
+  saveCustomerProfile,
+  getDevicePhoneVerification,
+  saveDevicePhoneVerification,
+} from '../../utils/storage';
 import { getFallbackProductImage } from '../../utils/productImages';
 import { subscribeToPaymentSettings, INITIAL_PAYMENT_SETTINGS } from '../../services/adminService';
 import { SystemPaymentSettings } from '../../types/adminTypes';
@@ -108,17 +114,21 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   });
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
 
-  // Checkout Form State
+  // Checkout Form State - Persistent across device sessions
   const [isCheckoutStep, setIsCheckoutStep] = useState<boolean>(false);
-  const [customerName, setCustomerName] = useState<string>('');
-  const [customerPhone, setCustomerPhone] = useState<string>('');
-  const [customerAddress, setCustomerAddress] = useState<string>('');
-  const [deliveryCity, setDeliveryCity] = useState<'dhaka' | 'outside_dhaka'>('dhaka');
+  const [customerName, setCustomerName] = useState<string>(() => getSavedCustomerProfile().name || '');
+  const [customerPhone, setCustomerPhone] = useState<string>(() => {
+    const prof = getSavedCustomerProfile();
+    const dev = getDevicePhoneVerification();
+    return dev?.phone || prof.phone || '';
+  });
+  const [customerAddress, setCustomerAddress] = useState<string>(() => getSavedCustomerProfile().address || '');
+  const [deliveryCity, setDeliveryCity] = useState<'dhaka' | 'outside_dhaka'>(() => (getSavedCustomerProfile().deliveryCity as any) || 'dhaka');
   const [paymentMethod, setPaymentMethod] = useState<'paymently' | 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank' | 'bangla_qr'>('paymently');
   const [paymentTrxId, setPaymentTrxId] = useState<string>('');
   const [senderPhone, setSenderPhone] = useState<string>('');
   const [selectedBankAccountIndex, setSelectedBankAccountIndex] = useState<number>(0);
-  const [notes, setNotes] = useState<string>('');
+  const [notes, setNotes] = useState<string>(() => getSavedCustomerProfile().notes || '');
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
   const isSubmittingOrderRef = useRef<boolean>(false);
   const [copiedNumber, setCopiedNumber] = useState<string | null>(null);
@@ -146,9 +156,26 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     paymentInstructions: 'বিকাশ, নগদ বা রকেট নম্বরে প্রয়োজনীয় টাকা পাঠিয়ে TrxID এবং প্রেরক নম্বর দিয়ে অর্ডার কনফার্ম করুন।',
   });
 
-  // Customer Phone OTP Verification
-  const [isPhoneVerified, setIsPhoneVerified] = useState<boolean>(false);
-  const [verifiedPhone, setVerifiedPhone] = useState<string>('');
+  // Customer Phone OTP & Device Verification
+  // 🔒 Once verified on this device, user never needs to verify again!
+  const [isPhoneVerified, setIsPhoneVerified] = useState<boolean>(() => {
+    const dev = getDevicePhoneVerification();
+    const prof = getSavedCustomerProfile();
+    const candidatePhone = dev?.phone || prof.phone;
+    if (dev?.verified && candidatePhone) {
+      const clean = candidatePhone.replace(/[^\d+]/g, '').slice(-11);
+      return clean.length === 11 && clean.startsWith('01');
+    }
+    return false;
+  });
+  const [verifiedPhone, setVerifiedPhone] = useState<string>(() => {
+    const dev = getDevicePhoneVerification();
+    return dev?.verified ? dev.phone : '';
+  });
+  const [deviceToken, setDeviceToken] = useState<string>(() => {
+    const dev = getDevicePhoneVerification();
+    return dev?.deviceToken || '';
+  });
   const [otpCodeInput, setOtpCodeInput] = useState<string>('');
   const [isSendingOtp, setIsSendingOtp] = useState<boolean>(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
@@ -165,11 +192,29 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       return;
     }
 
+    // Check device local verification
+    const dev = getDevicePhoneVerification();
+    if (dev?.verified && dev.phone === standardPhone) {
+      setIsPhoneVerified(true);
+      setVerifiedPhone(standardPhone);
+      setOtpSent(false);
+      showToast('✅ এই ডিভাইসে মোবাইল নম্বরটি পূর্বে ভেরিফাইড (পুনরায় কোড প্রয়োজন নেই)');
+      return;
+    }
+
     setIsSendingOtp(true);
     setOtpMessage('');
     try {
       const res = await marketplaceApi.sendOtp(standardPhone);
       if (res.success) {
+        if ((res as any).alreadyVerified) {
+          setIsPhoneVerified(true);
+          setVerifiedPhone(standardPhone);
+          setOtpSent(false);
+          saveDevicePhoneVerification(standardPhone);
+          showToast('✅ মোবাইল নম্বর পূর্বে ভেরিফাইড রয়েছে!');
+          return;
+        }
         setOtpSent(true);
         setOtpCountdown(180); // 3 minutes
         setOtpMessage(`নম্বর (${standardPhone})-এ ৬ ডিজিটের ওটিপি পাঠানো হয়েছে।${res.demoOtp ? ` [টেস্টিং কোড: ${res.demoOtp}]` : ''}`);
@@ -199,9 +244,20 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       if (res.success && res.verified) {
         setIsPhoneVerified(true);
         setVerifiedPhone(standardPhone);
+        if (res.deviceToken) {
+          setDeviceToken(res.deviceToken);
+        }
+        // 🔒 Save verification permanently on device so user NEVER needs OTP again on this device!
+        saveDevicePhoneVerification(standardPhone, res.deviceToken);
+        saveCustomerProfile({
+          name: customerName.trim(),
+          phone: standardPhone,
+          address: customerAddress.trim(),
+          deliveryCity,
+        });
         setOtpSent(false);
-        setOtpMessage('✅ মোবাইল নম্বর সফলভাবে ভেরিফাই সম্পন্ন হয়েছে!');
-        showToast('✅ মোবাইল নম্বর ভেরিফিকেশন সফল!');
+        setOtpMessage('✅ মোবাইল নম্বর সফলভাবে ভেরিফাই সম্পন্ন হয়েছে! এই ডিভাইসে আপনার তথ্য স্থায়ীভাবে সেভ থাকবে।');
+        showToast('✅ মোবাইল নম্বর ভেরিফিকেশন সফল ও ডিভাইসে সেভ হয়েছে!');
       } else {
         throw new Error(res.error || 'ভুল ওটিপি কোড');
       }
@@ -210,6 +266,15 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     } finally {
       setIsVerifyingOtp(false);
     }
+  };
+
+  // Change phone number helper
+  const handleChangeNumber = () => {
+    setIsPhoneVerified(false);
+    setVerifiedPhone('');
+    setOtpSent(false);
+    setOtpMessage('');
+    setCustomerPhone('');
   };
 
   // Timer countdown
@@ -221,11 +286,18 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return () => clearInterval(timer);
   }, [otpCountdown]);
 
-  // Reset verification if customer changes the phone number
+  // Synchronize verification when customer changes phone number
   useEffect(() => {
     const cleanDigits = customerPhone.replace(/[^\d+]/g, '').trim();
     const standardPhone = cleanDigits.startsWith('+88') ? cleanDigits.slice(3) : (cleanDigits.startsWith('88') ? cleanDigits.slice(2) : cleanDigits);
-    if (verifiedPhone && standardPhone !== verifiedPhone) {
+    const dev = getDevicePhoneVerification();
+
+    if (dev?.verified && dev.phone === standardPhone) {
+      setIsPhoneVerified(true);
+      setVerifiedPhone(standardPhone);
+      setOtpSent(false);
+      setOtpMessage('');
+    } else if (verifiedPhone && standardPhone !== verifiedPhone) {
       setIsPhoneVerified(false);
       setVerifiedPhone('');
       setOtpSent(false);
@@ -346,9 +418,9 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return cart.reduce((acc, curr) => acc + (curr.product.salePrice || 0) * curr.quantity, 0);
   }, [cart]);
 
-  // Filtered products list (supports Wishlist filter)
+  // Filtered products list (supports Wishlist filter and strictly enforces public vendor products with stock)
   const displayedProducts = useMemo(() => {
-    let list = [...products];
+    let list = products.filter((p) => p.isPublishedOnline !== false && (p.stock || 0) > 0);
     if (isWishlistOnly) {
       list = list.filter((p) => wishlist.includes(p.id));
     }
@@ -630,6 +702,18 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       return;
     }
 
+    // 🔒 Permanently save customer profile to this device
+    saveCustomerProfile({
+      name: customerName.trim(),
+      phone: customerPhone.trim(),
+      address: customerAddress.trim(),
+      deliveryCity,
+      notes: notes.trim(),
+    });
+    if (isPhoneVerified) {
+      saveDevicePhoneVerification(customerPhone.trim(), deviceToken);
+    }
+
     // If online automatic gateway (Paymently / UddoktaPay) is selected
     if (paymentMethod === 'paymently') {
       setIsInitiatingPaymently(true);
@@ -642,6 +726,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           paymentMethod: 'paymently',
           notes: notes.trim(),
           isPhoneVerified: true,
+          deviceToken,
           items: cart.map((it) => ({
             productId: it.product.id,
             vendorId: it.product.vendorId,
@@ -717,6 +802,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         senderPhone: senderPhone.trim(),
         notes: notes.trim(),
         isPhoneVerified: true,
+        deviceToken,
         items: cart.map((it) => ({
           productId: it.product.id,
           vendorId: it.product.vendorId,
@@ -1689,20 +1775,29 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                     />
                   </div>
 
-                  {/* Customer Mobile Phone with Mandatory OTP Verification */}
+                  {/* Customer Mobile Phone with Persistent Device Verification */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="font-bold text-slate-700 text-xs sm:text-sm block">
-                        মোবাইল নম্বর (ওটিপি যাচাই আবশ্যক) *
+                        মোবাইল নম্বর *
                       </label>
                       {isPhoneVerified ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>ভেরিফাইড</span>
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>ডিভাইসে ভেরিফাইড</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleChangeNumber}
+                            className="text-[10px] text-teal-800 hover:text-teal-950 underline font-bold cursor-pointer"
+                          >
+                            নম্বর পরিবর্তন
+                          </button>
+                        </div>
                       ) : (
                         <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                          যাচাই বাকি
+                          যাচাই আবশ্যক (১ বার)
                         </span>
                       )}
                     </div>
@@ -1717,7 +1812,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                           placeholder="017XXXXXXXX"
                           className={`w-full px-3 py-2 text-xs sm:text-sm border rounded-xl focus:ring-2 focus:outline-none transition ${
                             isPhoneVerified
-                              ? 'border-emerald-400 bg-emerald-50/30 text-emerald-950 focus:ring-emerald-500/30 font-bold'
+                              ? 'border-emerald-400 bg-emerald-50/40 text-emerald-950 focus:ring-emerald-500/30 font-bold'
                               : 'border-slate-200 focus:ring-[#00897B]/30'
                           }`}
                         />
@@ -1743,7 +1838,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                       )}
                     </div>
 
-                    {/* OTP Entry Box */}
+                    {/* OTP Entry Box - Only shown if NOT verified */}
                     {!isPhoneVerified && otpSent && (
                       <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-2xl space-y-2 text-xs animate-in fade-in zoom-in-95 duration-200">
                         <div className="flex items-center justify-between">
@@ -1795,9 +1890,18 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                     )}
 
                     {isPhoneVerified && (
-                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-900 flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>✅ মোবাইল নম্বর <strong>{verifiedPhone}</strong> সফলভাবে যাচাই ও নিশ্চিত করা হয়েছে। আপনি এখন অর্ডার সম্পন্ন করতে পারবেন।</span>
+                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-900 flex items-center justify-between gap-2 animate-in fade-in">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>✅ <strong>{verifiedPhone}</strong> এই ডিভাইসে ভেরিফাইড ও সেভ রয়েছে। পুনরায় কোনো কোড দেওয়ার প্রয়োজন নেই।</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleChangeNumber}
+                          className="shrink-0 text-[11px] text-teal-800 underline font-bold hover:text-teal-950 cursor-pointer"
+                        >
+                          অন্য নম্বর দিন
+                        </button>
                       </div>
                     )}
                   </div>

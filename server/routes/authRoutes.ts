@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk, markDbQuotaExceeded } from '../db';
-import { generateToken, AuthenticatedRequest, authenticateUser } from '../authMiddleware';
+import { generateToken, AuthenticatedRequest, authenticateUser, SUPER_ADMIN_EMAILS, isUserSuperAdmin } from '../authMiddleware';
 import { sendSmsNotification, normalizePhone, generateOtp, normalizeBanglaDigits } from '../services/smsService';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 
@@ -559,8 +559,7 @@ router.post('/login', async (req, res) => {
 
     // STRICT Super Admin identifier check: ONLY verified Super Admin credentials
     const isSuperAdminIdentifier =
-      cleanEmail === 'admin@twing.com' ||
-      cleanEmail === 'siftibrahim@gmail.com' ||
+      SUPER_ADMIN_EMAILS.includes(cleanEmail) ||
       cleanPhone === '01306908115' ||
       cleanPhone === '01619665875' ||
       rawIdentifier.trim().toLowerCase() === 'admin';
@@ -708,7 +707,7 @@ router.post('/login', async (req, res) => {
     if (user && isUserMatch) {
       authRateLimitMap.delete(rateLimitKey);
       // Strict Role Guarantee: Regular users can NEVER be assigned super_admin unless truly verified
-      const isActualAdminAccount = user.id === 'usr_super_admin' || cleanEmail === 'siftibrahim@gmail.com' || cleanEmail === 'admin@twing.com' || cleanPhone === '01306908115' || cleanPhone === '01619665875';
+      const isActualAdminAccount = user.id === 'usr_super_admin' || SUPER_ADMIN_EMAILS.includes(cleanEmail) || (user.email && SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase().trim())) || cleanPhone === '01306908115' || cleanPhone === '01619665875';
       const userRole = isActualAdminAccount ? 'super_admin' : 'user';
 
       // Check account status

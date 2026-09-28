@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getDbPool, inMemoryStore, ensureOnlineOrdersSchema } from '../db';
+import { getDbPool, inMemoryStore, ensureOnlineOrdersSchema, saveInMemoryStoreToDisk } from '../db';
 import { cleanDomainString, extractSubdomainFromHost } from '../utils/domainResolver';
 import { sendSmsNotification } from '../services/smsService';
 
@@ -667,13 +667,14 @@ router.post('/:identifier/orders', async (req: Request, res: Response) => {
       try {
         const notifId = `notif_order_${now}_${Math.random().toString(36).substring(2, 6)}`;
         await pool.query(
-          `INSERT INTO notifications (id, title, message, type, is_read, created_at)
-           VALUES ($1, $2, $3, $4, false, $5)`,
+          `INSERT INTO notifications (id, title, message, type, target, target_user_id, is_read, created_at)
+           VALUES ($1, $2, $3, $4, 'specific', $5, false, $6)`,
           [
             notifId,
             `নতুন অনলাইন অর্ডার: ${orderNumber}`,
             `${customerName} (${customerPhone}) ৳${totalAmount.toLocaleString('en-US')} টাকার একটি নতুন অনলাইন অর্ডার দিয়েছেন।`,
             'order',
+            targetUserId,
             now,
           ]
         );
@@ -683,6 +684,7 @@ router.post('/:identifier/orders', async (req: Request, res: Response) => {
     } else {
       if (!inMemoryStore.online_orders) inMemoryStore.online_orders = [];
       inMemoryStore.online_orders.unshift(orderObj);
+      saveInMemoryStoreToDisk();
     }
 
     // 🔔 Send Instant Customer Order Confirmation SMS

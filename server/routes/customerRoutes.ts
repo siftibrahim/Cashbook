@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore, ensureUserExistsInPostgres } from '../db';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStoreToDisk } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 
 const router = Router();
@@ -109,6 +109,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       } else {
         inMemoryStore.customers.push(custObj);
       }
+      saveInMemoryStoreToDisk();
     }
 
     return res.json({
@@ -152,6 +153,7 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
     } else {
       inMemoryStore.customers = inMemoryStore.customers.filter(c => !(c.id === customerId && (c.userId === userId || !c.userId)));
       inMemoryStore.transactions = inMemoryStore.transactions.filter(t => !(t.customerId === customerId && (t.userId === userId || !t.userId)));
+      saveInMemoryStoreToDisk();
     }
 
     return res.json({ message: '✅ কাস্টমার এবং তার সকল লেনদেন ডিলিট করা হয়েছে' });

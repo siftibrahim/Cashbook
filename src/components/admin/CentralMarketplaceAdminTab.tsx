@@ -36,6 +36,11 @@ import {
   XCircle,
   Info,
   Lock,
+  Ban,
+  PauseCircle,
+  PlayCircle,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import { marketplaceAdminApi } from '../../services/marketplaceAdminService';
 
@@ -81,7 +86,15 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const [orderSearch, setOrderSearch] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('all');
   const [productSearch, setProductSearch] = useState('');
-  const [productFilter, setProductFilter] = useState<'all' | 'listed' | 'unlisted'>('all');
+  const [productFilter, setProductFilter] = useState<'all' | 'listed' | 'unlisted' | 'blocked'>('all');
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
+  const [productDeleteModal, setProductDeleteModal] = useState<{ id: string; name: string } | null>(null);
+  const [isDeletingProduct, setIsDeletingProduct] = useState<boolean>(false);
+  const [vendorPayoutHolds, setVendorPayoutHolds] = useState<Record<string, { isHeld: boolean; reason?: string }>>({});
+  const [vendorHoldModal, setVendorHoldModal] = useState<{ vendorId: string; vendorName: string; isHeld: boolean; currentReason?: string } | null>(null);
+  const [vendorHoldReasonInput, setVendorHoldReasonInput] = useState<string>('');
+  const [isUpdatingVendorHold, setIsUpdatingVendorHold] = useState<boolean>(false);
   const [selectedMasterOrder, setSelectedMasterOrder] = useState<any | null>(null);
 
   // Category Modal State
@@ -119,6 +132,9 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           categories: res.categories || [],
           settings: res.settings || {},
         });
+        if (res.vendorPayoutHolds) {
+          setVendorPayoutHolds(res.vendorPayoutHolds);
+        }
         setLastSyncedAt(new Date());
         if (res.settings) {
           setSettingsForm((prev) => ({
@@ -192,7 +208,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleProcessPayout = async (action: 'approve' | 'reject') => {
+  const handleProcessPayout = async (action: 'approve' | 'reject' | 'hold' | 'unhold') => {
     if (!selectedPayoutToProcess) return;
 
     if (action === 'approve' && !adminTrxIdInput.trim()) {
@@ -209,7 +225,15 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       });
 
       if (res.success) {
-        showToast(action === 'approve' ? '✅ ভেন্ডর পেআউট সফলভাবে পরিশোধিত মার্ক হয়েছে!' : 'পেআউট আবেদনটি বাতিল করা হয়েছে');
+        showToast(
+          action === 'approve'
+            ? '✅ ভেন্ডর পেআউট সফলভাবে পরিশোধিত মার্ক হয়েছে!'
+            : action === 'hold'
+            ? '⏸️ পেআউট আবেদন সাময়িকভাবে স্থগিত/হোল্ড করা হয়েছে'
+            : action === 'unhold'
+            ? '▶️ পেআউট আবেদনটি সফলভাবে হোল্ড মুক্ত হয়েছে'
+            : 'পেআউট আবেদনটি বাতিল করা হয়েছে'
+        );
         setSelectedPayoutToProcess(null);
         setAdminTrxIdInput('');
         setAdminNoteInput('');
@@ -356,13 +380,13 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   };
 
   // Settle Vendor Payout
-  const handleSettlePayout = async (subOrderId: string, status: string) => {
+  const handleSettlePayout = async (subOrderId: string, status: string, note?: string) => {
     try {
       await marketplaceAdminApi.settleVendorPayout(subOrderId, {
         vendorPayoutStatus: status,
-        adminNote: `সুপার অ্যাডমিন কর্তৃক পেআউট ${status === 'settled' ? 'পরিশোধিত' : status} মার্ক করা হয়েছে`,
+        adminNote: note || (status === 'hold' ? 'পেমেন্ট সাময়িকভাবে হোল্ড রাখা হয়েছে' : `সুপার অ্যাডমিন কর্তৃক পেআউট ${status === 'settled' ? 'পরিশোধিত' : status} মার্ক করা হয়েছে`),
       });
-      showToast(status === 'settled' ? 'ভেন্ডর পেআউট পরিশোধিত মার্ক করা হয়েছে' : 'পেআউট স্ট্যাটাস আপডেট হয়েছে');
+      showToast(status === 'settled' ? 'ভেন্ডর পেআউট পরিশোধিত মার্ক করা হয়েছে' : status === 'hold' ? '⏸️ সাব-অর্ডার পেআউট হোল্ড করা হয়েছে' : 'পেআউট স্ট্যাটাস আপডেট হয়েছে');
       loadData();
     } catch (err: any) {
       alert(err.message || 'পেআউট আপডেট করতে সমস্যা হয়েছে');
@@ -377,6 +401,75 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       loadData();
     } catch (err: any) {
       alert(err.message || 'পণ্য আপডেট করতে সমস্যা হয়েছে');
+    }
+  };
+
+  // Delete Product
+  const handleDeleteProduct = async (productId: string, permanent: boolean = false) => {
+    setIsDeletingProduct(true);
+    try {
+      const res = await marketplaceAdminApi.deleteProduct(productId, permanent);
+      showToast(res.message || (permanent ? 'পণ্য স্থায়ীভাবে ডিলিট করা হয়েছে' : 'পণ্য মল থেকে সরানো হয়েছে'));
+      setProductDeleteModal(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'পণ্য ডিলিট করতে সমস্যা হয়েছে');
+    } finally {
+      setIsDeletingProduct(false);
+    }
+  };
+
+  // Batch Products Action
+  const handleBatchProductsAction = async (
+    action: 'publish_all' | 'unpublish_all' | 'block_all' | 'permanent_delete_all_marketplace' | 'remove_all_marketplace' | 'selected_publish' | 'selected_block' | 'selected_delete',
+    permanent: boolean = false
+  ) => {
+    if (action === 'permanent_delete_all_marketplace') {
+      if (!confirm('⚠️ সতর্কতা: সেন্ট্রাল মার্কেটপ্লেসের সকল পণ্য স্থায়ীভাবে ডাটাবেস থেকে মুছে যাবে! আপনি কি নিশ্চিত?')) {
+        return;
+      }
+    } else if (action === 'block_all') {
+      if (!confirm('আপনি কি নিশ্চিত যে সেন্ট্রাল মার্কেটপ্লেসের সকল পণ্য স্থগিত/ব্লক করতে চান?')) {
+        return;
+      }
+    } else if (action === 'remove_all_marketplace') {
+      if (!confirm('আপনি কি নিশ্চিত যে সেন্ট্রাল মল থেকে সকল পণ্য সরিয়ে অপ্রকাশিত করতে চান?')) {
+        return;
+      }
+    }
+
+    setIsBatchProcessing(true);
+    try {
+      const res = await marketplaceAdminApi.batchProductsAction({
+        action,
+        productIds: selectedProductIds,
+        permanent,
+      });
+      showToast(res.message || 'ব্যাচ অপারেশন সম্পন্ন হয়েছে');
+      setSelectedProductIds([]);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'ব্যাচ অপারেশন ব্যর্থ হয়েছে');
+    } finally {
+      setIsBatchProcessing(false);
+    }
+  };
+
+  // Toggle Vendor Payout Hold
+  const handleToggleVendorPayoutHold = async (vendorId: string, currentHeld: boolean, reason?: string) => {
+    setIsUpdatingVendorHold(true);
+    try {
+      const res = await marketplaceAdminApi.toggleVendorPayoutHold(vendorId, {
+        isHeld: !currentHeld,
+        reason: reason || (!currentHeld ? 'অ্যাডমিন কর্তৃক পেমেন্ট হোল্ড করা হয়েছে' : ''),
+      });
+      showToast(res.message || (!currentHeld ? 'ভেন্ডর পেআউট হোল্ড করা হয়েছে' : 'ভেন্ডর পেআউট হোল্ড মুক্ত হয়েছে'));
+      setVendorHoldModal(null);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'হোল্ড আপডেট ব্যর্থ হয়েছে');
+    } finally {
+      setIsUpdatingVendorHold(false);
     }
   };
 
@@ -437,7 +530,9 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const pendingInquiriesCount = data.masterOrders.filter(
     o => o.adminApprovalStatus === 'pending_approval' || (o.isAdminApproved !== true && o.isRejectedByAdmin !== true)
   ).length;
-  const totalListedProducts = data.products.filter(p => p.isListedOnMarketplace || p.isFeaturedOnMarketplace).length;
+  const totalListedProducts = data.products.filter(p => (p.isListedOnMarketplace || p.isFeaturedOnMarketplace) && p.marketplaceStatus !== 'blocked').length;
+  const totalBlockedProducts = data.products.filter(p => p.marketplaceStatus === 'blocked').length;
+  const totalUnlistedProducts = data.products.filter(p => !p.isListedOnMarketplace && p.marketplaceStatus !== 'blocked').length;
   const totalAllProducts = data.products.length;
 
   // Filtered Orders
@@ -464,8 +559,9 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
 
   // Filtered Products
   const filteredProducts = data.products.filter((p) => {
-    if (productFilter === 'listed' && !p.isListedOnMarketplace && !p.isFeaturedOnMarketplace) return false;
-    if (productFilter === 'unlisted' && (p.isListedOnMarketplace || p.isFeaturedOnMarketplace)) return false;
+    if (productFilter === 'listed' && (!p.isListedOnMarketplace || p.marketplaceStatus === 'blocked')) return false;
+    if (productFilter === 'unlisted' && (p.isListedOnMarketplace || p.marketplaceStatus === 'blocked')) return false;
+    if (productFilter === 'blocked' && p.marketplaceStatus !== 'blocked') return false;
     return (
       !productSearch.trim() ||
       p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
@@ -1383,114 +1479,349 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       {/* SUB-TAB 2: PRODUCT MODERATION */}
       {activeSubTab === 'products' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center justify-between">
-            <div className="relative max-w-md flex-1">
-              <input
-                type="text"
-                value={productSearch}
-                onChange={(e) => setProductSearch(e.target.value)}
-                placeholder="পণ্যের নাম বা দোকানের নাম খুঁজুন..."
-                className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-700/30"
-              />
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            </div>
-
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-              <button
-                type="button"
-                onClick={() => setProductFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                  productFilter === 'all'
-                    ? 'bg-teal-800 text-white shadow-xs'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                সকল পণ্য ({totalAllProducts})
-              </button>
-              <button
-                type="button"
-                onClick={() => setProductFilter('listed')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                  productFilter === 'listed'
-                    ? 'bg-teal-800 text-white shadow-xs'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                মল লাইভ ({totalListedProducts})
-              </button>
-              <button
-                type="button"
-                onClick={() => setProductFilter('unlisted')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
-                  productFilter === 'unlisted'
-                    ? 'bg-teal-800 text-white shadow-xs'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                অপ্রদর্শিত ({Math.max(0, totalAllProducts - totalListedProducts)})
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {filteredProducts.map((p) => (
-              <div key={p.id} className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-2.5 shadow-xs flex flex-col justify-between">
-                <div className="flex gap-3">
-                  {p.imageUrl ? (
-                    <img src={p.imageUrl} alt={p.name} className="w-14 h-14 object-cover rounded-lg bg-slate-100 shrink-0" />
-                  ) : (
-                    <div className="w-14 h-14 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
-                      📦
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <span className="text-[10px] text-teal-800 font-bold truncate">{p.vendorShopName || 'ভেন্ডর'}</span>
-                      {p.isListedOnMarketplace && p.marketplaceStatus === 'approved' ? (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded font-black bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                          মলে পাবলিশড
-                        </span>
-                      ) : (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
-                          অপ্রকাশিত
-                        </span>
-                      )}
-                    </div>
-                    <h4 className="text-xs font-bold text-slate-900 truncate">{p.name}</h4>
-                    <p className="text-xs font-black text-slate-900 mt-0.5">৳{p.salePrice}</p>
-                    <span className="text-[10px] text-slate-500">স্টক: {p.stock}</span>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                  <button
-                    type="button"
-                    onClick={() => handleModerateProduct(p.id, { isFeaturedOnMarketplace: !p.isFeaturedOnMarketplace })}
-                    className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer ${
-                      p.isFeaturedOnMarketplace ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    {p.isFeaturedOnMarketplace ? '★ ফিচার্ড সক্রিয়' : '☆ ফিচার্ড করুন'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleModerateProduct(p.id, { 
-                      isListedOnMarketplace: !(p.isListedOnMarketplace && p.marketplaceStatus === 'approved'),
-                      marketplaceStatus: !(p.isListedOnMarketplace && p.marketplaceStatus === 'approved') ? 'approved' : 'unlisted',
-                    })}
-                    className={`px-3 py-1 rounded-lg font-black text-[11px] transition cursor-pointer shadow-2xs ${
-                      p.isListedOnMarketplace && p.marketplaceStatus === 'approved'
-                        ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-300'
-                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                    }`}
-                  >
-                    {p.isListedOnMarketplace && p.marketplaceStatus === 'approved' ? 'মল থেকে আনপাবলিশ' : '✓ মলে পাবলিশ করুন'}
-                  </button>
-                </div>
+          {/* Search, Filters, and Global Batch Action Controls */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3.5 shadow-2xs">
+            <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center justify-between">
+              <div className="relative max-w-md flex-1">
+                <input
+                  type="text"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="পণ্যের নাম, ক্যাটাগরি বা দোকানের নাম খুঁজুন..."
+                  className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-700/30 focus:outline-none"
+                />
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               </div>
-            ))}
+
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => setProductFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                    productFilter === 'all'
+                      ? 'bg-teal-800 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  সকল পণ্য ({totalAllProducts})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductFilter('listed')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                    productFilter === 'listed'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  মল লাইভ ({totalListedProducts})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductFilter('unlisted')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                    productFilter === 'unlisted'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  অপ্রকাশিত ({totalUnlistedProducts})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductFilter('blocked')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                    productFilter === 'blocked'
+                      ? 'bg-rose-700 text-white shadow-xs'
+                      : 'bg-white border border-rose-200 text-rose-700 hover:bg-rose-50'
+                  }`}
+                >
+                  🚫 ব্লকড / স্থগিত ({totalBlockedProducts})
+                </button>
+              </div>
+            </div>
+
+            {/* Global Quick Action Buttons */}
+            <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedProductIds.length === filteredProducts.length) {
+                      setSelectedProductIds([]);
+                    } else {
+                      setSelectedProductIds(filteredProducts.map(p => p.id));
+                    }
+                  }}
+                  className="px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-700 font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  {selectedProductIds.length > 0 && selectedProductIds.length === filteredProducts.length ? (
+                    <CheckSquare className="w-3.5 h-3.5 text-teal-800" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                  <span>সব নির্বাচন ({filteredProducts.length})</span>
+                </button>
+
+                {selectedProductIds.length > 0 && (
+                  <span className="text-[11px] text-teal-900 font-bold bg-teal-50 border border-teal-200 px-2 py-1 rounded-md">
+                    {selectedProductIds.length} টি নির্বাচিত
+                  </span>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {selectedProductIds.length > 0 ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isBatchProcessing}
+                      onClick={() => handleBatchProductsAction('selected_publish')}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>নির্বাচিত পাবলিশ</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBatchProcessing}
+                      onClick={() => handleBatchProductsAction('selected_block')}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      <span>নির্বাচিত ব্লক</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBatchProcessing}
+                      onClick={() => handleBatchProductsAction('selected_delete', false)}
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <span>মল থেকে সরান</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBatchProcessing}
+                      onClick={() => {
+                        if (confirm(`নির্বাচিত ${selectedProductIds.length} টি পণ্য স্থায়ীভাবে ডিলিট করতে চান?`)) {
+                          handleBatchProductsAction('selected_delete', true);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>স্থায়ী ডিলিট</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProductIds([])}
+                      className="px-2.5 py-1.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-medium cursor-pointer"
+                    >
+                      বাতিল
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isBatchProcessing}
+                      onClick={() => handleBatchProductsAction('publish_all')}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>সকল পণ্য পাবলিশ</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBatchProcessing}
+                      onClick={() => handleBatchProductsAction('unpublish_all')}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <PauseCircle className="w-3.5 h-3.5" />
+                      <span>সকল আনপাবলিশ</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBatchProcessing}
+                      onClick={() => handleBatchProductsAction('block_all')}
+                      className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      <span>সকল পণ্য ব্লক</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBatchProcessing}
+                      onClick={() => handleBatchProductsAction('remove_all_marketplace')}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>মল থেকে সব ডিলিট</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
+
+          {/* Products Grid */}
+          {filteredProducts.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-2">
+              <Package className="w-10 h-10 text-slate-300 mx-auto" />
+              <p className="text-sm font-bold text-slate-700">কোনো পণ্য পাওয়া যায়নি</p>
+              <p className="text-xs text-slate-400">ফিল্টার পরিবর্তন করে পুনরায় চেষ্টা করুন</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredProducts.map((p) => {
+                const isSelected = selectedProductIds.includes(p.id);
+                const isBlocked = p.marketplaceStatus === 'blocked';
+                const isApprovedListed = p.isListedOnMarketplace && p.marketplaceStatus === 'approved';
+
+                return (
+                  <div
+                    key={p.id}
+                    className={`bg-white rounded-2xl border p-3.5 space-y-2.5 shadow-2xs flex flex-col justify-between transition ${
+                      isSelected
+                        ? 'border-teal-600 ring-2 ring-teal-600/20 bg-teal-50/20'
+                        : isBlocked
+                        ? 'border-rose-200 bg-rose-50/30'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex gap-3">
+                      <div className="relative shrink-0">
+                        {p.imageUrl ? (
+                          <img src={p.imageUrl} alt={p.name} className="w-16 h-16 object-cover rounded-xl bg-slate-100" />
+                        ) : (
+                          <div className="w-16 h-16 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400">
+                            📦
+                          </div>
+                        )}
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedProductIds(prev => [...prev, p.id]);
+                            } else {
+                              setSelectedProductIds(prev => prev.filter(id => id !== p.id));
+                            }
+                          }}
+                          className="absolute -top-1.5 -left-1.5 w-4 h-4 rounded border-slate-300 text-teal-700 focus:ring-teal-700 bg-white cursor-pointer shadow-xs"
+                        />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1 mb-0.5">
+                          <span className="text-[10px] text-teal-800 font-bold truncate max-w-[130px]">
+                            {p.vendorShopName || 'ভেন্ডর'}
+                          </span>
+                          {isBlocked ? (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded font-black bg-rose-100 text-rose-800 border border-rose-300 shrink-0">
+                              🚫 ব্লকড
+                            </span>
+                          ) : isApprovedListed ? (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded font-black bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                              মলে পাবলিশড
+                            </span>
+                          ) : (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
+                              অপ্রকাশিত
+                            </span>
+                          )}
+                        </div>
+
+                        <h4 className="text-xs font-bold text-slate-900 truncate" title={p.name}>
+                          {p.name}
+                        </h4>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-xs font-black text-slate-900">৳{p.salePrice}</span>
+                          <span className="text-[10px] text-slate-500 font-mono">স্টক: {p.stock}</span>
+                        </div>
+                        {p.vendorPhone && (
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            ফোন: {p.vendorPhone}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Card Actions */}
+                    <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-1.5 text-xs">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleModerateProduct(p.id, { isFeaturedOnMarketplace: !p.isFeaturedOnMarketplace })}
+                          className={`px-2 py-1 rounded-lg font-bold text-[10px] transition cursor-pointer ${
+                            p.isFeaturedOnMarketplace ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                          title="ফিচার্ড প্রোডাক্ট হিসেবে টগল করুন"
+                        >
+                          {p.isFeaturedOnMarketplace ? '★ ফিচার্ড' : '☆ ফিচার'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setProductDeleteModal({ id: p.id, name: p.name })}
+                          className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                          title="পণ্য মুছে ফেলুন"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        {isBlocked ? (
+                          <button
+                            type="button"
+                            onClick={() => handleModerateProduct(p.id, { 
+                              marketplaceStatus: 'approved',
+                              isListedOnMarketplace: true,
+                            })}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] transition cursor-pointer shadow-2xs flex items-center gap-1"
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>আনব্লক ও পাবলিশ</span>
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleModerateProduct(p.id, { 
+                                isListedOnMarketplace: !isApprovedListed,
+                                marketplaceStatus: !isApprovedListed ? 'approved' : 'unlisted',
+                              })}
+                              className={`px-2.5 py-1 rounded-lg font-bold text-[10px] transition cursor-pointer shadow-2xs ${
+                                isApprovedListed
+                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                              }`}
+                            >
+                              {isApprovedListed ? 'আনপাবলিশ' : '✓ পাবলিশ'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleModerateProduct(p.id, { 
+                                marketplaceStatus: 'blocked',
+                                isListedOnMarketplace: false,
+                              })}
+                              className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-bold text-[10px] transition cursor-pointer"
+                              title="পণ্যটি মার্কেটপ্লেস থেকে সাময়িক ব্লক করুন"
+                            >
+                              🚫 ব্লক
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

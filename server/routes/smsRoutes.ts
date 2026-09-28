@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore } from '../db';
+import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { sendSmsNotification } from '../services/smsService';
 import { PaymentlyService } from '../services/paymentlyService';
@@ -370,6 +370,7 @@ router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
         costSms: 1,
         createdAt: now,
       });
+      saveInMemoryStoreToDisk();
     }
 
     return res.json({
@@ -411,6 +412,7 @@ router.post('/tagada-templates', async (req: AuthenticatedRequest, res: Response
     } else {
       if (!inMemoryStore.system_config) inMemoryStore.system_config = {};
       inMemoryStore.system_config['system_tagada_templates'] = templates;
+      saveInMemoryStoreToDisk();
     }
 
     return res.json({
@@ -592,6 +594,7 @@ router.post('/purchase', async (req: AuthenticatedRequest, res: Response) => {
         status: 'pending',
         createdAt: now,
       });
+      saveInMemoryStoreToDisk();
     }
 
     return res.json({

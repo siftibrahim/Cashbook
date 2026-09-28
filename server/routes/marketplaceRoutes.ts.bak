@@ -515,43 +515,6 @@ export function markPhoneAsDeviceVerified(phone: string, deviceToken?: string): 
 }
 
 /**
- * Vendor Payout Holds Storage
- * Allows super admin to pause / freeze payouts for vendors or specific payout requests
- */
-export async function loadVendorPayoutHolds(): Promise<Record<string, { isHeld: boolean; reason?: string; updatedAt: number }>> {
-  const pool = getDbPool();
-  if (pool) {
-    try {
-      const res = await pool.query("SELECT setting_value FROM marketplace_settings WHERE setting_key = 'vendor_payout_holds'");
-      if (res.rows.length > 0) {
-        return typeof res.rows[0].setting_value === 'string' ? JSON.parse(res.rows[0].setting_value) : res.rows[0].setting_value;
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return (inMemoryStore as any).vendor_payout_holds || {};
-}
-
-export async function saveVendorPayoutHolds(holds: Record<string, { isHeld: boolean; reason?: string; updatedAt: number }>): Promise<void> {
-  const pool = getDbPool();
-  if (pool) {
-    try {
-      await pool.query(`
-        INSERT INTO marketplace_settings (setting_key, setting_value, updated_at)
-        VALUES ('vendor_payout_holds', $1, $2)
-        ON CONFLICT (setting_key) DO UPDATE
-        SET setting_value = $1, updated_at = $2;
-      `, [JSON.stringify(holds), Date.now()]);
-    } catch (e) {
-      console.warn('Could not save vendor_payout_holds in DB:', e);
-    }
-  }
-  (inMemoryStore as any).vendor_payout_holds = holds;
-  saveInMemoryStoreToDisk();
-}
-
-/**
  * 3.2 POST /api/marketplace/send-otp - Customer Phone OTP Verification
  */
 router.post('/send-otp', async (req: Request, res: Response) => {
@@ -697,7 +660,7 @@ router.post('/toggle-product', authenticateUser, async (req: AuthenticatedReques
     const now = Date.now();
 
     if (pool) {
-      const checkRes = await pool.query('SELECT user_id, is_published_online, marketplace_status FROM products WHERE id = $1', [productId]);
+      const checkRes = await pool.query('SELECT user_id, is_published_online FROM products WHERE id = $1', [productId]);
       if (checkRes.rows.length === 0) {
         return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি' });
       }
@@ -707,20 +670,14 @@ router.post('/toggle-product', authenticateUser, async (req: AuthenticatedReques
         return res.status(403).json({ error: 'এই পণ্যটি পরিবর্তনের অনুমতি নেই' });
       }
 
-      if (prod.marketplace_status === 'blocked' && !isSuperAdmin) {
-        return res.status(403).json({ error: '⚠️ এই পণ্যটি অ্যাডমিন কর্তৃক স্থগিত/ব্লক করা রয়েছে। সেন্ট্রাল মার্কেটপ্লেসে প্রদর্শনের জন্য অ্যাডমিনের সাথে যোগাযোগ করুন।' });
-      }
-
-      const nextStatus = isListed ? 'approved' : (prod.marketplace_status === 'blocked' ? 'blocked' : 'unlisted');
-
       await pool.query(`
         UPDATE products 
         SET is_listed_on_marketplace = $1,
-            marketplace_status = $2,
+            marketplace_status = 'approved',
             is_published_online = CASE WHEN $1 = TRUE THEN TRUE ELSE is_published_online END,
-            updated_at = $3
-        WHERE id = $4
-      `, [isListed, nextStatus, now, productId]);
+            updated_at = $2
+        WHERE id = $3
+      `, [isListed, now, productId]);
     } else {
       const p = (inMemoryStore.products || []).find(x => x.id === productId);
       if (!p) return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি' });
@@ -728,11 +685,8 @@ router.post('/toggle-product', authenticateUser, async (req: AuthenticatedReques
       if (p.userId !== userId && !isSuperAdmin) {
         return res.status(403).json({ error: 'এই পণ্যটি পরিবর্তনের অনুমতি নেই' });
       }
-      if (p.marketplaceStatus === 'blocked' && !isSuperAdmin) {
-        return res.status(403).json({ error: '⚠️ এই পণ্যটি অ্যাডমিন কর্তৃক স্থগিত/ব্লক করা রয়েছে। সেন্ট্রাল মার্কেটপ্লেসে প্রদর্শনের জন্য অ্যাডমিনের সাথে যোগাযোগ করুন।' });
-      }
       p.isListedOnMarketplace = isListed;
-      p.marketplaceStatus = isListed ? 'approved' : (p.marketplaceStatus === 'blocked' ? 'blocked' : 'unlisted');
+      p.marketplaceStatus = 'approved';
       if (isListed) {
         p.isPublishedOnline = true;
       }
@@ -1439,6 +1393,58 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
 });
 
 /**
+ * 6. POST /api/marketplace/toggle-product - Vendor toggles marketplace listing
+ */
+router.post('/toggle-product', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { productId, isListedOnMarketplace } = req.body;
+
+    if (!userId) return res.status(401).json({ error: 'লগইন করুন' });
+    if (!productId) return res.status(400).json({ error: 'পণ্য আইডি আবশ্যক' });
+
+    const pool = getDbPool();
+    const isListed = Boolean(isListedOnMarketplace);
+
+    if (pool) {
+      const updateRes = await pool.query(`
+        UPDATE products 
+        SET is_listed_on_marketplace = $1, updated_at = $2 
+        WHERE id = $3 AND user_id = $4
+        RETURNING id, name, is_listed_on_marketplace
+      `, [isListed, Date.now(), productId, userId]);
+
+      if (updateRes.rows.length === 0) {
+        return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি অথবা আপনার অ্যাক্সেস নেই।' });
+      }
+
+      return res.json({
+        success: true,
+        product: updateRes.rows[0],
+        message: isListed
+          ? 'পণ্যটি সেন্ট্রাল মার্কেটপ্লেসে সফলভাবে প্রদর্শিত হয়েছে।'
+          : 'পণ্যটি সেন্ট্রাল মার্কেটপ্লেস থেকে সরানো হয়েছে।',
+      });
+    } else {
+      const p = (inMemoryStore.products || []).find(x => x.id === productId && x.userId === userId);
+      if (!p) return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি।' });
+      p.isListedOnMarketplace = isListed;
+      p.updatedAt = Date.now();
+      saveInMemoryStoreToDisk();
+      return res.json({
+        success: true,
+        product: p,
+        message: isListed
+          ? 'পণ্যটি সেন্ট্রাল মার্কেটপ্লেসে সফলভাবে প্রদর্শিত হয়েছে।'
+          : 'পণ্যটি সেন্ট্রাল মার্কেটপ্লেস থেকে সরানো হয়েছে।',
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * 7. GET /api/marketplace/admin/overview - Super Admin Central Marketplace Overview
  */
 router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
@@ -1592,7 +1598,6 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
         products,
         categories,
         settings,
-        vendorPayoutHolds: await loadVendorPayoutHolds(),
       });
     } else {
       // InMemoryStore Fallback
@@ -1608,24 +1613,13 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
         ];
       }
 
-      const memProducts = (inMemoryStore.products || []).map((p: any) => {
-        const u = (inMemoryStore.users || []).find((x: any) => x.id === p.userId);
-        return {
-          ...p,
-          vendorShopName: p.vendorShopName || u?.shopName || u?.name || 'ভেন্ডর',
-          vendorPhone: p.vendorPhone || u?.phone || '',
-          marketplaceStatus: p.marketplaceStatus || (p.isListedOnMarketplace ? 'approved' : 'unlisted'),
-        };
-      });
-
       return res.json({
         success: true,
         masterOrders: inMemoryStore.marketplace_master_orders || [],
         subOrders: (inMemoryStore.online_orders || []).filter(o => o.orderSource === 'marketplace' || o.masterOrderId),
-        products: memProducts,
+        products: inMemoryStore.products || [],
         categories: inMemoryStore.marketplace_categories || [],
         settings: await getStoredMarketplaceSettings(),
-        vendorPayoutHolds: await loadVendorPayoutHolds(),
       });
     }
   } catch (err: any) {
@@ -2138,20 +2132,8 @@ router.post('/admin/products/:productId/moderate', authenticateUser, async (req:
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const { productId } = req.params;
-    const { isListedOnMarketplace, isFeaturedOnMarketplace, marketplaceStatus, adminNote } = req.body;
+    const { isListedOnMarketplace, isFeaturedOnMarketplace, marketplaceStatus } = req.body;
     const pool = getDbPool();
-    const now = Date.now();
-
-    let finalListed = isListedOnMarketplace !== undefined ? Boolean(isListedOnMarketplace) : undefined;
-    let finalFeatured = isFeaturedOnMarketplace !== undefined ? Boolean(isFeaturedOnMarketplace) : undefined;
-    let finalStatus = marketplaceStatus;
-
-    if (marketplaceStatus === 'blocked') {
-      finalListed = false;
-      finalFeatured = false;
-    } else if (marketplaceStatus === 'approved') {
-      finalListed = true;
-    }
 
     if (pool) {
       await pool.query(`
@@ -2159,308 +2141,27 @@ router.post('/admin/products/:productId/moderate', authenticateUser, async (req:
         SET is_listed_on_marketplace = COALESCE($1, is_listed_on_marketplace),
             is_featured_on_marketplace = COALESCE($2, is_featured_on_marketplace),
             marketplace_status = COALESCE($3, marketplace_status),
-            is_published_online = CASE WHEN $1 = TRUE THEN TRUE ELSE is_published_online END,
             updated_at = $4
         WHERE id = $5
       `, [
-        finalListed !== undefined ? finalListed : null,
-        finalFeatured !== undefined ? finalFeatured : null,
-        finalStatus || null,
-        now,
+        isListedOnMarketplace !== undefined ? Boolean(isListedOnMarketplace) : null,
+        isFeaturedOnMarketplace !== undefined ? Boolean(isFeaturedOnMarketplace) : null,
+        marketplaceStatus || null,
+        Date.now(),
         productId,
       ]);
     } else {
       const p = (inMemoryStore.products || []).find(x => x.id === productId);
       if (p) {
-        if (finalListed !== undefined) p.isListedOnMarketplace = finalListed;
-        if (finalFeatured !== undefined) p.isFeaturedOnMarketplace = finalFeatured;
-        if (finalStatus) p.marketplaceStatus = finalStatus;
-        if (finalListed) p.isPublishedOnline = true;
-        p.updatedAt = now;
+        if (isListedOnMarketplace !== undefined) p.isListedOnMarketplace = Boolean(isListedOnMarketplace);
+        if (isFeaturedOnMarketplace !== undefined) p.isFeaturedOnMarketplace = Boolean(isFeaturedOnMarketplace);
+        if (marketplaceStatus) p.marketplaceStatus = marketplaceStatus;
+        p.updatedAt = Date.now();
         saveInMemoryStoreToDisk();
       }
     }
 
-    return res.json({
-      success: true,
-      message: marketplaceStatus === 'blocked'
-        ? '🚫 পণ্যটি সফলভাবে সেন্ট্রাল মার্কেটপ্লেস থেকে স্থগিত/ব্লক করা হয়েছে'
-        : 'পণ্যের মার্কেটপ্লেস স্ট্যাটাস আপডেট করা হয়েছে',
-    });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * 10.1 DELETE /api/marketplace/admin/products/:productId - Super Admin Deletes Product
- * permanent=true: permanently deletes product from system
- * permanent=false: unlists/removes from central marketplace
- */
-router.delete('/admin/products/:productId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
-    if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
-
-    const { productId } = req.params;
-    const permanent = req.query.permanent === 'true';
-    const pool = getDbPool();
-    const now = Date.now();
-
-    if (pool) {
-      if (permanent) {
-        await pool.query('DELETE FROM products WHERE id = $1', [productId]);
-      } else {
-        await pool.query(`
-          UPDATE products 
-          SET is_listed_on_marketplace = FALSE,
-              is_featured_on_marketplace = FALSE,
-              marketplace_status = 'unlisted',
-              updated_at = $1
-          WHERE id = $2
-        `, [now, productId]);
-      }
-    } else {
-      if (permanent) {
-        inMemoryStore.products = (inMemoryStore.products || []).filter(p => p.id !== productId);
-        saveInMemoryStoreToDisk();
-      } else {
-        const p = (inMemoryStore.products || []).find(x => x.id === productId);
-        if (p) {
-          p.isListedOnMarketplace = false;
-          p.isFeaturedOnMarketplace = false;
-          p.marketplaceStatus = 'unlisted';
-          p.updatedAt = now;
-          saveInMemoryStoreToDisk();
-        }
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: permanent 
-        ? '🗑️ পণ্যটি স্থায়ীভাবে সিস্টেম থেকে মুছে ফেলা হয়েছে' 
-        : 'পণ্যটি সেন্ট্রাল মার্কেটপ্লেস থেকে সফলভাবে সরিয়ে নেওয়া হয়েছে',
-    });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * 10.2 POST /api/marketplace/admin/products/batch - Super Admin Bulk Product Moderation
- * Actions: publish_all, unpublish_all, block_all, permanent_delete_all_marketplace, remove_all_marketplace, selected_publish, selected_block, selected_delete
- */
-router.post('/admin/products/batch', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
-    if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
-
-    const { action, productIds, permanent } = req.body;
-    const pool = getDbPool();
-    const now = Date.now();
-
-    if (action === 'publish_all') {
-      if (pool) {
-        await pool.query(`
-          UPDATE products 
-          SET is_listed_on_marketplace = TRUE,
-              is_published_online = TRUE,
-              marketplace_status = 'approved',
-              updated_at = $1
-          WHERE stock > 0
-        `, [now]);
-      } else {
-        (inMemoryStore.products || []).forEach(p => {
-          if ((p.stock || 0) > 0) {
-            p.isListedOnMarketplace = true;
-            p.isPublishedOnline = true;
-            p.marketplaceStatus = 'approved';
-            p.updatedAt = now;
-          }
-        });
-        saveInMemoryStoreToDisk();
-      }
-      return res.json({ success: true, message: '✅ সকল পণ্য সেন্ট্রাল মার্কেটপ্লেসে সফলভাবে পাবলিশ করা হয়েছে' });
-    }
-
-    if (action === 'unpublish_all' || action === 'remove_all_marketplace') {
-      if (pool) {
-        await pool.query(`
-          UPDATE products 
-          SET is_listed_on_marketplace = FALSE,
-              is_featured_on_marketplace = FALSE,
-              marketplace_status = 'unlisted',
-              updated_at = $1
-        `, [now]);
-      } else {
-        (inMemoryStore.products || []).forEach(p => {
-          p.isListedOnMarketplace = false;
-          p.isFeaturedOnMarketplace = false;
-          p.marketplaceStatus = 'unlisted';
-          p.updatedAt = now;
-        });
-        saveInMemoryStoreToDisk();
-      }
-      return res.json({ success: true, message: 'সেন্ট্রাল মার্কেটপ্লেস থেকে সকল পণ্য সরিয়ে নেওয়া হয়েছে' });
-    }
-
-    if (action === 'block_all') {
-      if (pool) {
-        await pool.query(`
-          UPDATE products 
-          SET is_listed_on_marketplace = FALSE,
-              is_featured_on_marketplace = FALSE,
-              marketplace_status = 'blocked',
-              updated_at = $1
-        `, [now]);
-      } else {
-        (inMemoryStore.products || []).forEach(p => {
-          p.isListedOnMarketplace = false;
-          p.isFeaturedOnMarketplace = false;
-          p.marketplaceStatus = 'blocked';
-          p.updatedAt = now;
-        });
-        saveInMemoryStoreToDisk();
-      }
-      return res.json({ success: true, message: '🚫 সেন্ট্রাল মার্কেটপ্লেসের সকল পণ্য ব্লক/স্থগিত করা হয়েছে' });
-    }
-
-    if (action === 'permanent_delete_all_marketplace') {
-      if (pool) {
-        await pool.query(`
-          DELETE FROM products 
-          WHERE is_listed_on_marketplace = TRUE OR marketplace_status = 'approved'
-        `);
-      } else {
-        inMemoryStore.products = (inMemoryStore.products || []).filter(
-          p => !p.isListedOnMarketplace && p.marketplaceStatus !== 'approved'
-        );
-        saveInMemoryStoreToDisk();
-      }
-      return res.json({ success: true, message: '🗑️ মার্কেটপ্লেসের সকল পণ্য স্থায়ীভাবে ডাটাবেস থেকে মুছে ফেলা হয়েছে' });
-    }
-
-    if (action === 'selected_publish' && Array.isArray(productIds) && productIds.length > 0) {
-      if (pool) {
-        await pool.query(`
-          UPDATE products 
-          SET is_listed_on_marketplace = TRUE,
-              is_published_online = TRUE,
-              marketplace_status = 'approved',
-              updated_at = $1
-          WHERE id = ANY($2::text[])
-        `, [now, productIds]);
-      } else {
-        const idSet = new Set(productIds);
-        (inMemoryStore.products || []).forEach(p => {
-          if (idSet.has(p.id)) {
-            p.isListedOnMarketplace = true;
-            p.isPublishedOnline = true;
-            p.marketplaceStatus = 'approved';
-            p.updatedAt = now;
-          }
-        });
-        saveInMemoryStoreToDisk();
-      }
-      return res.json({ success: true, message: `✅ নির্বাচিত ${productIds.length} টি পণ্য মলে পাবলিশ করা হয়েছে` });
-    }
-
-    if (action === 'selected_block' && Array.isArray(productIds) && productIds.length > 0) {
-      if (pool) {
-        await pool.query(`
-          UPDATE products 
-          SET is_listed_on_marketplace = FALSE,
-              is_featured_on_marketplace = FALSE,
-              marketplace_status = 'blocked',
-              updated_at = $1
-          WHERE id = ANY($2::text[])
-        `, [now, productIds]);
-      } else {
-        const idSet = new Set(productIds);
-        (inMemoryStore.products || []).forEach(p => {
-          if (idSet.has(p.id)) {
-            p.isListedOnMarketplace = false;
-            p.isFeaturedOnMarketplace = false;
-            p.marketplaceStatus = 'blocked';
-            p.updatedAt = now;
-          }
-        });
-        saveInMemoryStoreToDisk();
-      }
-      return res.json({ success: true, message: `🚫 নির্বাচিত ${productIds.length} টি পণ্য ব্লক করা হয়েছে` });
-    }
-
-    if (action === 'selected_delete' && Array.isArray(productIds) && productIds.length > 0) {
-      if (pool) {
-        if (permanent) {
-          await pool.query('DELETE FROM products WHERE id = ANY($1::text[])', [productIds]);
-        } else {
-          await pool.query(`
-            UPDATE products 
-            SET is_listed_on_marketplace = FALSE,
-                is_featured_on_marketplace = FALSE,
-                marketplace_status = 'unlisted',
-                updated_at = $1
-            WHERE id = ANY($2::text[])
-          `, [now, productIds]);
-        }
-      } else {
-        const idSet = new Set(productIds);
-        if (permanent) {
-          inMemoryStore.products = (inMemoryStore.products || []).filter(p => !idSet.has(p.id));
-        } else {
-          (inMemoryStore.products || []).forEach(p => {
-            if (idSet.has(p.id)) {
-              p.isListedOnMarketplace = false;
-              p.isFeaturedOnMarketplace = false;
-              p.marketplaceStatus = 'unlisted';
-              p.updatedAt = now;
-            }
-          });
-        }
-        saveInMemoryStoreToDisk();
-      }
-      return res.json({
-        success: true,
-        message: permanent
-          ? `🗑️ নির্বাচিত ${productIds.length} টি পণ্য স্থায়ীভাবে ডিলিট করা হয়েছে`
-          : `নির্বাচিত ${productIds.length} টি পণ্য মল থেকে সরিয়ে নেওয়া হয়েছে`,
-      });
-    }
-
-    return res.status(400).json({ error: 'অকার্যকর ব্যাচ অ্যাকশন' });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * 10.3 POST /api/marketplace/admin/vendors/:vendorId/hold-payout - Super Admin Holds/Unholds Vendor Payout
- */
-router.post('/admin/vendors/:vendorId/hold-payout', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
-    if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
-
-    const { vendorId } = req.params;
-    const { isHeld, reason } = req.body;
-
-    const holds = await loadVendorPayoutHolds();
-    holds[vendorId] = {
-      isHeld: Boolean(isHeld),
-      reason: reason || (isHeld ? 'অ্যাডমিন কর্তৃক পেমেন্ট হোল্ড করা হয়েছে' : ''),
-      updatedAt: Date.now(),
-    };
-    await saveVendorPayoutHolds(holds);
-
-    return res.json({
-      success: true,
-      isHeld: Boolean(isHeld),
-      message: isHeld 
-        ? '⏸️ ভেন্ডরের সমস্ত পেআউট সাময়িকভাবে হোল্ড করা হয়েছে' 
-        : '▶️ ভেন্ডরের পেআউট হোল্ড মুক্ত করা হয়েছে',
-    });
+    return res.json({ success: true, message: 'পণ্যের মার্কেটপ্লেস স্ট্যাটাস আপডেট করা হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -2715,9 +2416,6 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
       const settledSales = nonCancelledOrders
         .filter(o => o.vendorPayoutStatus === 'settled')
         .reduce((sum, o) => sum + o.totalAmount, 0);
-      const heldSales = nonCancelledOrders
-        .filter(o => o.vendorPayoutStatus === 'hold' || o.vendorPayoutStatus === 'held')
-        .reduce((sum, o) => sum + o.totalAmount, 0);
       const pendingDeliverySales = nonCancelledOrders
         .filter(o => o.orderStatus !== 'delivered')
         .reduce((sum, o) => sum + o.totalAmount, 0);
@@ -2727,30 +2425,16 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
         .filter(p => p.status === 'pending')
         .reduce((sum, p) => sum + p.amount, 0);
 
-      const onHoldPayoutAmount = payoutRequests
-        .filter(p => p.status === 'hold')
-        .reduce((sum, p) => sum + p.amount, 0);
-
-      const holds = await loadVendorPayoutHolds();
-      const isPayoutHeld = Boolean(holds[userId]?.isHeld);
-      const payoutHoldReason = holds[userId]?.reason || '';
-
-      // Available balance is delivered money minus settled, held, and in-progress requests
-      const availableForWithdrawal = isPayoutHeld 
-        ? 0 
-        : Math.max(0, deliveredSales - settledSales - heldSales - pendingWithdrawalAmount - onHoldPayoutAmount);
+      // Available balance is delivered money minus what is already settled minus what is currently pending review
+      const availableForWithdrawal = Math.max(0, deliveredSales - settledSales - pendingWithdrawalAmount);
 
       return res.json({
         success: true,
         totalSales,
         deliveredSales,
         settledSales,
-        heldSales,
         pendingDeliverySales,
         pendingWithdrawalAmount,
-        onHoldPayoutAmount,
-        isPayoutHeld,
-        payoutHoldReason,
         availableForWithdrawal,
         deliveredOrdersCount: deliveredOrders.length,
         pendingOrdersCount: nonCancelledOrders.length - deliveredOrders.length,
@@ -2772,9 +2456,6 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
       const settledSales = nonCancelledOrders
         .filter((o: any) => o.vendorPayoutStatus === 'settled')
         .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
-      const heldSales = nonCancelledOrders
-        .filter((o: any) => o.vendorPayoutStatus === 'hold' || o.vendorPayoutStatus === 'held')
-        .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
       const pendingDeliverySales = nonCancelledOrders
         .filter((o: any) => o.orderStatus !== 'delivered')
         .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
@@ -2783,29 +2464,15 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
         .filter((p: any) => p.status === 'pending')
         .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
 
-      const onHoldPayoutAmount = payoutRequests
-        .filter((p: any) => p.status === 'hold')
-        .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
-
-      const holds = await loadVendorPayoutHolds();
-      const isPayoutHeld = Boolean(holds[userId]?.isHeld);
-      const payoutHoldReason = holds[userId]?.reason || '';
-
-      const availableForWithdrawal = isPayoutHeld
-        ? 0
-        : Math.max(0, deliveredSales - settledSales - heldSales - pendingWithdrawalAmount - onHoldPayoutAmount);
+      const availableForWithdrawal = Math.max(0, deliveredSales - settledSales - pendingWithdrawalAmount);
 
       return res.json({
         success: true,
         totalSales,
         deliveredSales,
         settledSales,
-        heldSales,
         pendingDeliverySales,
         pendingWithdrawalAmount,
-        onHoldPayoutAmount,
-        isPayoutHeld,
-        payoutHoldReason,
         availableForWithdrawal,
         deliveredOrdersCount: deliveredOrders.length,
         pendingOrdersCount: nonCancelledOrders.length - deliveredOrders.length,
@@ -2824,13 +2491,6 @@ router.post('/vendor/payout-request', authenticateUser, async (req: Authenticate
   try {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: 'লগইন করুন' });
-
-    const holds = await loadVendorPayoutHolds();
-    if (holds[userId]?.isHeld) {
-      return res.status(403).json({
-        error: `⚠️ আপনার অ্যাকাউন্টে পেআউট সাময়িকভাবে হোল্ড রাখা হয়েছে (${holds[userId].reason || 'প্রশাসনিক নির্দেশনা অনুযায়ী'})। উত্তোলনের জন্য অ্যাডমিনের সাথে যোগাযোগ করুন।`,
-      });
-    }
 
     const {
       amount,
@@ -2887,17 +2547,11 @@ router.post('/vendor/payout-request', authenticateUser, async (req: Authenticate
       const settledSales = ordersRes.rows
         .filter(o => o.vendor_payout_status === 'settled')
         .reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
-      const heldSales = ordersRes.rows
-        .filter(o => o.vendor_payout_status === 'hold' || o.vendor_payout_status === 'held')
-        .reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
       const pendingWithdrawals = existingPayouts.rows
         .filter(p => p.status === 'pending')
         .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-      const onHoldWithdrawals = existingPayouts.rows
-        .filter(p => p.status === 'hold')
-        .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
 
-      const available = Math.max(0, deliveredSales - settledSales - heldSales - pendingWithdrawals - onHoldWithdrawals);
+      const available = Math.max(0, deliveredSales - settledSales - pendingWithdrawals);
 
       if (numAmount > available) {
         return res.status(400).json({
@@ -2959,17 +2613,11 @@ router.post('/vendor/payout-request', authenticateUser, async (req: Authenticate
       const settledSales = orders
         .filter((o: any) => o.vendorPayoutStatus === 'settled')
         .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
-      const heldSales = orders
-        .filter((o: any) => o.vendorPayoutStatus === 'hold' || o.vendorPayoutStatus === 'held')
-        .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
       const pendingWithdrawals = existingPayouts
         .filter((p: any) => p.status === 'pending')
         .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
-      const onHoldWithdrawals = existingPayouts
-        .filter((p: any) => p.status === 'hold')
-        .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
 
-      const available = Math.max(0, deliveredSales - settledSales - heldSales - pendingWithdrawals - onHoldWithdrawals);
+      const available = Math.max(0, deliveredSales - settledSales - pendingWithdrawals);
 
       if (numAmount > available) {
         return res.status(400).json({
@@ -3120,8 +2768,8 @@ router.post('/admin/payout-requests/:id/process', authenticateUser, async (req: 
     const { id } = req.params;
     const { action, adminTransactionId, adminNote } = req.body;
 
-    if (!action || !['approve', 'reject', 'hold', 'unhold'].includes(action)) {
-      return res.status(400).json({ error: 'সঠিক অ্যাকশন (approve, reject, hold বা unhold) নির্বাচন করুন' });
+    if (!action || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ error: 'সঠিক অ্যাকশন (approve বা reject) নির্বাচন করুন' });
     }
 
     if (action === 'approve' && (!adminTransactionId || !adminTransactionId.trim())) {
@@ -3264,47 +2912,6 @@ router.post('/admin/payout-requests/:id/process', authenticateUser, async (req: 
           success: true,
           message: `ভেন্ডর পেআউট সফলভাবে পরিশোধিত মার্ক করা হয়েছে (TrxID: ${cleanTrx})। ক্যাশবুক ও নোটিফিকেশন আপডেট সম্পন্ন।`,
         });
-      } else if (action === 'hold') {
-        await pool.query(`
-          UPDATE vendor_payout_requests
-          SET status = 'hold',
-              admin_note = $1,
-              processed_at = $2,
-              updated_at = $2
-          WHERE id = $3
-        `, [adminNote || 'পেমেন্ট সাময়িকভাবে স্থগিত/হোল্ড করা হয়েছে', now, id]);
-
-        const notifId = 'notif_payout_hold_' + now;
-        await pool.query(`
-          INSERT INTO notifications (
-            id, title, message, type, target, target_user_id, priority, is_read, created_at
-          ) VALUES ($1, $2, $3, 'payout', 'user', $4, 1, false, $5)
-        `, [
-          notifId,
-          '⏸️ পেআউট উত্তোলন সাময়িকভাবে স্থগিত/হোল্ড রয়েছে',
-          `আপনার ৳${amount.toLocaleString('en-US')} পেআউট আবেদনটি সাময়িকভাবে স্থগিত/হোল্ডে রাখা হয়েছে। নোট: ${adminNote || 'যাচাই-বাছাইয়ের জন্য স্থগিত'}।`,
-          targetUserId,
-          now,
-        ]).catch(() => {});
-
-        return res.json({
-          success: true,
-          message: '⏸️ পেআউট আবেদনটি সাময়িকভাবে হোল্ড করা হয়েছে।',
-        });
-      } else if (action === 'unhold') {
-        await pool.query(`
-          UPDATE vendor_payout_requests
-          SET status = 'pending',
-              admin_note = $1,
-              processed_at = $2,
-              updated_at = $2
-          WHERE id = $3
-        `, [adminNote || 'পেমেন্ট হোল্ড মুক্ত করা হয়েছে (অপেক্ষমাণ)', now, id]);
-
-        return res.json({
-          success: true,
-          message: '▶️ পেআউট আবেদনটি সফলভাবে হোল্ড মুক্ত করে অপেক্ষমাণ তালিকায় ফিরিয়ে নেওয়া হয়েছে।',
-        });
       } else {
         // Reject Payout Request
         await pool.query(`
@@ -3368,22 +2975,6 @@ router.post('/admin/payout-requests/:id/process', authenticateUser, async (req: 
         return res.json({
           success: true,
           message: `ভেন্ডর পেআউট সফলভাবে পরিশোধিত মার্ক করা হয়েছে (TrxID: ${cleanTrx})।`,
-        });
-      } else if (action === 'hold') {
-        payoutReq.status = 'hold';
-        payoutReq.adminNote = adminNote || 'পেমেন্ট সাময়িকভাবে হোল্ড করা হয়েছে';
-        saveInMemoryStoreToDisk();
-        return res.json({
-          success: true,
-          message: '⏸️ পেআউট আবেদনটি সাময়িকভাবে হোল্ড করা হয়েছে।',
-        });
-      } else if (action === 'unhold') {
-        payoutReq.status = 'pending';
-        payoutReq.adminNote = adminNote || 'পেমেন্ট হোল্ড মুক্ত করা হয়েছে (অপেক্ষমাণ)';
-        saveInMemoryStoreToDisk();
-        return res.json({
-          success: true,
-          message: '▶️ পেআউট আবেদনটি সফলভাবে হোল্ড মুক্ত করে অপেক্ষমাণ তালিকায় ফিরিয়ে নেওয়া হয়েছে।',
         });
       } else {
         payoutReq.status = 'rejected';

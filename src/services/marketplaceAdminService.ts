@@ -72,7 +72,12 @@ export const marketplaceAdminApi = {
     return data;
   },
 
-  async moderateProduct(productId: string, updates: { isListedOnMarketplace?: boolean; isFeaturedOnMarketplace?: boolean; marketplaceStatus?: string }): Promise<any> {
+  async moderateProduct(productId: string, updates: { 
+    isListedOnMarketplace?: boolean; 
+    isFeaturedOnMarketplace?: boolean; 
+    marketplaceStatus?: string;
+    adminNote?: string;
+  }): Promise<any> {
     const res = await fetch(`/api/marketplace/admin/products/${encodeURIComponent(productId)}/moderate`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
@@ -80,6 +85,43 @@ export const marketplaceAdminApi = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'পণ্য মডারেশন ব্যর্থ হয়েছে');
+    return data;
+  },
+
+  async deleteProduct(productId: string, permanent: boolean = false): Promise<any> {
+    const res = await fetch(`/api/marketplace/admin/products/${encodeURIComponent(productId)}?permanent=${permanent ? 'true' : 'false'}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'পণ্য মুছে ফেলতে ব্যর্থ হয়েছে');
+    return data;
+  },
+
+  async batchProductsAction(payload: { 
+    action: 'publish_all' | 'unpublish_all' | 'block_all' | 'permanent_delete_all_marketplace' | 'remove_all_marketplace' | 'selected_publish' | 'selected_block' | 'selected_delete'; 
+    productIds?: string[]; 
+    permanent?: boolean;
+    adminNote?: string;
+  }): Promise<any> {
+    const res = await fetch('/api/marketplace/admin/products/batch', {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ব্যাচ অপারেশন ব্যর্থ হয়েছে');
+    return data;
+  },
+
+  async toggleVendorPayoutHold(vendorId: string, payload: { isHeld: boolean; reason?: string }): Promise<any> {
+    const res = await fetch(`/api/marketplace/admin/vendors/${encodeURIComponent(vendorId)}/hold-payout`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ভেন্ডর পেআউট হোল্ড আপডেট ব্যর্থ হয়েছে');
     return data;
   },
 
@@ -125,7 +167,7 @@ export const marketplaceAdminApi = {
   },
 
   async processPayoutRequest(id: string, payload: {
-    action: 'approve' | 'reject';
+    action: 'approve' | 'reject' | 'hold' | 'unhold';
     adminTransactionId?: string;
     adminNote?: string;
   }): Promise<{ success: boolean; message: string }> {

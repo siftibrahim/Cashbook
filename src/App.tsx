@@ -110,6 +110,7 @@ import {
   markAllNotificationsAsRead,
   deleteAdminNotification,
   ADMIN_EMAIL,
+  isSuperAdminUser,
 } from './services/adminService';
 import { SupportMessage, Announcement, AppUpdateConfig, AdminSession, AdminNotification } from './types/adminTypes';
 import { Store, Loader2 } from 'lucide-react';
@@ -473,10 +474,7 @@ export const App: React.FC = () => {
               setUserRole('স্টাফ অ্যাকাউন্ট');
               setIsAdminPanelOpen(true);
               setIsAuthChecking(false);
-            } else if (
-              (currentUser.role === 'super_admin' || currentUser.email === ADMIN_EMAIL || currentUser.email === 'siftibrahim@gmail.com') &&
-              (currentUser.email === ADMIN_EMAIL || currentUser.email === 'siftibrahim@gmail.com' || currentUser.phone === '01306908115' || currentUser.phone?.replace(/\D/g, '') === '01306908115' || currentUser.phone === '01619665875' || currentUser.phone?.replace(/\D/g, '') === '01619665875' || currentUser.id === 'usr_super_admin')
-            ) {
+            } else if (isSuperAdminUser(currentUser)) {
               setAdminSession({
                 role: 'super_admin',
                 email: currentUser.email,
@@ -755,8 +753,7 @@ export const App: React.FC = () => {
     if (user?.id) {
       await loadUserAccountData(user.id);
     }
-    const isSuper = (roleName === 'super_admin' || user?.role === 'super_admin') &&
-      (email === ADMIN_EMAIL || email === 'siftibrahim@gmail.com' || user?.phone === '01306908115' || user?.phone?.replace(/\D/g, '') === '01306908115' || user?.phone === '01619665875' || user?.phone?.replace(/\D/g, '') === '01619665875' || user?.id === 'usr_super_admin');
+    const isSuper = roleName === 'super_admin' || isSuperAdminUser(user) || isSuperAdminUser({ email, phone: user?.phone, id: user?.id, role: roleName });
     const resolvedRole = isSuper ? 'প্রধান সুপার অ্যাডমিন' : 'দোকান মালিক';
     if (!isSuper && user) {
       user.role = 'user';
@@ -832,7 +829,7 @@ export const App: React.FC = () => {
   };
 
   const currentUser = getStoredUser();
-  const isSuperAdmin = userRole === 'প্রধান সুপার অ্যাডমিন' || currentUser?.role === 'super_admin' || currentUser?.email === ADMIN_EMAIL;
+  const isSuperAdmin = userRole === 'প্রধান সুপার অ্যাডমিন' || isSuperAdminUser(currentUser);
   const isStaffMember = userRole === 'স্টাফ অ্যাকাউন্ট' || currentUser?.role === 'staff' || currentUser?.role === 'manager';
   const userSubExpiry = (store as any)?.subscriptionExpiresAt || (currentUser as any)?.subscriptionExpiresAt;
 
@@ -2123,7 +2120,7 @@ export const App: React.FC = () => {
         onShowToast={showToast}
         onOpenAdmin={() => {
           const u = getStoredUser();
-          if (u?.role === 'super_admin' || u?.email === ADMIN_EMAIL) {
+          if (isSuperAdminUser(u)) {
             setIsAdminLoginModalOpen(true);
           } else {
             showToast('⚠️ শুধুমাত্র সুপার অ্যাডমিনের এই প্যানেলে প্রবেশের অনুমতি রয়েছে।');
@@ -2365,8 +2362,7 @@ export const App: React.FC = () => {
         (adminSession !== null ||
           getStoredUser()?.role === 'staff' ||
           getStoredUser()?.role === 'manager' ||
-          getStoredUser()?.email === ADMIN_EMAIL ||
-          getStoredUser()?.role === 'super_admin') && (
+          isSuperAdminUser(getStoredUser())) && (
           <AdminPanel
             onClose={() => {
               const currentUser = getStoredUser();
@@ -2375,9 +2371,7 @@ export const App: React.FC = () => {
                 adminSession?.role === 'super_admin' ||
                 currentUser?.role === 'staff' ||
                 currentUser?.role === 'manager' ||
-                currentUser?.role === 'super_admin' ||
-                currentUser?.email === ADMIN_EMAIL ||
-                currentUser?.email === 'siftibrahim@gmail.com'
+                isSuperAdminUser(currentUser)
               ) {
                 // If staff or super admin exits the panel, trigger clean logout
                 triggerLogoutConfirm();

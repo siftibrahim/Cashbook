@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, OnlineStoreConfig, OnlineOrder } from '../types';
-import { formatMoney } from '../utils/storage';
+import { formatMoney, saveDevicePhoneVerification, getSavedCustomerProfile, saveCustomerProfile } from '../utils/storage';
 import { StorefrontHeader } from './storefront/StorefrontHeader';
 import { StorefrontHamburgerDrawer } from './storefront/StorefrontHamburgerDrawer';
 import { StorefrontNotificationDrawer } from './storefront/StorefrontNotificationDrawer';
@@ -181,7 +181,8 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
       const raw = localStorage.getItem(STORE_CUSTOMER_INFO_KEY);
       if (raw) return JSON.parse(raw);
     } catch {}
-    return { name: '', phone: '', address: '' };
+    const saved = getSavedCustomerProfile();
+    return { name: saved.name || '', phone: saved.phone || '', address: saved.address || '' };
   });
 
   // Checkout form fields
@@ -371,6 +372,10 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     setCustomerAddress(info.address);
     try {
       localStorage.setItem(STORE_CUSTOMER_INFO_KEY, JSON.stringify(info));
+      saveCustomerProfile(info);
+      if (info.phone) {
+        saveDevicePhoneVerification(info.phone);
+      }
     } catch {}
   };
 

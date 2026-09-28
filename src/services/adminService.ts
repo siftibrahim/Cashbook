@@ -44,6 +44,25 @@ export { SUPPORT_CONTACT };
 
 export const ADMIN_EMAIL = 'admin@twing.com';
 
+export const SUPER_ADMIN_EMAILS = [
+  'admin@twing.com',
+  'siftibrahim@gmail.com',
+  'siftraihan@gmail.com',
+  'siftibrahim75@gmail.com',
+  'twinginfobd@gmail.com',
+  'twinginfobd@mail.com',
+];
+
+export function isSuperAdminUser(user?: { role?: string; email?: string; phone?: string; id?: string; userId?: string } | null): boolean {
+  if (!user) return false;
+  if (user.role === 'super_admin' || user.id === 'usr_super_admin' || user.userId === 'usr_super_admin') return true;
+  const email = (user.email || '').toLowerCase().trim();
+  if (email && SUPER_ADMIN_EMAILS.includes(email)) return true;
+  const phone = (user.phone || '').replace(/\D/g, '');
+  if (phone === '01306908115' || phone === '01619665875') return true;
+  return false;
+}
+
 export const DEFAULT_PLANS: SubscriptionPlan[] = [
   {
     id: 'trial',

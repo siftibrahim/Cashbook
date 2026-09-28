@@ -816,3 +816,125 @@ export function resetAllData(userId?: string): void {
   }
 }
 
+// =========================================================================
+// Persistent Device Customer Profile & 1-Time Phone Verification Storage
+// =========================================================================
+export const TWING_CUSTOMER_PROFILE_KEY = 'twing_customer_profile_v1';
+export const TWING_DEVICE_VERIFIED_PHONE_KEY = 'twing_device_verified_phone_v1';
+
+export interface DeviceCustomerProfile {
+  name: string;
+  phone: string;
+  address: string;
+  district?: string;
+  deliveryCity?: 'dhaka' | 'outside_dhaka';
+  notes?: string;
+  lastUsedAt?: number;
+}
+
+export interface DevicePhoneVerification {
+  phone: string;
+  verified: boolean;
+  verifiedAt: number;
+  deviceToken?: string;
+}
+
+export function getSavedCustomerProfile(): DeviceCustomerProfile {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(TWING_CUSTOMER_PROFILE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          return {
+            name: parsed.name || '',
+            phone: parsed.phone || '',
+            address: parsed.address || '',
+            district: parsed.district || '',
+            deliveryCity: parsed.deliveryCity || 'dhaka',
+            notes: parsed.notes || '',
+            lastUsedAt: parsed.lastUsedAt || Date.now(),
+          };
+        }
+      }
+    }
+  } catch {}
+  return { name: '', phone: '', address: '', deliveryCity: 'dhaka' };
+}
+
+export function saveCustomerProfile(profile: Partial<DeviceCustomerProfile>): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const existing = getSavedCustomerProfile();
+      const updated: DeviceCustomerProfile = {
+        ...existing,
+        ...profile,
+        lastUsedAt: Date.now(),
+      };
+      localStorage.setItem(TWING_CUSTOMER_PROFILE_KEY, JSON.stringify(updated));
+    }
+  } catch (e) {
+    console.warn('Could not save customer profile to device:', e);
+  }
+}
+
+export function getDevicePhoneVerification(): DevicePhoneVerification | null {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(TWING_DEVICE_VERIFIED_PHONE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.phone && parsed.verified === true) {
+          const clean = String(parsed.phone).replace(/[^\d+]/g, '').slice(-11);
+          if (clean.length === 11 && clean.startsWith('01')) {
+            return {
+              phone: clean,
+              verified: true,
+              verifiedAt: Number(parsed.verifiedAt) || Date.now(),
+              deviceToken: parsed.deviceToken || `dev_${clean}`,
+            };
+          }
+        }
+      }
+    }
+  } catch {}
+  return null;
+}
+
+export function saveDevicePhoneVerification(phone: string, deviceToken?: string): DevicePhoneVerification | null {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const cleanDigits = phone.replace(/[^\d+]/g, '').trim();
+      const standardPhone = cleanDigits.startsWith('+88')
+        ? cleanDigits.slice(3)
+        : cleanDigits.startsWith('88')
+        ? cleanDigits.slice(2)
+        : cleanDigits;
+
+      if (standardPhone.length === 11 && standardPhone.startsWith('01')) {
+        const token = deviceToken || `dev_tok_${standardPhone}_${Date.now().toString(36)}`;
+        const record: DevicePhoneVerification = {
+          phone: standardPhone,
+          verified: true,
+          verifiedAt: Date.now(),
+          deviceToken: token,
+        };
+        localStorage.setItem(TWING_DEVICE_VERIFIED_PHONE_KEY, JSON.stringify(record));
+        return record;
+      }
+    }
+  } catch (e) {
+    console.warn('Could not save device phone verification:', e);
+  }
+  return null;
+}
+
+export function clearDevicePhoneVerification(): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(TWING_DEVICE_VERIFIED_PHONE_KEY);
+    }
+  } catch {}
+}
+
+
