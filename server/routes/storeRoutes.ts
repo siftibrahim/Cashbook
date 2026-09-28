@@ -2178,7 +2178,7 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         updatedOrder.courierTrackingCode,
         updatedOrder.deliveryManName,
         updatedOrder.deliveryManPhone,
-        updatedOrder.userId || userId
+        (updatedOrder as any).userId || userId
       );
 
       return res.json({ order: updatedOrder, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
@@ -2379,7 +2379,7 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
           courierTrackingCode,
           deliveryManName,
           deliveryManPhone,
-          updatedOrder.userId || userId
+          (updatedOrder as any).userId || userId
         );
       }
 

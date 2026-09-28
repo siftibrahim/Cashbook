@@ -224,6 +224,14 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
               {product.name}
             </h2>
 
+            {/* Vendor info badge if from central marketplace */}
+            {(product as any).vendorShopName && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-bold">
+                <span>🏪 অফিসিয়াল বিক্রেতা:</span>
+                <span className="font-black">{(product as any).vendorShopName}</span>
+              </div>
+            )}
+
             {/* Price Box */}
             <div className="flex items-baseline gap-3 pt-1">
               <span className="text-2xl sm:text-3xl font-black text-[#004D40]">

@@ -104,6 +104,14 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
             {product.name}
           </h3>
 
+          {/* Vendor Badge if from marketplace */}
+          {(product as any).vendorShopName && (
+            <div className="text-[10px] text-teal-800 font-bold flex items-center gap-1 truncate">
+              <span>🏪</span>
+              <span className="truncate">{(product as any).vendorShopName}</span>
+            </div>
+          )}
+
           {/* Pricing */}
           <div className="flex items-baseline gap-1.5">
             <span className="text-sm sm:text-base font-black text-slate-900">
