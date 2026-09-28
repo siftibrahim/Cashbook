@@ -1918,6 +1918,65 @@ router.put('/orders/:orderId/payment', authenticateUser, async (req: Authenticat
 });
 
 /**
+ * Helper: Synchronize parent Central Marketplace Master Order overall_status in real-time
+ * whenever any vendor sub-order status changes.
+ */
+async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | null) {
+  if (!masterOrderId) return;
+  const now = Date.now();
+  try {
+    let statuses: string[] = [];
+    if (pool) {
+      const subRes = await pool.query(
+        'SELECT order_status FROM online_orders WHERE master_order_id = $1 AND is_rejected_by_admin IS NOT TRUE',
+        [masterOrderId]
+      );
+      statuses = subRes.rows.map((r: any) => String(r.order_status || 'pending').toLowerCase());
+    } else {
+      const subs = (inMemoryStore.online_orders || []).filter(
+        (o: any) => (o.masterOrderId === masterOrderId || o.master_order_id === masterOrderId) && !o.isRejectedByAdmin
+      );
+      statuses = subs.map((o: any) => String(o.orderStatus || o.order_status || 'pending').toLowerCase());
+    }
+
+    if (statuses.length === 0) return;
+
+    let nextOverall = 'confirmed';
+    if (statuses.every((s) => s === 'delivered')) {
+      nextOverall = 'delivered';
+    } else if (statuses.every((s) => s === 'cancelled' || s === 'returned')) {
+      nextOverall = statuses[0];
+    } else if (statuses.some((s) => s === 'shipped' || s === 'delivered')) {
+      nextOverall = 'shipped';
+    } else if (statuses.some((s) => s === 'processing')) {
+      nextOverall = 'processing';
+    } else if (statuses.some((s) => s === 'confirmed')) {
+      nextOverall = 'confirmed';
+    } else {
+      nextOverall = 'pending';
+    }
+
+    if (pool) {
+      await pool.query(
+        'UPDATE marketplace_master_orders SET overall_status = $1, updated_at = $2 WHERE id = $3 OR order_number = $3',
+        [nextOverall, now, masterOrderId]
+      ).catch(() => {});
+    }
+    if (inMemoryStore.marketplace_master_orders) {
+      const m = inMemoryStore.marketplace_master_orders.find(
+        (x: any) => x.id === masterOrderId || x.orderNumber === masterOrderId
+      );
+      if (m) {
+        m.overallStatus = nextOverall;
+        m.updatedAt = now;
+      }
+    }
+  } catch (err) {
+    console.warn('syncMasterOrderOverallStatus warning:', err);
+  }
+}
+
+/**
  * PUT /api/store/orders/:orderId/status - Vendor updates order status, courier & delivery details
  */
 router.put('/orders/:orderId/status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
@@ -1964,7 +2023,7 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved';
         if (!isApproved) {
           return res.status(403).json({
-            error: '🔒 সেন্ট্রাল মার্কেটপ্লেস অর্ডারটি এখনো লক হয়ে আছে। সুপার এডমিন পেমেন্ট যাচাই-বাছাই করে একসেপ্ট করার পূর্বে পণ্য রেডি বা ডেলিভারি করা যাবে না।',
+            error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডার সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।',
           });
         }
       }
@@ -2016,6 +2075,7 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           if (courierName !== undefined) order.courierName = courierName;
           if (courierTrackingCode !== undefined) order.courierTrackingCode = courierTrackingCode;
           order.updatedAt = now;
+          await syncMasterOrderOverallStatus(pool, order.masterOrderId);
           return res.json({ order, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
         }
         return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
@@ -2026,6 +2086,9 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         const memIdx = inMemoryStore.online_orders.findIndex((o) => o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber);
         if (memIdx >= 0) inMemoryStore.online_orders[memIdx] = { ...inMemoryStore.online_orders[memIdx], ...updatedOrder };
       }
+
+      // Sync parent Central Marketplace Master Order status in real-time
+      await syncMasterOrderOverallStatus(pool, updatedOrder.masterOrderId || result.rows[0].master_order_id);
 
       // 🔔 Send Customer Order Status SMS
       sendCustomerOrderStatusSms(
@@ -2062,6 +2125,7 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           order.collectedAt = now;
         }
         order.updatedAt = now;
+        await syncMasterOrderOverallStatus(null, order.masterOrderId);
         saveInMemoryStoreToDisk();
 
         sendCustomerOrderStatusSms(
@@ -2086,7 +2150,7 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
 
 /**
  * PUT /api/store/orders/:orderId/full-update
- * Vendor complete update for Personal E-Commerce Store orders:
+ * Vendor complete update for Personal E-Commerce Store & Approved Marketplace orders:
  * Customer info, items, pricing, discount, payment, courier, rider & delivery status
  */
 router.put('/orders/:orderId/full-update', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
@@ -2097,17 +2161,19 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
     const now = Date.now();
     const body = req.body || {};
 
+    const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com');
+
     let existingOrder: any = null;
     if (pool) {
       await ensureOnlineOrdersSchema(pool);
       const chk = await pool.query(
-        'SELECT * FROM online_orders WHERE (id = $1 OR order_number = $1) AND (user_id = $2 OR user_id = \'default_vendor\' OR user_id IS NULL) LIMIT 1',
-        [orderId, userId]
+        'SELECT * FROM online_orders WHERE (id = $1 OR order_number = $1) AND (user_id = $2 OR user_id = \'default_vendor\' OR user_id IS NULL OR $3 = true) LIMIT 1',
+        [orderId, userId, isSuperAdmin]
       );
       if (chk.rows.length > 0) existingOrder = chk.rows[0];
     } else {
       existingOrder = (inMemoryStore.online_orders || []).find(
-        (o) => (o.id === orderId || o.orderNumber === orderId) && (o.userId === userId || o.userId === 'default_vendor' || !o.userId)
+        (o) => (o.id === orderId || o.orderNumber === orderId) && (o.userId === userId || o.userId === 'default_vendor' || !o.userId || isSuperAdmin)
       );
     }
 
@@ -2116,10 +2182,13 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
     }
 
     const isMkt = existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId);
-    if (isMkt && (body.paymentStatus !== undefined || body.paidAmount !== undefined)) {
-      return res.status(403).json({
-        error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডারের পেমেন্ট শুধুমাত্র সুপার এডমিন যাচাই করেন। পার্সোনাল ই-কমার্স স্টোরের অর্ডার আপনি সম্পূর্ণ আপডেট করতে পারবেন।',
-      });
+    if (isMkt && !isSuperAdmin) {
+      const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved';
+      if (!isApproved) {
+        return res.status(403).json({
+          error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডার সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।',
+        });
+      }
     }
 
     const customerName = body.customerName !== undefined ? String(body.customerName).trim() : (existingOrder.customer_name || existingOrder.customerName);
@@ -2133,7 +2202,7 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
     const totalAmount = body.totalAmount !== undefined ? (parseFloat(body.totalAmount) || 0) : Math.max(0, subtotal + deliveryCharge - discountAmount);
     const paymentMethod = body.paymentMethod || existingOrder.payment_method || existingOrder.paymentMethod || 'cod';
     const paymentStatus = isMkt
-      ? (existingOrder.payment_status || existingOrder.paymentStatus)
+      ? (existingOrder.payment_status || existingOrder.paymentStatus || 'paid')
       : (body.paymentStatus || existingOrder.payment_status || existingOrder.paymentStatus || 'unpaid');
     const paidAmount = paymentStatus === 'paid'
       ? totalAmount
@@ -2152,8 +2221,35 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
     const notes = body.notes !== undefined ? String(body.notes).trim() : (existingOrder.notes || '');
 
     if (pool) {
-      const result = await pool.query(
-        `UPDATE online_orders
+      const updateParams = [
+        customerName,
+        customerPhone,
+        customerAddress,
+        deliveryArea,
+        JSON.stringify(items),
+        subtotal,
+        deliveryCharge,
+        discountAmount,
+        totalAmount,
+        paidAmount,
+        dueAmount,
+        paymentMethod,
+        paymentStatus,
+        orderStatus,
+        trxId,
+        senderPhone,
+        courierName,
+        courierTrackingCode,
+        deliveryManName,
+        deliveryManPhone,
+        estimatedDeliveryDate,
+        deliveryNote,
+        vendorNote,
+        notes,
+        now,
+        existingOrder.id,
+      ];
+      const updateSql = `UPDATE online_orders
          SET customer_name = $1,
              customer_phone = $2,
              customer_address = $3,
@@ -2180,38 +2276,19 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
              notes = $24,
              updated_at = $25
          WHERE id = $26
-         RETURNING *`,
-        [
-          customerName,
-          customerPhone,
-          customerAddress,
-          deliveryArea,
-          JSON.stringify(items),
-          subtotal,
-          deliveryCharge,
-          discountAmount,
-          totalAmount,
-          paidAmount,
-          dueAmount,
-          paymentMethod,
-          paymentStatus,
-          orderStatus,
-          trxId,
-          senderPhone,
-          courierName,
-          courierTrackingCode,
-          deliveryManName,
-          deliveryManPhone,
-          estimatedDeliveryDate,
-          deliveryNote,
-          vendorNote,
-          notes,
-          now,
-          existingOrder.id,
-        ]
-      );
+         RETURNING *`;
+
+      let result;
+      try {
+        result = await pool.query(updateSql, updateParams);
+      } catch (dbErr: any) {
+        await ensureOnlineOrdersSchema(pool, true);
+        result = await pool.query(updateSql, updateParams);
+      }
 
       const updatedOrder = mapDbRowToOrder(result.rows[0]);
+      await syncMasterOrderOverallStatus(pool, updatedOrder.masterOrderId || result.rows[0].master_order_id);
+
       if (body.sendSmsToCustomer && customerPhone && customerPhone.length >= 11) {
         sendCustomerOrderStatusSms(
           customerPhone,
@@ -2258,6 +2335,7 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
         notes,
         updatedAt: now,
       });
+      await syncMasterOrderOverallStatus(null, existingOrder.masterOrderId);
       saveInMemoryStoreToDisk();
       return res.json({
         success: true,

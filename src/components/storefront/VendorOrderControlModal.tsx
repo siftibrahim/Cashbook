@@ -57,6 +57,9 @@ export const VendorOrderControlModal: React.FC<VendorOrderControlModalProps> = (
   onOrderUpdated,
 }) => {
   const isMarketplaceOrder = order.orderSource === 'marketplace' || Boolean(order.masterOrderId);
+  const isMarketplaceLocked =
+    isMarketplaceOrder &&
+    (order.isLockedForVendor === true || order.adminApprovalStatus === 'pending_approval' || !order.isAdminApproved);
   const [activeTab, setActiveTab] = useState<'payment' | 'delivery' | 'edit' | 'print'>(
     isMarketplaceOrder && initialTab === 'payment' ? 'delivery' : initialTab
   );
@@ -558,37 +561,43 @@ export const VendorOrderControlModal: React.FC<VendorOrderControlModalProps> = (
           {/* TAB 2: DELIVERY, COURIER & RIDER MANAGEMENT */}
           {activeTab === 'delivery' && (
             <div className="space-y-5">
-              {isMarketplaceOrder && order.isLockedForVendor && (
+              {isMarketplaceLocked ? (
                 <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/40 flex items-center gap-3">
                   <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
                   <p className="text-xs text-rose-200 font-bold">
-                    🔒 এটি সেন্ট্রাল মার্কেটপ্লেসের অর্ডার। সুপার এডমিন পেমেন্ট যাচাই করে পারমিশন দেওয়ার পর আপনি ডেলিভারি স্ট্যাটাস আপডেট করতে পারবেন।
+                    🔒 এটি সেন্ট্রাল মার্কেটপ্লেসের অর্ডার। সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।
                   </p>
                 </div>
-              )}
+              ) : isMarketplaceOrder ? (
+                <div className="p-3.5 rounded-2xl bg-emerald-950/50 border border-emerald-500/40 flex items-center gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <p className="text-xs text-emerald-200 font-bold">
+                    ✅ সুপার এডমিন পেমেন্ট অনুমোদন করেছেন! এখন আপনি অর্ডারের যেকোনো স্ট্যাটাস ও কুরিয়ার ট্র্যাকিং পরিবর্তন করতে পারবেন এবং কাস্টমার রিয়েল-টাইমে তা ট্র্যাকিংয়ে দেখতে পাবেন।
+                  </p>
+                </div>
+              ) : null}
 
               {/* Step-by-Step Delivery Status Selector */}
               <div className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700/80 space-y-3">
                 <h4 className="text-xs font-black text-white flex items-center gap-2">
                   <Truck className="w-4 h-4 text-teal-400" />
-                  অর্ডার ও ডেলিভারি ধাপ নির্বাচন করুন
+                  অর্ডার ও ডেলিভারি স্ট্যাটাস নির্বাচন করুন (যেকোনো স্ট্যাটাসে পরিবর্তনযোগ্য)
                 </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {[
-                    { id: 'pending', label: '⏳ পেন্ডিং (নতুন)', color: 'border-amber-500/40 bg-amber-500/10 text-amber-300' },
-                    { id: 'confirmed', label: '✅ কনফার্মড', color: 'border-sky-500/40 bg-sky-500/10 text-sky-300' },
-                    { id: 'processing', label: '📦 প্যাকেজিং চলছে', color: 'border-indigo-500/40 bg-indigo-500/10 text-indigo-300' },
-                    { id: 'packed', label: '🎁 প্যাকিং সম্পন্ন', color: 'border-purple-500/40 bg-purple-500/10 text-purple-300' },
-                    { id: 'shipped', label: '🚚 কুরিয়ারে বুকিং', color: 'border-teal-500/40 bg-teal-500/10 text-teal-300' },
-                    { id: 'out_for_delivery', label: '🛵 ডেলিভারির পথে', color: 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300' },
-                    { id: 'delivered', label: '🎉 ডেলিভারি সম্পন্ন', color: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' },
-                    { id: 'cancelled', label: '❌ অর্ডার বাতিল', color: 'border-rose-500/40 bg-rose-500/10 text-rose-300' },
+                    { id: 'pending', label: '⏳ পেন্ডিং (নতুন অর্ডার)', color: 'border-amber-500/40 bg-amber-500/10 text-amber-300' },
+                    { id: 'confirmed', label: '✅ অর্ডার কনফার্মড', color: 'border-sky-500/40 bg-sky-500/10 text-sky-300' },
+                    { id: 'processing', label: '📦 প্রস্তুত হচ্ছে (প্যাকেজিং)', color: 'border-indigo-500/40 bg-indigo-500/10 text-indigo-300' },
+                    { id: 'shipped', label: '🚚 কুরিয়ারে পাঠানো হয়েছে (পথে আছে)', color: 'border-teal-500/40 bg-teal-500/10 text-teal-300' },
+                    { id: 'delivered', label: '🎉 ডেলিভারি সম্পন্ন (Delivered)', color: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' },
+                    { id: 'cancelled', label: '❌ অর্ডার বাতিল (Cancelled)', color: 'border-rose-500/40 bg-rose-500/10 text-rose-300' },
                   ].map((st) => (
                     <button
                       key={st.id}
                       type="button"
+                      disabled={isMarketplaceLocked}
                       onClick={() => setOrderStatus(st.id as any)}
-                      className={`py-2.5 px-3 rounded-xl border text-xs font-black transition-all text-left flex items-center justify-between ${
+                      className={`py-2.5 px-3 rounded-xl border text-xs font-black transition-all text-left flex items-center justify-between disabled:opacity-40 disabled:cursor-not-allowed ${
                         orderStatus === st.id
                           ? `${st.color} ring-2 ring-teal-400 shadow-lg`
                           : 'bg-slate-900/70 border-slate-700/70 text-slate-400 hover:text-white'
@@ -960,7 +969,7 @@ export const VendorOrderControlModal: React.FC<VendorOrderControlModalProps> = (
           </button>
           <button
             type="button"
-            disabled={saving || (isMarketplaceOrder && order.isLockedForVendor)}
+            disabled={saving || isMarketplaceLocked}
             onClick={handleSaveFullOrder}
             className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-slate-950 font-black text-xs flex items-center gap-2 shadow-lg shadow-teal-500/20 disabled:opacity-50"
           >

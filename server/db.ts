@@ -483,6 +483,7 @@ export async function ensureOnlineOrdersSchema(poolOrClient?: any, force = false
         vendor_payout_status VARCHAR(30) DEFAULT 'unsettled',
         admin_approval_status VARCHAR(50) DEFAULT 'pending_approval',
         is_admin_approved BOOLEAN DEFAULT FALSE,
+        is_locked_for_vendor BOOLEAN DEFAULT FALSE,
         is_rejected_by_admin BOOLEAN DEFAULT FALSE,
         admin_rejection_reason TEXT,
         is_hidden_from_vendor BOOLEAN DEFAULT FALSE,
@@ -524,6 +525,7 @@ export async function ensureOnlineOrdersSchema(poolOrClient?: any, force = false
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS vendor_payout_status VARCHAR(30) DEFAULT 'unsettled';
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_approval_status VARCHAR(50) DEFAULT 'pending_approval';
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_admin_approved BOOLEAN DEFAULT FALSE;
+      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_locked_for_vendor BOOLEAN DEFAULT FALSE;
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_rejected_by_admin BOOLEAN DEFAULT FALSE;
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_rejection_reason TEXT;
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_hidden_from_vendor BOOLEAN DEFAULT FALSE;
@@ -546,9 +548,38 @@ export async function ensureOnlineOrdersSchema(poolOrClient?: any, force = false
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_stock_adjusted BOOLEAN DEFAULT FALSE;
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_ledger_synced BOOLEAN DEFAULT FALSE;
     `);
+    const requiredCols = [
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12, 2) DEFAULT 0",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS due_amount NUMERIC(12, 2) DEFAULT 0",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_locked_for_vendor BOOLEAN DEFAULT FALSE",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_admin_approved BOOLEAN DEFAULT FALSE",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_approval_status VARCHAR(50) DEFAULT 'pending_approval'",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS courier_name VARCHAR(100)",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS courier_tracking_code VARCHAR(100)",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_man_name VARCHAR(150)",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_man_phone VARCHAR(50)",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS estimated_delivery_date VARCHAR(100)",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS delivery_note TEXT",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS vendor_note TEXT",
+    ];
+    for (const q of requiredCols) {
+      await target.query(q).catch(() => {});
+    }
     onlineOrdersSchemaEnsured = true;
   } catch (err) {
     console.warn('⚠️ ensureOnlineOrdersSchema notice:', (err as any)?.message || err);
+    const fallbackCols = [
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) DEFAULT 0",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12, 2) DEFAULT 0",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS due_amount NUMERIC(12, 2) DEFAULT 0",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_locked_for_vendor BOOLEAN DEFAULT FALSE",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_admin_approved BOOLEAN DEFAULT FALSE",
+      "ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_approval_status VARCHAR(50) DEFAULT 'pending_approval'",
+    ];
+    for (const q of fallbackCols) {
+      await target.query(q).catch(() => {});
+    }
   }
 }
 
@@ -1272,6 +1303,7 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS vendor_payout_status VARCHAR(30) DEFAULT 'unsettled';
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_approval_status VARCHAR(50) DEFAULT 'pending_approval';
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_admin_approved BOOLEAN DEFAULT FALSE;
+      ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_locked_for_vendor BOOLEAN DEFAULT FALSE;
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_rejected_by_admin BOOLEAN DEFAULT FALSE;
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS admin_rejection_reason TEXT;
       ALTER TABLE online_orders ADD COLUMN IF NOT EXISTS is_hidden_from_vendor BOOLEAN DEFAULT FALSE;

@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { Product, OnlineOrder, StoreProfile, VendorPayoutRequest, VendorWalletSummary } from '../../types';
 import { marketplaceApi } from '../../services/marketplaceService';
+import { storeApi } from '../../services/apiService';
 
 interface VendorMarketplaceHubTabProps {
   products: Product[];
@@ -69,6 +70,8 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
   const [isSubmittingWithdraw, setIsSubmittingWithdraw] = useState(false);
   const [selectedVoucher, setSelectedVoucher] = useState<VendorPayoutRequest | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [localOrderStatuses, setLocalOrderStatuses] = useState<Record<string, OnlineOrder['orderStatus']>>({});
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
 
@@ -829,6 +832,15 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
             <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
               {marketplaceOrders.map((ord) => {
                 const isLocked = ord.isLockedForVendor === true || ord.adminApprovalStatus === 'pending_approval' || !ord.isAdminApproved;
+                const currentStatus = localOrderStatuses[ord.id] || ord.orderStatus || 'pending';
+                const statusLabelMap: Record<string, string> = {
+                  pending: '⏳ পেন্ডিং (নতুন অর্ডার)',
+                  confirmed: '✅ কনফার্মড',
+                  processing: '📦 প্রস্তুত হচ্ছে',
+                  shipped: '🚚 কুরিয়ারে পাঠানো হয়েছে',
+                  delivered: '🎉 ডেলিভার্ড',
+                  cancelled: '❌ বাতিল',
+                };
 
                 return (
                   <div key={ord.id} className="p-4 hover:bg-slate-50 transition flex flex-col sm:flex-row justify-between sm:items-center gap-3">
@@ -844,23 +856,34 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                             <span>পেমেন্ট যাচাই বাকি (লক)</span>
                           </span>
                         ) : (
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            ord.orderStatus === 'delivered' ? 'bg-emerald-100 text-emerald-800' : 'bg-teal-100 text-teal-800'
-                          }`}>
-                            {ord.orderStatus === 'delivered' ? 'ডেলিভার্ড' : 'প্রসেসিং (অনুমোদিত)'}
-                          </span>
+                          <>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
+                              ✅ এডমিন অনুমোদিত
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              currentStatus === 'delivered'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : currentStatus === 'cancelled'
+                                ? 'bg-rose-100 text-rose-800'
+                                : currentStatus === 'shipped'
+                                ? 'bg-purple-100 text-purple-800'
+                                : 'bg-teal-100 text-teal-800'
+                            }`}>
+                              {statusLabelMap[currentStatus] || currentStatus}
+                            </span>
+                          </>
                         )}
                       </div>
                       <p className="text-xs font-bold text-slate-900">{ord.customerName} • <span className="font-mono text-slate-500">{ord.customerPhone}</span></p>
                       <p className="text-[11px] text-slate-500 truncate max-w-md">{ord.customerAddress}</p>
                       {isLocked && (
                         <p className="text-[10px] text-amber-800 font-medium">
-                          🔒 সুপার এডমিন পেমেন্ট যাচাই করে একসেপ্ট করার পূর্বে এই অর্ডারে ডেলিভারি বা চালান করা নিষিদ্ধ।
+                          🔒 সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।
                         </p>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-3 self-end sm:self-auto flex-wrap">
+                    <div className="flex items-center gap-2.5 self-end sm:self-auto flex-wrap">
                       <div className="text-right">
                         <span className="text-sm font-black text-slate-900 block">৳{ord.totalAmount}</span>
                         <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded inline-block ${
@@ -870,26 +893,60 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                         </span>
                       </div>
 
-                      {onConvertOrderToSale && (
-                        isLocked ? (
-                          <button
-                            type="button"
-                            disabled
-                            className="px-3 py-1.5 bg-slate-100 border border-slate-300 text-slate-400 rounded-lg text-xs font-bold flex items-center gap-1 cursor-not-allowed opacity-75"
-                            title="সুপার এডমিন কর্তৃক পেমেন্ট যাচাই সম্পন্ন না হওয়া পর্যন্ত লক থাকবে"
+                      {isLocked ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="px-3 py-1.5 bg-slate-100 border border-slate-300 text-slate-400 rounded-lg text-xs font-bold flex items-center gap-1 cursor-not-allowed opacity-75"
+                          title="সুপার এডমিন কর্তৃক পেমেন্ট যাচাই সম্পন্ন না হওয়া পর্যন্ত স্ট্যাটাস পরিবর্তন লক থাকবে"
+                        >
+                          <Lock className="w-3.5 h-3.5 text-slate-400" />
+                          <span>লক (স্ট্যাটাস পরিবর্তন বন্ধ)</span>
+                        </button>
+                      ) : (
+                        <>
+                          <select
+                            value={currentStatus}
+                            disabled={updatingOrderId === ord.id}
+                            onChange={async (e) => {
+                              const nextSt = e.target.value as OnlineOrder['orderStatus'];
+                              setUpdatingOrderId(ord.id);
+                              try {
+                                await storeApi.updateOnlineOrderStatus(ord.id, nextSt);
+                                ord.orderStatus = nextSt;
+                                setLocalOrderStatuses((prev) => ({ ...prev, [ord.id]: nextSt }));
+                                if (onShowToast) {
+                                  onShowToast(`✅ অর্ডার #${ord.orderNumber} এর স্ট্যাটাস "${statusLabelMap[nextSt] || nextSt}" এ আপডেট হয়েছে!`);
+                                }
+                                loadWalletData();
+                              } catch (err: any) {
+                                if (onShowToast) {
+                                  onShowToast(`❌ ${err?.message || 'স্ট্যাটাস আপডেট ব্যর্থ হয়েছে'}`);
+                                }
+                              } finally {
+                                setUpdatingOrderId(null);
+                              }
+                            }}
+                            className="px-2.5 py-1.5 bg-teal-50 border border-teal-300 text-teal-950 rounded-lg text-xs font-black focus:outline-none focus:ring-2 focus:ring-teal-600 cursor-pointer disabled:opacity-50"
                           >
-                            <Lock className="w-3.5 h-3.5 text-slate-400" />
-                            <span>লক (অনুমোদন বাকি)</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => onConvertOrderToSale(ord)}
-                            className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition cursor-pointer"
-                          >
-                            চালান / সেল করুন
-                          </button>
-                        )
+                            <option value="pending">⏳ পেন্ডিং (নতুন)</option>
+                            <option value="confirmed">✅ কনফার্মড</option>
+                            <option value="processing">📦 প্রস্তুত হচ্ছে</option>
+                            <option value="shipped">🚚 কুরিয়ারে পাঠানো হয়েছে</option>
+                            <option value="delivered">🎉 ডেলিভারি সম্পন্ন</option>
+                            <option value="cancelled">❌ অর্ডার বাতিল</option>
+                          </select>
+
+                          {onConvertOrderToSale && (
+                            <button
+                              type="button"
+                              onClick={() => onConvertOrderToSale(ord)}
+                              className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+                            >
+                              চালান / সেল করুন
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

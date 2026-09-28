@@ -832,28 +832,52 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     }
   };
 
+  // Real-Time Order Tracking Fetcher + Auto-Polling
+  const fetchLiveTracking = async (queryStr: string, silent = false) => {
+    const clean = queryStr.trim();
+    if (!clean) return;
+    if (!silent) {
+      setIsTrackingLoading(true);
+      setTrackError('');
+    }
+    try {
+      const res = await marketplaceApi.trackOrder(clean);
+      if (res.success && res.order) {
+        setTrackedOrderData(res.order);
+        setTrackError('');
+      } else if (!silent) {
+        setTrackedOrderData(null);
+        setTrackError('অর্ডার পাওয়া যায়নি। সঠিক অর্ডার নম্বর বা মোবাইল নম্বর দিন।');
+      }
+    } catch (err: any) {
+      if (!silent) {
+        setTrackedOrderData(null);
+        setTrackError(err.message || 'অর্ডারের তথ্য খুঁজতে সমস্যা হয়েছে');
+      }
+    } finally {
+      if (!silent) setIsTrackingLoading(false);
+    }
+  };
+
   // Search Order Tracking
   const handleSearchTracking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!trackInput.trim()) return;
-
-    setIsTrackingLoading(true);
-    setTrackError('');
-    setTrackedOrderData(null);
-
-    try {
-      const res = await marketplaceApi.trackOrder(trackInput.trim());
-      if (res.success && res.order) {
-        setTrackedOrderData(res.order);
-      } else {
-        setTrackError('অর্ডার পাওয়া যায়নি। সঠিক অর্ডার নম্বর দিন।');
-      }
-    } catch (err: any) {
-      setTrackError(err.message || 'অর্ডারের তথ্য খুঁজতে সমস্যা হয়েছে');
-    } finally {
-      setIsTrackingLoading(false);
-    }
+    await fetchLiveTracking(trackInput.trim(), false);
   };
+
+  // Auto-poll live tracking every 5 seconds while modal is open
+  useEffect(() => {
+    if (!isTrackModalOpen) return;
+    const targetQuery = trackedOrderData?.orderNumber || trackInput.trim();
+    if (!targetQuery) return;
+
+    const timer = setInterval(() => {
+      fetchLiveTracking(targetQuery, true);
+    }, 5000);
+
+    return () => clearInterval(timer);
+  }, [isTrackModalOpen, trackedOrderData?.orderNumber, trackInput]);
 
   return (
     <div
@@ -2650,6 +2674,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                   if (ordNum) {
                     setTrackInput(ordNum);
                     setIsTrackModalOpen(true);
+                    fetchLiveTracking(ordNum, false);
                   }
                 }}
                 className="py-2.5 px-3 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-2xl font-bold text-xs border border-teal-200 transition cursor-pointer flex items-center justify-center gap-1.5"
@@ -2670,14 +2695,23 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         </div>
       )}
 
-      {/* ORDER TRACKING MODAL */}
+      {/* ORDER TRACKING MODAL (REAL-TIME LIVE TRACKING) */}
       {isTrackModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-xl p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Truck className="w-5 h-5 text-teal-700" />
-                <h3 className="font-black text-base text-slate-900">সেন্ট্রাল অর্ডার ট্র্যাকিং</h3>
+                <div>
+                  <h3 className="font-black text-base text-slate-900 flex items-center gap-2">
+                    <span>সেন্ট্রাল অর্ডার লাইভ ট্র্যাকিং</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                      LIVE
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500">অর্ডার নম্বর বা মোবাইল নম্বর দিয়ে রিয়েল-টাইম আপডেট দেখুন</p>
+                </div>
               </div>
               <button
                 type="button"
@@ -2686,7 +2720,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                   setTrackedOrderData(null);
                   setTrackError('');
                 }}
-                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer"
               >
                 ✕
               </button>
@@ -2697,73 +2731,295 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                 type="text"
                 value={trackInput}
                 onChange={(e) => setTrackInput(e.target.value)}
-                placeholder="মাস্টার অর্ডার নং বা ফোন দিন..."
-                className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-700/30"
+                placeholder="মাস্টার অর্ডার নং (যেমন: MKT-...) বা মোবাইল নম্বর দিন..."
+                className="flex-1 px-3.5 py-2.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-700/30 focus:outline-none font-medium"
               />
               <button
                 type="submit"
                 disabled={isTrackingLoading}
-                className="px-4 py-2 bg-teal-800 text-white rounded-xl text-xs font-bold transition disabled:opacity-50"
+                className="px-4 py-2.5 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 cursor-pointer shrink-0"
               >
                 {isTrackingLoading ? 'খোঁজা হচ্ছে...' : 'ট্র্যাক করুন'}
               </button>
             </form>
 
             {trackError && (
-              <p className="text-xs text-rose-600 font-bold p-2 bg-rose-50 rounded-xl">{trackError}</p>
+              <p className="text-xs text-rose-600 font-bold p-3 bg-rose-50 border border-rose-200 rounded-xl">{trackError}</p>
             )}
 
-            {trackedOrderData && (
-              <div className="space-y-4 text-xs">
-                <div className="p-3 bg-slate-50 rounded-2xl space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">অর্ডার নম্বর:</span>
-                    <span className="font-mono font-bold text-slate-900">#{trackedOrderData.orderNumber}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">স্ট্যাটাস:</span>
-                    <span className="font-bold text-teal-800 uppercase">{trackedOrderData.overallStatus}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">মোট বিল:</span>
-                    <span className="font-black text-slate-900">৳{trackedOrderData.grandTotal}</span>
-                  </div>
-                </div>
+            {trackedOrderData && (() => {
+              const rawOverall = String(trackedOrderData.overallStatus || 'pending_verification').toLowerCase();
+              const isAdminApproved =
+                trackedOrderData.isAdminApproved === true ||
+                trackedOrderData.adminApprovalStatus === 'approved' ||
+                trackedOrderData.paymentStatus === 'paid';
+              const isRejected =
+                trackedOrderData.isRejectedByAdmin === true ||
+                trackedOrderData.adminApprovalStatus === 'rejected' ||
+                rawOverall === 'cancelled';
 
-                {/* Tracking Progress Steps */}
-                <div className="py-2">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-600">
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs">
-                        ✓
+              const statusLabelBn: Record<string, string> = {
+                pending_verification: '⏳ সুপার এডমিন পেমেন্ট যাচাই করছেন',
+                pending: isAdminApproved ? '✅ পেমেন্ট অনুমোদিত (ভেন্ডর কনফার্মেশনের অপেক্ষায়)' : '⏳ পেমেন্ট যাচাই চলছে',
+                confirmed: '✅ অর্ডার কনফার্মড',
+                processing: '📦 পণ্য প্রস্তুত হচ্ছে (প্যাকেজিং)',
+                shipped: '🚚 কুরিয়ারে পাঠানো হয়েছে (ডেলিভারির পথে)',
+                delivered: '🎉 ডেলিভারি সম্পন্ন হয়েছে',
+                cancelled: '❌ অর্ডার বাতিল',
+                returned: '↩️ অর্ডার রিটার্নড',
+              };
+
+              // Determine active step index (1 to 5)
+              let currentStep = 1;
+              if (isAdminApproved) currentStep = 2;
+              if (isAdminApproved && ['confirmed', 'processing', 'shipped', 'delivered'].includes(rawOverall)) {
+                currentStep = rawOverall === 'confirmed' ? 2 : 3;
+              }
+              if (isAdminApproved && rawOverall === 'processing') currentStep = 3;
+              if (isAdminApproved && rawOverall === 'shipped') currentStep = 4;
+              if (isAdminApproved && rawOverall === 'delivered') currentStep = 5;
+
+              const steps = [
+                { step: 1, label: 'অর্ডার গৃহীত' },
+                { step: 2, label: 'পেমেন্ট যাচাই ও কনফার্ম' },
+                { step: 3, label: 'প্রস্তুত হচ্ছে' },
+                { step: 4, label: 'কুরিয়ারে পথে' },
+                { step: 5, label: 'ডেলিভার্ড' },
+              ];
+
+              return (
+                <div className="space-y-4 text-xs">
+                  {/* Master Order Header Summary */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-200/70 pb-2">
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-bold block">অর্ডার নম্বর</span>
+                        <span className="font-mono font-black text-sm text-teal-950">#{trackedOrderData.orderNumber}</span>
                       </div>
-                      <span>গৃহীত</span>
-                    </div>
-                    <div className="flex-1 h-0.5 bg-emerald-500 mx-1" />
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="w-7 h-7 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs">
-                        2
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => fetchLiveTracking(trackedOrderData.orderNumber, false)}
+                          className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                          title="লাইভ স্ট্যাটাস রিফ্রেশ করুন"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${isTrackingLoading ? 'animate-spin text-teal-600' : ''}`} />
+                          <span>রিফ্রেশ</span>
+                        </button>
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-black ${
+                            isRejected
+                              ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                              : rawOverall === 'delivered'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : rawOverall === 'shipped'
+                              ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                              : isAdminApproved
+                              ? 'bg-teal-100 text-teal-900 border border-teal-300'
+                              : 'bg-amber-100 text-amber-900 border border-amber-300'
+                          }`}
+                        >
+                          {statusLabelBn[rawOverall] || trackedOrderData.overallStatus}
+                        </span>
                       </div>
-                      <span>প্রসেসিং</span>
                     </div>
-                    <div className="flex-1 h-0.5 bg-slate-200 mx-1" />
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs">
-                        3
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">গ্রাহক</span>
+                        <span className="font-bold text-slate-800 block">{trackedOrderData.customerName}</span>
+                        <span className="font-mono text-[11px] text-slate-500">{trackedOrderData.customerPhone}</span>
                       </div>
-                      <span>কুরিয়ারে</span>
-                    </div>
-                    <div className="flex-1 h-0.5 bg-slate-200 mx-1" />
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-xs">
-                        4
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">পেমেন্ট স্ট্যাটাস</span>
+                        <span className={`font-black inline-block ${isAdminApproved ? 'text-emerald-700' : 'text-amber-700'}`}>
+                          {isAdminApproved ? '✅ পরিশোধিত ও ভেরিফাইড' : '⏳ যাচাই প্রক্রিয়াধীন'}
+                        </span>
+                        {trackedOrderData.paymentMethod && (
+                          <span className="block text-[10px] text-slate-500 uppercase">
+                            মাধ্যম: {trackedOrderData.paymentMethod}
+                          </span>
+                        )}
                       </div>
-                      <span>ডেলিভার্ড</span>
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">সর্বমোট বিল</span>
+                        <span className="font-black text-sm text-teal-900">৳{formatMoney(trackedOrderData.grandTotal)}</span>
+                      </div>
                     </div>
+
+                    {trackedOrderData.customerAddress && (
+                      <div className="pt-1 border-t border-slate-200/60 text-[11px] text-slate-600">
+                        <strong>ডেলিভারি ঠিকানা:</strong> {trackedOrderData.customerAddress}
+                      </div>
+                    )}
                   </div>
+
+                  {/* Dynamic Real-Time Progress Steps */}
+                  {isRejected ? (
+                    <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-900 space-y-1">
+                      <div className="font-black text-xs flex items-center gap-1.5 text-rose-700">
+                        <X className="w-4 h-4" />
+                        <span>অর্ডারটি বাতিল করা হয়েছে</span>
+                      </div>
+                      {trackedOrderData.adminRejectionReason && (
+                        <p className="text-[11px] text-rose-800">কারণ: {trackedOrderData.adminRejectionReason}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="py-3 px-2 bg-white border border-slate-200/80 rounded-2xl">
+                      <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-bold text-slate-600">
+                        {steps.map((st, idx) => {
+                          const isCompleted = currentStep > st.step || (currentStep === 5 && st.step === 5);
+                          const isCurrent = currentStep === st.step && st.step !== 5;
+                          return (
+                            <React.Fragment key={st.step}>
+                              <div className="flex flex-col items-center gap-1 text-center max-w-[70px]">
+                                <div
+                                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black transition-all ${
+                                    isCompleted
+                                      ? 'bg-emerald-500 text-white shadow-xs'
+                                      : isCurrent
+                                      ? 'bg-teal-600 text-white ring-4 ring-teal-100 animate-pulse'
+                                      : 'bg-slate-200 text-slate-500'
+                                  }`}
+                                >
+                                  {isCompleted ? '✓' : st.step}
+                                </div>
+                                <span className={isCompleted || isCurrent ? 'text-slate-900 font-black' : 'text-slate-400'}>
+                                  {st.label}
+                                </span>
+                              </div>
+                              {idx < steps.length - 1 && (
+                                <div
+                                  className={`flex-1 h-1 mx-1 rounded-full transition-all ${
+                                    currentStep > st.step ? 'bg-emerald-500' : 'bg-slate-200'
+                                  }`}
+                                />
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Per-Vendor Sub-Orders Real-Time Details */}
+                  {Array.isArray(trackedOrderData.subOrders) && trackedOrderData.subOrders.length > 0 && (
+                    <div className="space-y-2.5">
+                      <div className="font-black text-xs text-slate-800 flex items-center justify-between">
+                        <span>প্যাকেজ ও ভেন্ডর ভিত্তিক লাইভ ডেলিভারি আপডেট ({trackedOrderData.subOrders.length})</span>
+                        <span className="text-[10px] text-emerald-700 font-bold">স্বয়ংক্রিয় রিয়েল-টাইম সিঙ্ক</span>
+                      </div>
+
+                      {trackedOrderData.subOrders.map((sub: any) => {
+                        const subStatus = String(sub.orderStatus || sub.status || 'pending').toLowerCase();
+                        const subApproved = sub.isAdminApproved === true || isAdminApproved;
+                        return (
+                          <div
+                            key={sub.id || sub.orderNumber}
+                            className="p-3.5 rounded-2xl border border-slate-200 bg-white space-y-2.5 shadow-2xs"
+                          >
+                            <div className="flex items-center justify-between gap-2 flex-wrap border-b border-slate-100 pb-2">
+                              <div>
+                                <span className="font-black text-xs text-slate-900 flex items-center gap-1.5">
+                                  <Store className="w-3.5 h-3.5 text-teal-700" />
+                                  <span>{sub.vendorShopName || 'ভেন্ডর স্টোর'}</span>
+                                </span>
+                                <span className="font-mono text-[10px] text-slate-400">প্যাকেজ নং: #{sub.orderNumber}</span>
+                              </div>
+
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
+                                  !subApproved
+                                    ? 'bg-amber-50 text-amber-900 border-amber-300'
+                                    : subStatus === 'delivered'
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                    : subStatus === 'shipped'
+                                    ? 'bg-purple-100 text-purple-800 border-purple-300'
+                                    : subStatus === 'cancelled'
+                                    ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                    : subStatus === 'processing'
+                                    ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                    : 'bg-teal-50 text-teal-900 border-teal-300'
+                                }`}
+                              >
+                                {!subApproved
+                                  ? '⏳ পেমেন্ট যাচাই বাকি'
+                                  : statusLabelBn[subStatus] || subStatus}
+                              </span>
+                            </div>
+
+                            {/* Items in this package */}
+                            {Array.isArray(sub.items) && sub.items.length > 0 && (
+                              <div className="space-y-1 bg-slate-50/80 p-2.5 rounded-xl border border-slate-100">
+                                {sub.items.map((it: any, idx: number) => (
+                                  <div key={idx} className="flex justify-between text-[11px] text-slate-700">
+                                    <span className="font-medium">
+                                      {it.productName || it.name} × {it.quantity} {it.unit || 'পিস'}
+                                    </span>
+                                    <span className="font-mono font-bold text-slate-900">
+                                      ৳{formatMoney((Number(it.unitPrice || it.salePrice) || 0) * (Number(it.quantity) || 1))}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Real-Time Courier & Rider Info (if entered by vendor) */}
+                            {(sub.courierName || sub.courierTrackingCode || sub.deliveryManName || sub.estimatedDeliveryDate || sub.deliveryNote) && (
+                              <div className="p-2.5 rounded-xl bg-teal-50/70 border border-teal-200/80 space-y-1 text-[11px] text-teal-950">
+                                <div className="font-black text-teal-900 flex items-center gap-1.5">
+                                  <Truck className="w-3.5 h-3.5 text-teal-700" />
+                                  <span>কুরিয়ার ও ডেলিভারি ট্র্যাকিং তথ্য:</span>
+                                </div>
+                                {sub.courierName && (
+                                  <div>
+                                    <strong>কুরিয়ার সার্ভিস:</strong> {sub.courierName}
+                                    {sub.courierTrackingCode && (
+                                      <span className="ml-2 font-mono font-black bg-white px-2 py-0.5 rounded border border-teal-300 select-all">
+                                        ট্র্যাকিং কোড: {sub.courierTrackingCode}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                {!sub.courierName && sub.courierTrackingCode && (
+                                  <div>
+                                    <strong>ট্র্যাকিং কোড:</strong>{' '}
+                                    <span className="font-mono font-black bg-white px-2 py-0.5 rounded border border-teal-300 select-all">
+                                      {sub.courierTrackingCode}
+                                    </span>
+                                  </div>
+                                )}
+                                {(sub.deliveryManName || sub.deliveryManPhone) && (
+                                  <div>
+                                    <strong>ডেলিভারি রাইডার:</strong> {sub.deliveryManName || 'রাইডার'}{' '}
+                                    {sub.deliveryManPhone && (
+                                      <a href={`tel:${sub.deliveryManPhone}`} className="font-mono font-bold text-teal-700 underline ml-1">
+                                        ({sub.deliveryManPhone})
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
+                                {sub.estimatedDeliveryDate && (
+                                  <div>
+                                    <strong>সম্ভাব্য ডেলিভারি:</strong> {sub.estimatedDeliveryDate}
+                                  </div>
+                                )}
+                                {sub.deliveryNote && (
+                                  <div>
+                                    <strong>ডেলিভারি নোট:</strong> {sub.deliveryNote}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}

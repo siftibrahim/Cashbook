@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk } from '../db';
+import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk, ensureOnlineOrdersSchema } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { PaymentlyService } from '../services/paymentlyService';
 import { sendSmsNotification } from '../services/smsService';
@@ -1348,7 +1348,7 @@ router.post('/paymently/verify', async (req: Request, res: Response) => {
 });
 
 /**
- * 5. GET /api/marketplace/track/:orderNumber - Live Order Tracking
+ * 5. GET /api/marketplace/track/:orderNumber - Live Real-Time Order Tracking
  */
 router.get('/track/:orderNumber', async (req: Request, res: Response) => {
   try {
@@ -1357,78 +1357,225 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'অর্ডার নম্বর আবশ্যক' });
     }
 
-    const cleanOrderNumber = orderNumber.trim();
+    const rawInput = orderNumber.trim();
+    const cleanOrderNumber = rawInput.replace(/^#/, '').trim();
     const pool = getDbPool();
 
+    const computeRealTimeOverallStatus = (
+      masterRow: any,
+      subOrderList: any[],
+      isAdminApprovedFlag: boolean,
+      isRejectedFlag: boolean
+    ): string => {
+      if (isRejectedFlag) return 'cancelled';
+      if (!isAdminApprovedFlag) {
+        return masterRow?.overall_status === 'cancelled' || masterRow?.overallStatus === 'cancelled'
+          ? 'cancelled'
+          : 'pending_verification';
+      }
+      if (!subOrderList || subOrderList.length === 0) {
+        const st = String(masterRow?.overall_status || masterRow?.overallStatus || 'confirmed').toLowerCase();
+        return st === 'pending_verification' || st === 'pending' ? 'confirmed' : st;
+      }
+      const statuses = subOrderList.map((s) => String(s.status || s.orderStatus || 'pending').toLowerCase());
+      if (statuses.every((s) => s === 'delivered')) return 'delivered';
+      if (statuses.every((s) => s === 'cancelled' || s === 'returned')) return statuses[0];
+      if (statuses.some((s) => s === 'shipped' || s === 'delivered')) return 'shipped';
+      if (statuses.some((s) => s === 'processing')) return 'processing';
+      if (statuses.some((s) => s === 'confirmed')) return 'confirmed';
+      const masterSt = String(masterRow?.overall_status || masterRow?.overallStatus || '').toLowerCase();
+      if (['processing', 'shipped', 'delivered', 'cancelled'].includes(masterSt)) return masterSt;
+      return 'confirmed';
+    };
+
     if (pool) {
-      const masterRes = await pool.query(`
+      await ensureOnlineOrdersSchema(pool);
+      let masterRes = await pool.query(`
         SELECT * FROM marketplace_master_orders 
-        WHERE order_number = $1 OR id = $1 OR customer_phone = $1 
+        WHERE order_number = $1 OR id = $1 OR customer_phone = $1 OR order_number = $2
         ORDER BY created_at DESC 
         LIMIT 1
-      `, [cleanOrderNumber]);
+      `, [cleanOrderNumber, rawInput]);
 
+      let matchedSubOrder: any = null;
       if (masterRes.rows.length === 0) {
-        return res.status(404).json({ error: 'অর্ডারের কোনো তথ্য পাওয়া যায়নি।' });
+        // Also check online_orders in case customer entered a vendor sub-order number or phone
+        const subLookup = await pool.query(`
+          SELECT * FROM online_orders
+          WHERE order_number = $1 OR id = $1 OR customer_phone = $1 OR order_number = $2
+          ORDER BY created_at DESC
+          LIMIT 1
+        `, [cleanOrderNumber, rawInput]);
+
+        if (subLookup.rows.length > 0) {
+          matchedSubOrder = subLookup.rows[0];
+          if (matchedSubOrder.master_order_id) {
+            masterRes = await pool.query(`
+              SELECT * FROM marketplace_master_orders
+              WHERE id = $1 OR order_number = $1
+              LIMIT 1
+            `, [matchedSubOrder.master_order_id]);
+          }
+        }
       }
 
-      const m = masterRes.rows[0];
+      if (masterRes.rows.length === 0 && !matchedSubOrder) {
+        return res.status(404).json({ error: 'অর্ডারের কোনো তথ্য পাওয়া যায়নি। সঠিক অর্ডার নম্বর বা মোবাইল নম্বর দিন।' });
+      }
 
-      // Fetch sub-orders
-      const subRes = await pool.query(`
-        SELECT o.*, 
-               COALESCE(s.store_name, u.shop_name, 'ভেন্ডর') as vendor_shop_name,
-               COALESCE(s.phone, u.phone) as vendor_phone
-        FROM online_orders o
-        LEFT JOIN online_store_configs s ON s.user_id = o.user_id
-        LEFT JOIN users u ON u.id = o.user_id
-        WHERE o.master_order_id = $1
-        ORDER BY o.created_at ASC
-      `, [m.id]);
+      if (masterRes.rows.length > 0) {
+        const m = masterRes.rows[0];
 
-      const subOrders = (subRes.rows || []).map(r => ({
-        id: r.id,
-        orderNumber: r.order_number,
-        vendorShopName: r.vendor_shop_name,
-        vendorPhone: r.vendor_phone,
-        status: r.order_status,
-        paymentStatus: r.payment_status,
-        totalAmount: parseFloat(r.total_amount) || 0,
-        items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || []),
-        createdAt: Number(r.created_at),
-      }));
+        // Fetch sub-orders with full real-time vendor & courier details
+        const subRes = await pool.query(`
+          SELECT o.*, 
+                 COALESCE(s.store_name, u.shop_name, 'ভেন্ডর স্টোর') as vendor_shop_name,
+                 COALESCE(s.phone, u.phone, '') as vendor_phone
+          FROM online_orders o
+          LEFT JOIN online_store_configs s ON s.user_id = o.user_id
+          LEFT JOIN users u ON u.id = o.user_id
+          WHERE o.master_order_id = $1 OR o.master_order_id = $2
+          ORDER BY o.created_at ASC
+        `, [m.id, m.order_number]);
 
-      return res.json({
-        success: true,
-        order: {
-          id: m.id,
-          orderNumber: m.order_number,
-          customerName: m.customer_name,
-          customerPhone: m.customer_phone,
-          customerAddress: m.customer_address,
-          deliveryCity: m.delivery_city,
-          totalProductsAmount: parseFloat(m.total_products_amount) || 0,
-          totalDeliveryCharge: parseFloat(m.total_delivery_charge) || 0,
-          grandTotal: parseFloat(m.grand_total) || 0,
-          paymentMethod: m.payment_method,
-          paymentStatus: m.payment_status,
-          overallStatus: m.overall_status,
-          createdAt: Number(m.created_at),
-          subOrders,
-        },
-      });
+        const masterApproved = m.is_admin_approved === true || m.admin_approval_status === 'approved' || m.payment_status === 'paid';
+        const masterRejected = m.is_rejected_by_admin === true || m.admin_approval_status === 'rejected';
+
+        const subOrders = (subRes.rows || []).map(r => {
+          const subApproved = r.is_admin_approved === true || r.admin_approval_status === 'approved' || masterApproved;
+          const rawStatus = r.order_status || 'pending';
+          return {
+            id: r.id,
+            orderNumber: r.order_number,
+            vendorShopName: r.vendor_shop_name || 'ভেন্ডর স্টোর',
+            vendorPhone: r.vendor_phone || '',
+            status: rawStatus,
+            orderStatus: rawStatus,
+            paymentStatus: subApproved ? 'paid' : (r.payment_status || m.payment_status || 'pending_verification'),
+            adminApprovalStatus: subApproved ? 'approved' : (r.admin_approval_status || m.admin_approval_status || 'pending_approval'),
+            isAdminApproved: subApproved,
+            isLockedForVendor: !subApproved,
+            courierName: r.courier_name || '',
+            courierTrackingCode: r.courier_tracking_code || '',
+            deliveryManName: r.delivery_man_name || '',
+            deliveryManPhone: r.delivery_man_phone || '',
+            estimatedDeliveryDate: r.estimated_delivery_date || '',
+            deliveryNote: r.delivery_note || '',
+            vendorNote: r.vendor_note || '',
+            subtotal: parseFloat(r.subtotal) || 0,
+            deliveryCharge: parseFloat(r.delivery_charge) || 0,
+            discountAmount: parseFloat(r.discount_amount) || 0,
+            totalAmount: parseFloat(r.total_amount) || 0,
+            items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || []),
+            createdAt: Number(r.created_at),
+            updatedAt: Number(r.updated_at || r.created_at),
+          };
+        });
+
+        const liveOverallStatus = computeRealTimeOverallStatus(m, subOrders, masterApproved, masterRejected);
+
+        return res.json({
+          success: true,
+          order: {
+            id: m.id,
+            orderNumber: m.order_number,
+            customerName: m.customer_name,
+            customerPhone: m.customer_phone,
+            customerAddress: m.customer_address,
+            deliveryCity: m.delivery_city,
+            totalProductsAmount: parseFloat(m.total_products_amount) || 0,
+            totalDeliveryCharge: parseFloat(m.total_delivery_charge) || 0,
+            grandTotal: parseFloat(m.grand_total) || 0,
+            paymentMethod: m.payment_method,
+            paymentStatus: masterApproved ? 'paid' : (m.payment_status || 'pending_verification'),
+            paymentTrxId: m.payment_trx_id || '',
+            senderPhone: m.sender_phone || '',
+            adminApprovalStatus: masterApproved ? 'approved' : (masterRejected ? 'rejected' : (m.admin_approval_status || 'pending_approval')),
+            isAdminApproved: masterApproved,
+            isRejectedByAdmin: masterRejected,
+            adminRejectionReason: m.admin_rejection_reason || '',
+            overallStatus: liveOverallStatus,
+            createdAt: Number(m.created_at),
+            updatedAt: Number(m.updated_at || m.created_at),
+            subOrders,
+          },
+        });
+      } else if (matchedSubOrder) {
+        // Direct sub-order fallback
+        const r = matchedSubOrder;
+        const subApproved = r.is_admin_approved === true || r.admin_approval_status === 'approved' || (r.order_source !== 'marketplace' && !r.master_order_id);
+        const subOrderObj = {
+          id: r.id,
+          orderNumber: r.order_number,
+          vendorShopName: 'ভেন্ডর স্টোর',
+          vendorPhone: '',
+          status: r.order_status || 'pending',
+          orderStatus: r.order_status || 'pending',
+          paymentStatus: r.payment_status || 'unpaid',
+          adminApprovalStatus: subApproved ? 'approved' : (r.admin_approval_status || 'pending_approval'),
+          isAdminApproved: subApproved,
+          isLockedForVendor: !subApproved,
+          courierName: r.courier_name || '',
+          courierTrackingCode: r.courier_tracking_code || '',
+          deliveryManName: r.delivery_man_name || '',
+          deliveryManPhone: r.delivery_man_phone || '',
+          estimatedDeliveryDate: r.estimated_delivery_date || '',
+          deliveryNote: r.delivery_note || '',
+          vendorNote: r.vendor_note || '',
+          totalAmount: parseFloat(r.total_amount) || 0,
+          items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || []),
+          createdAt: Number(r.created_at),
+          updatedAt: Number(r.updated_at || r.created_at),
+        };
+
+        return res.json({
+          success: true,
+          order: {
+            id: r.id,
+            orderNumber: r.order_number,
+            customerName: r.customer_name,
+            customerPhone: r.customer_phone,
+            customerAddress: r.customer_address,
+            deliveryCity: r.delivery_area || 'inside_dhaka',
+            totalProductsAmount: parseFloat(r.subtotal) || 0,
+            totalDeliveryCharge: parseFloat(r.delivery_charge) || 0,
+            grandTotal: parseFloat(r.total_amount) || 0,
+            paymentMethod: r.payment_method,
+            paymentStatus: r.payment_status,
+            adminApprovalStatus: subOrderObj.adminApprovalStatus,
+            isAdminApproved: subApproved,
+            overallStatus: subApproved ? (r.order_status || 'confirmed') : 'pending_verification',
+            createdAt: Number(r.created_at),
+            updatedAt: Number(r.updated_at || r.created_at),
+            subOrders: [subOrderObj],
+          },
+        });
+      }
     } else {
       const m = (inMemoryStore.marketplace_master_orders || []).find(
-        x => x.orderNumber === cleanOrderNumber || x.id === cleanOrderNumber || x.customerPhone === cleanOrderNumber
+        x => x.orderNumber === cleanOrderNumber || x.id === cleanOrderNumber || x.customerPhone === cleanOrderNumber || x.orderNumber === rawInput
       );
       if (!m) {
         return res.status(404).json({ error: 'অর্ডারের কোনো তথ্য পাওয়া যায়নি।' });
       }
-      const subs = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === m.id);
+      const masterApproved = m.isAdminApproved === true || m.adminApprovalStatus === 'approved' || m.paymentStatus === 'paid';
+      const masterRejected = m.isRejectedByAdmin === true || m.adminApprovalStatus === 'rejected';
+      const subs = (inMemoryStore.online_orders || [])
+        .filter(o => o.masterOrderId === m.id || o.masterOrderId === m.orderNumber)
+        .map(o => ({
+          ...o,
+          status: o.orderStatus || (o as any).status || 'pending',
+          orderStatus: o.orderStatus || (o as any).status || 'pending',
+          isAdminApproved: o.isAdminApproved === true || masterApproved,
+          isLockedForVendor: !(o.isAdminApproved === true || masterApproved),
+        }));
+      const liveOverallStatus = computeRealTimeOverallStatus(m, subs, masterApproved, masterRejected);
       return res.json({
         success: true,
         order: {
           ...m,
+          isAdminApproved: masterApproved,
+          overallStatus: liveOverallStatus,
           subOrders: subs,
         },
       });
@@ -1694,6 +1841,7 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
     let subOrders: any[] = [];
 
     if (pool) {
+      await ensureOnlineOrdersSchema(pool);
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
@@ -2600,13 +2748,26 @@ router.get('/vendor/summary', authenticateUser, async (req: AuthenticatedRequest
         customerPhone: o.customer_phone,
         customerAddress: o.customer_address,
         items: typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || []),
+        subtotal: parseFloat(o.subtotal) || 0,
+        deliveryCharge: parseFloat(o.delivery_charge) || 0,
+        discountAmount: parseFloat(o.discount_amount) || 0,
         totalAmount: parseFloat(o.total_amount) || 0,
-        orderStatus: o.order_status,
+        paymentMethod: o.payment_method || 'cod',
+        paymentStatus: o.payment_status || 'unpaid',
+        orderStatus: o.order_status || 'pending',
         vendorPayoutStatus: o.vendor_payout_status || 'unsettled',
         adminApprovalStatus: o.admin_approval_status || 'pending_approval',
         isAdminApproved: o.is_admin_approved === true,
         isLockedForVendor: o.is_admin_approved !== true,
+        courierName: o.courier_name || '',
+        courierTrackingCode: o.courier_tracking_code || '',
+        deliveryManName: o.delivery_man_name || '',
+        deliveryManPhone: o.delivery_man_phone || '',
+        estimatedDeliveryDate: o.estimated_delivery_date || '',
+        deliveryNote: o.delivery_note || '',
+        vendorNote: o.vendor_note || '',
         createdAt: Number(o.created_at),
+        updatedAt: Number(o.updated_at || o.created_at),
       }));
 
       const products = prodsRes.rows.map(p => ({

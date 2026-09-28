@@ -4185,19 +4185,22 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                   <Lock className="w-3 h-3 text-amber-700" />
                                   <span>লক (সুপার এডমিনের যাচাই বাকি)</span>
                                 </span>
-                              ) : isMarketplaceApproved ? (
-                                <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                  <span>আনলকড (অনুমোদিত)</span>
-                                </span>
                               ) : (
-                                <span
-                                  className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                                    statusColors[ord.orderStatus] || statusColors.pending
-                                  }`}
-                                >
-                                  {statusLabels[ord.orderStatus] || ord.orderStatus}
-                                </span>
+                                <>
+                                  {isMarketplaceApproved && (
+                                    <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      <span>আনলকড (অনুমোদিত)</span>
+                                    </span>
+                                  )}
+                                  <span
+                                    className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                      statusColors[ord.orderStatus] || statusColors.pending
+                                    }`}
+                                  >
+                                    {statusLabels[ord.orderStatus] || ord.orderStatus}
+                                  </span>
+                                </>
                               )}
 
                               {/* Payment Badge */}
@@ -4444,15 +4447,39 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                 </button>
                               </div>
 
-                              {/* Right: Step Action Buttons */}
+                              {/* Right: Step Action Buttons & Any-Status Selector */}
                               <div className="flex items-center gap-2 flex-wrap">
                                 {isMarketplaceLocked ? (
                                   <div className="px-3.5 py-2 bg-amber-50 text-amber-900 border border-amber-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-2xs">
                                     <Lock className="w-3.5 h-3.5 text-amber-700 animate-pulse" />
-                                    <span>🔒 সুপার এডমিন কর্তৃক পেমেন্ট যাচাই সম্পন্ন না হওয়া পর্যন্ত ডেলিভারি লক</span>
+                                    <span>🔒 সুপার এডমিন পেমেন্ট যাচাই করার আগে স্ট্যাটাস পরিবর্তন লক</span>
                                   </div>
                                 ) : (
                                   <>
+                                    {/* Direct Any-Status Changer Dropdown */}
+                                    <select
+                                      value={ord.orderStatus || 'pending'}
+                                      disabled={updatingOrderId === ord.id}
+                                      onChange={(e) => {
+                                        const nextSt = e.target.value as OnlineOrder['orderStatus'];
+                                        if (nextSt === 'shipped') {
+                                          setCourierModalOrder(ord);
+                                          setCourierInputCode(ord.courierTrackingCode || '');
+                                        } else {
+                                          handleUpdateOrderStatus(ord.id, nextSt);
+                                        }
+                                      }}
+                                      className="px-2.5 py-1.5 rounded-xl border border-teal-300 bg-teal-50/70 text-teal-950 text-xs font-black focus:outline-none focus:ring-2 focus:ring-teal-600 cursor-pointer disabled:opacity-50"
+                                      title="যেকোনো স্ট্যাটাসে পরিবর্তন করুন"
+                                    >
+                                      <option value="pending">⏳ পেন্ডিং (নতুন অর্ডার)</option>
+                                      <option value="confirmed">✅ কনফার্মড</option>
+                                      <option value="processing">📦 প্রস্তুত হচ্ছে (প্রসেসিং)</option>
+                                      <option value="shipped">🚚 কুরিয়ারে পাঠানো হয়েছে (পথে আছে)</option>
+                                      <option value="delivered">🎉 ডেলিভারি সম্পন্ন</option>
+                                      <option value="cancelled">❌ অর্ডার বাতিল</option>
+                                    </select>
+
                                     {/* Step 1: New -> Confirm Order */}
                                     {isNewStage && (
                                       <>
@@ -4538,24 +4565,24 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                         )}
                                       </div>
                                     )}
-                                  </>
-                                )}
 
-                                {/* Cancelled Status Notice */}
-                                {isCancelledStage && (
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs text-rose-700 font-bold flex items-center gap-1 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
-                                      <XCircle className="w-3.5 h-3.5 text-rose-600" />
-                                      <span>অর্ডার বাতিল</span>
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleUpdateOrderStatus(ord.id, 'pending')}
-                                      className="text-[11px] text-slate-500 hover:text-slate-800 underline cursor-pointer"
-                                    >
-                                      পুনরায় চালু
-                                    </button>
-                                  </div>
+                                    {/* Cancelled Status Notice */}
+                                    {isCancelledStage && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-rose-700 font-bold flex items-center gap-1 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
+                                          <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                                          <span>অর্ডার বাতিল</span>
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdateOrderStatus(ord.id, 'pending')}
+                                          className="text-[11px] text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                                        >
+                                          পুনরায় চালু
+                                        </button>
+                                      </div>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             </div>
