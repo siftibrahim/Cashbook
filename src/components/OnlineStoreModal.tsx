@@ -1241,32 +1241,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
           <button
             type="button"
-            onClick={() => setActiveTab('activation_request')}
-            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
-              activeTab === 'activation_request'
-                ? 'border-amber-500 text-amber-950 bg-white shadow-2xs rounded-t-xl font-black'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Send className="w-4 h-4 text-amber-600" />
-            <span>রিকোয়েস্ট অপশন</span>
-            {isStorePendingReview ? (
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black animate-pulse">
-                পেন্ডিং
-              </span>
-            ) : isStoreDisabledByAdmin ? (
-              <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-black">
-                আবেদন
-              </span>
-            ) : (
-              <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-white text-[10px] font-black">
-                সক্রিয়
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
             onClick={() => setActiveTab('domain')}
             className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
               activeTab === 'domain'

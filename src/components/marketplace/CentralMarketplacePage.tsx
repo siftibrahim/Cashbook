@@ -181,6 +181,143 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   });
   const [orderNotes, setOrderNotes] = useState<string>(() => getSavedCustomerProfile().notes || '');
 
+  // Standardized 11-digit phone number
+  const standardPhone = useMemo(() => {
+    const cleanDigits = customerPhone.replace(/[^\d+]/g, '').trim();
+    return cleanDigits.startsWith('+88')
+      ? cleanDigits.slice(3)
+      : cleanDigits.startsWith('88')
+      ? cleanDigits.slice(2)
+      : cleanDigits;
+  }, [customerPhone]);
+
+  // Phone OTP Verification State (Device-level 1-time verification)
+  const [deviceVerificationVersion, setDeviceVerificationVersion] = useState(0);
+  const isPhoneVerifiedOnDevice = useMemo(() => {
+    if (standardPhone.length !== 11 || !standardPhone.startsWith('01')) return false;
+    const verifiedRecord = getDevicePhoneVerification();
+    return verifiedRecord?.phone === standardPhone && verifiedRecord?.verified === true;
+  }, [standardPhone, deviceVerificationVersion]);
+
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpInput, setOtpInput] = useState('');
+  const [otpCountdown, setOtpCountdown] = useState(0);
+  const [otpHint, setOtpHint] = useState<string | null>(null);
+
+  // OTP Countdown timer
+  useEffect(() => {
+    if (otpCountdown > 0) {
+      const timer = setTimeout(() => setOtpCountdown((c) => c - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [otpCountdown]);
+
+  // Check if standardPhone was previously verified on server
+  useEffect(() => {
+    if (standardPhone.length === 11 && standardPhone.startsWith('01')) {
+      const devRecord = getDevicePhoneVerification();
+      if (devRecord && devRecord.phone === standardPhone && devRecord.verified) {
+        return;
+      }
+      marketplaceApi
+        .checkPhoneVerified(standardPhone, devRecord?.deviceToken)
+        .then((res) => {
+          if (res.success && res.verified) {
+            saveDevicePhoneVerification(standardPhone, devRecord?.deviceToken);
+            setDeviceVerificationVersion((v) => v + 1);
+          }
+        })
+        .catch(() => null);
+    }
+  }, [standardPhone]);
+
+  // Send OTP
+  const handleSendOtp = async () => {
+    if (standardPhone.length !== 11 || !standardPhone.startsWith('01')) {
+      showToast('⚠️ অনুগ্রহ করে সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 01XXXXXXXXX)');
+      return;
+    }
+    setIsSendingOtp(true);
+    setOtpHint(null);
+    try {
+      const devRecord = getDevicePhoneVerification();
+      const res = await marketplaceApi.sendOtp(standardPhone);
+      if (res.success) {
+        if ((res as any).alreadyVerified) {
+          saveDevicePhoneVerification(standardPhone, (res as any).deviceToken || devRecord?.deviceToken);
+          setDeviceVerificationVersion((v) => v + 1);
+          setOtpSent(false);
+          showToast('✅ এই ডিভাইসে মোবাইল নম্বরটি ইতিমধ্যে ভেরিফাইড!');
+          return;
+        }
+        setOtpSent(true);
+        setOtpCountdown(60);
+        if (res.demoOtp) {
+          setOtpHint(`কোড: ${res.demoOtp}`);
+        }
+        showToast('📲 আপনার মোবাইলে OTP কোড পাঠানো হয়েছে!');
+      } else {
+        showToast('❌ ' + (res.error || 'ওটিপি পাঠানো যায়নি'));
+      }
+    } catch (err: any) {
+      showToast('❌ ' + (err.message || 'ওটিপি পাঠাতে সমস্যা হয়েছে'));
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  // Verify OTP
+  const handleVerifyOtp = async () => {
+    if (!otpInput.trim()) {
+      showToast('⚠️ অনুগ্রহ করে মোবাইলে আসা OTP কোডটি লিখুন');
+      return;
+    }
+    setIsVerifyingOtp(true);
+    try {
+      const res = await marketplaceApi.verifyOtp(standardPhone, otpInput.trim());
+      if (res.success && res.verified) {
+        saveDevicePhoneVerification(standardPhone, res.deviceToken);
+        setDeviceVerificationVersion((v) => v + 1);
+        setOtpSent(false);
+        setOtpInput('');
+        setOtpHint(null);
+        showToast('🎉 মোবাইল নম্বর সফলভাবে ভেরিফাই হয়েছে!');
+      } else {
+        showToast('❌ ' + (res.error || 'ভুল ওটিপি কোড!'));
+      }
+    } catch (err: any) {
+      showToast('❌ ' + (err.message || 'ওটিপি যাচাই ব্যর্থ হয়েছে'));
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  // Tab Change Handler: Resets category, search, modals, and smoothly scrolls to top on 'home' click
+  const handleTabChange = useCallback((tab: StorefrontTab) => {
+    if (tab === 'home') {
+      setSelectedCategory('all');
+      setSearchQuery('');
+      setSelectedProductForDetail(null);
+      setIsCartOpen(false);
+      setIsCheckoutStep(false);
+      setIsMenuDrawerOpen(false);
+      setIsNotificationsOpen(false);
+      setIsCustomerDrawerOpen(false);
+      setIsSupportDrawerOpen(false);
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (typeof document !== 'undefined') {
+        document.documentElement?.scrollTo({ top: 0, behavior: 'smooth' });
+        document.body?.scrollTo({ top: 0, behavior: 'smooth' });
+        const mainEl = document.getElementById('marketplace-main-scroll-container');
+        if (mainEl) mainEl.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+    setActiveTab(tab);
+  }, []);
+
   // Payment Method selection
   const [paymentMethod, setPaymentMethod] = useState<'paymently' | 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank'>('paymently');
   const [customerTrxId, setCustomerTrxId] = useState('');
@@ -411,6 +548,14 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       return;
     }
 
+    if (!isPhoneVerifiedOnDevice) {
+      showToast('⚠️ অর্ডার কনফার্ম করতে মোবাইল নম্বরটি একবার ওটিপি দিয়ে ভেরিফাই করুন');
+      if (!otpSent) {
+        handleSendOtp();
+      }
+      return;
+    }
+
     if (cart.length === 0) {
       showToast('⚠️ কার্ট খালি');
       return;
@@ -429,6 +574,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
     isSubmittingOrderRef.current = true;
     setIsSubmitting(true);
+
+    const devRecord = getDevicePhoneVerification();
 
     // Save profile for future 1-click orders
     saveCustomerProfile({
@@ -449,6 +596,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       senderPhone: customerSenderPhone.trim() || customerPhone.trim(),
       notes: orderNotes.trim(),
       isPhoneVerified: true,
+      deviceToken: devRecord?.deviceToken || `dev_${standardPhone}`,
       items: cart.map((it) => ({
         productId: it.product.id,
         vendorId: it.product.vendorId,
@@ -648,24 +796,13 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
         onOpenMenu={() => setIsMenuDrawerOpen(true)}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
         onOpenProfile={() => setIsCustomerDrawerOpen(true)}
-        onLogoClick={() => {
-          setActiveTab('home');
-          setSelectedCategory('all');
-          setSearchQuery('');
-        }}
+        onLogoClick={() => handleTabChange('home')}
+        onMerchantLogin={onMerchantLogin}
+        onBackToDashboard={onBackToDashboard}
       />
 
-      {/* Top Banner Notice */}
-      {marketplaceSettings.bannerNotice && (
-        <div className="bg-[#004D40] text-amber-300 text-[11px] sm:text-xs font-bold py-1.5 px-3 text-center flex items-center justify-center gap-1.5 shadow-2xs">
-          <span>⚡</span>
-          <span>{marketplaceSettings.bannerNotice}</span>
-          <span className="hidden sm:inline">• সারা দেশের সেরা ভেন্ডরদের আসল পণ্য এক ছাদের নিচে!</span>
-        </div>
-      )}
-
       {/* Main Scrollable Body Area */}
-      <main className="flex-1 w-full bg-[#F8FAFC] flex flex-col">
+      <main id="marketplace-main-scroll-container" className="flex-1 w-full bg-[#F8FAFC] flex flex-col">
         {/* ================= TAB 1: HOME ================= */}
         {activeTab === 'home' && (
           <div className="flex flex-col pb-20 space-y-3">
@@ -1042,39 +1179,10 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
         )}
       </main>
 
-      {/* Floating Cart Pill Bar when items exist in Cart */}
-      {cartItemCount > 0 && !isCartOpen && (
-        <div className="sticky bottom-14 mx-3 sm:mx-6 z-20 pointer-events-auto pb-1">
-          <div className="max-w-5xl mx-auto bg-[#004D40] text-white p-2.5 sm:p-3 rounded-2xl shadow-xl flex items-center justify-between gap-3 border border-teal-600/50">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black text-xs">
-                {cartItemCount}
-              </div>
-              <div>
-                <div className="text-[10px] text-teal-200">মোট কার্ট মূল্য</div>
-                <div className="text-xs sm:text-sm font-black">৳ {formatMoney(subtotal)}</div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setIsCartOpen(true);
-                setIsCheckoutStep(true);
-              }}
-              className="px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
-            >
-              <span>অর্ডার করুন</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Fixed Bottom Navigation (Identical 5 Tabs) */}
       <StorefrontBottomNav
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         wishlistCount={wishlistIds.length}
         orderCount={customerOrders.length}
       />
@@ -1084,9 +1192,9 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
         isOpen={isMenuDrawerOpen}
         onClose={() => setIsMenuDrawerOpen(false)}
         config={storefrontConfig}
-        onSelectTab={setActiveTab}
+        onSelectTab={handleTabChange}
         onOpenSupport={() => setIsSupportDrawerOpen(true)}
-        onMerchantLogin={onMerchantLogin}
+        onMerchantLogin={onMerchantLogin || onBackToDashboard}
         wishlistCount={wishlistIds.length}
       />
 
@@ -1101,7 +1209,7 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
         isOpen={isCustomerDrawerOpen}
         onClose={() => setIsCustomerDrawerOpen(false)}
         customerOrders={customerOrders}
-        onSelectTab={setActiveTab}
+        onSelectTab={handleTabChange}
         defaultName={customerName}
         defaultPhone={customerPhone}
         defaultAddress={customerAddress}
@@ -1295,17 +1403,152 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">
-                          মোবাইল নম্বর *
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-bold text-slate-700">
+                            মোবাইল নম্বর *
+                          </label>
+                          {isPhoneVerifiedOnDevice && (
+                            <span className="text-[10px] text-emerald-700 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              ডিভাইসে ভেরিফাইড
+                            </span>
+                          )}
+                        </div>
                         <input
                           type="tel"
                           required
                           value={customerPhone}
                           onChange={(e) => setCustomerPhone(e.target.value)}
                           placeholder="যেমন: 017XXXXXXXX"
-                          className="w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-teal-600 focus:outline-hidden font-mono"
+                          className={`w-full px-3.5 py-2 text-xs sm:text-sm bg-slate-50 border rounded-xl focus:bg-white focus:ring-2 focus:outline-hidden font-mono ${
+                            isPhoneVerifiedOnDevice
+                              ? 'border-emerald-300 focus:ring-emerald-600'
+                              : 'border-slate-200 focus:ring-teal-600'
+                          }`}
                         />
+
+                        {/* Device Verification Status & OTP Verification Panel */}
+                        {isPhoneVerifiedOnDevice ? (
+                          <div className="mt-1.5 flex items-center justify-between bg-emerald-50/80 border border-emerald-200 rounded-xl px-3 py-1.5 text-xs text-emerald-800">
+                            <div className="flex items-center gap-1.5 font-bold">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>নম্বরটি এই ডিভাইসে ভেরিফাইড (পুনরায় ওটিপি লাগবে না)</span>
+                            </div>
+                            <span className="text-[10px] text-emerald-700 font-semibold bg-white border border-emerald-300 px-2 py-0.5 rounded-md shadow-2xs">
+                              নিশ্চিত
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="mt-2 p-3 bg-amber-50/80 border border-amber-200/90 rounded-xl text-xs space-y-2.5">
+                            <div className="flex items-start gap-2">
+                              <ShieldCheck className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                              <div className="space-y-0.5">
+                                <div className="font-bold text-slate-800">ডিভাইস ভেরিফিকেশন (একবার প্রযোজ্য)</div>
+                                <p className="text-[11px] text-slate-600 leading-relaxed">
+                                  ভুয়া অর্ডার রোধে আপনার ডিভাইসে মোবাইল নম্বরটি একবার ওটিপি দিয়ে ভেরিফাই করে নিন।
+                                </p>
+                              </div>
+                            </div>
+
+                            {!otpSent ? (
+                              <div className="pt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={handleSendOtp}
+                                  disabled={isSendingOtp || standardPhone.length !== 11}
+                                  className="w-full py-2 px-3 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs disabled:cursor-not-allowed"
+                                >
+                                  {isSendingOtp ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <ShieldCheck className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>
+                                    {standardPhone.length === 11
+                                      ? '📲 ওটিপি কোড পাঠান (মোবাইল ভেরিফাই করুন)'
+                                      : 'সঠিক ১১ ডিজিটের নম্বর লিখুন'}
+                                  </span>
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-2 pt-1 border-t border-amber-200/70">
+                                <div className="flex items-center justify-between text-[11px] text-slate-600">
+                                  <span className="font-medium">
+                                    <strong className="text-slate-800 font-mono">{standardPhone}</strong> নম্বরে ওটিপি পাঠানো হয়েছে
+                                  </span>
+                                  {otpHint && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const code = otpHint.replace(/[^0-9]/g, '');
+                                        if (code) setOtpInput(code);
+                                      }}
+                                      className="text-[10px] font-bold bg-teal-100 text-teal-800 hover:bg-teal-200 px-2 py-0.5 rounded cursor-pointer transition flex items-center gap-1"
+                                      title="ক্লিক করে কোড বসিয়ে দিন"
+                                    >
+                                      <span>{otpHint}</span>
+                                      <span className="underline">বসিয়ে দিন</span>
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    maxLength={6}
+                                    value={otpInput}
+                                    onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                    placeholder="৬ সংখ্যার OTP কোড"
+                                    className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-lg text-center tracking-widest font-mono text-sm font-black text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={handleVerifyOtp}
+                                    disabled={isVerifyingOtp || !otpInput.trim()}
+                                    className="py-2 px-3.5 bg-teal-700 hover:bg-teal-800 disabled:bg-slate-300 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs disabled:cursor-not-allowed shrink-0"
+                                  >
+                                    {isVerifyingOtp ? (
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Check className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>যাচাই সম্পন্ন</span>
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                                  {otpCountdown > 0 ? (
+                                    <span>
+                                      পুনরায় কোড পাঠাতে অপেক্ষা: <strong className="text-teal-700 font-mono">{otpCountdown}s</strong>
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={handleSendOtp}
+                                      disabled={isSendingOtp}
+                                      className="text-teal-700 font-bold hover:underline cursor-pointer"
+                                    >
+                                      পুনরায় ওটিপি পাঠান
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOtpSent(false);
+                                      setOtpInput('');
+                                      setOtpHint(null);
+                                    }}
+                                    className="text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                                  >
+                                    নম্বর পরিবর্তন
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div>

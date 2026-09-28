@@ -1644,6 +1644,9 @@ export const App: React.FC = () => {
         onMerchantLogin={() => {
           setIsMerchantAdminViewForced(true);
         }}
+        onBackToDashboard={() => {
+          setIsMerchantAdminViewForced(true);
+        }}
       />
     );
   }
@@ -2024,7 +2027,30 @@ export const App: React.FC = () => {
                 activeTab={activeTab}
                 onTabChange={(tab) => {
                   setActiveCustomerId(null);
-                  if (tab === 'support') {
+                  if (tab === 'dashboard') {
+                    setIsCashbookModalOpen(false);
+                    setIsReportModalOpen(false);
+                    setIsAnalyticsModalOpen(false);
+                    setIsOnlineStoreModalOpen(false);
+                    setIsMarketplaceViewOpen(false);
+                    setIsOnlineStorefrontOpen(false);
+                    setIsSalesHistoryModalOpen(false);
+                    setIsSettingsModalOpen(false);
+                    setIsNotificationModalOpen(false);
+                    setIsPermissionsModalOpen(false);
+                    setIsUserSmsModalOpen(false);
+                    setIsQrModalOpen(false);
+                    setIsScannerModalOpen(false);
+                    setIsInvoiceModalOpen(false);
+                    setIsEditTxModalOpen(false);
+                    setSearchQuery('');
+                    setActiveTab('dashboard');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    const dashRoot = document.getElementById('dashboard-root-view');
+                    if (dashRoot) {
+                      dashRoot.scrollIntoView({ behavior: 'smooth' });
+                    }
+                  } else if (tab === 'support') {
                     setIsSupportModalOpen(true);
                   } else if (tab === 'cashbook') {
                     setIsCashbookModalOpen(true);

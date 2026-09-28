@@ -18,10 +18,10 @@ export const StorefrontCategoryGrid: React.FC<StorefrontCategoryGridProps> = ({
 }) => {
   const [showAllExpanded, setShowAllExpanded] = useState(false);
 
-  // In standard view show 16 (2 rows of 8 on large, or 3 rows on mobile); expanded shows all 24
+  // In standard view show 8 (2 rows of 4 on mobile, 1 row of 8 on desktop); expanded shows all 24
   const displayCategories = showAllExpanded
     ? STOREFRONT_CATEGORIES
-    : STOREFRONT_CATEGORIES.slice(0, 16);
+    : STOREFRONT_CATEGORIES.slice(0, 8);
 
   const getProductCountForCategory = (catName: string) => {
     return products.filter((p) => {
