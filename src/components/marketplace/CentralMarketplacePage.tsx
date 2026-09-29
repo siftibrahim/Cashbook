@@ -453,6 +453,28 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     };
   }, [searchQuery, selectedCategory]);
 
+  // Check URL parameters for return from online payment gateway
+  useEffect(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const pStatus = urlParams.get('payment_status');
+      const pMsg = urlParams.get('message');
+      const pType = urlParams.get('type');
+      const orderId = urlParams.get('order_id') || urlParams.get('payment_id');
+
+      if (pStatus === 'cancelled' && (pType === 'marketplace' || (orderId && orderId.includes('mkt')))) {
+        showToast(pMsg ? decodeURIComponent(pMsg) : '⚠️ পেমেন্ট বাতিল করা হয়েছে। কোনো অর্ডার গৃহীত হয়নি।');
+        if (orderId) {
+          marketplaceApi.cancelOrder(orderId, 'গ্রাহক পেমেন্ট বাতিল করেছেন').catch(() => {});
+        }
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (pStatus === 'success' && (pType === 'marketplace' || (orderId && orderId.includes('mkt')))) {
+        showToast('🎉 আপনার অনলাইন পেমেন্ট সফলভাবে সম্পন্ন হয়েছে!');
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch (e) {}
+  }, []);
+
   // Subscribe to Unified Payment Settings from Super Admin
   useEffect(() => {
     const unsub = subscribeToPaymentSettings((data) => {
@@ -713,6 +735,9 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
             paymentTrxId: res.trxId,
           },
         });
+      } else if (res.paymentStatus === 'cancelled' || res.overallStatus === 'cancelled') {
+        showToast('⚠️ গেটওয়েতে পেমেন্ট বাতিল করা হয়েছে। কোনো অর্ডার গৃহীত হয়নি।');
+        setActivePaymentlySession(null);
       } else {
         showToast(`⏳ পেমেন্ট স্ট্যাটাস: ${res.paymentStatus === 'initiated' ? 'প্রক্রিয়াধীন' : res.paymentStatus}। সম্পন্ন করে আবার চেক করুন।`);
       }
@@ -720,6 +745,22 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       showToast('❌ যাচাই করা যায়নি: ' + err.message);
     } finally {
       setIsCheckingPaymentStatus(false);
+    }
+  };
+
+  // Cancel online payment session & clean up order
+  const handleCancelPaymentlySession = async () => {
+    if (!activePaymentlySession?.orderId) {
+      setActivePaymentlySession(null);
+      return;
+    }
+    try {
+      await marketplaceApi.cancelOrder(activePaymentlySession.orderId, 'গ্রাহক পেমেন্ট বাতিল করেছেন');
+      showToast('⚠️ পেমেন্ট বাতিল করা হয়েছে। কোনো অর্ডার গৃহীত হয়নি।');
+    } catch {
+      showToast('পেমেন্ট সেশন বন্ধ করা হয়েছে।');
+    } finally {
+      setActivePaymentlySession(null);
     }
   };
 
@@ -1919,6 +1960,89 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                     </button>
                   )}
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Active Online Gateway Payment Session Modal */}
+      <AnimatePresence>
+        {activePaymentlySession && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full text-center space-y-4 shadow-2xl border border-slate-200"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center border border-teal-200 shadow-inner">
+                <CreditCard className="w-7 h-7 animate-pulse text-teal-700" />
+              </div>
+
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  ⚡ অনলাইন পেমেন্ট সম্পন্ন করুন
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  পেমেন্ট গেটওয়ে উইন্ডো খোলা হয়েছে। বিকাশ, নগদ, রকেট বা কার্ড দিয়ে পেমেন্ট করুন।
+                </p>
+              </div>
+
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-left space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">মোট প্রদেয়:</span>
+                  <span className="font-black text-teal-800 text-sm">
+                    ৳ {formatMoney(activePaymentlySession.amount || grandTotal)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-[11px] text-slate-500">
+                  <span>স্ট্যাটাস:</span>
+                  <span className="font-bold text-amber-600 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping inline-block"></span>
+                    পেমেন্টের অপেক্ষায়...
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-1">
+                {activePaymentlySession.paymentUrl && (
+                  <button
+                    type="button"
+                    onClick={() => window.open(activePaymentlySession.paymentUrl, '_blank', 'noopener,noreferrer')}
+                    className="w-full py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>পেমেন্ট পেজ পুনরায় খুলুন</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleCheckPaymentlyStatus}
+                  disabled={isCheckingPaymentStatus}
+                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+                >
+                  {isCheckingPaymentStatus ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>পেমেন্ট স্ট্যাটাস চেক হচ্ছে...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <span>পেমেন্ট সম্পন্ন করেছি / স্ট্যাটাস যাচাই</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelPaymentlySession}
+                  className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition cursor-pointer mt-1"
+                >
+                  ❌ পেমেন্ট বাতিল করুন (Cancel Order)
+                </button>
               </div>
             </motion.div>
           </div>

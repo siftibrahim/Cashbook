@@ -6,6 +6,7 @@ import { PaymentGatewayManager } from '../services/paymentProviders';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { PaymentlyService } from '../services/paymentlyService';
 import { realtimeEvents } from '../services/realtimeEvents';
+import { cancelMarketplaceOrderHelper } from './marketplaceRoutes';
 
 const router = Router();
 
@@ -506,7 +507,7 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
     const isMarketplaceType = req.query.type === 'marketplace' || paymentId.startsWith('pay_mkt_') || paymentId.startsWith('mkt_');
 
     if (statusParam.toLowerCase() === 'cancelled') {
-      if (paymentId) {
+      if (paymentId || req.query.order_id) {
         const pool = getDbPool();
         if (isSmsType) {
           if (pool) {
@@ -520,12 +521,7 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
           }
         } else if (isMarketplaceType) {
           const mktOrdId = req.query.order_id || paymentId;
-          if (pool) {
-            await pool.query(
-              "UPDATE marketplace_master_orders SET payment_status = 'cancelled', overall_status = 'cancelled' WHERE id = $1 AND payment_status = 'initiated'",
-              [mktOrdId]
-            ).catch(() => {});
-          }
+          await cancelMarketplaceOrderHelper(mktOrdId, 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন');
         } else {
           if (pool) {
             await pool.query(
@@ -540,11 +536,11 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
           }
         }
       }
-      return res.redirect(`/?payment_status=cancelled&payment_id=${encodeURIComponent(paymentId)}${isSmsType ? '&type=sms' : isMarketplaceType ? '&type=marketplace' : ''}`);
+      return res.redirect(`/?payment_status=cancelled&payment_id=${encodeURIComponent(paymentId)}${isSmsType ? '&type=sms' : isMarketplaceType ? '&type=marketplace&order_id=' + encodeURIComponent(req.query.order_id || paymentId) : ''}`);
     }
 
     if (!invoiceId) {
-      if (paymentId) {
+      if (paymentId || req.query.order_id) {
         const pool = getDbPool();
         if (isSmsType) {
           if (pool) {
@@ -555,12 +551,7 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
           }
         } else if (isMarketplaceType) {
           const mktOrdId = req.query.order_id || paymentId;
-          if (pool) {
-            await pool.query(
-              "UPDATE marketplace_master_orders SET payment_status = 'cancelled', overall_status = 'cancelled' WHERE id = $1 AND payment_status = 'initiated'",
-              [mktOrdId]
-            ).catch(() => {});
-          }
+          await cancelMarketplaceOrderHelper(mktOrdId, 'পেমেন্ট ইনভয়েস ছাড়া সেশন সমাপ্ত / বাতিল');
         } else {
           if (pool) {
             await pool.query(
@@ -570,7 +561,7 @@ const handlePaymentlyCallback = async (req: any, res: Response) => {
           }
         }
       }
-      return res.redirect(`/?payment_status=cancelled&message=${encodeURIComponent('পেমেন্ট সেশন সম্পন্ন করা হয়নি')}${isSmsType ? '&type=sms' : isMarketplaceType ? '&type=marketplace' : ''}`);
+      return res.redirect(`/?payment_status=cancelled&message=${encodeURIComponent('পেমেন্ট সেশন সম্পন্ন করা হয়নি')}${isSmsType ? '&type=sms' : isMarketplaceType ? '&type=marketplace&order_id=' + encodeURIComponent(req.query.order_id || paymentId) : ''}`);
     }
 
     // Verify with Paymently Verify API before activating subscription or SMS or Marketplace!

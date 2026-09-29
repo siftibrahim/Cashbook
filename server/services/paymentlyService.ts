@@ -932,8 +932,10 @@ export class PaymentlyService {
               payment_status = 'paid',
               payment_trx_id = $1,
               overall_status = 'confirmed',
+              admin_approval_status = 'approved',
+              is_admin_approved = true,
               updated_at = $2
-            WHERE id = $3 OR id = $4`,
+            WHERE id = $3 OR id = $4 OR order_number = $3`,
             [params.trxId, now, orderId, `mkt_ord_${orderId}`]
           );
 
@@ -943,6 +945,9 @@ export class PaymentlyService {
               order_status = 'confirmed',
               trx_id = $1,
               payment_amount = total_amount,
+              admin_approval_status = 'approved',
+              is_admin_approved = true,
+              is_hidden_from_vendor = false,
               updated_at = $2
             WHERE master_order_id = $3 OR master_order_id = $4`,
             [params.trxId, now, orderId, `mkt_ord_${orderId}`]
@@ -953,12 +958,14 @@ export class PaymentlyService {
       } else if (orderId) {
         if (inMemoryStore.marketplace_master_orders) {
           const mo = inMemoryStore.marketplace_master_orders.find(
-            (o: any) => o.id === orderId || o.id === `mkt_ord_${orderId}`
+            (o: any) => o.id === orderId || o.id === `mkt_ord_${orderId}` || o.orderNumber === orderId
           );
           if (mo) {
             mo.paymentStatus = 'paid';
             mo.paymentTrxId = params.trxId;
             mo.overallStatus = 'confirmed';
+            mo.adminApprovalStatus = 'approved';
+            mo.isAdminApproved = true;
             mo.updatedAt = now;
           }
         }
@@ -969,6 +976,9 @@ export class PaymentlyService {
               o.orderStatus = 'confirmed';
               o.trxId = params.trxId;
               o.paymentAmount = o.totalAmount;
+              o.adminApprovalStatus = 'approved';
+              o.isAdminApproved = true;
+              o.isHiddenFromVendor = false;
               o.updatedAt = now;
             }
           });
