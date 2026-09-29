@@ -557,20 +557,65 @@ export const App: React.FC = () => {
         const plan = params.get('plan');
         const message = params.get('message');
 
+        const type = params.get('type');
+        const orderId = params.get('order_id');
+
         if (paymentStatus === 'success') {
-          showToast(
-            `🎉 পেমেন্ট সফল হয়েছে! আপনার ${plan || 'সাবস্ক্রিপশন'} প্যাকেজ (৳${amount || ''}) সফলভাবে সক্রিয় করা হয়েছে। TrxID: ${trxId || invoiceId}`
-          );
-          const currentUser = getStoredUser();
-          if (currentUser?.id) {
-            loadUserAccountData(currentUser.id);
+          if (type === 'marketplace') {
+            showToast(`🎉 আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডার (${orderId || ''}) এর পেমেন্ট সফল হয়েছে!`);
+          } else {
+            showToast(
+              `🎉 পেমেন্ট সফল হয়েছে! আপনার ${plan || 'সাবস্ক্রিপশন'} প্যাকেজ (৳${amount || ''}) সফলভাবে সক্রিয় করা হয়েছে। TrxID: ${trxId || invoiceId}`
+            );
+            const currentUser = getStoredUser();
+            if (currentUser?.id) {
+              loadUserAccountData(currentUser.id);
+            }
           }
         } else if (paymentStatus === 'pending') {
           showToast(`⏳ ${message || 'পেমেন্ট প্রসেসিং হচ্ছে। অনুমোদিত হলে স্বয়ংক্রিয়ভাবে সক্রিয় হবে।'}`);
         } else if (paymentStatus === 'cancelled') {
-          showToast('⚠️ পেমেন্ট বাতিল করা হয়েছে। আপনি যেকোনো সময় পুনরায় চেষ্টা করতে পারেন।');
+          if (type === 'marketplace' && orderId) {
+            import('./services/marketplaceService').then(({ marketplaceApi }) => {
+              marketplaceApi.cancelOrder(orderId, 'পেমেন্ট গেটওয়েতে গ্রাহক পেমেন্ট বাতিল করেছেন').catch(() => {});
+            });
+            try {
+              const raw = localStorage.getItem('twing_mkt_customer_orders_v1');
+              if (raw) {
+                const list = JSON.parse(raw);
+                const updated = list.map((o: any) =>
+                  o.id === orderId || o.orderNumber === orderId
+                    ? { ...o, overallStatus: 'cancelled', paymentStatus: 'cancelled' }
+                    : o
+                );
+                localStorage.setItem('twing_mkt_customer_orders_v1', JSON.stringify(updated));
+              }
+            } catch {}
+            showToast('⚠️ পেমেন্ট বাতিল করা হয়েছে এবং সেন্ট্রাল মার্কেটপ্লেস অর্ডারটি বাতিল করা হয়েছে। স্টক পুনরুদ্ধার করা হয়েছে।');
+          } else {
+            showToast('⚠️ পেমেন্ট বাতিল করা হয়েছে। আপনি যেকোনো সময় পুনরায় চেষ্টা করতে পারেন।');
+          }
         } else if (paymentStatus === 'failed') {
-          showToast(`❌ ${message || 'পেমেন্ট সম্পন্ন হয়নি বা ব্যর্থ হয়েছে।'}`);
+          if (type === 'marketplace' && orderId) {
+            import('./services/marketplaceService').then(({ marketplaceApi }) => {
+              marketplaceApi.cancelOrder(orderId, 'পেমেন্ট গেটওয়েতে পেমেন্ট ব্যর্থ হয়েছে').catch(() => {});
+            });
+            try {
+              const raw = localStorage.getItem('twing_mkt_customer_orders_v1');
+              if (raw) {
+                const list = JSON.parse(raw);
+                const updated = list.map((o: any) =>
+                  o.id === orderId || o.orderNumber === orderId
+                    ? { ...o, overallStatus: 'cancelled', paymentStatus: 'cancelled' }
+                    : o
+                );
+                localStorage.setItem('twing_mkt_customer_orders_v1', JSON.stringify(updated));
+              }
+            } catch {}
+            showToast(`❌ ${message || 'পেমেন্ট ব্যর্থ হয়েছে এবং অর্ডারটি বাতিল করা হয়েছে।'}`);
+          } else {
+            showToast(`❌ ${message || 'পেমেন্ট সম্পন্ন হয়নি বা ব্যর্থ হয়েছে।'}`);
+          }
         }
 
         // Clean query parameters from address bar without reloading

@@ -23,7 +23,8 @@ import {
 } from 'lucide-react';
 import { OnlineOrder, OnlineStoreConfig } from '../../types';
 import { formatMoney } from '../../utils/storage';
-import { storeApi } from '../../services/apiService';
+import { storeApi, publicStoreApi } from '../../services/apiService';
+import { marketplaceApi } from '../../services/marketplaceService';
 
 interface StorefrontOrderTrackerProps {
   orders: OnlineOrder[];
@@ -49,6 +50,7 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
   const [senderPhoneInput, setSenderPhoneInput] = useState('');
   const [paidAmountInput, setPaidAmountInput] = useState('');
   const [isSavingPayment, setIsSavingPayment] = useState(false);
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<{ orderId: string; type: 'success' | 'error'; text: string } | null>(null);
 
   const filteredOrders = orders.filter((o) => {
@@ -165,6 +167,58 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
       });
     } finally {
       setIsSavingPayment(false);
+    }
+  };
+
+  const handleCancelOrder = async (order: OnlineOrder) => {
+    const ordId = order.id || order.orderNumber;
+    const ordNum = order.orderNumber || order.id;
+    const isConfirmed = window.confirm(
+      `আপনি কি নিশ্চিত যে আপনি অর্ডার #${ordNum} বাতিল করতে চান? এতে অর্ডারটি সম্পূর্ণ বাতিল হয়ে যাবে এবং পণ্য স্টকে ফেরত যাবে।`
+    );
+    if (!isConfirmed) return;
+
+    setCancellingOrderId(ordId);
+    try {
+      const isMarketplace = order.orderSource === 'marketplace' || Boolean(order.masterOrderId) || ordNum.startsWith('MKT-');
+      if (isMarketplace) {
+        await marketplaceApi.cancelOrder(order.masterOrderId || ordId, 'গ্রাহক ট্র্যাকিং পেজ থেকে অর্ডার বাতিল করেছেন');
+      } else {
+        const storeSlug = storeConfig?.storeSlug || storeConfig?.customDomain;
+        if (storeSlug) {
+          await publicStoreApi.cancelOrder(storeSlug, ordId, 'গ্রাহক ট্র্যাকিং পেজ থেকে অর্ডার বাতিল করেছেন');
+        } else {
+          await storeApi.cancelOrder(ordNum, 'গ্রাহক ট্র্যাকিং পেজ থেকে অর্ডার বাতিল করেছেন');
+        }
+      }
+
+      const updated: OnlineOrder = {
+        ...order,
+        orderStatus: 'cancelled',
+        paymentStatus: 'cancelled',
+        paymentRejectReason: 'গ্রাহক কর্তৃক অর্ডার বাতিল',
+        updatedAt: Date.now(),
+      };
+
+      if (onOrderUpdatedLocally) {
+        onOrderUpdatedLocally(updated);
+      }
+      if (onRefresh) {
+        await onRefresh();
+      }
+      setFeedbackMsg({
+        orderId: ordId,
+        type: 'success',
+        text: '✅ আপনার অর্ডারটি সফলভাবে বাতিল করা হয়েছে।',
+      });
+    } catch (err: any) {
+      setFeedbackMsg({
+        orderId: ordId,
+        type: 'error',
+        text: '❌ ' + (err?.message || 'অর্ডার বাতিল করতে সমস্যা হয়েছে'),
+      });
+    } finally {
+      setCancellingOrderId(null);
     }
   };
 
@@ -688,26 +742,42 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
                   )}
                 </div>
 
-                {/* Delivery details & WhatsApp action */}
-                <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
-                  <div className="flex items-center gap-1 truncate pr-2">
+                {/* Delivery details, Cancel action & WhatsApp action */}
+                <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100 flex-wrap gap-2">
+                  <div className="flex items-center gap-1 truncate pr-2 max-w-[200px]">
                     <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                     <span className="truncate">{order.customerAddress}</span>
                   </div>
 
-                  {whatsappPhone && (
-                    <a
-                      href={`https://wa.me/${whatsappPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                        `হ্যালো, আমি আমার অর্ডার (${order.orderNumber}) সম্পর্কে জানতে চাই।`
-                      )}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl hover:bg-emerald-100 font-bold flex items-center gap-1 shrink-0 transition cursor-pointer"
-                    >
-                      <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>WhatsApp হেল্প</span>
-                    </a>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {/* Customer Cancel Order Button: allowed if order is pending or processing and not yet delivered/shipped/cancelled */}
+                    {!isCancelled && order.orderStatus !== 'shipped' && order.orderStatus !== 'delivered' && (
+                      <button
+                        type="button"
+                        disabled={cancellingOrderId === (order.id || order.orderNumber)}
+                        onClick={() => handleCancelOrder(order)}
+                        className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-[11px] font-bold flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                        title="এই অর্ডারটি বাতিল করুন"
+                      >
+                        <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                        <span>{cancellingOrderId === (order.id || order.orderNumber) ? 'বাতিল হচ্ছে...' : 'অর্ডার বাতিল করুন'}</span>
+                      </button>
+                    )}
+
+                    {whatsappPhone && (
+                      <a
+                        href={`https://wa.me/${whatsappPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                          `হ্যালো, আমি আমার অর্ডার (${order.orderNumber}) সম্পর্কে জানতে চাই।`
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl hover:bg-emerald-100 font-bold flex items-center gap-1 shrink-0 transition cursor-pointer text-[11px]"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>WhatsApp</span>
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
             );

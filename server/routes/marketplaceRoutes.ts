@@ -323,9 +323,7 @@ router.get('/featured', async (_req: Request, res: Response) => {
 
 const DEFAULT_MARKETPLACE_SETTINGS = {
   isMarketplaceActive: true,
-  commissionPercent: 5,
-  payoutFee: 10,
-  boostFee: 100,
+  commissionPercent: 0,
   deliveryFeeDhaka: 70,
   deliveryFeeOutside: 130,
   onlineGatewayEnabled: true,
@@ -350,14 +348,7 @@ const DEFAULT_MARKETPLACE_SETTINGS = {
   bankBranch: 'মতিঝিল কর্পোরেট শাখা, ঢাকা',
   bankRouting: '125272643',
   platformBkashNumber: '01306908115',
-  bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও ১০০% অরিজিনাল পণ্যের নিশ্চয়তা!',
-  bannerImageUrl: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
-  bannerTitle: 'আপনার প্রতিদিনের প্রয়োজনীয় সব পণ্য এখন এক জায়গায়!',
-  bannerSubtitle: 'সরাসরি ফ্রেশ সোর্স থেকে খাঁটি পণ্য নিয়ে সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি।',
-  bannerTag: '⚡ মেগা ধামাকা অফার',
-  bannerLink: '#marketplace-best-offers-section',
-  bannerButtonText: 'এখনই অর্ডার করুন',
-  bannerActive: true,
+  bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও অরিজিনাল পণ্যের নিশ্চয়তা!',
   paymentInstructions: 'বিকাশ, নগদ বা রকেট নম্বরে প্রয়োজনীয় টাকা পাঠিয়ে TrxID এবং প্রেরক নম্বর দিয়ে অর্ডার কনফার্ম করুন।',
 };
 
@@ -425,15 +416,12 @@ async function getStoredMarketplaceSettings(): Promise<any> {
       isEnabled: true,
       personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে Send Money করুন' },
     },
-    banglaQr: {
-      isEnabled: systemPaymentSettings?.banglaQr?.isEnabled !== false,
-      accountTitle: systemPaymentSettings?.banglaQr?.accountTitle || 'TWING হিসাবি / সুপার এডমিন',
-      merchantId: systemPaymentSettings?.banglaQr?.merchantId || '01306908115',
-      bankOrMfsName: systemPaymentSettings?.banglaQr?.bankOrMfsName || 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
-      terminalId: systemPaymentSettings?.banglaQr?.terminalId || 'TWING-BQR-01',
-      qrCodeUrl: systemPaymentSettings?.banglaQr?.qrCodeUrl || '',
-      qrPayload: systemPaymentSettings?.banglaQr?.qrPayload || '',
-      instructions: systemPaymentSettings?.banglaQr?.instructions || 'যেকোনো ব্যাংক বা এমএফএস (বিকাশ, নগদ, সেলফিন ইত্যাদি) অ্যাপ দিয়ে বাংলা কিউআর স্ক্যান করে পেমেন্ট সম্পন্ন করুন এবং ট্রানজেকশন আইডি দিন।',
+    banglaQr: systemPaymentSettings?.banglaQr || {
+      isEnabled: true,
+      accountTitle: 'TWING হিসাবি / সুপার এডমিন',
+      merchantId: '01306908115',
+      bankOrMfsName: 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
+      terminalId: 'TWING-BQR-01',
     },
     bankTransfer: systemPaymentSettings?.bankTransfer || {
       isEnabled: true,
@@ -815,8 +803,8 @@ router.post('/checkout', async (req: Request, res: Response) => {
     activeDedupeKey = dedupeKey;
 
     const cachedOrder = recentCheckoutCache.get(dedupeKey);
-    if (cachedOrder && (Date.now() - cachedOrder.timestamp) < 3000) {
-      console.log('⚡ Returning cached checkout to prevent rapid double-click duplicate order for:', standardPhone);
+    if (cachedOrder && (Date.now() - cachedOrder.timestamp) < 60000) {
+      console.log('⚡ Returning cached checkout to prevent duplicate order for:', standardPhone);
       return res.status(200).json(cachedOrder.responseData);
     }
 
@@ -826,24 +814,37 @@ router.post('/checkout', async (req: Request, res: Response) => {
     }
     inFlightCheckoutKeys.add(dedupeKey);
 
-    const isPaymently = normalizedPaymentMethod === 'paymently' || 
-      normalizedPaymentMethod === 'online_paymently' ||
-      normalizedPaymentMethod === 'uddoktapay' ||
-      normalizedPaymentMethod === 'online_uddoktapay';
+    // Also check in-memory store for recent duplicate master order (within 60 seconds)
+    const recentMaster = (inMemoryStore.marketplace_master_orders || []).find((m) => {
+      const isSamePhone = (m.customerPhone || '').replace(/\D/g, '').endsWith(standardPhone.slice(-10));
+      const isRecent = (Date.now() - Number(m.createdAt || 0)) < 60000;
+      return isSamePhone && isRecent;
+    });
+
+    if (recentMaster) {
+      console.log('⚡ Found existing recent marketplace master order within 60s, returning existing order:', recentMaster.orderNumber);
+      inFlightCheckoutKeys.delete(dedupeKey);
+      const subOrders = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === recentMaster.id);
+      return res.status(200).json({
+        success: true,
+        masterOrder: recentMaster,
+        subOrders,
+        message: 'আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডারটি সফলভাবে জমা হয়েছে।',
+      });
+    }
+
+    const isPaymently = normalizedPaymentMethod === 'paymently' || normalizedPaymentMethod === 'online_paymently';
     const isAutoPaid = req.body.isAutoPaid === true || 
       req.body.paymentStatus === 'paid';
 
-    // For manual digital payment methods (bKash, Nagad, Rocket, Upay, Bangla QR, Bank):
-    // Customer must provide valid TrxID and Sender Phone.
-    // For COD and automated gateways (paymently/uddoktapay), TrxID is not required beforehand.
     if (normalizedPaymentMethod !== 'cod' && !isPaymently && !isAutoPaid) {
       if (!paymentTrxId || !String(paymentTrxId).trim()) {
         inFlightCheckoutKeys.delete(dedupeKey);
-        return res.status(400).json({ error: 'পেমেন্ট সম্পন্ন না করে অর্ডার দেওয়া যাবে না। অনুগ্রহ করে সঠিক ট্রানজেকশন আইডি (TrxID) দিন।' });
+        return res.status(400).json({ error: 'বিকাশ, নগদ বা রকেট পেমেন্টের জন্য Transaction ID (TrxID) দেওয়া আবশ্যক।' });
       }
       if (!senderPhone || !String(senderPhone).trim()) {
         inFlightCheckoutKeys.delete(dedupeKey);
-        return res.status(400).json({ error: 'যে নম্বর বা একাউন্ট থেকে টাকা পাঠিয়েছেন সেই প্রেরক মোবাইল নম্বরটি প্রদান করুন।' });
+        return res.status(400).json({ error: 'যে নম্বর থেকে টাকা পাঠিয়েছেন সেই প্রেরক মোবাইল নম্বরটি প্রদান করুন।' });
       }
     }
 
@@ -852,35 +853,6 @@ router.post('/checkout', async (req: Request, res: Response) => {
     const cleanAddress = customerAddress.trim();
     const cleanTrxId = String(paymentTrxId || (isAutoPaid ? `PGW_${Date.now().toString(36).toUpperCase()}` : '')).trim();
     const cleanSenderPhone = String(senderPhone || cleanPhone).trim();
-
-    // 🔒 STRICT UNIQUENESS: Reject duplicate reuse of previous TrxID
-    if (cleanTrxId && !isAutoPaid && normalizedPaymentMethod !== 'cod') {
-      const pool = getDbPool();
-      if (pool) {
-        try {
-          const dupRes = await pool.query(
-            'SELECT id, order_number FROM marketplace_master_orders WHERE LOWER(payment_trx_id) = LOWER($1) LIMIT 1',
-            [cleanTrxId]
-          );
-          if (dupRes.rows.length > 0) {
-            inFlightCheckoutKeys.delete(dedupeKey);
-            return res.status(400).json({
-              error: `এই ট্রানজেকশন আইডি (TrxID) দিয়ে ইতোমধ্যে অর্ডার #${dupRes.rows[0].order_number || dupRes.rows[0].id} করা হয়েছে। নতুন অর্ডারের জন্য অনুগ্রহ করে নতুন পেমেন্ট করে নতুন TrxID প্রদান করুন।`,
-            });
-          }
-        } catch (e) {}
-      } else if (inMemoryStore.marketplace_master_orders) {
-        const found = inMemoryStore.marketplace_master_orders.find(
-          (m: any) => m.paymentTrxId && m.paymentTrxId.toLowerCase() === cleanTrxId.toLowerCase()
-        );
-        if (found) {
-          inFlightCheckoutKeys.delete(dedupeKey);
-          return res.status(400).json({
-            error: `এই ট্রানজেকশন আইডি (TrxID) দিয়ে ইতোমধ্যে অর্ডার #${found.orderNumber || found.id} করা হয়েছে। নতুন অর্ডারের জন্য অনুগ্রহ করে নতুন পেমেন্ট করে নতুন TrxID প্রদান করুন।`,
-          });
-        }
-      }
-    }
 
     // Fetch live settings for dynamic delivery rates
     const settings = await getStoredMarketplaceSettings();
@@ -1236,9 +1208,20 @@ router.post('/checkout', async (req: Request, res: Response) => {
       }
     }
 
-    // 🔒 STRICT REQUIREMENT: No confirmation SMS is sent to customer at checkout!
-    // As per user specification: "সেন্ট্রাল মার্কেটপ্লেসে সুপার এডমিন পেমেন্ট ভেরিফাই করার আগে কোন কনফারমেশন মেসেজ যাবে না কাস্টমারের ফোনে"
-    // Confirmation SMS is sent ONLY when Super Admin verifies and accepts the payment in /admin/orders/:id/approve-payment!
+    // 🔔 SEND CUSTOMER ORDER CONFIRMATION SMS FROM THE SPECIFIC VENDOR'S ACCOUNT
+    // "কাস্টমার যার প্রোডাক্ট কিনবে তার সেই ব্যক্তির ভেন্ডর একাউন্ট থেকেই থেকে মেসেজগুলো খরচ করবে"
+    if (cleanPhone && cleanPhone.length >= 11 && createdSubOrders.length > 0) {
+      for (const sub of createdSubOrders) {
+        const vId = sub.vendorId || sub.userId;
+        const subTotal = sub.totalAmount || sub.total_amount || 0;
+        const subOrderNum = sub.orderNumber || sub.order_number;
+        const payMethodText = normalizedPaymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : 'অনলাইন পরিশোধ';
+
+        // Note: As per policy, no confirmation SMS is sent to customer before Super Admin verifies the payment.
+        // Confirmation SMS will be dispatched only when Super Admin approves the payment in /admin/orders/:id/approve-payment
+        console.log(`ℹ️ [Order Created] Central Marketplace order #${subOrderNum} created for vendor '${vId}'. Waiting for Super Admin payment verification before SMS confirmation.`);
+      }
+    }
 
     const responsePayload = {
       success: true,

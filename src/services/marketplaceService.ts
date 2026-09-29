@@ -117,6 +117,19 @@ export const marketplaceApi = {
     return data;
   },
 
+  async cancelOrder(orderId: string, reason?: string): Promise<{ success: boolean; message: string; cancelledOrder?: any }> {
+    const res = await fetch('/api/marketplace/cancel-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId, reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'অর্ডার বাতিল করতে সমস্যা হয়েছে');
+    }
+    return data;
+  },
+
   async getSettings(): Promise<{ success: boolean; settings?: any }> {
     try {
       const res = await fetch('/api/marketplace/settings');

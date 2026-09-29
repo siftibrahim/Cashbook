@@ -977,6 +977,16 @@ export const storeApi = {
     }
   },
 
+  async cancelOrder(orderNumber: string, reason?: string): Promise<{ success: boolean; message: string; order?: OnlineOrder }> {
+    return apiRequest<{ success: boolean; message: string; order?: OnlineOrder }>(
+      `/store/orders/track/${encodeURIComponent(orderNumber)}/cancel`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }
+    );
+  },
+
   async deleteOrder(orderId: string): Promise<boolean> {
     try {
       await apiRequest(`/store/orders/${encodeURIComponent(orderId)}`, { method: 'DELETE' });
@@ -1146,6 +1156,26 @@ export const publicStoreApi = {
       return res?.order || (res?.orders?.[0]) || null;
     } catch {
       return null;
+    }
+  },
+
+  async cancelOrder(identifier: string, orderId: string, reason?: string): Promise<{ success: boolean; message: string }> {
+    try {
+      return await apiRequest<{ success: boolean; message: string }>(
+        `/public/store/${encodeURIComponent(identifier)}/orders/${encodeURIComponent(orderId)}/cancel`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }
+      );
+    } catch {
+      return await apiRequest<{ success: boolean; message: string }>(
+        `/public/store/orders/${encodeURIComponent(orderId)}/cancel`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }
+      );
     }
   },
 

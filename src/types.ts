@@ -345,7 +345,7 @@ export interface OnlineOrder {
   subtotal: number;
   totalAmount: number;
   paymentMethod: 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank' | 'bangla_qr';
-  paymentStatus: 'unpaid' | 'paid' | 'partial' | 'partial_paid' | 'pending_verification' | 'rejected' | 'refunded';
+  paymentStatus: 'unpaid' | 'paid' | 'partial' | 'partial_paid' | 'pending_verification' | 'rejected' | 'refunded' | 'cancelled';
   orderStatus: 'pending' | 'confirmed' | 'processing' | 'packed' | 'shipped' | 'out_for_delivery' | 'delivered' | 'cancelled' | 'returned';
   trxId?: string;
   senderPhone?: string;
