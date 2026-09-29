@@ -416,12 +416,15 @@ async function getStoredMarketplaceSettings(): Promise<any> {
       isEnabled: true,
       personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে Send Money করুন' },
     },
-    banglaQr: systemPaymentSettings?.banglaQr || {
-      isEnabled: true,
-      accountTitle: 'TWING হিসাবি / সুপার এডমিন',
-      merchantId: '01306908115',
-      bankOrMfsName: 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
-      terminalId: 'TWING-BQR-01',
+    banglaQr: {
+      isEnabled: systemPaymentSettings?.banglaQr?.isEnabled !== false,
+      accountTitle: systemPaymentSettings?.banglaQr?.accountTitle || 'TWING হিসাবি / সুপার এডমিন',
+      merchantId: systemPaymentSettings?.banglaQr?.merchantId || '01306908115',
+      bankOrMfsName: systemPaymentSettings?.banglaQr?.bankOrMfsName || 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
+      terminalId: systemPaymentSettings?.banglaQr?.terminalId || 'TWING-BQR-01',
+      qrCodeUrl: systemPaymentSettings?.banglaQr?.qrCodeUrl || '',
+      qrPayload: systemPaymentSettings?.banglaQr?.qrPayload || '',
+      instructions: systemPaymentSettings?.banglaQr?.instructions || 'যেকোনো ব্যাংক বা এমএফএস (বিকাশ, নগদ, সেলফিন ইত্যাদি) অ্যাপ দিয়ে বাংলা কিউআর স্ক্যান করে পেমেন্ট সম্পন্ন করুন এবং ট্রানজেকশন আইডি দিন।',
     },
     bankTransfer: systemPaymentSettings?.bankTransfer || {
       isEnabled: true,
@@ -833,18 +836,21 @@ router.post('/checkout', async (req: Request, res: Response) => {
       });
     }
 
-    const isPaymently = normalizedPaymentMethod === 'paymently' || normalizedPaymentMethod === 'online_paymently';
+    const isPaymently = normalizedPaymentMethod === 'paymently' || 
+      normalizedPaymentMethod === 'online_paymently' ||
+      normalizedPaymentMethod === 'uddoktapay' ||
+      normalizedPaymentMethod === 'online_uddoktapay';
     const isAutoPaid = req.body.isAutoPaid === true || 
       req.body.paymentStatus === 'paid';
 
     if (normalizedPaymentMethod !== 'cod' && !isPaymently && !isAutoPaid) {
       if (!paymentTrxId || !String(paymentTrxId).trim()) {
         inFlightCheckoutKeys.delete(dedupeKey);
-        return res.status(400).json({ error: 'বিকাশ, নগদ বা রকেট পেমেন্টের জন্য Transaction ID (TrxID) দেওয়া আবশ্যক।' });
+        return res.status(400).json({ error: 'পেমেন্টের Transaction ID (TrxID) বা রেফারেন্স নম্বর দেওয়া আবশ্যক।' });
       }
       if (!senderPhone || !String(senderPhone).trim()) {
         inFlightCheckoutKeys.delete(dedupeKey);
-        return res.status(400).json({ error: 'যে নম্বর থেকে টাকা পাঠিয়েছেন সেই প্রেরক মোবাইল নম্বরটি প্রদান করুন।' });
+        return res.status(400).json({ error: 'যে নম্বর বা অ্যাকাউন্ট থেকে টাকা পাঠিয়েছেন সেই প্রেরক মোবাইল নম্বরটি প্রদান করুন।' });
       }
     }
 
@@ -1208,50 +1214,9 @@ router.post('/checkout', async (req: Request, res: Response) => {
       }
     }
 
-    // 🔔 SEND CUSTOMER ORDER CONFIRMATION SMS FROM THE SPECIFIC VENDOR'S ACCOUNT
-    // "কাস্টমার যার প্রোডাক্ট কিনবে তার সেই ব্যক্তির ভেন্ডর একাউন্ট থেকেই থেকে মেসেজগুলো খরচ করবে"
-    if (cleanPhone && cleanPhone.length >= 11 && createdSubOrders.length > 0) {
-      for (const sub of createdSubOrders) {
-        const vId = sub.vendorId || sub.userId;
-        const subTotal = sub.totalAmount || sub.total_amount || 0;
-        const subOrderNum = sub.orderNumber || sub.order_number;
-        const payMethodText = normalizedPaymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : 'অনলাইন পরিশোধ';
-
-        // Async deduction and dispatch per vendor without blocking checkout response
-        (async () => {
-          let vShopName = 'ভেন্ডর শপ';
-          if (pool) {
-            try {
-              const vRes = await pool.query('SELECT name, shop_name FROM users WHERE id = $1', [vId]);
-              if (vRes.rows.length > 0) {
-                vShopName = vRes.rows[0].shop_name || vRes.rows[0].name || vShopName;
-              }
-            } catch {}
-          } else {
-            const u = (inMemoryStore.users || []).find((x: any) => x.id === vId);
-            if (u) vShopName = u.shopName || u.name || vShopName;
-          }
-
-          const orderConfirmMsg = `${vShopName}: ধন্যবাদ ${cleanName}! সেন্ট্রাল মার্কেটপ্লেসে আপনার অর্ডার #${subOrderNum} সফলভাবে জমা হয়েছে। মোট বিল: ৳${subTotal} (${payMethodText})। শীঘ্রই ডেলিভারির জন্য যোগাযোগ করা হবে।`;
-
-          try {
-            const deductRes = await deductVendorSmsAndSend(vId, cleanPhone, orderConfirmMsg, {
-              smsType: 'marketplace_order_confirm',
-              orderNumber: subOrderNum,
-              customerName: cleanName,
-              vendorShopName: vShopName,
-            });
-            if (deductRes.deducted) {
-              console.log(`✅ [Vendor SMS Charged] Order #${subOrderNum} confirmation SMS sent to ${cleanPhone}. Charged from vendor '${vId}' (${vShopName}). Remaining: ${deductRes.remainingBalance}`);
-            } else {
-              console.warn(`⚠️ [Vendor SMS Skipped] Vendor '${vId}' (${vShopName}) insufficient SMS balance: ${deductRes.message}`);
-            }
-          } catch (err: any) {
-            console.warn(`Customer marketplace checkout confirmation SMS error for vendor ${vId}:`, err?.message || err);
-          }
-        })();
-      }
-    }
+    // 🔒 STRICT REQUIREMENT: No confirmation SMS is sent to customer at checkout!
+    // As per user specification: "সেন্ট্রাল মার্কেটপ্লেসে সুপার এডমিন পেমেন্ট ভেরিফাই করার আগে কোন কনফারমেশন মেসেজ যাবে না কাস্টমারের ফোনে"
+    // Confirmation SMS is sent ONLY when Super Admin verifies and accepts the payment in /admin/orders/:id/approve-payment!
 
     const responsePayload = {
       success: true,

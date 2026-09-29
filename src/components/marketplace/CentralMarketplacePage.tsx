@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Store,
   Share2,
+  Sparkles,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import {
@@ -318,8 +319,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     setActiveTab(tab);
   }, []);
 
-  // Payment Method selection
-  const [paymentMethod, setPaymentMethod] = useState<'paymently' | 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank'>('paymently');
+  // Payment Method selection (UddoktaPay, Bangla QR, MFS, COD, Bank)
+  const [paymentMethod, setPaymentMethod] = useState<'paymently' | 'bangla_qr' | 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank'>('paymently');
   const [customerTrxId, setCustomerTrxId] = useState('');
   const [customerSenderPhone, setCustomerSenderPhone] = useState('');
   const [selectedBankAccountIndex, setSelectedBankAccountIndex] = useState(0);
@@ -435,7 +436,21 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
             setCategories(catRes.categories);
           }
           if (settingsRes?.success && settingsRes.settings) {
-            setMarketplaceSettings((prev: any) => ({ ...prev, ...settingsRes.settings }));
+            const s = settingsRes.settings;
+            setMarketplaceSettings((prev: any) => ({ ...prev, ...s }));
+            if (s.systemPaymentSettings || s.banglaQr || s.paymently) {
+              setPaymentSettings((prev) => ({
+                ...prev,
+                ...(s.systemPaymentSettings || {}),
+                paymently: s.paymently || s.systemPaymentSettings?.paymently || prev.paymently,
+                banglaQr: s.banglaQr || s.systemPaymentSettings?.banglaQr || prev.banglaQr,
+                bkash: s.bkash || s.systemPaymentSettings?.bkash || prev.bkash,
+                nagad: s.nagad || s.systemPaymentSettings?.nagad || prev.nagad,
+                rocket: s.rocket || s.systemPaymentSettings?.rocket || prev.rocket,
+                upay: s.upay || s.systemPaymentSettings?.upay || prev.upay,
+                bankTransfer: s.bankTransfer || s.systemPaymentSettings?.bankTransfer || prev.bankTransfer,
+              }));
+            }
           }
         }
       } catch (err) {
@@ -455,18 +470,37 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   useEffect(() => {
     const unsub = subscribeToPaymentSettings((data) => {
       if (data) {
-        setPaymentSettings(data);
-        if (data.banglaQr?.isEnabled && data.banglaQr?.qrPayload) {
-          QRCode.toDataURL(data.banglaQr.qrPayload, { width: 300, margin: 2 })
-            .then((url) => setBanglaQrDataUrl(url))
-            .catch(() => {});
-        }
+        setPaymentSettings((prev) => ({
+          ...prev,
+          ...data,
+          paymently: data.paymently || prev.paymently,
+          banglaQr: data.banglaQr || prev.banglaQr,
+        }));
       }
     });
     return () => {
       if (typeof unsub === 'function') unsub();
     };
   }, []);
+
+  // Sync / Generate Bangla QR Data URL from live settings
+  useEffect(() => {
+    const bQr = paymentSettings.banglaQr;
+    if (bQr?.qrCodeUrl) {
+      setBanglaQrDataUrl(bQr.qrCodeUrl);
+    } else if (bQr?.qrPayload) {
+      QRCode.toDataURL(bQr.qrPayload, { width: 320, margin: 2 })
+        .then((url) => setBanglaQrDataUrl(url))
+        .catch(() => {});
+    } else if (bQr?.merchantId) {
+      const merchant = bQr.merchantId || '01306908115';
+      const title = bQr.accountTitle || 'TWING HISABI SUPER ADMIN';
+      const qrText = `BANGLA_QR:${merchant}:${title}:${bQr.bankOrMfsName || 'MFS'}`;
+      QRCode.toDataURL(qrText, { width: 320, margin: 2 })
+        .then((url) => setBanglaQrDataUrl(url))
+        .catch(() => {});
+    }
+  }, [paymentSettings.banglaQr]);
 
   // Filtered products list (only published online & with stock)
   const activeProducts = useMemo(() => {
@@ -487,9 +521,22 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return others.length > 0 ? others : activeProducts;
   }, [activeProducts, bestOffersProducts]);
 
-  // MFS Information
+  // Payment Method Information (bKash, Nagad, Rocket, Upay, Bangla QR, Bank)
   const methodInfo = useMemo(() => {
     switch (paymentMethod) {
+      case 'bangla_qr':
+        return {
+          name: 'বাংলা কিউআর (Bangla QR)',
+          number: paymentSettings.banglaQr?.merchantId || '01306908115',
+          instructions: paymentSettings.banglaQr?.instructions || 'বিকাশ, নগদ, সেলফিন (IBBL), নেক্সাসপে (DBBL) বা যেকোনো ব্যাংক অ্যাপের কিউআর স্ক্যানার দিয়ে স্ক্যান করে পেমেন্ট করুন।',
+          type: 'official_merchant',
+          color: 'emerald',
+          isBanglaQr: true,
+          accountTitle: paymentSettings.banglaQr?.accountTitle || 'TWING হিসাবি / সুপার এডমিন',
+          bankOrMfsName: paymentSettings.banglaQr?.bankOrMfsName || 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
+          terminalId: paymentSettings.banglaQr?.terminalId || 'TWING-BQR-01',
+          qrCodeUrl: paymentSettings.banglaQr?.qrCodeUrl || banglaQrDataUrl,
+        };
       case 'bkash':
         return {
           name: 'bKash (বিকাশ)',
@@ -522,10 +569,22 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           type: paymentSettings.upay?.personal?.accountType || 'personal',
           color: 'amber',
         };
+      case 'bank':
+        const acc = paymentSettings.bankTransfer?.accounts?.[selectedBankAccountIndex] || paymentSettings.bankTransfer?.accounts?.[0];
+        return {
+          name: acc?.bankName || 'ব্যাংক ট্রান্সফার',
+          number: acc?.accountNumber || '',
+          instructions: acc?.instructions || 'ব্যাংক অ্যাকাউন্টে টাকা পাঠিয়ে ডিপোজিট স্লিপ/ট্রানজেকশন আইডি দিন',
+          type: acc?.accountName || 'ব্যাংক অ্যাকাউন্ট',
+          color: 'blue',
+          isBank: true,
+          branchName: acc?.branchName,
+          routingNumber: acc?.routingNumber,
+        };
       default:
         return null;
     }
-  }, [paymentMethod, paymentSettings]);
+  }, [paymentMethod, paymentSettings, banglaQrDataUrl, selectedBankAccountIndex]);
 
   const handleCopyNumber = (num: string) => {
     try {
@@ -1566,38 +1625,55 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                       </div>
 
                       {/* Payment Method Selector */}
-                      <div className="space-y-2 pt-1">
+                      <div className="space-y-3 pt-1">
                         <label className="block text-xs font-bold text-slate-800">
                           পেমেন্ট পদ্ধতি নির্বাচন করুন *
                         </label>
 
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          {/* Paymently (Online Gateway) */}
+                          {/* UddoktaPay (Online Automated Gateway with Bangla QR & MFS) */}
                           <button
                             type="button"
                             onClick={() => setPaymentMethod('paymently')}
-                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
+                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer relative overflow-hidden ${
                               paymentMethod === 'paymently'
-                                ? 'border-teal-600 bg-teal-50 text-teal-900 font-black'
+                                ? 'border-teal-600 bg-teal-50/90 text-teal-950 font-black ring-2 ring-teal-600/30'
                                 : 'border-slate-200 text-slate-700 hover:bg-slate-50'
                             }`}
                           >
-                            <span>🚀 অনলাইন গেটওয়ে</span>
-                            <span className="text-[10px] text-teal-700 font-normal mt-0.5">অটোমেটিক ইনস্ট্যান্ট পেমেন্ট</span>
+                            <div className="flex items-center gap-1.5 font-black text-xs text-teal-800">
+                              <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                              <span>⚡ UddoktaPay গেটওয়ে</span>
+                            </div>
+                            <span className="text-[10px] text-teal-700 font-medium mt-0.5">
+                              অটো কিউআর, বিকাশ, নগদ, কার্ড
+                            </span>
+                            <div className="flex flex-wrap gap-1 mt-1 text-[9px]">
+                              <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-black">🇧🇩 Bangla QR</span>
+                              <span className="px-1.5 py-0.2 bg-teal-100 text-teal-800 rounded font-bold">অটোমেটিক</span>
+                            </div>
                           </button>
 
-                          {/* Cash on Delivery */}
+                          {/* Direct Bangla QR Code (Official Super Admin QR) */}
                           <button
                             type="button"
-                            onClick={() => setPaymentMethod('cod')}
-                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
-                              paymentMethod === 'cod'
-                                ? 'border-teal-600 bg-teal-50 text-teal-900 font-black'
+                            onClick={() => setPaymentMethod('bangla_qr')}
+                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer relative overflow-hidden ${
+                              paymentMethod === 'bangla_qr'
+                                ? 'border-emerald-600 bg-emerald-50 text-emerald-950 font-black ring-2 ring-emerald-600/30'
                                 : 'border-slate-200 text-slate-700 hover:bg-slate-50'
                             }`}
                           >
-                            <span>💵 ক্যাশ অন ডেলিভারি</span>
-                            <span className="text-[10px] text-slate-500 font-normal mt-0.5">পণ্য পেয়ে মূল্য দিন</span>
+                            <div className="flex items-center gap-1.5 font-black text-xs text-emerald-800">
+                              <QrCode className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>🇧🇩 বাংলা কিউআর কোড</span>
+                            </div>
+                            <span className="text-[10px] text-emerald-700 font-medium mt-0.5">
+                              সরাসরি কিউআর স্ক্যান ও পে
+                            </span>
+                            <div className="flex flex-wrap gap-1 mt-1 text-[9px]">
+                              <span className="px-1.5 py-0.2 bg-emerald-200/80 text-emerald-900 rounded font-black">সকল ব্যাংক ও MFS</span>
+                            </div>
                           </button>
 
                           {/* bKash */}
@@ -1606,12 +1682,12 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                             onClick={() => setPaymentMethod('bkash')}
                             className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
                               paymentMethod === 'bkash'
-                                ? 'border-pink-500 bg-pink-50 text-pink-900 font-black'
+                                ? 'border-pink-500 bg-pink-50 text-pink-900 font-black ring-2 ring-pink-500/30'
                                 : 'border-slate-200 text-slate-700 hover:bg-slate-50'
                             }`}
                           >
                             <span>🌸 বিকাশ (bKash)</span>
-                            <span className="text-[10px] text-pink-700 font-normal mt-0.5">ম্যানুয়াল Send Money</span>
+                            <span className="text-[10px] text-pink-700 font-normal mt-0.5">Send Money / Payment</span>
                           </button>
 
                           {/* Nagad */}
@@ -1620,17 +1696,180 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                             onClick={() => setPaymentMethod('nagad')}
                             className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
                               paymentMethod === 'nagad'
-                                ? 'border-orange-500 bg-orange-50 text-orange-900 font-black'
+                                ? 'border-orange-500 bg-orange-50 text-orange-900 font-black ring-2 ring-orange-500/30'
                                 : 'border-slate-200 text-slate-700 hover:bg-slate-50'
                             }`}
                           >
                             <span>🍊 নগদ (Nagad)</span>
                             <span className="text-[10px] text-orange-700 font-normal mt-0.5">ম্যানুয়াল Send Money</span>
                           </button>
+
+                          {/* Rocket */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('rocket')}
+                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
+                              paymentMethod === 'rocket'
+                                ? 'border-purple-500 bg-purple-50 text-purple-900 font-black ring-2 ring-purple-500/30'
+                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>🚀 রকেট (Rocket)</span>
+                            <span className="text-[10px] text-purple-700 font-normal mt-0.5">ম্যানুয়াল Send Money</span>
+                          </button>
+
+                          {/* Cash on Delivery */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('cod')}
+                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
+                              paymentMethod === 'cod'
+                                ? 'border-teal-600 bg-teal-50 text-teal-900 font-black ring-2 ring-teal-600/30'
+                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>💵 ক্যাশ অন ডেলিভারি</span>
+                            <span className="text-[10px] text-slate-500 font-normal mt-0.5">পণ্য হাতে পেয়ে মূল্য দিন</span>
+                          </button>
                         </div>
 
-                        {/* Interactive MFS Details Box */}
-                        {methodInfo && paymentMethod !== 'cod' && paymentMethod !== 'paymently' && (
+                        {/* CASE 1: UddoktaPay Automated Online Gateway Info Box */}
+                        {paymentMethod === 'paymently' && (
+                          <div className="p-3.5 bg-gradient-to-br from-teal-50 to-emerald-50 rounded-2xl border border-teal-200 space-y-2 mt-2">
+                            <div className="flex items-center gap-2 text-teal-950 font-black text-xs">
+                              <Sparkles className="w-4 h-4 text-teal-700" />
+                              <span>UddoktaPay অটোমেটিক পেমেন্ট গেটওয়ে</span>
+                            </div>
+                            <p className="text-[11px] text-teal-800 leading-relaxed">
+                              অর্ডার সাবমিট করলে সরাসরি <strong>UddoktaPay</strong> এর সুরক্ষিত পেমেন্ট গেটওয়ে পেজ চালু হবে। সেখানে আপনার উদ্যোক্তা পেমেন্ট গেটওয়ের <strong>বাংলা কিউআর (Bangla QR)</strong> স্ক্যান করে অথবা <strong>বিকাশ, নগদ, রকেট ও কার্ডের</strong> মাধ্যমে স্বয়ংক্রিয়ভাবে পেমেন্ট করতে পারবেন।
+                            </p>
+                            <div className="flex flex-wrap gap-1.5 pt-1 text-[10px]">
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 font-black border border-emerald-300">🇧🇩 Bangla QR কোড</span>
+                              <span className="px-2 py-0.5 rounded-md bg-pink-100 text-pink-900 font-black border border-pink-300">বিকাশ</span>
+                              <span className="px-2 py-0.5 rounded-md bg-orange-100 text-orange-900 font-black border border-orange-300">নগদ</span>
+                              <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 font-black border border-purple-300">রকেট</span>
+                              <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-900 font-black border border-blue-300">কার্ড</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* CASE 2: Official Super Admin Bangla QR Code Display & TrxID Input */}
+                        {paymentMethod === 'bangla_qr' && (
+                          <div className="p-4 bg-gradient-to-b from-emerald-50/80 via-white to-slate-50 rounded-2xl border-2 border-emerald-300 shadow-xs space-y-3 mt-2">
+                            <div className="flex items-center justify-between border-b border-emerald-100 pb-2">
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-lg bg-emerald-700 text-white flex items-center justify-center font-bold text-xs">
+                                  🇧🇩
+                                </div>
+                                <div>
+                                  <h4 className="text-xs font-black text-slate-900">
+                                    সার্বজনীন বাংলা কিউআর (Bangla QR)
+                                  </h4>
+                                  <p className="text-[10px] text-emerald-800 font-semibold">
+                                    বাংলাদেশ ব্যাংক অনুমোদিত ইন্টারঅপারেবল স্ট্যান্ডার্ড
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                স্ক্যান অ্যান্ড পে
+                              </span>
+                            </div>
+
+                            {/* Centered QR Display Card */}
+                            <div className="flex flex-col items-center justify-center p-3 bg-white rounded-2xl border border-emerald-200 shadow-sm max-w-[270px] mx-auto text-center">
+                              <div className="p-2 bg-white rounded-xl border-2 border-emerald-400/50 shadow-inner">
+                                {paymentSettings.banglaQr?.qrCodeUrl || banglaQrDataUrl ? (
+                                  <img
+                                    src={paymentSettings.banglaQr?.qrCodeUrl || banglaQrDataUrl}
+                                    alt="Official Bangla QR Code"
+                                    className="w-48 h-48 sm:w-52 sm:h-52 object-contain rounded-lg"
+                                  />
+                                ) : (
+                                  <div className="w-48 h-48 flex flex-col items-center justify-center text-slate-400 gap-2 bg-slate-50 rounded-lg">
+                                    <QrCode className="w-12 h-12 text-slate-300 animate-pulse" />
+                                    <span className="text-[11px]">কিউআর কোড প্রস্তুত হচ্ছে...</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Merchant details */}
+                              <div className="mt-3 space-y-1 w-full text-xs">
+                                <p className="font-black text-slate-900">
+                                  {paymentSettings.banglaQr?.accountTitle || 'TWING হিসাবি / সুপার এডমিন'}
+                                </p>
+                                <div className="flex items-center justify-center gap-1.5 font-mono text-emerald-800 font-bold bg-emerald-50 py-1 px-2.5 rounded-lg border border-emerald-200">
+                                  <span>আইডি: {paymentSettings.banglaQr?.merchantId || '01306908115'}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyNumber(paymentSettings.banglaQr?.merchantId || '01306908115')}
+                                    className="text-emerald-600 hover:text-emerald-950 cursor-pointer"
+                                    title="কপি করুন"
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                                <p className="text-[10px] text-slate-500 font-semibold">
+                                  {paymentSettings.banglaQr?.bankOrMfsName || 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর'}
+                                </p>
+                                <div className="pt-1 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                                  <span className="text-slate-500 font-medium">পরিশোধযোগ্য বিল:</span>
+                                  <span className="font-black text-emerald-800 text-sm">৳{formatMoney(grandTotal)}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Scanning Guide */}
+                            <div className="bg-emerald-50/70 p-2.5 rounded-xl border border-emerald-200/80 text-[11px] text-emerald-950 space-y-1">
+                              <p className="font-bold flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>পেমেন্ট নির্দেশিকা:</span>
+                              </p>
+                              <p className="text-slate-700 leading-relaxed text-[10px]">
+                                ১. আপনার যেকোনো ব্যাংক বা এমএফএস (বিকাশ, নগদ, সেলফিন, উপায়, নেক্সাসপে ইত্যাদি) অ্যাপে "কিউআর স্ক্যানার" ওপেন করুন।
+                              </p>
+                              <p className="text-slate-700 leading-relaxed text-[10px]">
+                                ২. উপরের কিউআর কোডটি স্ক্যান করে বিল <strong>৳{formatMoney(grandTotal)}</strong> পরিশোধ সম্পন্ন করুন।
+                              </p>
+                              <p className="text-slate-700 leading-relaxed text-[10px]">
+                                ৩. পেমেন্ট শেষে পাওয়া <strong>Transaction ID (TrxID)</strong> এবং আপনার <strong>প্রেরক নম্বর</strong> নিচে লিখে অর্ডার সম্পন্ন করুন।
+                              </p>
+                            </div>
+
+                            {/* TrxID & Sender Phone */}
+                            <div className="grid grid-cols-2 gap-2 pt-1">
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-800 mb-0.5">
+                                  Transaction ID (TrxID) *
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={customerTrxId}
+                                  onChange={(e) => setCustomerTrxId(e.target.value)}
+                                  placeholder="যেমন: 9J4K2ABC..."
+                                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-hidden font-mono"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-800 mb-0.5">
+                                  প্রেরক মোবাইল নম্বর *
+                                </label>
+                                <input
+                                  type="tel"
+                                  required
+                                  value={customerSenderPhone}
+                                  onChange={(e) => setCustomerSenderPhone(e.target.value)}
+                                  placeholder="01XXXXXXXXX"
+                                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-hidden font-mono"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* CASE 3: Standard MFS Details Box (bKash, Nagad, Rocket, Upay) */}
+                        {methodInfo && paymentMethod !== 'cod' && paymentMethod !== 'paymently' && paymentMethod !== 'bangla_qr' && (
                           <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5 mt-2">
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-bold text-slate-800">{methodInfo.name} নম্বর:</span>
@@ -1639,7 +1878,7 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                                 <button
                                   type="button"
                                   onClick={() => handleCopyNumber(methodInfo.number)}
-                                  className="text-slate-400 hover:text-slate-700"
+                                  className="text-slate-400 hover:text-slate-700 cursor-pointer"
                                   title="কপি করুন"
                                 >
                                   <Copy className="w-3.5 h-3.5" />
@@ -1760,6 +1999,80 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                     </button>
                   )}
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* UddoktaPay Active Payment Session Modal */}
+      <AnimatePresence>
+        {activePaymentlySession && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full text-center space-y-4 shadow-2xl border border-teal-200"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center border border-teal-200">
+                <Sparkles className="w-7 h-7" />
+              </div>
+
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  UddoktaPay পেমেন্ট সেশন চালু রয়েছে
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  নিচের বাটনে চাপ দিয়ে UddoktaPay গেটওয়ে পেজে যান এবং <strong>বাংলা কিউআর (Bangla QR)</strong>, বিকাশ, নগদ বা কার্ড দিয়ে পেমেন্ট সম্পন্ন করুন।
+                </p>
+              </div>
+
+              <div className="bg-teal-50/70 p-3.5 rounded-2xl border border-teal-200/80 text-left space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">অর্ডার রেফারেন্স:</span>
+                  <span className="font-mono font-bold text-slate-900">{activePaymentlySession.orderId}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">মোট প্রদেয়:</span>
+                  <span className="font-black text-teal-800 text-sm">৳{formatMoney(activePaymentlySession.amount)}</span>
+                </div>
+                <div className="flex justify-between items-center pt-1 border-t border-teal-100">
+                  <span className="text-slate-500">পদ্ধতিসমূহ:</span>
+                  <span className="text-[10px] bg-white px-2 py-0.5 rounded font-black text-emerald-800 border border-emerald-200">
+                    🇧🇩 বাংলা কিউআর • বিকাশ • নগদ • রকেট
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-1">
+                <a
+                  href={activePaymentlySession.paymentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3 bg-[#00897B] hover:bg-[#00796B] text-white rounded-xl text-xs sm:text-sm font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-md"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>UddoktaPay পেমেন্ট পেজে যান</span>
+                </a>
+
+                <button
+                  type="button"
+                  onClick={handleCheckPaymentlyStatus}
+                  disabled={isCheckingPaymentStatus}
+                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingPaymentStatus ? 'animate-spin' : ''}`} />
+                  <span>{isCheckingPaymentStatus ? 'যাচাই করা হচ্ছে...' : 'পেমেন্ট সম্পন্ন করেছি (স্ট্যাটাস চেক করুন)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActivePaymentlySession(null)}
+                  className="w-full py-2 text-slate-500 hover:text-slate-700 text-xs font-medium cursor-pointer"
+                >
+                  পেমেন্ট সেশন বন্ধ করুন
+                </button>
               </div>
             </motion.div>
           </div>

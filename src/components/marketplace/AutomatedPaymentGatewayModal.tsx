@@ -11,6 +11,8 @@ import {
   Smartphone,
   RefreshCw,
   Sparkles,
+  QrCode,
+  Copy,
 } from 'lucide-react';
 import { formatMoney } from '../../utils/storage';
 
@@ -38,9 +40,9 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
   customerPhone,
   onSuccess,
 }) => {
-  const [selectedGateway, setSelectedGateway] = useState<'bkash' | 'nagad' | 'rocket' | 'card'>('bkash');
-  const [step, setStep] = useState<'input_number' | 'input_otp' | 'input_pin' | 'processing' | 'card_form'>(
-    'input_number'
+  const [selectedGateway, setSelectedGateway] = useState<'bangla_qr' | 'bkash' | 'nagad' | 'rocket' | 'card'>('bangla_qr');
+  const [step, setStep] = useState<'input_number' | 'input_otp' | 'input_pin' | 'processing' | 'card_form' | 'qr_scanner'>(
+    'qr_scanner'
   );
 
   // MFS fields
@@ -62,6 +64,8 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
   useEffect(() => {
     if (selectedGateway === 'card') {
       setStep('card_form');
+    } else if (selectedGateway === 'bangla_qr') {
+      setStep('qr_scanner');
     } else {
       setStep('input_number');
     }
@@ -202,11 +206,26 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
         {step !== 'processing' && (
           <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50">
             <p className="text-xs font-bold text-slate-700 mb-2">পেমেন্ট গেটওয়ে চ্যানেল নির্বাচন করুন:</p>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-5 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setSelectedGateway('bangla_qr')}
+                className={`py-2 px-1 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                  selectedGateway === 'bangla_qr'
+                    ? 'bg-emerald-50 border-emerald-500 text-emerald-950 ring-2 ring-emerald-500 shadow-2xs'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <div className="w-6 h-6 rounded-md bg-emerald-700 text-white font-black text-[10px] flex items-center justify-center">
+                  🇧🇩
+                </div>
+                <span className="text-[10px]">বাংলা QR</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setSelectedGateway('bkash')}
-                className={`py-2 px-1.5 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                className={`py-2 px-1 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
                   selectedGateway === 'bkash'
                     ? 'bg-pink-50 border-pink-500 text-pink-900 ring-2 ring-pink-500 shadow-2xs'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
@@ -215,13 +234,13 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
                 <div className="w-6 h-6 rounded-md bg-pink-600 text-white font-black text-[10px] flex items-center justify-center">
                   ব
                 </div>
-                <span className="text-[11px]">বিকাশ</span>
+                <span className="text-[10px]">বিকাশ</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setSelectedGateway('nagad')}
-                className={`py-2 px-1.5 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                className={`py-2 px-1 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
                   selectedGateway === 'nagad'
                     ? 'bg-orange-50 border-orange-500 text-orange-900 ring-2 ring-orange-500 shadow-2xs'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
@@ -230,13 +249,13 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
                 <div className="w-6 h-6 rounded-md bg-orange-600 text-white font-black text-[10px] flex items-center justify-center">
                   ন
                 </div>
-                <span className="text-[11px]">নগদ</span>
+                <span className="text-[10px]">নগদ</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setSelectedGateway('rocket')}
-                className={`py-2 px-1.5 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                className={`py-2 px-1 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
                   selectedGateway === 'rocket'
                     ? 'bg-purple-50 border-purple-500 text-purple-900 ring-2 ring-purple-500 shadow-2xs'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
@@ -245,20 +264,20 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
                 <div className="w-6 h-6 rounded-md bg-purple-600 text-white font-black text-[10px] flex items-center justify-center">
                   র
                 </div>
-                <span className="text-[11px]">রকেট</span>
+                <span className="text-[10px]">রকেট</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setSelectedGateway('card')}
-                className={`py-2 px-1.5 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+                className={`py-2 px-1 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
                   selectedGateway === 'card'
                     ? 'bg-blue-50 border-blue-600 text-blue-900 ring-2 ring-blue-500 shadow-2xs'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
                 }`}
               >
-                <CreditCard className="w-6 h-6 text-blue-600" />
-                <span className="text-[11px]">কার্ড</span>
+                <CreditCard className="w-5 h-5 text-blue-600" />
+                <span className="text-[10px]">কার্ড</span>
               </button>
             </div>
           </div>
@@ -523,6 +542,59 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
                 </button>
               </div>
             </form>
+          )}
+
+          {/* ================= BANGLA QR VIEW ================= */}
+          {selectedGateway === 'bangla_qr' && step === 'qr_scanner' && (
+            <div className="space-y-3.5 text-center">
+              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200">
+                <div className="flex items-center justify-center gap-1.5 text-emerald-900 font-black text-xs">
+                  <span className="text-base">🇧🇩</span>
+                  <span>সার্বজনীন বাংলা কিউআর (Bangla QR)</span>
+                </div>
+                <p className="text-[10px] text-emerald-700 mt-0.5">
+                  বিকাশ, নগদ, সেলফিন বা যেকোনো ব্যাংক অ্যাপ দিয়ে কিউআর স্ক্যান করে পে করুন
+                </p>
+              </div>
+
+              <div className="flex flex-col items-center justify-center p-3 bg-white rounded-2xl border-2 border-emerald-400/40 shadow-sm max-w-[220px] mx-auto">
+                <div className="w-40 h-40 bg-slate-900 text-white rounded-xl flex flex-col items-center justify-center p-2 relative overflow-hidden shadow-inner">
+                  {/* Decorative QR Pattern */}
+                  <QrCode className="w-32 h-32 text-white" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-emerald-500/20 to-transparent pointer-events-none" />
+                </div>
+                <div className="mt-2 text-[10px] text-slate-500 font-mono">
+                  মার্চেন্ট আইডি: <strong className="text-emerald-800">01306908115</strong>
+                </div>
+                <div className="text-[10px] font-black text-teal-800">
+                  বিল: ৳{formatMoney(grandTotal)}
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                মোবাইল অ্যাপে স্ক্যান সম্পন্ন হলে নিচের বাটনে চাপ দিয়ে পেমেন্ট নিশ্চিত করুন।
+              </p>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStep('processing');
+                  setTimeout(() => {
+                    const realTrxId = `BQR_${Date.now().toString(36).toUpperCase()}${Math.floor(100 + Math.random() * 900)}`;
+                    onSuccess({
+                      paymentMethod: 'online_bangla_qr',
+                      trxId: realTrxId,
+                      senderNumber: accountNumber || 'Bangla QR App',
+                      amount: grandTotal,
+                    });
+                  }, 1800);
+                }}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>স্ক্যান সম্পন্ন করেছি (পেমেন্ট নিশ্চিত করুন)</span>
+              </button>
+            </div>
           )}
 
           {/* Trust badges footer */}

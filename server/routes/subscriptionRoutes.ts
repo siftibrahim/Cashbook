@@ -796,18 +796,24 @@ router.get('/paymently/sandbox-checkout', (req, res) => {
     </head>
     <body>
       <div class="card">
-        <span class="badge">Paymently Gateway Sandbox</span>
+        <span class="badge">UddoktaPay / Paymently Gateway Sandbox</span>
         ${
           hasKeyWarning
             ? `<div class="warn-banner">
-                ⚠️ <strong>দৃষ্টি আকর্ষণ:</strong> লাইভ Paymently API Key অকার্যকর (Invalid/expired) বা সেট করা নেই। ইউজার ফ্লো সচল রাখতে এটি টেস্ট স্যান্ডবক্স মোডে ওপেন হয়েছে। লাইভ করতে সুপার অ্যাডমিন প্যানেল থেকে সঠিক API Key দিন।
+                ⚠️ <strong>দৃষ্টি আকর্ষণ:</strong> লাইভ UddoktaPay API Key অকার্যকর (Invalid/expired) বা সেট করা নেই। ইউজার ফ্লো সচল রাখতে এটি টেস্ট স্যান্ডবক্স মোডে ওপেন হয়েছে। লাইভ করতে সুপার অ্যাডমিন প্যানেল থেকে সঠিক API Key দিন।
                </div>`
             : ''
         }
         <h2>পেমেন্ট সম্পন্ন করুন</h2>
         <p>এটি একটি নিরাপদ টেস্ট স্যান্ডবক্স পরিবেশ। এখানে কোনো আসল অর্থ চার্জ হবে না।</p>
+        <div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+          <span style="background:#064e3b;color:#34d399;font-size:10px;font-weight:bold;padding:2px 8px;border-radius:6px;border:1px solid #059669;">🇧🇩 বাংলা কিউআর (Bangla QR)</span>
+          <span style="background:#831843;color:#f472b6;font-size:10px;font-weight:bold;padding:2px 8px;border-radius:6px;">বিকাশ</span>
+          <span style="background:#7c2d12;color:#fb923c;font-size:10px;font-weight:bold;padding:2px 8px;border-radius:6px;">নগদ</span>
+          <span style="background:#581c87;color:#c084fc;font-size:10px;font-weight:bold;padding:2px 8px;border-radius:6px;">রকেট</span>
+        </div>
         <div class="details">
-          <div class="row"><span>প্যাকেজ:</span> <span>${plan_name || 'সাবস্ক্রিপশন'}</span></div>
+          <div class="row"><span>প্যাকেজ / অর্ডার:</span> <span>${plan_name || 'সেন্ট্রাল মার্কেটপ্লেস অর্ডার'}</span></div>
           <div class="row"><span>রেফারেন্স:</span> <span>${payment_id || 'pay_test'}</span></div>
           <div class="row"><span>সিমুলেটেড ইনভয়েস:</span> <span style="font-family:monospace;font-size:11px;">${simInvoiceId}</span></div>
           <div class="row"><span>মোট পরিশোধযোগ্য:</span> <span>৳${amount || 99}</span></div>
