@@ -124,6 +124,9 @@ export const StorefrontHeroCarousel: React.FC<StorefrontHeroCarouselProps> = ({
                   } else if (banner.linkUrl) {
                     if (banner.linkUrl.startsWith('http')) {
                       window.open(banner.linkUrl, '_blank', 'noopener,noreferrer');
+                    } else if (banner.linkUrl.startsWith('#')) {
+                      const el = document.querySelector(banner.linkUrl);
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
                     } else {
                       window.location.href = banner.linkUrl;
                     }

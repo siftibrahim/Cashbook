@@ -759,17 +759,38 @@ router.post('/paymently/test-connection', authenticateUser, async (req: Authenti
  * 6. GET /api/subscription/paymently/sandbox-checkout
  * Developer & Sandbox simulation UI for testing Paymently integration
  */
-router.get('/paymently/sandbox-checkout', (req, res) => {
+router.get('/paymently/sandbox-checkout', async (req, res) => {
   const { payment_id, amount, plan_name, notice, warning } = req.query;
   const simInvoiceId = 'SIM_INV_' + Date.now();
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
   const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
   const appBaseUrl = `${protocol}://${host}`;
 
+  let bqrUrl = '';
+  let bqrMid = '01306908115';
+  let bqrTitle = 'TWING হিসাবি / সুপার এডমিন';
+  try {
+    const pool = getDbPool();
+    if (pool) {
+      const q = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings'");
+      if (q.rows.length > 0 && q.rows[0].data) {
+        const raw = typeof q.rows[0].data === 'string' ? JSON.parse(q.rows[0].data) : q.rows[0].data;
+        if (raw?.banglaQr?.qrCodeUrl) bqrUrl = raw.banglaQr.qrCodeUrl;
+        if (raw?.banglaQr?.merchantId) bqrMid = raw.banglaQr.merchantId;
+        if (raw?.banglaQr?.accountTitle) bqrTitle = raw.banglaQr.accountTitle;
+      }
+    } else if (inMemoryStore.system_config?.['system_payment_settings']) {
+      const raw = inMemoryStore.system_config['system_payment_settings'];
+      if (raw?.banglaQr?.qrCodeUrl) bqrUrl = raw.banglaQr.qrCodeUrl;
+      if (raw?.banglaQr?.merchantId) bqrMid = raw.banglaQr.merchantId;
+      if (raw?.banglaQr?.accountTitle) bqrTitle = raw.banglaQr.accountTitle;
+    }
+  } catch (e) {}
+
   const hasKeyWarning = notice === 'invalid_api_key' || warning === 'invalid_key';
 
-  const successUrl = `${appBaseUrl}/api/subscription/paymently/callback?invoice_id=${simInvoiceId}&payment_id=${encodeURIComponent(String(payment_id || ''))}`;
-  const cancelUrl = `${appBaseUrl}/api/subscription/paymently/callback?status=cancelled&payment_id=${encodeURIComponent(String(payment_id || ''))}`;
+  const successUrl = `${appBaseUrl}/api/subscription/paymently/callback?invoice_id=${simInvoiceId}&payment_id=${encodeURIComponent(String(payment_id || ''))}&type=${encodeURIComponent(String(req.query.type || ''))}&order_id=${encodeURIComponent(String(req.query.order_id || ''))}`;
+  const cancelUrl = `${appBaseUrl}/api/subscription/paymently/callback?status=cancelled&payment_id=${encodeURIComponent(String(payment_id || ''))}&type=${encodeURIComponent(String(req.query.type || ''))}&order_id=${encodeURIComponent(String(req.query.order_id || ''))}`;
 
   res.send(`
     <!DOCTYPE html>
@@ -777,50 +798,106 @@ router.get('/paymently/sandbox-checkout', (req, res) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Paymently Sandbox Gateway - TWING Hisabi</title>
+      <title>UddoktaPay পেমেন্ট গেটওয়ে - Bangla QR</title>
       <style>
-        body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
-        .card { background: #1e293b; border: 1px solid #334155; border-radius: 24px; padding: 32px; max-width: 440px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); text-align: center; }
-        .badge { display: inline-block; background: #0d9488; color: white; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
-        .warn-banner { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: 12px; font-size: 12px; color: #fbbf24; text-align: left; margin-bottom: 18px; line-height: 1.5; }
-        h2 { margin: 0 0 8px; font-size: 22px; color: #fff; }
-        p { color: #94a3b8; font-size: 14px; margin: 0 0 24px; line-height: 1.5; }
-        .details { background: #0f172a; border-radius: 16px; padding: 16px; margin-bottom: 24px; text-align: left; font-size: 13px; }
-        .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #1e293b; }
-        .row:last-child { border: none; font-weight: bold; font-size: 15px; color: #38bdf8; }
-        .btn-success { display: block; width: 100%; background: #0d9488; color: white; border: none; padding: 14px; border-radius: 14px; font-size: 14px; font-weight: bold; cursor: pointer; text-decoration: none; margin-bottom: 10px; box-sizing: border-box; }
-        .btn-cancel { display: block; width: 100%; background: #334155; color: #cbd5e1; border: none; padding: 12px; border-radius: 14px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; box-sizing: border-box; }
-        .btn-success:hover { background: #0f766e; }
-        .btn-cancel:hover { background: #475569; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+        .card { background: #131d38; border: 1px solid #1e293b; border-radius: 24px; padding: 28px; max-width: 460px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6); text-align: center; }
+        .badge { display: inline-block; background: #00897B; color: white; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; margin-bottom: 12px; }
+        .warn-banner { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: 10px; font-size: 11px; color: #fbbf24; text-align: left; margin-bottom: 14px; line-height: 1.4; }
+        h2 { margin: 0 0 6px; font-size: 20px; color: #fff; font-weight: 900; }
+        p.sub { color: #94a3b8; font-size: 12px; margin: 0 0 16px; line-height: 1.4; }
+        .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 16px; }
+        .tab-btn { background: #1e293b; border: 1px solid #334155; color: #cbd5e1; padding: 8px 4px; border-radius: 12px; font-size: 11px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+        .tab-btn.active { background: #004D40; border-color: #00897B; color: #4ade80; }
+        .qr-box { background: #ffffff; border-radius: 16px; padding: 14px; margin-bottom: 16px; text-align: center; color: #0f172a; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); }
+        .qr-img { width: 160px; height: 160px; object-fit: contain; margin: 0 auto; display: block; border-radius: 8px; }
+        .details { background: #0a0f24; border-radius: 14px; padding: 12px; margin-bottom: 16px; text-align: left; font-size: 12px; }
+        .row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #1e293b; }
+        .row:last-child { border: none; font-weight: bold; font-size: 14px; color: #38bdf8; }
+        .btn-success { display: block; width: 100%; background: #00897B; color: white; border: none; padding: 13px; border-radius: 14px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; margin-bottom: 8px; box-sizing: border-box; }
+        .btn-cancel { display: block; width: 100%; background: #1e293b; color: #cbd5e1; border: none; padding: 10px; border-radius: 14px; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; box-sizing: border-box; }
+        .btn-success:hover { background: #00796B; }
+        .btn-cancel:hover { background: #334155; }
       </style>
     </head>
     <body>
       <div class="card">
-        <span class="badge">UddoktaPay / Paymently Gateway Sandbox</span>
+        <span class="badge">⚡ UddoktaPay অটোমেটিক পেমেন্ট গেটওয়ে</span>
         ${
           hasKeyWarning
             ? `<div class="warn-banner">
-                ⚠️ <strong>দৃষ্টি আকর্ষণ:</strong> লাইভ UddoktaPay API Key অকার্যকর (Invalid/expired) বা সেট করা নেই। ইউজার ফ্লো সচল রাখতে এটি টেস্ট স্যান্ডবক্স মোডে ওপেন হয়েছে। লাইভ করতে সুপার অ্যাডমিন প্যানেল থেকে সঠিক API Key দিন।
+                ⚠️ <strong>দৃষ্টি আকর্ষণ:</strong> লাইভ UddoktaPay API Key অনুপস্থিত বা টেস্ট মোডে রয়েছে। ইউজার ফ্লো সচল রাখতে এটি টেস্ট স্যান্ডবক্সে ওপেন হয়েছে।
                </div>`
             : ''
         }
-        <h2>পেমেন্ট সম্পন্ন করুন</h2>
-        <p>এটি একটি নিরাপদ টেস্ট স্যান্ডবক্স পরিবেশ। এখানে কোনো আসল অর্থ চার্জ হবে না।</p>
-        <div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
-          <span style="background:#064e3b;color:#34d399;font-size:10px;font-weight:bold;padding:2px 8px;border-radius:6px;border:1px solid #059669;">🇧🇩 বাংলা কিউআর (Bangla QR)</span>
-          <span style="background:#831843;color:#f472b6;font-size:10px;font-weight:bold;padding:2px 8px;border-radius:6px;">বিকাশ</span>
-          <span style="background:#7c2d12;color:#fb923c;font-size:10px;font-weight:bold;padding:2px 8px;border-radius:6px;">নগদ</span>
-          <span style="background:#581c87;color:#c084fc;font-size:10px;font-weight:bold;padding:2px 8px;border-radius:6px;">রকেট</span>
+        <h2>পেমেন্ট মাধ্যম নির্বাচন করুন</h2>
+        <p class="sub">উদ্যোক্তা পেমেন্ট গেটওয়েতে <strong>বাংলা কিউআর (Bangla QR)</strong>, বিকাশ, নগদ ও রকেট সমর্থিত</p>
+
+        <div class="tabs">
+          <button class="tab-btn active" onclick="setTab('bqr')">🇧🇩 বাংলা QR</button>
+          <button class="tab-btn" onclick="setTab('bkash')">বিকাশ</button>
+          <button class="tab-btn" onclick="setTab('nagad')">নগদ</button>
+          <button class="tab-btn" onclick="setTab('rocket')">রকেট</button>
         </div>
+
+        <div id="content-bqr" class="tab-content">
+          <div class="qr-box">
+            <div style="font-weight:900;font-size:12px;color:#004D40;margin-bottom:6px;">🇧🇩 সার্বজনীন বাংলা কিউআর (Bangla QR)</div>
+            ${
+              bqrUrl
+                ? `<img src="${bqrUrl}" alt="Bangla QR" class="qr-img">`
+                : `<div style="width:160px;height:160px;background:#004D40;color:white;margin:0 auto;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;padding:8px;box-sizing:border-box;">
+                    <div style="font-size:24px;margin-bottom:4px;">🇧🇩</div>
+                    <div style="font-weight:bold;">BANGLA QR</div>
+                    <div style="font-family:monospace;font-size:11px;margin-top:4px;">${bqrMid}</div>
+                   </div>`
+            }
+            <div style="font-size:11px;color:#475569;margin-top:6px;font-weight:bold;">${bqrTitle}</div>
+            <div style="font-size:10px;color:#64748b;font-family:monospace;">মার্চেন্ট আইডি: ${bqrMid}</div>
+          </div>
+          <p style="font-size:11px;color:#94a3b8;margin:0 0 12px;">বিকাশ, নগদ, সেলফিন বা যেকোনো ব্যাংক অ্যাপ দিয়ে কিউআর কোড স্ক্যান করে পেমেন্ট করুন।</p>
+        </div>
+
+        <div id="content-bkash" class="tab-content" style="display:none;">
+          <div class="details">
+            <div style="color:#f472b6;font-weight:bold;margin-bottom:6px;">💖 বিকাশ অটোমেটিক পেমেন্ট</div>
+            <p style="font-size:11px;color:#94a3b8;margin:0;">বিকাশ ওয়ালেট নম্বর দিয়ে ইনস্ট্যান্ট OTP ও PIN প্রদান করে অটোমেটিক পেমেন্ট সম্পন্ন হবে।</p>
+          </div>
+        </div>
+
+        <div id="content-nagad" class="tab-content" style="display:none;">
+          <div class="details">
+            <div style="color:#fb923c;font-weight:bold;margin-bottom:6px;">🟠 নগদ অটোমেটিক পেমেন্ট</div>
+            <p style="font-size:11px;color:#94a3b8;margin:0;">নগদ ওয়ালেট নম্বর দিয়ে ইনস্ট্যান্ট OTP ও PIN প্রদান করে অটোমেটিক পেমেন্ট সম্পন্ন হবে।</p>
+          </div>
+        </div>
+
+        <div id="content-rocket" class="tab-content" style="display:none;">
+          <div class="details">
+            <div style="color:#c084fc;font-weight:bold;margin-bottom:6px;">🟣 রকেট অটোমেটিক পেমেন্ট</div>
+            <p style="font-size:11px;color:#94a3b8;margin:0;">রকেট একাউন্ট নম্বর দিয়ে সরাসরি পেমেন্ট সম্পন্ন করতে পারবেন।</p>
+          </div>
+        </div>
+
         <div class="details">
-          <div class="row"><span>প্যাকেজ / অর্ডার:</span> <span>${plan_name || 'সেন্ট্রাল মার্কেটপ্লেস অর্ডার'}</span></div>
+          <div class="row"><span>অর্ডার / প্যাকেজ:</span> <span>${plan_name || 'সেন্ট্রাল মার্কেটপ্লেস অর্ডার'}</span></div>
           <div class="row"><span>রেফারেন্স:</span> <span>${payment_id || 'pay_test'}</span></div>
-          <div class="row"><span>সিমুলেটেড ইনভয়েস:</span> <span style="font-family:monospace;font-size:11px;">${simInvoiceId}</span></div>
-          <div class="row"><span>মোট পরিশোধযোগ্য:</span> <span>৳${amount || 99}</span></div>
+          <div class="row"><span>মোট প্রদেয়:</span> <span>৳${amount || 99}</span></div>
         </div>
-        <a href="${successUrl}" class="btn-success">✅ সফল টেস্ট পেমেন্ট সম্পন্ন করুন (Simulate Success)</a>
-        <a href="${cancelUrl}" class="btn-cancel">❌ পেমেন্ট বাতিল করুন (Simulate Cancel)</a>
+
+        <a href="${successUrl}" class="btn-success">✅ পেমেন্ট সম্পন্ন করেছি (Confirm Payment)</a>
+        <a href="${cancelUrl}" class="btn-cancel">❌ বাতিল করুন (Cancel)</a>
       </div>
+
+      <script>
+        function setTab(name) {
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          event.target.classList.add('active');
+          document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+          const target = document.getElementById('content-' + name);
+          if (target) target.style.display = 'block';
+        }
+      </script>
     </body>
     </html>
   `);

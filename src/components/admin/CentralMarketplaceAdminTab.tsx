@@ -41,6 +41,9 @@ import {
   PlayCircle,
   CheckSquare,
   Square,
+  Image as ImageIcon,
+  Link as LinkIcon,
+  Upload,
 } from 'lucide-react';
 import { marketplaceAdminApi } from '../../services/marketplaceAdminService';
 
@@ -107,7 +110,14 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     commissionPercent: 0,
     deliveryFeeDhaka: 70,
     deliveryFeeOutside: 130,
-    bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও অরিজিনাল পণ্যের নিশ্চয়তা!',
+    bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও ১০০% অরিজিনাল পণ্যের নিশ্চয়তা!',
+    bannerImageUrl: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
+    bannerTitle: 'আপনার প্রতিদিনের প্রয়োজনীয় সব পণ্য এখন এক জায়গায়!',
+    bannerSubtitle: 'সরাসরি ফ্রেশ সোর্স থেকে খাঁটি পণ্য নিয়ে সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি।',
+    bannerTag: '⚡ মেগা ধামাকা অফার',
+    bannerLink: '#marketplace-best-offers-section',
+    bannerButtonText: 'এখনই অর্ডার করুন',
+    bannerActive: true,
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -143,6 +153,13 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             deliveryFeeDhaka: res.settings.deliveryFeeDhaka ?? 70,
             deliveryFeeOutside: res.settings.deliveryFeeOutside ?? 130,
             bannerNotice: res.settings.bannerNotice ?? prev.bannerNotice,
+            bannerImageUrl: res.settings.bannerImageUrl ?? prev.bannerImageUrl,
+            bannerTitle: res.settings.bannerTitle ?? prev.bannerTitle,
+            bannerSubtitle: res.settings.bannerSubtitle ?? prev.bannerSubtitle,
+            bannerTag: res.settings.bannerTag ?? prev.bannerTag,
+            bannerLink: res.settings.bannerLink ?? prev.bannerLink,
+            bannerButtonText: res.settings.bannerButtonText ?? prev.bannerButtonText,
+            bannerActive: res.settings.bannerActive !== false,
           }));
         }
       }
@@ -2033,10 +2050,242 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             </div>
           </div>
 
-          {/* Banner Notice */}
-          <div className="space-y-3 pt-2 border-t border-slate-100">
+          {/* Marketplace Hero Banner Controls (Full Super Admin Control) */}
+          <div className="space-y-4 pt-4 border-t border-slate-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 className="font-black text-sm text-slate-900 flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-teal-700" />
+                  <span>সেন্ট্রাল মার্কেটপ্লেস হিরো ব্যানার কন্ট্রোল</span>
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  সেন্ট্রাল মার্কেটপ্লেসের প্রধান ব্যানার ছবি, উপরের টাইটেল, লিংক এবং বাটন এখান থেকে পুরোপুরি নিয়ন্ত্রণ করুন।
+                </p>
+              </div>
+
+              {/* Banner Active Toggle */}
+              <label className="inline-flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+                <input
+                  type="checkbox"
+                  checked={settingsForm.bannerActive !== false}
+                  onChange={(e) => setSettingsForm({ ...settingsForm, bannerActive: e.target.checked })}
+                  className="rounded text-teal-600 focus:ring-teal-500"
+                />
+                <span className="text-xs font-bold text-slate-700">ব্যানার সক্রিয় রাখুন</span>
+              </label>
+            </div>
+
+            {/* Banner Title & Tag */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2">
+                <label className="font-bold text-slate-700 block mb-1">
+                  ব্যানারের প্রধান টাইটেল (Title) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={settingsForm.bannerTitle}
+                  onChange={(e) => setSettingsForm({ ...settingsForm, bannerTitle: e.target.value })}
+                  placeholder="যেমন: আপনার প্রতিদিনের প্রয়োজনীয় সব পণ্য এখন এক জায়গায়!"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-700/30 font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  ব্যানার ব্যাজ / ট্যাগ (Tag)
+                </label>
+                <input
+                  type="text"
+                  value={settingsForm.bannerTag}
+                  onChange={(e) => setSettingsForm({ ...settingsForm, bannerTag: e.target.value })}
+                  placeholder="যেমন: ⚡ মেগা ধামাকা অফার"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-700/30"
+                />
+              </div>
+            </div>
+
+            {/* Banner Subtitle */}
             <div>
-              <label className="font-bold text-slate-700 block mb-1">মার্কেটপ্লেস টপ নোটিশ বার্তা</label>
+              <label className="font-bold text-slate-700 block mb-1">
+                ব্যানার সাবটাইটেল বা বিবরণ (Subtitle)
+              </label>
+              <textarea
+                rows={2}
+                value={settingsForm.bannerSubtitle}
+                onChange={(e) => setSettingsForm({ ...settingsForm, bannerSubtitle: e.target.value })}
+                placeholder="যেমন: সরাসরি ফ্রেশ সোর্স থেকে খাঁটি পণ্য নিয়ে সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি।"
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-700/30"
+              />
+            </div>
+
+            {/* Banner Link & Button Text */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1 flex items-center gap-1">
+                  <LinkIcon className="w-3.5 h-3.5 text-teal-700" />
+                  <span>ব্যানার ক্লিক লিংক বা ডেস্টিনেশন (Link / URL)</span>
+                </label>
+                <input
+                  type="text"
+                  value={settingsForm.bannerLink}
+                  onChange={(e) => setSettingsForm({ ...settingsForm, bannerLink: e.target.value })}
+                  placeholder="যেমন: #marketplace-best-offers-section বা কাস্টম URL"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-700/30 font-mono text-[11px]"
+                />
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  হিন্ট: সেরা অফারে স্ক্রোল করতে <code>#marketplace-best-offers-section</code> দিন
+                </span>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  বাটন অ্যাকশন টেক্সট (Button Text)
+                </label>
+                <input
+                  type="text"
+                  value={settingsForm.bannerButtonText}
+                  onChange={(e) => setSettingsForm({ ...settingsForm, bannerButtonText: e.target.value })}
+                  placeholder="যেমন: এখনই অর্ডার করুন"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-700/30"
+                />
+              </div>
+            </div>
+
+            {/* Banner Image URL & File Upload */}
+            <div className="space-y-2">
+              <label className="font-bold text-slate-700 block">
+                ব্যানার ইমেজ (Image URL বা ফাইল আপলোড)
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="url"
+                  value={settingsForm.bannerImageUrl}
+                  onChange={(e) => setSettingsForm({ ...settingsForm, bannerImageUrl: e.target.value })}
+                  placeholder="https://images.unsplash.com/..."
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-700/30 font-mono text-[11px]"
+                />
+                <label className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer text-xs transition border border-slate-300">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>ছবি আপলোড</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          if (reader.result) {
+                            setSettingsForm({ ...settingsForm, bannerImageUrl: reader.result as string });
+                            showToast('ছবি সফলভাবে লোড হয়েছে');
+                          }
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* Quick Image Presets */}
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[11px] font-bold text-slate-500 block">এক ক্লিকে আকর্ষণীয় প্রিসেট ব্যানার নির্বাচন করুন:</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    {
+                      label: '🥦 গ্রোসারি ও ফ্রেশ বাজার',
+                      img: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
+                      title: 'আপনার প্রতিদিনের প্রয়োজনীয় সব পণ্য এখন এক জায়গায়!',
+                      sub: 'সরাসরি ফ্রেশ সোর্স থেকে খাঁটি পণ্য নিয়ে সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি।',
+                      tag: '⚡ মেগা ধামাকা অফার',
+                    },
+                    {
+                      label: '🌱 তাজা শাকসবজি ও ফল',
+                      img: 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=1200&auto=format&fit=crop&q=80',
+                      title: 'শতভাগ খাঁটি ও কীটনাশকমুক্ত তাজা খাদ্যসামগ্রী!',
+                      sub: 'প্রতিদিনের বাজার হবে ঝামেলামুক্ত ও স্বাস্থ্যকর সেরা দামে।',
+                      tag: '🌱 ১০০% খাঁটি পণ্য',
+                    },
+                    {
+                      label: '📱 স্মার্ট গ্যাজেট ও লাইফস্টাইল',
+                      img: 'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=1200&auto=format&fit=crop&q=80',
+                      title: 'সেরা টেক গ্যাজেট ও আকর্ষণীয় লাইফস্টাইল অফার!',
+                      sub: 'জেনুইন ব্র্যান্ডের গ্যাজেটস ও এক্সেসরিজে পান বিশেষ ছাড়।',
+                      tag: '🔥 গ্যাজেট ডিল',
+                    },
+                    {
+                      label: '✨ মেগা সুপার ডিসকাউন্ট',
+                      img: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&auto=format&fit=crop&q=80',
+                      title: 'সেন্ট্রাল মার্কেটপ্লেস মেগা ডিসকাউন্ট ফেস্টিভ্যাল!',
+                      sub: 'সেরা মানের সকল পণ্যে পান আকর্ষণীয় ক্যাশব্যাক ও ছাড়।',
+                      tag: '🎉 সুপার অফার',
+                    },
+                  ].map((p, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() =>
+                        setSettingsForm({
+                          ...settingsForm,
+                          bannerImageUrl: p.img,
+                          bannerTitle: p.title,
+                          bannerSubtitle: p.sub,
+                          bannerTag: p.tag,
+                        })
+                      }
+                      className="p-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-teal-50 hover:border-teal-300 text-left transition cursor-pointer space-y-1"
+                    >
+                      <div className="h-12 w-full rounded-lg overflow-hidden bg-slate-200">
+                        <img src={p.img} alt={p.label} className="w-full h-full object-cover" />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-700 block truncate">{p.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Live Preview Card */}
+              {settingsForm.bannerImageUrl && (
+                <div className="pt-2">
+                  <span className="text-[11px] font-bold text-slate-500 block mb-1">
+                    ব্যানার লাইভ প্রিভিউ (Storefront Preview):
+                  </span>
+                  <div className="relative rounded-2xl overflow-hidden h-36 sm:h-44 w-full shadow-md border border-slate-200">
+                    <img
+                      src={settingsForm.bannerImageUrl}
+                      alt="Banner Preview"
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-transparent flex items-center p-4 sm:p-6">
+                      <div className="max-w-md space-y-1.5 text-white">
+                        {settingsForm.bannerTag && (
+                          <span className="inline-block px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase">
+                            {settingsForm.bannerTag}
+                          </span>
+                        )}
+                        <h4 className="text-sm sm:text-base font-black text-white leading-tight">
+                          {settingsForm.bannerTitle || 'টাইটেল দিন'}
+                        </h4>
+                        <p className="text-[11px] text-slate-200 line-clamp-2">
+                          {settingsForm.bannerSubtitle}
+                        </p>
+                        <div className="pt-1">
+                          <span className="inline-flex items-center gap-1 px-3 py-1 bg-teal-600 text-white rounded-lg text-[10px] font-bold">
+                            {settingsForm.bannerButtonText || 'এখনই অর্ডার করুন'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Top Notice Marquee Banner */}
+            <div className="pt-2 border-t border-slate-100">
+              <label className="font-bold text-slate-700 block mb-1">মার্কেটপ্লেস টপ নোটিশ বার্তা (Top Notice Bar)</label>
               <textarea
                 rows={2}
                 value={settingsForm.bannerNotice}

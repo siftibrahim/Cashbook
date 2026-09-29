@@ -64,6 +64,7 @@ import { StorefrontBottomNav, StorefrontTab } from '../storefront/StorefrontBott
 import { StorefrontMoreTab } from '../storefront/StorefrontMoreTab';
 import { StorefrontSupportDrawer } from '../storefront/StorefrontSupportDrawer';
 import { StorefrontProductDetailModal } from '../storefront/StorefrontProductDetailModal';
+import { AutomatedPaymentGatewayModal, AutomatedPaymentResult } from './AutomatedPaymentGatewayModal';
 
 // Storage keys
 const MKT_WISHLIST_KEY = 'twing_marketplace_wishlist';
@@ -112,6 +113,13 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     deliveryFeeOutside: 130,
     codEnabled: true,
     bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও ১০০% অরিজিনাল পণ্যের নিশ্চয়তা!',
+    bannerImageUrl: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
+    bannerTitle: 'আপনার প্রতিদিনের প্রয়োজনীয় সব পণ্য এখন এক জায়গায়!',
+    bannerSubtitle: 'সরাসরি ফ্রেশ সোর্স থেকে খাঁটি পণ্য নিয়ে সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি।',
+    bannerTag: '⚡ মেগা ধামাকা অফার',
+    bannerLink: '#marketplace-best-offers-section',
+    bannerButtonText: 'এখনই অর্ডার করুন',
+    bannerActive: true,
   });
   const [paymentSettings, setPaymentSettings] = useState<SystemPaymentSettings>(INITIAL_PAYMENT_SETTINGS);
   const [banglaQrDataUrl, setBanglaQrDataUrl] = useState<string>('');
@@ -341,6 +349,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [isCheckingPaymentStatus, setIsCheckingPaymentStatus] = useState(false);
   const [manualInvoiceInput, setManualInvoiceInput] = useState('');
   const [isVerifyingInvoiceInput, setIsVerifyingInvoiceInput] = useState(false);
+  const [isAutomatedGatewayModalOpen, setIsAutomatedGatewayModalOpen] = useState(false);
 
   // Stored Customer Master Orders
   const [customerOrders, setCustomerOrders] = useState<any[]>(() => {
@@ -620,7 +629,21 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       return;
     }
 
-    if (paymentMethod !== 'cod' && paymentMethod !== 'paymently') {
+    // ⚡ If UddoktaPay automated online gateway is selected:
+    // DO NOT submit unpaid order! Open UddoktaPay modal first with Bangla QR, bKash, Nagad, Rocket!
+    if (paymentMethod === 'paymently') {
+      saveCustomerProfile({
+        name: customerName.trim(),
+        phone: customerPhone.trim(),
+        address: customerAddress.trim(),
+        deliveryCity: deliveryArea === 'inside_dhaka' ? 'dhaka' : 'outside_dhaka',
+        notes: orderNotes.trim(),
+      });
+      setIsAutomatedGatewayModalOpen(true);
+      return;
+    }
+
+    if (paymentMethod !== 'cod') {
       if (!customerSenderPhone.trim()) {
         showToast('⚠️ যে নম্বর থেকে টাকা পাঠিয়েছেন সেই প্রেরক নম্বর দিন');
         return;
@@ -671,21 +694,10 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       const result = await marketplaceApi.checkout(payload);
 
       if (result.success && result.masterOrder) {
-        // If Paymently online gateway redirect is provided
-        if (paymentMethod === 'paymently' && result.checkoutSession?.paymentUrl) {
-          setActivePaymentlySession({
-            paymentUrl: result.checkoutSession.paymentUrl,
-            paymentId: result.checkoutSession.paymentId,
-            orderId: result.masterOrder.id,
-            amount: result.masterOrder.grandTotal,
-          });
-          window.open(result.checkoutSession.paymentUrl, '_blank', 'noopener,noreferrer');
-          showToast('🚀 অনলাইন পেমেন্ট পেজ নতুন উইন্ডোতে খোলা হয়েছে...');
-        } else {
-          setCompletedMasterOrder(result);
-          setCart([]);
-          setIsCartOpen(false);
-          setIsCheckoutStep(false);
+        setCompletedMasterOrder(result);
+        setCart([]);
+        setIsCartOpen(false);
+        setIsCheckoutStep(false);
 
           // Save to customer order list in localStorage
           const newOrderRecord = {
@@ -706,12 +718,79 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           } catch {}
 
           showToast('🎉 আপনার সেন্ট্রাল অর্ডার সফলভাবে গৃহীত হয়েছে!');
+        } else {
+          throw new Error(result.error || 'অর্ডার সম্পূর্ণ করতে সমস্যা হয়েছে');
         }
-      } else {
-        throw new Error(result.error || 'অর্ডার সম্পূর্ণ করতে সমস্যা হয়েছে');
-      }
     } catch (err: any) {
       showToast('❌ ' + (err.message || 'অর্ডার করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'));
+    } finally {
+      isSubmittingOrderRef.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handle successful automated payment from UddoktaPay modal
+  const handleAutomatedPaymentSuccess = async (result: AutomatedPaymentResult) => {
+    setIsAutomatedGatewayModalOpen(false);
+    isSubmittingOrderRef.current = true;
+    setIsSubmitting(true);
+    showToast('✅ পেমেন্ট সফল হয়েছে! সেন্ট্রাল অর্ডার কনফার্ম হচ্ছে...');
+
+    const devRecord = getDevicePhoneVerification();
+    const payload = {
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      customerAddress: customerAddress.trim(),
+      deliveryCity: deliveryArea === 'inside_dhaka' ? 'dhaka' : 'outside_dhaka',
+      paymentMethod: 'paymently',
+      paymentTrxId: result.trxId,
+      senderPhone: result.senderNumber || customerPhone.trim(),
+      isAutoPaid: true,
+      paymentStatus: 'paid',
+      notes: orderNotes.trim(),
+      isPhoneVerified: true,
+      deviceToken: devRecord?.deviceToken || `dev_${standardPhone}`,
+      items: cart.map((it) => ({
+        productId: it.product.id,
+        vendorId: it.product.vendorId,
+        name: it.product.name,
+        salePrice: it.product.salePrice,
+        quantity: it.quantity,
+        unit: it.product.unit,
+        imageUrl: it.product.imageUrl,
+      })),
+    };
+
+    try {
+      const res = await marketplaceApi.checkout(payload);
+      if (res.success && res.masterOrder) {
+        setCompletedMasterOrder(res);
+        setCart([]);
+        setIsCartOpen(false);
+        setIsCheckoutStep(false);
+
+        const newOrderRecord = {
+          id: res.masterOrder.id,
+          orderNumber: res.masterOrder.orderNumber,
+          grandTotal: res.masterOrder.grandTotal,
+          paymentMethod: res.masterOrder.paymentMethod,
+          paymentStatus: 'paid',
+          adminApprovalStatus: res.masterOrder.adminApprovalStatus || 'pending_approval',
+          overallStatus: res.masterOrder.overallStatus || 'pending',
+          createdAt: Date.now(),
+          subOrders: res.subOrders || [],
+        };
+        const updatedList = [newOrderRecord, ...customerOrders];
+        setCustomerOrders(updatedList);
+        try {
+          localStorage.setItem(MKT_CUSTOMER_ORDERS_KEY, JSON.stringify(updatedList));
+        } catch {}
+        showToast('🎉 আপনার সেন্ট্রাল অর্ডার সফলভাবে গৃহীত হয়েছে!');
+      } else {
+        throw new Error(res.error || 'অর্ডার জমা দিতে সমস্যা হয়েছে');
+      }
+    } catch (err: any) {
+      showToast('❌ ' + (err.message || 'অর্ডার করতে সমস্যা হয়েছে।'));
     } finally {
       isSubmittingOrderRef.current = false;
       setIsSubmitting(false);
@@ -798,6 +877,19 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
   // Config object matching OnlineStoreConfig for storefront components
   const storefrontConfig: OnlineStoreConfig = useMemo(() => {
     const defaultPhone = paymentSettings.bkash?.personal?.number || paymentSettings.nagad?.personal?.number || '01306908115';
+
+    // Super Admin controlled custom banner for Central Marketplace
+    const customBanner = {
+      id: 'super_admin_banner',
+      title: marketplaceSettings.bannerTitle || 'আপনার প্রতিদিনের প্রয়োজনীয় সব পণ্য এখন এক জায়গায়!',
+      subtitle: marketplaceSettings.bannerSubtitle || 'সরাসরি ফ্রেশ সোর্স থেকে খাঁটি পণ্য নিয়ে সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি।',
+      imageUrl: marketplaceSettings.bannerImageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
+      linkUrl: marketplaceSettings.bannerLink || '#marketplace-best-offers-section',
+      tag: marketplaceSettings.bannerTag || '⚡ মেগা ধামাকা অফার',
+      active: marketplaceSettings.bannerActive !== false,
+      buttonText: marketplaceSettings.bannerButtonText || 'এখনই অর্ডার করুন',
+    };
+
     return {
       isEnabled: true,
       storeSlug: 'central-marketplace',
@@ -818,6 +910,7 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
       acceptRocket: true,
       acceptUpay: true,
       acceptBank: true,
+      banners: [customBanner],
     };
   }, [marketplaceSettings, paymentSettings]);
 
@@ -1992,7 +2085,13 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                         </>
                       ) : (
                         <>
-                          <span>অর্ডার নিশ্চিত করুন</span>
+                          <span>
+                            {paymentMethod === 'paymently'
+                              ? '⚡ UddoktaPay দিয়ে পে করুন'
+                              : paymentMethod === 'cod'
+                              ? 'অর্ডার নিশ্চিত করুন (ক্যাশ অন ডেলিভারি)'
+                              : 'পেমেন্ট তথ্য দিয়ে অর্ডার জমা দিন'}
+                          </span>
                           <CheckCircle2 className="w-4 h-4" />
                         </>
                       )}
@@ -2157,6 +2256,18 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
           </div>
         )}
       </AnimatePresence>
+
+      {/* UddoktaPay Automated Online Payment Gateway Modal with Bangla QR */}
+      <AutomatedPaymentGatewayModal
+        isOpen={isAutomatedGatewayModalOpen}
+        onClose={() => setIsAutomatedGatewayModalOpen(false)}
+        grandTotal={grandTotal}
+        customerName={customerName}
+        customerPhone={customerPhone}
+        banglaQrConfig={paymentSettings.banglaQr}
+        banglaQrDataUrl={banglaQrDataUrl}
+        onSuccess={handleAutomatedPaymentSuccess}
+      />
     </div>
   );
 };

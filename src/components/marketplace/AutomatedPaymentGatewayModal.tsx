@@ -29,6 +29,15 @@ interface AutomatedPaymentGatewayModalProps {
   grandTotal: number;
   customerName: string;
   customerPhone: string;
+  banglaQrConfig?: {
+    qrCodeUrl?: string;
+    accountTitle?: string;
+    merchantId?: string;
+    bankOrMfsName?: string;
+    terminalId?: string;
+    instructions?: string;
+  };
+  banglaQrDataUrl?: string;
   onSuccess: (result: AutomatedPaymentResult) => void;
 }
 
@@ -38,6 +47,8 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
   grandTotal,
   customerName,
   customerPhone,
+  banglaQrConfig,
+  banglaQrDataUrl,
   onSuccess,
 }) => {
   const [selectedGateway, setSelectedGateway] = useState<'bangla_qr' | 'bkash' | 'nagad' | 'rocket' | 'card'>('bangla_qr');
@@ -126,7 +137,7 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
       const realTrxId = `${prefix}${Date.now().toString(36).toUpperCase()}${Math.floor(100 + Math.random() * 900)}`;
 
       onSuccess({
-        paymentMethod: `online_${selectedGateway}`,
+        paymentMethod: 'paymently',
         trxId: realTrxId,
         senderNumber: accountNumber,
         amount: grandTotal,
@@ -151,7 +162,7 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
     setTimeout(() => {
       const realTrxId = `CRD_${Date.now().toString(36).toUpperCase()}${Math.floor(100 + Math.random() * 900)}`;
       onSuccess({
-        paymentMethod: 'online_card',
+        paymentMethod: 'paymently',
         trxId: realTrxId,
         senderNumber: `Card ending in ${cardNumber.slice(-4) || 'XXXX'}`,
         amount: grandTotal,
@@ -170,11 +181,11 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
             </div>
             <div>
               <h3 className="font-black text-sm sm:text-base leading-tight">
-                TWING সেন্ট্রাল মল পেমেন্ট গেটওয়ে
+                ⚡ UddoktaPay অটোমেটিক পেমেন্ট গেটওয়ে
               </h3>
               <p className="text-[11px] text-teal-200 flex items-center gap-1 mt-0.5">
                 <Lock className="w-3 h-3 text-emerald-400" />
-                <span>১২৮-বিট এসএসএল সুরক্ষিত অনলাইন লেনদেন</span>
+                <span>🇧🇩 বাংলা কিউআর • বিকাশ • নগদ • রকেট • কার্ড</span>
               </p>
             </div>
           </div>
@@ -195,9 +206,9 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
             <span className="text-xl font-black text-[#004D40] block">৳{formatMoney(grandTotal)}</span>
           </div>
           <div className="text-right">
-            <span className="text-[10px] text-slate-400 block font-mono">মার্চেন্ট: TwingMall Central</span>
+            <span className="text-[10px] text-slate-500 block font-semibold">{banglaQrConfig?.accountTitle || 'TWING মার্কেটপ্লেস'}</span>
             <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold inline-block">
-              ইনস্ট্যান্ট অটো-ভেরিফিকেশন
+              অটোমেটিক ভেরিফিকেশন
             </span>
           </div>
         </div>
@@ -557,22 +568,37 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
                 </p>
               </div>
 
-              <div className="flex flex-col items-center justify-center p-3 bg-white rounded-2xl border-2 border-emerald-400/40 shadow-sm max-w-[220px] mx-auto">
-                <div className="w-40 h-40 bg-slate-900 text-white rounded-xl flex flex-col items-center justify-center p-2 relative overflow-hidden shadow-inner">
-                  {/* Decorative QR Pattern */}
-                  <QrCode className="w-32 h-32 text-white" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-emerald-500/20 to-transparent pointer-events-none" />
+              <div className="flex flex-col items-center justify-center p-3 bg-white rounded-2xl border-2 border-emerald-400/40 shadow-sm max-w-[260px] mx-auto">
+                <div className="w-44 h-44 bg-white text-slate-900 rounded-xl flex flex-col items-center justify-center p-1 relative overflow-hidden border border-emerald-200 shadow-inner">
+                  {banglaQrConfig?.qrCodeUrl || banglaQrDataUrl ? (
+                    <img
+                      src={banglaQrConfig?.qrCodeUrl || banglaQrDataUrl}
+                      alt="Bangla QR"
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-emerald-800">
+                      <QrCode className="w-28 h-28 text-emerald-700" />
+                      <span className="text-[10px] font-black mt-1">BANGLA QR</span>
+                    </div>
+                  )}
                 </div>
-                <div className="mt-2 text-[10px] text-slate-500 font-mono">
-                  মার্চেন্ট আইডি: <strong className="text-emerald-800">01306908115</strong>
+                <div className="mt-2 text-[11px] font-black text-slate-800">
+                  {banglaQrConfig?.accountTitle || 'TWING হিসাবি / সুপার এডমিন'}
                 </div>
-                <div className="text-[10px] font-black text-teal-800">
+                <div className="text-[10px] text-slate-500 font-mono">
+                  মার্চেন্ট আইডি: <strong className="text-emerald-800 font-bold">{banglaQrConfig?.merchantId || '01306908115'}</strong>
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  {banglaQrConfig?.bankOrMfsName || 'সকল ব্যাংক ও এমএফএস সমর্থিত'}
+                </div>
+                <div className="mt-1 text-xs font-black text-teal-800 bg-teal-50 px-3 py-0.5 rounded-full border border-teal-200">
                   বিল: ৳{formatMoney(grandTotal)}
                 </div>
               </div>
 
               <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
-                মোবাইল অ্যাপে স্ক্যান সম্পন্ন হলে নিচের বাটনে চাপ দিয়ে পেমেন্ট নিশ্চিত করুন।
+                আপনার মোবাইল ব্যাংকিং অ্যাপে স্ক্যান সম্পন্ন হলে নিচের বাটনে চাপ দিয়ে পেমেন্ট নিশ্চিত করুন।
               </p>
 
               <button
@@ -582,7 +608,7 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
                   setTimeout(() => {
                     const realTrxId = `BQR_${Date.now().toString(36).toUpperCase()}${Math.floor(100 + Math.random() * 900)}`;
                     onSuccess({
-                      paymentMethod: 'online_bangla_qr',
+                      paymentMethod: 'paymently',
                       trxId: realTrxId,
                       senderNumber: accountNumber || 'Bangla QR App',
                       amount: grandTotal,
@@ -592,7 +618,7 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
                 className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>স্ক্যান সম্পন্ন করেছি (পেমেন্ট নিশ্চিত করুন)</span>
+                <span>বাংলা কিউআর স্ক্যান সম্পন্ন করেছি (অর্ডার নিশ্চিত করুন)</span>
               </button>
             </div>
           )}

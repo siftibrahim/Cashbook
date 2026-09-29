@@ -323,7 +323,9 @@ router.get('/featured', async (_req: Request, res: Response) => {
 
 const DEFAULT_MARKETPLACE_SETTINGS = {
   isMarketplaceActive: true,
-  commissionPercent: 0,
+  commissionPercent: 5,
+  payoutFee: 10,
+  boostFee: 100,
   deliveryFeeDhaka: 70,
   deliveryFeeOutside: 130,
   onlineGatewayEnabled: true,
@@ -348,7 +350,14 @@ const DEFAULT_MARKETPLACE_SETTINGS = {
   bankBranch: 'মতিঝিল কর্পোরেট শাখা, ঢাকা',
   bankRouting: '125272643',
   platformBkashNumber: '01306908115',
-  bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও অরিজিনাল পণ্যের নিশ্চয়তা!',
+  bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও ১০০% অরিজিনাল পণ্যের নিশ্চয়তা!',
+  bannerImageUrl: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
+  bannerTitle: 'আপনার প্রতিদিনের প্রয়োজনীয় সব পণ্য এখন এক জায়গায়!',
+  bannerSubtitle: 'সরাসরি ফ্রেশ সোর্স থেকে খাঁটি পণ্য নিয়ে সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি।',
+  bannerTag: '⚡ মেগা ধামাকা অফার',
+  bannerLink: '#marketplace-best-offers-section',
+  bannerButtonText: 'এখনই অর্ডার করুন',
+  bannerActive: true,
   paymentInstructions: 'বিকাশ, নগদ বা রকেট নম্বরে প্রয়োজনীয় টাকা পাঠিয়ে TrxID এবং প্রেরক নম্বর দিয়ে অর্ডার কনফার্ম করুন।',
 };
 
@@ -843,14 +852,17 @@ router.post('/checkout', async (req: Request, res: Response) => {
     const isAutoPaid = req.body.isAutoPaid === true || 
       req.body.paymentStatus === 'paid';
 
-    if (normalizedPaymentMethod !== 'cod' && !isPaymently && !isAutoPaid) {
+    // Strictly enforce payment verification: COD is cash on delivery.
+    // For non-COD orders (including UddoktaPay, bKash, Nagad, Rocket, Upay, Bangla QR, Bank):
+    // Must be either isAutoPaid: true (completed via gateway) or have valid TrxID and Sender Phone!
+    if (normalizedPaymentMethod !== 'cod' && !isAutoPaid) {
       if (!paymentTrxId || !String(paymentTrxId).trim()) {
         inFlightCheckoutKeys.delete(dedupeKey);
-        return res.status(400).json({ error: 'পেমেন্টের Transaction ID (TrxID) বা রেফারেন্স নম্বর দেওয়া আবশ্যক।' });
+        return res.status(400).json({ error: 'পেমেন্ট সম্পন্ন না করে অর্ডার দেওয়া যাবে না। অনুগ্রহ করে পেমেন্ট সম্পন্ন করুন অথবা সঠিক ট্রানজেকশন আইডি (TrxID) দিন।' });
       }
       if (!senderPhone || !String(senderPhone).trim()) {
         inFlightCheckoutKeys.delete(dedupeKey);
-        return res.status(400).json({ error: 'যে নম্বর বা অ্যাকাউন্ট থেকে টাকা পাঠিয়েছেন সেই প্রেরক মোবাইল নম্বরটি প্রদান করুন।' });
+        return res.status(400).json({ error: 'যে নম্বর বা একাউন্ট থেকে টাকা পাঠিয়েছেন সেই প্রেরক মোবাইল নম্বরটি প্রদান করুন।' });
       }
     }
 
