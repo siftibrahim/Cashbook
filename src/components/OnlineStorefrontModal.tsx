@@ -213,7 +213,7 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   const [customerAddress, setCustomerAddress] = useState(customerProfile.address || '');
   const [customerDistrict, setCustomerDistrict] = useState('ঢাকা');
   const [deliveryArea, setDeliveryArea] = useState<'inside_dhaka' | 'outside_dhaka'>('inside_dhaka');
-  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank'>('cod');
+  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank' | 'bangla_qr' | ''>('');
   const [customerTrxId, setCustomerTrxId] = useState('');
   const [customerSenderPhone, setCustomerSenderPhone] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
@@ -648,8 +648,18 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
       return;
     }
 
+    if (!paymentMethod) {
+      alert('⚠️ অনুগ্রহ করে একটি পেমেন্ট পদ্ধতি (ক্যাশ অন ডেলিভারি, বিকাশ, নগদ ইত্যাদি) নির্বাচন করুন।');
+      return;
+    }
+
     if (paymentMethod !== 'cod' && !customerTrxId.trim()) {
-      alert('অনুগ্রহ করে মোবাইল ব্যাংকিং পেমেন্টের TrxID (ট্রানজেকশন আইডি) প্রদান করুন যাতে দোকানদার তা যাচাই করতে পারেন।');
+      alert('অনুগ্রহ করে মোবাইল ব্যাংকিং/কিউআর পেমেন্টের TrxID (ট্রানজেকশন আইডি) প্রদান করুন যাতে দোকানদার তা যাচাই করতে পারেন।');
+      return;
+    }
+
+    if (paymentMethod !== 'cod' && !customerSenderPhone.trim()) {
+      alert('অনুগ্রহ করে যে নম্বর থেকে পেমেন্ট পাঠিয়েছেন সেই প্রেরক মোবাইল নম্বরটি প্রদান করুন।');
       return;
     }
 
@@ -732,6 +742,11 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
       setCart([]);
       setCouponResult(null);
       setCouponInput('');
+      setCustomerTrxId('');
+      setCustomerSenderPhone('');
+      setOrderNotes('');
+      setPaymentMethod('');
+      setIsCheckoutStep(false);
       setIsSubmitting(false);
     }, 500);
   };
@@ -1157,7 +1172,10 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                   </div>
                   <button
                     type="button"
-                    onClick={() => setIsCartOpen(false)}
+                    onClick={() => {
+                      setIsCartOpen(false);
+                      setIsCheckoutStep(false);
+                    }}
                     className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition cursor-pointer"
                   >
                     <X className="w-5 h-5" />
@@ -1624,8 +1642,33 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                           )}
                         </div>
 
+                        {/* CASE 0: Prompt when no payment method selected */}
+                        {!paymentMethod && (
+                          <div className="p-3 bg-amber-50/90 rounded-xl border border-amber-300 text-xs space-y-1 text-amber-950 mt-2">
+                            <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                              <span>⚠️ অনুগ্রহ করে উপরের তালিকা থেকে একটি পেমেন্ট পদ্ধতি সিলেক্ট করুন</span>
+                            </div>
+                            <p className="text-[11px] text-amber-800 leading-relaxed">
+                              অর্ডার সম্পন্ন করতে ক্যাশ অন ডেলিভারি, বিকাশ, নগদ বা উপলব্ধ পেমেন্ট পদ্ধতিগুলোর যেকোনো একটি নির্বাচন করুন।
+                            </p>
+                          </div>
+                        )}
+
+                        {/* CASE 1: Cash on Delivery Info Box */}
+                        {paymentMethod === 'cod' && (
+                          <div className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-300 text-xs space-y-1 text-emerald-950 mt-2">
+                            <div className="flex items-center gap-1.5 font-bold text-emerald-900">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>ক্যাশ অন ডেলিভারি (Cash On Delivery)</span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              কোনো অগ্রিম পেমেন্ট ছাড়াই অর্ডার সম্পন্ন করুন। পার্সেল হাতে পেয়ে ডেলিভারি ম্যানকে নগদ মূল্য পরিশোধ করতে পারবেন।
+                            </p>
+                          </div>
+                        )}
+
                         {/* Payment Instructions & TrxID Input for Mobile / Bank Banking / Bangla QR */}
-                        {paymentMethod !== 'cod' && (
+                        {paymentMethod !== 'cod' && paymentMethod !== '' && (
                           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-3 text-xs">
                             <div className="font-bold text-slate-800 flex flex-wrap items-center justify-between gap-1 pb-2 border-b border-slate-200">
                               <span className="font-black text-slate-900">
@@ -1825,15 +1868,25 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                         <button
                           type="submit"
                           form="store-checkout-form"
-                          disabled={isSubmitting}
-                          className="flex-1 py-3 bg-[#004D40] hover:bg-[#00382E] text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50"
+                          disabled={isSubmitting || !paymentMethod}
+                          className={`flex-1 py-3 font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-60 ${
+                            !paymentMethod
+                              ? 'bg-slate-200 text-slate-500 border border-slate-300 cursor-not-allowed'
+                              : 'bg-[#004D40] hover:bg-[#00382E] text-white'
+                          }`}
                         >
                           {isSubmitting ? (
                             <span>অর্ডার প্রসেস হচ্ছে...</span>
+                          ) : !paymentMethod ? (
+                            <span>👇 প্রথমে পেমেন্ট পদ্ধতি নির্বাচন করুন</span>
                           ) : (
                             <>
                               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                              <span>অর্ডার নিশ্চিত করুন (৳{formatMoney(totalAmount)})</span>
+                              <span>
+                                {paymentMethod === 'cod'
+                                  ? `অর্ডার নিশ্চিত করুন (ক্যাশ অন ডেলিভারি - ৳${formatMoney(totalAmount)})`
+                                  : `অর্ডার নিশ্চিত করুন (৳${formatMoney(totalAmount)})`}
+                              </span>
                             </>
                           )}
                         </button>
@@ -1902,6 +1955,11 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                     onClick={() => {
                       setCompletedOrder(null);
                       setIsCartOpen(false);
+                      setIsCheckoutStep(false);
+                      setPaymentMethod('');
+                      setCustomerTrxId('');
+                      setCustomerSenderPhone('');
+                      setOrderNotes('');
                       setActiveTab('orders');
                     }}
                     className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
@@ -1981,6 +2039,10 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
           onBuyNow={(prod, qty) => {
             addToCart(prod, qty);
             handleCloseProductDetail();
+            setPaymentMethod('');
+            setCustomerTrxId('');
+            setCustomerSenderPhone('');
+            setIsCheckoutStep(true);
             setIsCartOpen(true);
           }}
           config={config}

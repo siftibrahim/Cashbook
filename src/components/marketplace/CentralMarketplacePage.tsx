@@ -64,7 +64,6 @@ import { StorefrontBottomNav, StorefrontTab } from '../storefront/StorefrontBott
 import { StorefrontMoreTab } from '../storefront/StorefrontMoreTab';
 import { StorefrontSupportDrawer } from '../storefront/StorefrontSupportDrawer';
 import { StorefrontProductDetailModal } from '../storefront/StorefrontProductDetailModal';
-import { AutomatedPaymentGatewayModal, AutomatedPaymentResult } from './AutomatedPaymentGatewayModal';
 
 // Storage keys
 const MKT_WISHLIST_KEY = 'twing_marketplace_wishlist';
@@ -327,8 +326,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     setActiveTab(tab);
   }, []);
 
-  // Payment Method selection (UddoktaPay, Bangla QR, MFS, COD, Bank)
-  const [paymentMethod, setPaymentMethod] = useState<'paymently' | 'bangla_qr' | 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank'>('paymently');
+  // Payment Method selection (COD, bKash, Nagad, Rocket, Upay, Bank, Bangla QR, UddoktaPay)
+  const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank' | 'bangla_qr' | 'paymently' | ''>('');
   const [customerTrxId, setCustomerTrxId] = useState('');
   const [customerSenderPhone, setCustomerSenderPhone] = useState('');
   const [selectedBankAccountIndex, setSelectedBankAccountIndex] = useState(0);
@@ -349,7 +348,6 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [isCheckingPaymentStatus, setIsCheckingPaymentStatus] = useState(false);
   const [manualInvoiceInput, setManualInvoiceInput] = useState('');
   const [isVerifyingInvoiceInput, setIsVerifyingInvoiceInput] = useState(false);
-  const [isAutomatedGatewayModalOpen, setIsAutomatedGatewayModalOpen] = useState(false);
 
   // Stored Customer Master Orders
   const [customerOrders, setCustomerOrders] = useState<any[]>(() => {
@@ -418,6 +416,9 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
   const handleBuyNow = (product: Product, quantity = 1) => {
     addToCart(product, quantity);
+    setPaymentMethod('');
+    setCustomerTrxId('');
+    setCustomerSenderPhone('');
     setIsCartOpen(true);
     setIsCheckoutStep(true);
   };
@@ -629,21 +630,12 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       return;
     }
 
-    // ⚡ If UddoktaPay automated online gateway is selected:
-    // DO NOT submit unpaid order! Open UddoktaPay modal first with Bangla QR, bKash, Nagad, Rocket!
-    if (paymentMethod === 'paymently') {
-      saveCustomerProfile({
-        name: customerName.trim(),
-        phone: customerPhone.trim(),
-        address: customerAddress.trim(),
-        deliveryCity: deliveryArea === 'inside_dhaka' ? 'dhaka' : 'outside_dhaka',
-        notes: orderNotes.trim(),
-      });
-      setIsAutomatedGatewayModalOpen(true);
+    if (!paymentMethod) {
+      showToast('⚠️ অনুগ্রহ করে একটি পেমেন্ট পদ্ধতি (ক্যাশ অন ডেলিভারি, বিকাশ, নগদ, বাংলা কিউআর ইত্যাদি) নির্বাচন করুন');
       return;
     }
 
-    if (paymentMethod !== 'cod') {
+    if (paymentMethod !== 'cod' && paymentMethod !== 'paymently') {
       if (!customerSenderPhone.trim()) {
         showToast('⚠️ যে নম্বর থেকে টাকা পাঠিয়েছেন সেই প্রেরক নম্বর দিন');
         return;
@@ -698,99 +690,50 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         setCart([]);
         setIsCartOpen(false);
         setIsCheckoutStep(false);
+        setPaymentMethod('');
+        setCustomerTrxId('');
+        setCustomerSenderPhone('');
+        setOrderNotes('');
 
-          // Save to customer order list in localStorage
-          const newOrderRecord = {
-            id: result.masterOrder.id,
-            orderNumber: result.masterOrder.orderNumber,
-            grandTotal: result.masterOrder.grandTotal,
-            paymentMethod: result.masterOrder.paymentMethod,
-            paymentStatus: result.masterOrder.paymentStatus,
-            adminApprovalStatus: result.masterOrder.adminApprovalStatus || 'pending_approval',
-            overallStatus: result.masterOrder.overallStatus || 'pending',
-            createdAt: Date.now(),
-            subOrders: result.subOrders || [],
-          };
-          const updatedList = [newOrderRecord, ...customerOrders];
-          setCustomerOrders(updatedList);
+        // If paymently gateway returned checkout session URL, open in new tab
+        const gatewayUrl = result.checkoutSession?.paymentUrl || (result.checkoutSession as any)?.payment_url || (result as any).paymentUrl;
+        const gatewayId = result.checkoutSession?.paymentId || (result.checkoutSession as any)?.payment_id || (result as any).paymentId || '';
+        if (gatewayUrl) {
+          setActivePaymentlySession({
+            paymentUrl: gatewayUrl,
+            paymentId: gatewayId,
+            orderId: result.masterOrder.orderNumber || result.masterOrder.id,
+            amount: result.masterOrder.grandTotal,
+          });
           try {
-            localStorage.setItem(MKT_CUSTOMER_ORDERS_KEY, JSON.stringify(updatedList));
+            window.open(gatewayUrl, '_blank');
           } catch {}
-
-          showToast('🎉 আপনার সেন্ট্রাল অর্ডার সফলভাবে গৃহীত হয়েছে!');
-        } else {
-          throw new Error(result.error || 'অর্ডার সম্পূর্ণ করতে সমস্যা হয়েছে');
         }
-    } catch (err: any) {
-      showToast('❌ ' + (err.message || 'অর্ডার করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'));
-    } finally {
-      isSubmittingOrderRef.current = false;
-      setIsSubmitting(false);
-    }
-  };
 
-  // Handle successful automated payment from UddoktaPay modal
-  const handleAutomatedPaymentSuccess = async (result: AutomatedPaymentResult) => {
-    setIsAutomatedGatewayModalOpen(false);
-    isSubmittingOrderRef.current = true;
-    setIsSubmitting(true);
-    showToast('✅ পেমেন্ট সফল হয়েছে! সেন্ট্রাল অর্ডার কনফার্ম হচ্ছে...');
-
-    const devRecord = getDevicePhoneVerification();
-    const payload = {
-      customerName: customerName.trim(),
-      customerPhone: customerPhone.trim(),
-      customerAddress: customerAddress.trim(),
-      deliveryCity: deliveryArea === 'inside_dhaka' ? 'dhaka' : 'outside_dhaka',
-      paymentMethod: 'paymently',
-      paymentTrxId: result.trxId,
-      senderPhone: result.senderNumber || customerPhone.trim(),
-      isAutoPaid: true,
-      paymentStatus: 'paid',
-      notes: orderNotes.trim(),
-      isPhoneVerified: true,
-      deviceToken: devRecord?.deviceToken || `dev_${standardPhone}`,
-      items: cart.map((it) => ({
-        productId: it.product.id,
-        vendorId: it.product.vendorId,
-        name: it.product.name,
-        salePrice: it.product.salePrice,
-        quantity: it.quantity,
-        unit: it.product.unit,
-        imageUrl: it.product.imageUrl,
-      })),
-    };
-
-    try {
-      const res = await marketplaceApi.checkout(payload);
-      if (res.success && res.masterOrder) {
-        setCompletedMasterOrder(res);
-        setCart([]);
-        setIsCartOpen(false);
-        setIsCheckoutStep(false);
-
+        // Save to customer order list in localStorage
         const newOrderRecord = {
-          id: res.masterOrder.id,
-          orderNumber: res.masterOrder.orderNumber,
-          grandTotal: res.masterOrder.grandTotal,
-          paymentMethod: res.masterOrder.paymentMethod,
-          paymentStatus: 'paid',
-          adminApprovalStatus: res.masterOrder.adminApprovalStatus || 'pending_approval',
-          overallStatus: res.masterOrder.overallStatus || 'pending',
+          id: result.masterOrder.id,
+          orderNumber: result.masterOrder.orderNumber,
+          grandTotal: result.masterOrder.grandTotal,
+          paymentMethod: result.masterOrder.paymentMethod,
+          paymentStatus: result.masterOrder.paymentStatus,
+          adminApprovalStatus: result.masterOrder.adminApprovalStatus || 'pending_approval',
+          overallStatus: result.masterOrder.overallStatus || 'pending',
           createdAt: Date.now(),
-          subOrders: res.subOrders || [],
+          subOrders: result.subOrders || [],
         };
         const updatedList = [newOrderRecord, ...customerOrders];
         setCustomerOrders(updatedList);
         try {
           localStorage.setItem(MKT_CUSTOMER_ORDERS_KEY, JSON.stringify(updatedList));
         } catch {}
+
         showToast('🎉 আপনার সেন্ট্রাল অর্ডার সফলভাবে গৃহীত হয়েছে!');
       } else {
-        throw new Error(res.error || 'অর্ডার জমা দিতে সমস্যা হয়েছে');
+        throw new Error(result.error || 'অর্ডার সম্পূর্ণ করতে সমস্যা হয়েছে');
       }
     } catch (err: any) {
-      showToast('❌ ' + (err.message || 'অর্ডার করতে সমস্যা হয়েছে।'));
+      showToast('❌ ' + (err.message || 'অর্ডার করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'));
     } finally {
       isSubmittingOrderRef.current = false;
       setIsSubmitting(false);
@@ -1419,7 +1362,10 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                 </div>
                 <button
                   type="button"
-                  onClick={() => setIsCartOpen(false)}
+                  onClick={() => {
+                    setIsCartOpen(false);
+                    setIsCheckoutStep(false);
+                  }}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
@@ -1723,126 +1669,141 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                           পেমেন্ট পদ্ধতি নির্বাচন করুন *
                         </label>
 
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          {/* UddoktaPay (Online Automated Gateway with Bangla QR & MFS) */}
-                          <button
-                            type="button"
-                            onClick={() => setPaymentMethod('paymently')}
-                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer relative overflow-hidden ${
-                              paymentMethod === 'paymently'
-                                ? 'border-teal-600 bg-teal-50/90 text-teal-950 font-black ring-2 ring-teal-600/30'
-                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <div className="flex items-center gap-1.5 font-black text-xs text-teal-800">
-                              <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-                              <span>⚡ UddoktaPay গেটওয়ে</span>
-                            </div>
-                            <span className="text-[10px] text-teal-700 font-medium mt-0.5">
-                              অটো কিউআর, বিকাশ, নগদ, কার্ড
-                            </span>
-                            <div className="flex flex-wrap gap-1 mt-1 text-[9px]">
-                              <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-black">🇧🇩 Bangla QR</span>
-                              <span className="px-1.5 py-0.2 bg-teal-100 text-teal-800 rounded font-bold">অটোমেটিক</span>
-                            </div>
-                          </button>
-
-                          {/* Direct Bangla QR Code (Official Super Admin QR) */}
-                          <button
-                            type="button"
-                            onClick={() => setPaymentMethod('bangla_qr')}
-                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer relative overflow-hidden ${
-                              paymentMethod === 'bangla_qr'
-                                ? 'border-emerald-600 bg-emerald-50 text-emerald-950 font-black ring-2 ring-emerald-600/30'
-                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <div className="flex items-center gap-1.5 font-black text-xs text-emerald-800">
-                              <QrCode className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>🇧🇩 বাংলা কিউআর কোড</span>
-                            </div>
-                            <span className="text-[10px] text-emerald-700 font-medium mt-0.5">
-                              সরাসরি কিউআর স্ক্যান ও পে
-                            </span>
-                            <div className="flex flex-wrap gap-1 mt-1 text-[9px]">
-                              <span className="px-1.5 py-0.2 bg-emerald-200/80 text-emerald-900 rounded font-black">সকল ব্যাংক ও MFS</span>
-                            </div>
-                          </button>
-
-                          {/* bKash */}
-                          <button
-                            type="button"
-                            onClick={() => setPaymentMethod('bkash')}
-                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
-                              paymentMethod === 'bkash'
-                                ? 'border-pink-500 bg-pink-50 text-pink-900 font-black ring-2 ring-pink-500/30'
-                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span>🌸 বিকাশ (bKash)</span>
-                            <span className="text-[10px] text-pink-700 font-normal mt-0.5">Send Money / Payment</span>
-                          </button>
-
-                          {/* Nagad */}
-                          <button
-                            type="button"
-                            onClick={() => setPaymentMethod('nagad')}
-                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
-                              paymentMethod === 'nagad'
-                                ? 'border-orange-500 bg-orange-50 text-orange-900 font-black ring-2 ring-orange-500/30'
-                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span>🍊 নগদ (Nagad)</span>
-                            <span className="text-[10px] text-orange-700 font-normal mt-0.5">ম্যানুয়াল Send Money</span>
-                          </button>
-
-                          {/* Rocket */}
-                          <button
-                            type="button"
-                            onClick={() => setPaymentMethod('rocket')}
-                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
-                              paymentMethod === 'rocket'
-                                ? 'border-purple-500 bg-purple-50 text-purple-900 font-black ring-2 ring-purple-500/30'
-                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span>🚀 রকেট (Rocket)</span>
-                            <span className="text-[10px] text-purple-700 font-normal mt-0.5">ম্যানুয়াল Send Money</span>
-                          </button>
-
-                          {/* Cash on Delivery */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                          {/* 1. Cash on Delivery (Standard & Default) */}
                           <button
                             type="button"
                             onClick={() => setPaymentMethod('cod')}
-                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
+                            className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
                               paymentMethod === 'cod'
-                                ? 'border-teal-600 bg-teal-50 text-teal-900 font-black ring-2 ring-teal-600/30'
-                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                                ? 'bg-teal-50 border-teal-600 text-teal-950 font-bold ring-2 ring-teal-600/20'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                             }`}
                           >
-                            <span>💵 ক্যাশ অন ডেলিভারি</span>
-                            <span className="text-[10px] text-slate-500 font-normal mt-0.5">পণ্য হাতে পেয়ে মূল্য দিন</span>
+                            <div className="flex items-center gap-1 font-bold text-xs text-slate-900">
+                              <span>💵 ক্যাশ অন ডেলিভারি</span>
+                            </div>
+                            <span className="text-[10px] text-slate-500 mt-1">পণ্য পেয়ে মূল্য দিন</span>
+                          </button>
+
+                          {/* 2. bKash */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('bkash')}
+                            className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                              paymentMethod === 'bkash'
+                                ? 'bg-pink-50 border-pink-500 text-pink-950 font-bold ring-2 ring-pink-500/20'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1 font-bold text-xs text-pink-900">
+                              <span>🌸 বিকাশ (bKash)</span>
+                            </div>
+                            <span className="text-[10px] text-pink-700 mt-1">Send Money / পেমেন্ট</span>
+                          </button>
+
+                          {/* 3. Nagad */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('nagad')}
+                            className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                              paymentMethod === 'nagad'
+                                ? 'bg-orange-50 border-orange-500 text-orange-950 font-bold ring-2 ring-orange-500/20'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1 font-bold text-xs text-orange-900">
+                              <span>🍊 নগদ (Nagad)</span>
+                            </div>
+                            <span className="text-[10px] text-orange-700 mt-1">Send Money</span>
+                          </button>
+
+                          {/* 4. Rocket */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('rocket')}
+                            className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                              paymentMethod === 'rocket'
+                                ? 'bg-purple-50 border-purple-500 text-purple-950 font-bold ring-2 ring-purple-500/20'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1 font-bold text-xs text-purple-900">
+                              <span>🚀 রকেট (Rocket)</span>
+                            </div>
+                            <span className="text-[10px] text-purple-700 mt-1">Send Money</span>
+                          </button>
+
+                          {/* 5. Bangla QR Code */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('bangla_qr')}
+                            className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                              paymentMethod === 'bangla_qr'
+                                ? 'bg-emerald-50 border-emerald-600 text-emerald-950 font-bold ring-2 ring-emerald-600/20'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1 font-bold text-xs text-emerald-900">
+                              <QrCode className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>🇧🇩 বাংলা কিউআর</span>
+                            </div>
+                            <span className="text-[10px] text-emerald-700 mt-1">যেকোনো ব্যাংক বা MFS</span>
+                          </button>
+
+                          {/* 6. UddoktaPay Online Gateway */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('paymently')}
+                            className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                              paymentMethod === 'paymently'
+                                ? 'bg-teal-50 border-teal-600 text-teal-950 font-bold ring-2 ring-teal-600/20'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1 font-bold text-xs text-teal-900">
+                              <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                              <span>⚡ অনলাইন গেটওয়ে</span>
+                            </div>
+                            <span className="text-[10px] text-teal-700 mt-1">UddoktaPay পেমেন্ট</span>
                           </button>
                         </div>
 
-                        {/* CASE 1: UddoktaPay Automated Online Gateway Info Box */}
-                        {paymentMethod === 'paymently' && (
-                          <div className="p-3.5 bg-gradient-to-br from-teal-50 to-emerald-50 rounded-2xl border border-teal-200 space-y-2 mt-2">
-                            <div className="flex items-center gap-2 text-teal-950 font-black text-xs">
-                              <Sparkles className="w-4 h-4 text-teal-700" />
-                              <span>UddoktaPay অটোমেটিক পেমেন্ট গেটওয়ে</span>
+                        {/* CASE 0: Prompt when no payment method selected */}
+                        {!paymentMethod && (
+                          <div className="p-3 bg-amber-50/90 rounded-2xl border border-amber-300 text-xs space-y-1 text-amber-950 mt-2">
+                            <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                              <span>⚠️ অনুগ্রহ করে উপরের তালিকা থেকে একটি পেমেন্ট পদ্ধতি সিলেক্ট করুন</span>
                             </div>
-                            <p className="text-[11px] text-teal-800 leading-relaxed">
-                              অর্ডার সাবমিট করলে সরাসরি <strong>UddoktaPay</strong> এর সুরক্ষিত পেমেন্ট গেটওয়ে পেজ চালু হবে। সেখানে আপনার উদ্যোক্তা পেমেন্ট গেটওয়ের <strong>বাংলা কিউআর (Bangla QR)</strong> স্ক্যান করে অথবা <strong>বিকাশ, নগদ, রকেট ও কার্ডের</strong> মাধ্যমে স্বয়ংক্রিয়ভাবে পেমেন্ট করতে পারবেন।
+                            <p className="text-[11px] text-amber-800 leading-relaxed">
+                              অর্ডার নিশ্চিত করতে ক্যাশ অন ডেলিভারি, বিকাশ, নগদ, রকেট, বাংলা কিউআর বা অনলাইন গেটওয়ে নির্বাচন করুন।
                             </p>
-                            <div className="flex flex-wrap gap-1.5 pt-1 text-[10px]">
-                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 font-black border border-emerald-300">🇧🇩 Bangla QR কোড</span>
-                              <span className="px-2 py-0.5 rounded-md bg-pink-100 text-pink-900 font-black border border-pink-300">বিকাশ</span>
-                              <span className="px-2 py-0.5 rounded-md bg-orange-100 text-orange-900 font-black border border-orange-300">নগদ</span>
-                              <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 font-black border border-purple-300">রকেট</span>
-                              <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-900 font-black border border-blue-300">কার্ড</span>
+                          </div>
+                        )}
+
+                        {/* CASE 1: Cash on Delivery Info Box */}
+                        {paymentMethod === 'cod' && (
+                          <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200 text-xs space-y-1 text-emerald-950 mt-2">
+                            <div className="flex items-center gap-1.5 font-bold">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>ক্যাশ অন ডেলিভারি (Cash On Delivery)</span>
                             </div>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              কোনো অগ্রিম পেমেন্ট ছাড়াই অর্ডার সম্পন্ন করুন। পার্সেল হাতে পেয়ে ডেলিভারি ম্যানকে নগদ মূল্য পরিশোধ করতে পারবেন।
+                            </p>
+                          </div>
+                        )}
+
+                        {/* CASE 2: UddoktaPay Online Gateway Info Box */}
+                        {paymentMethod === 'paymently' && (
+                          <div className="p-3 bg-teal-50/80 rounded-2xl border border-teal-200 text-xs space-y-1 text-teal-950 mt-2">
+                            <div className="flex items-center gap-1.5 font-bold">
+                              <Sparkles className="w-4 h-4 text-teal-700 shrink-0" />
+                              <span>UddoktaPay অনলাইন পেমেন্ট</span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              অর্ডার সাবমিট করলে সরাসরি UddoktaPay এর সুরক্ষিত পেমেন্ট পেজে নিয়ে যাওয়া হবে যেখানে কার্ড, বিকাশ, নগদ বা বাংলা কিউআর দিয়ে স্বয়ংক্রিয়ভাবে পেমেন্ট করতে পারবেন।
+                            </p>
                           </div>
                         )}
 
@@ -2075,22 +2036,34 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                     <button
                       type="submit"
                       form="marketplace-checkout-form"
-                      disabled={isSubmitting || cart.length === 0}
-                      className="flex-1 py-3 px-4 bg-[#004D40] hover:bg-[#00382E] disabled:opacity-50 text-white font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition active:scale-95 shadow-md cursor-pointer"
+                      disabled={isSubmitting || cart.length === 0 || !paymentMethod}
+                      className={`flex-1 py-3 px-4 font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition active:scale-95 shadow-md cursor-pointer ${
+                        !paymentMethod
+                          ? 'bg-slate-200 text-slate-500 border border-slate-300 cursor-not-allowed'
+                          : 'bg-[#004D40] hover:bg-[#00382E] text-white'
+                      }`}
                     >
                       {isSubmitting ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
                           <span>অর্ডার প্রসেস হচ্ছে...</span>
                         </>
+                      ) : !paymentMethod ? (
+                        <span>👇 প্রথমে পেমেন্ট পদ্ধতি নির্বাচন করুন</span>
                       ) : (
                         <>
                           <span>
-                            {paymentMethod === 'paymently'
-                              ? '⚡ UddoktaPay দিয়ে পে করুন'
-                              : paymentMethod === 'cod'
+                            {paymentMethod === 'cod'
                               ? 'অর্ডার নিশ্চিত করুন (ক্যাশ অন ডেলিভারি)'
-                              : 'পেমেন্ট তথ্য দিয়ে অর্ডার জমা দিন'}
+                              : paymentMethod === 'bkash'
+                              ? 'অর্ডার নিশ্চিত করুন (বিকাশ)'
+                              : paymentMethod === 'nagad'
+                              ? 'অর্ডার নিশ্চিত করুন (নগদ)'
+                              : paymentMethod === 'rocket'
+                              ? 'অর্ডার নিশ্চিত করুন (রকেট)'
+                              : paymentMethod === 'bangla_qr'
+                              ? 'অর্ডার নিশ্চিত করুন (বাংলা কিউআর)'
+                              : '⚡ UddoktaPay দিয়ে পে করুন'}
                           </span>
                           <CheckCircle2 className="w-4 h-4" />
                         </>
@@ -2234,6 +2207,10 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                   type="button"
                   onClick={() => {
                     setCompletedMasterOrder(null);
+                    setPaymentMethod('');
+                    setCustomerTrxId('');
+                    setCustomerSenderPhone('');
+                    setIsCheckoutStep(false);
                     setActiveTab('orders');
                   }}
                   className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
@@ -2245,6 +2222,10 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                   type="button"
                   onClick={() => {
                     setCompletedMasterOrder(null);
+                    setPaymentMethod('');
+                    setCustomerTrxId('');
+                    setCustomerSenderPhone('');
+                    setIsCheckoutStep(false);
                     setActiveTab('home');
                   }}
                   className="w-full py-2 text-slate-500 hover:text-slate-700 text-xs font-medium cursor-pointer"
@@ -2256,18 +2237,6 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
           </div>
         )}
       </AnimatePresence>
-
-      {/* UddoktaPay Automated Online Payment Gateway Modal with Bangla QR */}
-      <AutomatedPaymentGatewayModal
-        isOpen={isAutomatedGatewayModalOpen}
-        onClose={() => setIsAutomatedGatewayModalOpen(false)}
-        grandTotal={grandTotal}
-        customerName={customerName}
-        customerPhone={customerPhone}
-        banglaQrConfig={paymentSettings.banglaQr}
-        banglaQrDataUrl={banglaQrDataUrl}
-        onSuccess={handleAutomatedPaymentSuccess}
-      />
     </div>
   );
 };

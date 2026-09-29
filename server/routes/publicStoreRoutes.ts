@@ -595,6 +595,36 @@ router.post('/:identifier/orders', async (req: Request, res: Response) => {
     const paidAmount = parseFloat(body.paidAmount) || 0;
     const dueAmount = Math.max(0, totalAmount - paidAmount);
 
+    // 🔒 STRICT PAYMENT VERIFICATION & UNIQUE TRXID
+    if (isDigitalPayment) {
+      if (!trxId || !trxId.trim()) {
+        return res.status(400).json({ error: 'পেমেন্ট সম্পন্ন না করে অর্ডার দেওয়া যাবে না। অনুগ্রহ করে ট্রানজেকশন আইডি (TrxID) দিন।' });
+      }
+      const pool = getDbPool();
+      if (pool) {
+        try {
+          const dupTrx = await pool.query(
+            'SELECT id, order_number FROM online_orders WHERE LOWER(trx_id) = LOWER($1) AND id != $2 LIMIT 1',
+            [trxId.trim(), orderId]
+          );
+          if (dupTrx.rows.length > 0) {
+            return res.status(400).json({
+              error: `এই ট্রানজেকশন আইডি (TrxID) দিয়ে ইতোমধ্যে অর্ডার #${dupTrx.rows[0].order_number || dupTrx.rows[0].id} করা হয়েছে। নতুন অর্ডারের জন্য নতুন পেমেন্টের সঠিক TrxID দিন।`,
+            });
+          }
+        } catch (e) {}
+      } else if (inMemoryStore.online_orders) {
+        const found = inMemoryStore.online_orders.find(
+          (o: any) => o.trxId && o.trxId.toLowerCase() === trxId.trim().toLowerCase() && o.id !== orderId
+        );
+        if (found) {
+          return res.status(400).json({
+            error: `এই ট্রানজেকশন আইডি (TrxID) দিয়ে ইতোমধ্যে অর্ডার #${found.orderNumber || found.id} করা হয়েছে। নতুন অর্ডারের জন্য নতুন পেমেন্টের সঠিক TrxID দিন।`,
+          });
+        }
+      }
+    }
+
     const orderObj = {
       id: orderId,
       userId: targetUserId,

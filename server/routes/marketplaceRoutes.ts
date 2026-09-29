@@ -815,8 +815,8 @@ router.post('/checkout', async (req: Request, res: Response) => {
     activeDedupeKey = dedupeKey;
 
     const cachedOrder = recentCheckoutCache.get(dedupeKey);
-    if (cachedOrder && (Date.now() - cachedOrder.timestamp) < 60000) {
-      console.log('⚡ Returning cached checkout to prevent duplicate order for:', standardPhone);
+    if (cachedOrder && (Date.now() - cachedOrder.timestamp) < 3000) {
+      console.log('⚡ Returning cached checkout to prevent rapid double-click duplicate order for:', standardPhone);
       return res.status(200).json(cachedOrder.responseData);
     }
 
@@ -826,25 +826,6 @@ router.post('/checkout', async (req: Request, res: Response) => {
     }
     inFlightCheckoutKeys.add(dedupeKey);
 
-    // Also check in-memory store for recent duplicate master order (within 60 seconds)
-    const recentMaster = (inMemoryStore.marketplace_master_orders || []).find((m) => {
-      const isSamePhone = (m.customerPhone || '').replace(/\D/g, '').endsWith(standardPhone.slice(-10));
-      const isRecent = (Date.now() - Number(m.createdAt || 0)) < 60000;
-      return isSamePhone && isRecent;
-    });
-
-    if (recentMaster) {
-      console.log('⚡ Found existing recent marketplace master order within 60s, returning existing order:', recentMaster.orderNumber);
-      inFlightCheckoutKeys.delete(dedupeKey);
-      const subOrders = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === recentMaster.id);
-      return res.status(200).json({
-        success: true,
-        masterOrder: recentMaster,
-        subOrders,
-        message: 'আপনার সেন্ট্রাল মার্কেটপ্লেস অর্ডারটি সফলভাবে জমা হয়েছে।',
-      });
-    }
-
     const isPaymently = normalizedPaymentMethod === 'paymently' || 
       normalizedPaymentMethod === 'online_paymently' ||
       normalizedPaymentMethod === 'uddoktapay' ||
@@ -852,13 +833,13 @@ router.post('/checkout', async (req: Request, res: Response) => {
     const isAutoPaid = req.body.isAutoPaid === true || 
       req.body.paymentStatus === 'paid';
 
-    // Strictly enforce payment verification: COD is cash on delivery.
-    // For non-COD orders (including UddoktaPay, bKash, Nagad, Rocket, Upay, Bangla QR, Bank):
-    // Must be either isAutoPaid: true (completed via gateway) or have valid TrxID and Sender Phone!
-    if (normalizedPaymentMethod !== 'cod' && !isAutoPaid) {
+    // For manual digital payment methods (bKash, Nagad, Rocket, Upay, Bangla QR, Bank):
+    // Customer must provide valid TrxID and Sender Phone.
+    // For COD and automated gateways (paymently/uddoktapay), TrxID is not required beforehand.
+    if (normalizedPaymentMethod !== 'cod' && !isPaymently && !isAutoPaid) {
       if (!paymentTrxId || !String(paymentTrxId).trim()) {
         inFlightCheckoutKeys.delete(dedupeKey);
-        return res.status(400).json({ error: 'পেমেন্ট সম্পন্ন না করে অর্ডার দেওয়া যাবে না। অনুগ্রহ করে পেমেন্ট সম্পন্ন করুন অথবা সঠিক ট্রানজেকশন আইডি (TrxID) দিন।' });
+        return res.status(400).json({ error: 'পেমেন্ট সম্পন্ন না করে অর্ডার দেওয়া যাবে না। অনুগ্রহ করে সঠিক ট্রানজেকশন আইডি (TrxID) দিন।' });
       }
       if (!senderPhone || !String(senderPhone).trim()) {
         inFlightCheckoutKeys.delete(dedupeKey);
@@ -871,6 +852,35 @@ router.post('/checkout', async (req: Request, res: Response) => {
     const cleanAddress = customerAddress.trim();
     const cleanTrxId = String(paymentTrxId || (isAutoPaid ? `PGW_${Date.now().toString(36).toUpperCase()}` : '')).trim();
     const cleanSenderPhone = String(senderPhone || cleanPhone).trim();
+
+    // 🔒 STRICT UNIQUENESS: Reject duplicate reuse of previous TrxID
+    if (cleanTrxId && !isAutoPaid && normalizedPaymentMethod !== 'cod') {
+      const pool = getDbPool();
+      if (pool) {
+        try {
+          const dupRes = await pool.query(
+            'SELECT id, order_number FROM marketplace_master_orders WHERE LOWER(payment_trx_id) = LOWER($1) LIMIT 1',
+            [cleanTrxId]
+          );
+          if (dupRes.rows.length > 0) {
+            inFlightCheckoutKeys.delete(dedupeKey);
+            return res.status(400).json({
+              error: `এই ট্রানজেকশন আইডি (TrxID) দিয়ে ইতোমধ্যে অর্ডার #${dupRes.rows[0].order_number || dupRes.rows[0].id} করা হয়েছে। নতুন অর্ডারের জন্য অনুগ্রহ করে নতুন পেমেন্ট করে নতুন TrxID প্রদান করুন।`,
+            });
+          }
+        } catch (e) {}
+      } else if (inMemoryStore.marketplace_master_orders) {
+        const found = inMemoryStore.marketplace_master_orders.find(
+          (m: any) => m.paymentTrxId && m.paymentTrxId.toLowerCase() === cleanTrxId.toLowerCase()
+        );
+        if (found) {
+          inFlightCheckoutKeys.delete(dedupeKey);
+          return res.status(400).json({
+            error: `এই ট্রানজেকশন আইডি (TrxID) দিয়ে ইতোমধ্যে অর্ডার #${found.orderNumber || found.id} করা হয়েছে। নতুন অর্ডারের জন্য অনুগ্রহ করে নতুন পেমেন্ট করে নতুন TrxID প্রদান করুন।`,
+          });
+        }
+      }
+    }
 
     // Fetch live settings for dynamic delivery rates
     const settings = await getStoredMarketplaceSettings();

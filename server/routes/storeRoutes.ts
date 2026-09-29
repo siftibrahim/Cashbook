@@ -1548,6 +1548,32 @@ router.post('/orders', optionalAuth, async (req: AuthenticatedRequest, res: Resp
     const notes = (body.notes || '').trim();
     const now = Date.now();
 
+    // 🔒 Reject duplicate reuse of previous TrxID on this store
+    if (paymentMethod !== 'cod' && trxId) {
+      if (pool) {
+        try {
+          const dupRes = await pool.query(
+            'SELECT id, order_number FROM online_orders WHERE user_id = $1 AND LOWER(trx_id) = LOWER($2) AND id != $3 LIMIT 1',
+            [targetUserId, trxId, orderId]
+          );
+          if (dupRes.rows.length > 0) {
+            return res.status(400).json({
+              error: `এই ট্রানজেকশন আইডি (TrxID) দিয়ে ইতোমধ্যে অর্ডার #${dupRes.rows[0].order_number || dupRes.rows[0].id} করা হয়েছে। নতুন অর্ডারের জন্য অনুগ্রহ করে নতুন পেমেন্ট করে নতুন TrxID প্রদান করুন।`,
+            });
+          }
+        } catch (e) {}
+      } else if (inMemoryStore.online_orders) {
+        const found = inMemoryStore.online_orders.find(
+          (o: any) => o.trxId && o.trxId.toLowerCase() === trxId.toLowerCase() && o.id !== orderId
+        );
+        if (found) {
+          return res.status(400).json({
+            error: `এই ট্রানজেকশন আইডি (TrxID) দিয়ে ইতোমধ্যে অর্ডার #${found.orderNumber || found.id} করা হয়েছে। নতুন অর্ডারের জন্য অনুগ্রহ করে নতুন পেমেন্ট করে নতুন TrxID প্রদান করুন।`,
+          });
+        }
+      }
+    }
+
     if (pool) {
       await ensureOnlineOrdersSchema(pool);
       await pool.query(`
