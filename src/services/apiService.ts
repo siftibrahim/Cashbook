@@ -1964,10 +1964,38 @@ export const adminApi = {
   async getActivityLogs(): Promise<AdminActivityLog[]> {
     try {
       const res = await apiRequest<{ logs: AdminActivityLog[] }>('/admin/activity-logs');
-      return res.logs || [];
+      return Array.isArray(res.logs) ? res.logs : [];
     } catch {
       return [];
     }
+  },
+
+  async createActivityLog(logData: Partial<AdminActivityLog>): Promise<AdminActivityLog | null> {
+    try {
+      const res = await apiRequest<{ success: boolean; log: AdminActivityLog }>('/admin/activity-logs', {
+        method: 'POST',
+        body: JSON.stringify(logData),
+      });
+      return res.log || null;
+    } catch {
+      return null;
+    }
+  },
+
+  async clearActivityLogs(): Promise<void> {
+    try {
+      await apiRequest('/admin/activity-logs', {
+        method: 'DELETE',
+      });
+    } catch {}
+  },
+
+  async deleteActivityLog(logId: string): Promise<void> {
+    try {
+      await apiRequest(`/admin/activity-logs/${encodeURIComponent(logId)}`, {
+        method: 'DELETE',
+      });
+    } catch {}
   },
 
   async getSuperAdminProfile(): Promise<{ id: string; name: string; email: string; phone: string; role: string }> {

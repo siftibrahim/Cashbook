@@ -39,6 +39,8 @@ import {
   deleteAnnouncement,
   saveAppUpdateConfigToCloud,
   clearAllActivityLogs,
+  deleteSingleActivityLog,
+  refreshActivityLogs,
   triggerUserPasswordReset,
   saveStaffMember,
   updateStaffStatus,
@@ -858,6 +860,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <ActivityLogTab
               logs={logs}
               onClearLogs={clearAllActivityLogs}
+              onDeleteLog={deleteSingleActivityLog}
+              onRefreshLogs={refreshActivityLogs}
               onShowToast={showToast}
             />
           )}

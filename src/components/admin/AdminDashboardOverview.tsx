@@ -568,16 +568,22 @@ export const AdminDashboardOverview: React.FC<AdminDashboardOverviewProps> = ({
               <div className="text-center py-10 text-xs text-slate-500">কোনো অ্যাক্টিভিটি লগ পাওয়া যায়নি</div>
             ) : (
               <div className="space-y-2.5">
-                {logs.slice(0, 4).map((log) => (
+                {logs.slice(0, 5).map((log) => (
                   <div
                     key={log.id}
-                    className="p-3 bg-slate-900/60 rounded-2xl border border-slate-800 text-xs"
+                    onClick={() => onNavigateTab('activity_logs')}
+                    className="p-3 bg-slate-900/60 hover:bg-slate-900 rounded-2xl border border-slate-800 hover:border-indigo-500/40 transition text-xs cursor-pointer"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                         <span className="font-black text-indigo-300 text-[11px] px-2 py-0.5 rounded-md bg-indigo-950/60 border border-indigo-500/30 truncate">
                           {log.action}
                         </span>
+                        {log.targetName && (
+                          <span className="text-[10.5px] font-bold text-emerald-300 bg-emerald-950/50 border border-emerald-500/20 px-1.5 py-0.5 rounded-md truncate">
+                            {log.targetName}
+                          </span>
+                        )}
                         {log.adminEmail && (
                           <span className="text-[10px] text-slate-400 truncate">
                             by {log.adminEmail}
@@ -585,14 +591,14 @@ export const AdminDashboardOverview: React.FC<AdminDashboardOverviewProps> = ({
                         )}
                       </div>
                       <span className="text-[10px] text-slate-500 shrink-0">
-                        {new Date(log.timestamp).toLocaleTimeString('bn-BD', {
+                        {new Date(Number(log.timestamp || Date.now())).toLocaleTimeString('bn-BD', {
                           hour: '2-digit',
                           minute: '2-digit',
                           hour12: true,
                         })}
                       </span>
                     </div>
-                    <p className="text-slate-300 mt-1.5 text-[11.5px] leading-relaxed">
+                    <p className="text-slate-300 mt-1.5 text-[11.5px] leading-relaxed line-clamp-2">
                       {log.details}
                     </p>
                   </div>

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk, ensureOnlineOrdersSchema } from '../db';
+import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk, ensureOnlineOrdersSchema, recordAdminAuditLog } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { PaymentlyService } from '../services/paymentlyService';
 import { sendSmsNotification, deductVendorSmsAndSend } from '../services/smsService';
@@ -2018,6 +2018,15 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
 
     realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'order_status', id });
 
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'super_admin',
+      action: 'MARKETPLACE_ORDER_STATUS',
+      targetEntity: 'MarketplaceOrder',
+      targetId: id,
+      targetName: `অর্ডার #${id}`,
+      details: `সেন্ট্রাল মার্কেটপ্লেস অর্ডার (#${id})-এর স্ট্যাটাস আপডেট করা হয়েছে: ${overallStatus || 'updated'}${paymentStatus ? `, পেমেন্ট: ${paymentStatus}` : ''}`,
+    });
+
     return res.json({ success: true, message: 'অর্ডার স্ট্যাটাস সফলভাবে আপডেট হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -2212,6 +2221,15 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
     }
 
     realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'approve_payment', orderId: targetOrder.id });
+
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'super_admin',
+      action: 'MARKETPLACE_APPROVE_PAYMENT',
+      targetEntity: 'MarketplaceOrder',
+      targetId: targetOrder.id,
+      targetName: `অর্ডার #${targetOrder.order_number || targetOrder.orderNumber}`,
+      details: `সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${targetOrder.order_number || targetOrder.orderNumber} (ক্রেতা: ${targetOrder.customer_name || targetOrder.customerName || 'গ্রাহক'}, বিল: ৳${targetOrder.grand_total || targetOrder.grandTotal || targetOrder.total_amount || targetOrder.totalAmount || 0}) পেমেন্ট যাচাই ও অনুমোদন করা হয়েছে`,
+    });
 
     // 🔔 SEND OFFICIAL ORDER CONFIRMATION SMS TO CUSTOMER NOW!
     // Deducted from the participating vendor(s) SMS balance!
@@ -2449,6 +2467,15 @@ router.post('/admin/orders/:id/reject-payment', authenticateUser, async (req: Au
 
     realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'reject_payment', orderId: targetOrder.id });
 
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'super_admin',
+      action: 'MARKETPLACE_REJECT_PAYMENT',
+      targetEntity: 'MarketplaceOrder',
+      targetId: targetOrder.id,
+      targetName: `অর্ডার #${targetOrder.order_number || targetOrder.orderNumber}`,
+      details: `সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${targetOrder.order_number || targetOrder.orderNumber} পেমেন্ট বাতিল করা হয়েছে। কারণ: ${cleanReason}`,
+    });
+
     return res.json({
       success: true,
       message: '❌ পেমেন্ট বাতিল করা হয়েছে। ভেন্ডরদের তালিকা থেকে অর্ডারটি সরিয়ে দেওয়া হয়েছে এবং পণ্যের স্টক রিস্টোর করা হয়েছে।',
@@ -2550,6 +2577,15 @@ router.post('/admin/products/:productId/moderate', authenticateUser, async (req:
         saveInMemoryStoreToDisk();
       }
     }
+
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'super_admin',
+      action: 'MARKETPLACE_MODERATE_PRODUCT',
+      targetEntity: 'Product',
+      targetId: productId,
+      targetName: productId,
+      details: `সেন্ট্রাল মার্কেটপ্লেস পণ্যের স্ট্যাটাস আপডেট করা হয়েছে (${marketplaceStatus || (finalListed ? 'listed' : 'unlisted')})`,
+    });
 
     return res.json({
       success: true,
@@ -3450,35 +3486,58 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
         ORDER BY created_at DESC
       `).catch(() => ({ rows: [] }));
 
-      // 4. Products count per user
+      // 4. Products info & count per user
       const prodsRes = await pool.query(`
-        SELECT user_id, COUNT(*) as prod_count,
-               COUNT(CASE WHEN is_listed_on_marketplace = TRUE THEN 1 END) as listed_count
+        SELECT id, user_id, name, category, sale_price, image_url, is_listed_on_marketplace
         FROM products
-        GROUP BY user_id
       `).catch(() => ({ rows: [] }));
 
-      const prodMap = new Map();
-      prodsRes.rows.forEach(r => prodMap.set(r.user_id, { total: parseInt(r.prod_count) || 0, listed: parseInt(r.listed_count) || 0 }));
+      const prodMap = new Map<string, { total: number; listed: number }>();
+      const productDetailsMap = new Map<string, any>();
+      prodsRes.rows.forEach((r: any) => {
+        productDetailsMap.set(r.id, r);
+        const cur = prodMap.get(r.user_id) || { total: 0, listed: 0 };
+        cur.total += 1;
+        if (r.is_listed_on_marketplace === true) cur.listed += 1;
+        prodMap.set(r.user_id, cur);
+      });
 
       // Group orders by vendor
       const vendorOrdersMap = new Map<string, any[]>();
       ordersRes.rows.forEach(o => {
         const uId = o.user_id;
         if (!vendorOrdersMap.has(uId)) vendorOrdersMap.set(uId, []);
+        const parsedItems = (typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || [])).map((it: any) => {
+          const pId = it.productId || it.id || '';
+          const pInfo = productDetailsMap.get(pId);
+          const qty = Number(it.quantity) || 1;
+          const uPrice = Number(it.unitPrice ?? it.price ?? pInfo?.sale_price ?? 0);
+          const sub = Number(it.subtotal ?? it.total ?? qty * uPrice);
+          return {
+            productId: pId || it.name || 'unknown',
+            name: it.name || it.productName || pInfo?.name || 'পণ্য',
+            imageUrl: it.imageUrl || pInfo?.image_url || '',
+            category: it.category || pInfo?.category || '',
+            unit: it.unit || 'পিস',
+            quantity: qty,
+            unitPrice: uPrice,
+            subtotal: sub,
+          };
+        });
         vendorOrdersMap.get(uId)!.push({
           id: o.id,
           orderNumber: o.order_number,
           totalAmount: parseFloat(o.total_amount) || 0,
-          subtotal: parseFloat(o.subtotal) || 0,
+          subtotal: parseFloat(o.subtotal) || parsedItems.reduce((s: number, i: any) => s + i.subtotal, 0),
           deliveryCharge: parseFloat(o.delivery_charge) || 0,
-          orderStatus: o.order_status,
-          paymentStatus: o.payment_status,
+          orderStatus: o.order_status || 'pending',
+          paymentStatus: o.payment_status || 'unpaid',
           vendorPayoutStatus: o.vendor_payout_status || 'unsettled',
           createdAt: Number(o.created_at),
           customerName: o.customer_name,
           customerPhone: o.customer_phone,
-          itemsCount: (typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || [])).length,
+          items: parsedItems,
+          itemsCount: parsedItems.length,
         });
       });
 
@@ -3505,7 +3564,7 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
       usersRes.rows.forEach(u => allVendorIds.add(u.id));
       ordersRes.rows.forEach(o => { if (o.user_id) allVendorIds.add(o.user_id); });
       payoutsRes.rows.forEach(p => { if (p.user_id) allVendorIds.add(p.user_id); });
-      prodsRes.rows.forEach(p => { if (p.user_id) allVendorIds.add(p.user_id); });
+      prodsRes.rows.forEach((p: any) => { if (p.user_id) allVendorIds.add(p.user_id); });
 
       const userMap = new Map();
       usersRes.rows.forEach(u => userMap.set(u.id, u));
@@ -3516,6 +3575,9 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
       let totalSettledAmount = 0;
       let totalDueToVendors = 0;
       let totalPendingWithdrawals = 0;
+      let totalSoldUnitsCount = 0;
+      let totalOrdersCountAll = 0;
+      const allSoldProductsMap = new Map<string, any>();
 
       for (const vId of allVendorIds) {
         const u = userMap.get(vId) || {
@@ -3535,7 +3597,10 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           continue;
         }
 
+        const shopLabel = u.effective_shop_name || u.shop_name || u.name || 'দোকান';
         const grossSales = vOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+        const totalProductsAmount = vOrders.reduce((sum, o) => sum + (o.subtotal || 0), 0);
+        const totalDeliveryAmount = vOrders.reduce((sum, o) => sum + (o.deliveryCharge || 0), 0);
         const deliveredOrders = vOrders.filter(o => o.orderStatus === 'delivered');
         const deliveredSales = deliveredOrders.reduce((sum, o) => sum + o.totalAmount, 0);
         const inProgressOrders = vOrders.filter(o => ['confirmed', 'processing', 'shipped'].includes(o.orderStatus));
@@ -3543,12 +3608,103 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
         const pendingOrders = vOrders.filter(o => o.orderStatus === 'pending');
         const pendingSales = pendingOrders.reduce((sum, o) => sum + o.totalAmount, 0);
 
+        // Aggregate sold products for this vendor
+        const vendorProdSoldMap = new Map<string, any>();
+        let vendorSoldUnits = 0;
+
+        for (const ord of vOrders) {
+          const isDeliv = ord.orderStatus === 'delivered';
+          for (const it of (ord.items || [])) {
+            const key = `${it.productId || it.name}`;
+            const qty = Number(it.quantity) || 1;
+            const sub = Number(it.subtotal) || qty * (Number(it.unitPrice) || 0);
+            vendorSoldUnits += qty;
+            totalSoldUnitsCount += qty;
+
+            if (!vendorProdSoldMap.has(key)) {
+              vendorProdSoldMap.set(key, {
+                productId: it.productId || key,
+                name: it.name || 'পণ্য',
+                imageUrl: it.imageUrl || '',
+                category: it.category || '',
+                unit: it.unit || 'পিস',
+                unitPrice: Number(it.unitPrice) || 0,
+                totalQuantitySold: 0,
+                deliveredQuantity: 0,
+                inProgressQuantity: 0,
+                totalSoldAmount: 0,
+                deliveredAmount: 0,
+                inProgressAmount: 0,
+                receivableAmount: 0,
+                ordersCount: 0,
+                orderNumbers: [] as string[],
+              });
+            }
+            const entry = vendorProdSoldMap.get(key)!;
+            entry.totalQuantitySold += qty;
+            entry.totalSoldAmount += sub;
+            entry.receivableAmount += sub;
+            if (isDeliv) {
+              entry.deliveredQuantity += qty;
+              entry.deliveredAmount += sub;
+            } else {
+              entry.inProgressQuantity += qty;
+              entry.inProgressAmount += sub;
+            }
+            if (ord.orderNumber && !entry.orderNumbers.includes(ord.orderNumber)) {
+              entry.orderNumbers.push(ord.orderNumber);
+              entry.ordersCount = entry.orderNumbers.length;
+            }
+
+            // Also aggregate into global allSoldProductsMap
+            const globalKey = `${vId}_${key}`;
+            if (!allSoldProductsMap.has(globalKey)) {
+              allSoldProductsMap.set(globalKey, {
+                productId: it.productId || key,
+                vendorId: vId,
+                vendorShopName: shopLabel,
+                vendorPhone: u.effective_phone || u.phone || '',
+                name: it.name || 'পণ্য',
+                imageUrl: it.imageUrl || '',
+                category: it.category || '',
+                unit: it.unit || 'পিস',
+                unitPrice: Number(it.unitPrice) || 0,
+                totalQuantitySold: 0,
+                deliveredQuantity: 0,
+                inProgressQuantity: 0,
+                totalSoldAmount: 0,
+                deliveredAmount: 0,
+                inProgressAmount: 0,
+                receivableAmount: 0,
+                orderNumbers: [] as string[],
+              });
+            }
+            const gEntry = allSoldProductsMap.get(globalKey)!;
+            gEntry.totalQuantitySold += qty;
+            gEntry.totalSoldAmount += sub;
+            gEntry.receivableAmount += sub;
+            if (isDeliv) {
+              gEntry.deliveredQuantity += qty;
+              gEntry.deliveredAmount += sub;
+            } else {
+              gEntry.inProgressQuantity += qty;
+              gEntry.inProgressAmount += sub;
+            }
+            if (ord.orderNumber && !gEntry.orderNumbers.includes(ord.orderNumber)) {
+              gEntry.orderNumbers.push(ord.orderNumber);
+            }
+          }
+        }
+
+        const soldProducts = Array.from(vendorProdSoldMap.values()).sort(
+          (a, b) => b.receivableAmount - a.receivableAmount
+        );
+
         // Settled from approved payout requests
         const approvedPayoutsTotal = vPayouts
           .filter(p => p.status === 'approved')
           .reduce((sum, p) => sum + p.amount, 0);
 
-        // Also check orders marked settled
         const settledOrdersTotal = vOrders
           .filter(o => o.vendorPayoutStatus === 'settled')
           .reduce((sum, o) => sum + o.totalAmount, 0);
@@ -3559,8 +3715,9 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           .filter(p => p.status === 'pending')
           .reduce((sum, p) => sum + p.amount, 0);
 
-        // Due / Payable: delivered sales minus what has been settled
-        const dueBalance = Math.max(0, deliveredSales - settledAmount);
+        // Receivable amount for sold products
+        const dueBalance = Math.max(0, grossSales - settledAmount);
+        const deliveredDue = Math.max(0, deliveredSales - settledAmount);
         const potentialDue = Math.max(0, grossSales - settledAmount);
 
         totalGrossSales += grossSales;
@@ -3568,11 +3725,12 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
         totalSettledAmount += settledAmount;
         totalDueToVendors += dueBalance;
         totalPendingWithdrawals += pendingWithdrawals;
+        totalOrdersCountAll += vOrders.length;
 
         vendorLedgers.push({
           vendorId: vId,
           name: u.name || 'ভেন্ডর',
-          shopName: u.effective_shop_name || u.shop_name || u.name || 'দোকান',
+          shopName: shopLabel,
           phone: u.effective_phone || u.phone || '',
           email: u.email || '',
           totalOrdersCount: vOrders.length,
@@ -3581,33 +3739,43 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           pendingOrdersCount: pendingOrders.length,
           productCount: pInfo.total,
           listedProductCount: pInfo.listed,
+          soldProductsCount: soldProducts.length,
+          soldUnitsCount: vendorSoldUnits,
+          soldProducts,
           grossSales,
+          totalProductsAmount,
+          totalDeliveryAmount,
           deliveredSales,
           inProgressSales,
           pendingSales,
           settledAmount,
           dueBalance,
+          deliveredDue,
           potentialDue,
           pendingWithdrawals,
           isPayoutHeld: Boolean(holds[vId]?.isHeld),
           holdReason: holds[vId]?.reason || '',
-          orders: vOrders.slice(0, 50),
+          orders: vOrders.slice(0, 100),
           recentPayouts: vPayouts.slice(0, 10),
         });
       }
 
-      // Sort by dueBalance DESC (vendors owed the most money first!)
-      vendorLedgers.sort((a, b) => b.dueBalance - a.dueBalance || b.grossSales - a.grossSales);
+      // Sort by grossSales / dueBalance DESC
+      vendorLedgers.sort((a, b) => b.grossSales - a.grossSales || b.dueBalance - a.dueBalance);
 
       return res.json({
         success: true,
         summary: {
           totalVendorsCount: vendorLedgers.length,
+          totalOrdersCount: totalOrdersCountAll,
+          totalSoldProductsCount: allSoldProductsMap.size,
+          totalSoldUnitsCount,
           totalGrossSales,
           totalDeliveredSales,
           totalSettledAmount,
           totalDueToVendors,
           totalPendingWithdrawals,
+          allSoldProducts: Array.from(allSoldProductsMap.values()).sort((a, b) => b.receivableAmount - a.receivableAmount),
         },
         vendors: vendorLedgers,
       });
@@ -3618,15 +3786,153 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
         (o: any) => (o.orderSource === 'marketplace' || o.masterOrderId) && !o.isRejectedByAdmin && o.orderStatus !== 'cancelled'
       );
       const payouts = (inMemoryStore as any).vendor_payout_requests || [];
+      const allProds = inMemoryStore.products || [];
+
+      let totalSoldUnitsCount = 0;
+      let totalOrdersCountAll = 0;
+      const allSoldProductsMap = new Map<string, any>();
 
       const vendorLedgers = users.map((u: any) => {
-        const vOrders = orders.filter((o: any) => o.userId === u.id || o.user_id === u.id);
+        const shopLabel = u.shopName || u.shop_name || u.name || 'দোকান';
+        const vRawOrders = orders.filter((o: any) => o.userId === u.id || o.user_id === u.id);
         const vPayouts = payouts.filter((p: any) => p.userId === u.id || p.user_id === u.id);
-        const prods = (inMemoryStore.products || []).filter((p: any) => p.userId === u.id);
+        const prods = allProds.filter((p: any) => p.userId === u.id);
+
+        const vOrders = vRawOrders.map((o: any) => {
+          const parsedItems = (Array.isArray(o.items) ? o.items : []).map((it: any) => {
+            const pId = it.productId || it.id || '';
+            const pInfo = allProds.find((x: any) => x.id === pId);
+            const qty = Number(it.quantity) || 1;
+            const uPrice = Number(it.unitPrice ?? it.price ?? pInfo?.salePrice ?? 0);
+            const sub = Number(it.subtotal ?? it.total ?? qty * uPrice);
+            return {
+              productId: pId || it.name || 'unknown',
+              name: it.name || it.productName || pInfo?.name || 'পণ্য',
+              imageUrl: it.imageUrl || pInfo?.imageUrl || '',
+              category: it.category || pInfo?.category || '',
+              unit: it.unit || 'পিস',
+              quantity: qty,
+              unitPrice: uPrice,
+              subtotal: sub,
+            };
+          });
+          return {
+            id: o.id,
+            orderNumber: o.orderNumber || o.order_number,
+            totalAmount: Number(o.totalAmount || o.total_amount) || 0,
+            subtotal: Number(o.subtotal) || parsedItems.reduce((s: number, i: any) => s + i.subtotal, 0),
+            deliveryCharge: Number(o.deliveryCharge || o.delivery_charge) || 0,
+            orderStatus: o.orderStatus || o.order_status || 'pending',
+            paymentStatus: o.paymentStatus || o.payment_status || 'unpaid',
+            vendorPayoutStatus: o.vendorPayoutStatus || 'unsettled',
+            createdAt: Number(o.createdAt || o.created_at || Date.now()),
+            customerName: o.customerName || o.customer_name,
+            customerPhone: o.customerPhone || o.customer_phone,
+            items: parsedItems,
+            itemsCount: parsedItems.length,
+          };
+        });
 
         const grossSales = vOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
+        const totalProductsAmount = vOrders.reduce((sum: number, o: any) => sum + (o.subtotal || 0), 0);
+        const totalDeliveryAmount = vOrders.reduce((sum: number, o: any) => sum + (o.deliveryCharge || 0), 0);
         const deliveredOrders = vOrders.filter((o: any) => o.orderStatus === 'delivered');
         const deliveredSales = deliveredOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
+        const inProgressOrders = vOrders.filter((o: any) => ['confirmed', 'processing', 'shipped'].includes(o.orderStatus));
+        const inProgressSales = inProgressOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
+        const pendingOrders = vOrders.filter((o: any) => o.orderStatus === 'pending');
+        const pendingSales = pendingOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
+
+        const vendorProdSoldMap = new Map<string, any>();
+        let vendorSoldUnits = 0;
+
+        for (const ord of vOrders) {
+          const isDeliv = ord.orderStatus === 'delivered';
+          for (const it of (ord.items || [])) {
+            const key = `${it.productId || it.name}`;
+            const qty = Number(it.quantity) || 1;
+            const sub = Number(it.subtotal) || qty * (Number(it.unitPrice) || 0);
+            vendorSoldUnits += qty;
+            totalSoldUnitsCount += qty;
+
+            if (!vendorProdSoldMap.has(key)) {
+              vendorProdSoldMap.set(key, {
+                productId: it.productId || key,
+                name: it.name || 'পণ্য',
+                imageUrl: it.imageUrl || '',
+                category: it.category || '',
+                unit: it.unit || 'পিস',
+                unitPrice: Number(it.unitPrice) || 0,
+                totalQuantitySold: 0,
+                deliveredQuantity: 0,
+                inProgressQuantity: 0,
+                totalSoldAmount: 0,
+                deliveredAmount: 0,
+                inProgressAmount: 0,
+                receivableAmount: 0,
+                ordersCount: 0,
+                orderNumbers: [] as string[],
+              });
+            }
+            const entry = vendorProdSoldMap.get(key)!;
+            entry.totalQuantitySold += qty;
+            entry.totalSoldAmount += sub;
+            entry.receivableAmount += sub;
+            if (isDeliv) {
+              entry.deliveredQuantity += qty;
+              entry.deliveredAmount += sub;
+            } else {
+              entry.inProgressQuantity += qty;
+              entry.inProgressAmount += sub;
+            }
+            if (ord.orderNumber && !entry.orderNumbers.includes(ord.orderNumber)) {
+              entry.orderNumbers.push(ord.orderNumber);
+              entry.ordersCount = entry.orderNumbers.length;
+            }
+
+            const globalKey = `${u.id}_${key}`;
+            if (!allSoldProductsMap.has(globalKey)) {
+              allSoldProductsMap.set(globalKey, {
+                productId: it.productId || key,
+                vendorId: u.id,
+                vendorShopName: shopLabel,
+                vendorPhone: u.phone || '',
+                name: it.name || 'পণ্য',
+                imageUrl: it.imageUrl || '',
+                category: it.category || '',
+                unit: it.unit || 'পিস',
+                unitPrice: Number(it.unitPrice) || 0,
+                totalQuantitySold: 0,
+                deliveredQuantity: 0,
+                inProgressQuantity: 0,
+                totalSoldAmount: 0,
+                deliveredAmount: 0,
+                inProgressAmount: 0,
+                receivableAmount: 0,
+                orderNumbers: [] as string[],
+              });
+            }
+            const gEntry = allSoldProductsMap.get(globalKey)!;
+            gEntry.totalQuantitySold += qty;
+            gEntry.totalSoldAmount += sub;
+            gEntry.receivableAmount += sub;
+            if (isDeliv) {
+              gEntry.deliveredQuantity += qty;
+              gEntry.deliveredAmount += sub;
+            } else {
+              gEntry.inProgressQuantity += qty;
+              gEntry.inProgressAmount += sub;
+            }
+            if (ord.orderNumber && !gEntry.orderNumbers.includes(ord.orderNumber)) {
+              gEntry.orderNumbers.push(ord.orderNumber);
+            }
+          }
+        }
+
+        const soldProducts = Array.from(vendorProdSoldMap.values()).sort(
+          (a, b) => b.receivableAmount - a.receivableAmount
+        );
+
         const approvedPayoutsTotal = vPayouts
           .filter((p: any) => p.status === 'approved')
           .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
@@ -3634,42 +3940,56 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           .filter((o: any) => o.vendorPayoutStatus === 'settled')
           .reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
         const settledAmount = Math.max(approvedPayoutsTotal, settledOrdersTotal);
-        const dueBalance = Math.max(0, deliveredSales - settledAmount);
+        const dueBalance = Math.max(0, grossSales - settledAmount);
+        totalOrdersCountAll += vOrders.length;
 
         return {
           vendorId: u.id,
           name: u.name || 'ভেন্ডর',
-          shopName: u.shopName || u.shop_name || u.name || 'দোকান',
+          shopName: shopLabel,
           phone: u.phone || '',
           email: u.email || '',
           totalOrdersCount: vOrders.length,
           deliveredOrdersCount: deliveredOrders.length,
-          pendingOrdersCount: vOrders.filter((o: any) => o.orderStatus !== 'delivered').length,
+          inProgressOrdersCount: inProgressOrders.length,
+          pendingOrdersCount: pendingOrders.length,
           productCount: prods.length,
           listedProductCount: prods.filter((p: any) => p.isListedOnMarketplace).length,
+          soldProductsCount: soldProducts.length,
+          soldUnitsCount: vendorSoldUnits,
+          soldProducts,
           grossSales,
+          totalProductsAmount,
+          totalDeliveryAmount,
           deliveredSales,
+          inProgressSales,
+          pendingSales,
           settledAmount,
           dueBalance,
+          potentialDue: dueBalance,
           pendingWithdrawals: 0,
           isPayoutHeld: Boolean(holds[u.id]?.isHeld),
           holdReason: holds[u.id]?.reason || '',
-          orders: vOrders.slice(0, 50),
+          orders: vOrders.slice(0, 100),
           recentPayouts: vPayouts.slice(0, 10),
         };
       }).filter((v: any) => v.totalOrdersCount > 0 || v.productCount > 0);
 
-      vendorLedgers.sort((a: any, b: any) => b.dueBalance - a.dueBalance);
+      vendorLedgers.sort((a: any, b: any) => b.grossSales - a.grossSales || b.dueBalance - a.dueBalance);
 
       return res.json({
         success: true,
         summary: {
           totalVendorsCount: vendorLedgers.length,
+          totalOrdersCount: totalOrdersCountAll,
+          totalSoldProductsCount: allSoldProductsMap.size,
+          totalSoldUnitsCount,
           totalGrossSales: vendorLedgers.reduce((s: number, v: any) => s + v.grossSales, 0),
           totalDeliveredSales: vendorLedgers.reduce((s: number, v: any) => s + v.deliveredSales, 0),
           totalSettledAmount: vendorLedgers.reduce((s: number, v: any) => s + v.settledAmount, 0),
           totalDueToVendors: vendorLedgers.reduce((s: number, v: any) => s + v.dueBalance, 0),
           totalPendingWithdrawals: 0,
+          allSoldProducts: Array.from(allSoldProductsMap.values()).sort((a, b) => b.receivableAmount - a.receivableAmount),
         },
         vendors: vendorLedgers,
       });

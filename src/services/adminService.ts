@@ -407,6 +407,18 @@ function setCached<T>(key: string, data: T) {
   }
 }
 
+const logListeners = new Set<(logs: AdminActivityLog[]) => void>();
+
+function notifyLogListeners(logs: AdminActivityLog[]) {
+  logListeners.forEach((cb) => {
+    try {
+      cb(logs);
+    } catch (err) {
+      console.error('Error in log listener:', err);
+    }
+  });
+}
+
 // Log admin action
 export async function logAdminActivity(
   action: string,
@@ -428,8 +440,15 @@ export async function logAdminActivity(
   };
 
   const logs = getCached<AdminActivityLog[]>(STORAGE_KEYS.LOGS, INITIAL_LOGS);
-  const updatedLogs = [newLog, ...logs].slice(0, 200);
+  const updatedLogs = [newLog, ...logs.filter((l) => l && l.id !== newLog.id)].slice(0, 300);
   setCached(STORAGE_KEYS.LOGS, updatedLogs);
+  notifyLogListeners(updatedLogs);
+
+  try {
+    await adminApi.createActivityLog(newLog);
+  } catch (err) {
+    console.warn('Could not persist activity log to backend:', err);
+  }
 }
 
 // ----------------------------------------------------
@@ -822,6 +841,13 @@ export async function createAdminNotification(notif: AdminNotification): Promise
   } catch (err) {
     console.error('Failed to send notification to backend:', err);
   }
+  await logAdminActivity(
+    'SEND_NOTIFICATION',
+    'Notification',
+    `পুশ নোটিফিকেশন প্রেরণ: "${notif.title}" (${notif.target === 'all' ? 'সকল ইউজার' : notif.targetUserName || 'নির্দিষ্ট ইউজার'})`,
+    notif.id,
+    notif.title
+  );
 }
 
 export const sendAdminNotification = createAdminNotification;
@@ -907,6 +933,13 @@ export async function saveAnnouncement(ann: Announcement): Promise<void> {
   } catch (err) {
     console.error('Failed to save announcement on backend:', err);
   }
+  await logAdminActivity(
+    'SAVE_ANNOUNCEMENT',
+    'Announcement',
+    `অ্যাপ নোটিশ ও ব্যানার সংরক্ষণ: "${ann.title}" (${ann.isActive ? 'সক্রিয়' : 'নিষ্ক্রিয়'})`,
+    ann.id,
+    ann.title
+  );
 }
 
 export async function deleteAnnouncement(annId: string): Promise<void> {
@@ -957,6 +990,13 @@ export async function saveAppUpdateConfig(config: AppUpdateConfig): Promise<void
   } catch (err) {
     console.error('Failed to save app update on backend:', err);
   }
+  await logAdminActivity(
+    'UPDATE_APP_VERSION',
+    'AppUpdate',
+    `অ্যাপ ভার্সন ও আপডেট কনফিগারেশন আপডেট করা হয়েছে: v${config.versionName} (Force Update: ${config.isForceUpdate ? 'হ্যাঁ' : 'না'})`,
+    config.id,
+    `v${config.versionName}`
+  );
 }
 
 export const saveAppUpdateConfigToCloud = saveAppUpdateConfig;
@@ -1057,6 +1097,7 @@ export function subscribeToAdminLogs(
   onUpdate: (logs: AdminActivityLog[]) => void,
   onError?: (err: Error) => void
 ) {
+  logListeners.add(onUpdate);
   const cached = getCached<AdminActivityLog[]>(STORAGE_KEYS.LOGS, INITIAL_LOGS);
   onUpdate(cached);
 
@@ -1064,9 +1105,9 @@ export function subscribeToAdminLogs(
   const fetchLogs = async () => {
     try {
       const logs = await adminApi.getActivityLogs();
-      if (isSubscribed && logs.length > 0) {
+      if (isSubscribed && Array.isArray(logs)) {
         setCached(STORAGE_KEYS.LOGS, logs);
-        onUpdate(logs);
+        notifyLogListeners(logs);
       }
     } catch (err: any) {
       if (onError) onError(err);
@@ -1074,17 +1115,48 @@ export function subscribeToAdminLogs(
   };
 
   fetchLogs();
-  const interval = setInterval(fetchLogs, 15000);
+  const interval = setInterval(fetchLogs, 10000);
   return () => {
     isSubscribed = false;
+    logListeners.delete(onUpdate);
     clearInterval(interval);
   };
 }
 
 export const subscribeToActivityLogs = subscribeToAdminLogs;
 
+export async function refreshActivityLogs(): Promise<AdminActivityLog[]> {
+  try {
+    const logs = await adminApi.getActivityLogs();
+    if (Array.isArray(logs)) {
+      setCached(STORAGE_KEYS.LOGS, logs);
+      notifyLogListeners(logs);
+      return logs;
+    }
+  } catch {}
+  return getCached<AdminActivityLog[]>(STORAGE_KEYS.LOGS, []);
+}
+
 export async function clearAllActivityLogs(): Promise<void> {
   setCached(STORAGE_KEYS.LOGS, []);
+  notifyLogListeners([]);
+  try {
+    await adminApi.clearActivityLogs();
+  } catch (err) {
+    console.error('Failed to clear activity logs on backend:', err);
+  }
+}
+
+export async function deleteSingleActivityLog(logId: string): Promise<void> {
+  const current = getCached<AdminActivityLog[]>(STORAGE_KEYS.LOGS, []);
+  const updated = current.filter((l) => l && l.id !== logId);
+  setCached(STORAGE_KEYS.LOGS, updated);
+  notifyLogListeners(updated);
+  try {
+    await adminApi.deleteActivityLog(logId);
+  } catch (err) {
+    console.error('Failed to delete activity log on backend:', err);
+  }
 }
 
 // ----------------------------------------------------
