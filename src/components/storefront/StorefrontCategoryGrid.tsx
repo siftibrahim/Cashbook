@@ -47,21 +47,50 @@ export const StorefrontCategoryGrid: React.FC<StorefrontCategoryGridProps> = ({
             </h2>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              if (onViewAll) onViewAll();
-              setShowAllExpanded(!showAllExpanded);
-            }}
-            className="flex items-center gap-1 text-xs font-bold text-[#00695C] hover:text-[#004D40] hover:underline transition cursor-pointer"
-          >
-            <span>{showAllExpanded ? 'কম দেখুন' : 'সব দেখুন'}</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {/* Quick Sideways Scroll Buttons */}
+            <div className="flex sm:hidden items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => document.getElementById('storefront-categories-container')?.scrollBy({ left: -160, behavior: 'smooth' })}
+                className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 text-[10px]"
+                title="বামে স্ক্রল"
+              >
+                ◀
+              </button>
+              <button
+                type="button"
+                onClick={() => document.getElementById('storefront-categories-container')?.scrollBy({ left: 160, behavior: 'smooth' })}
+                className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 text-[10px]"
+                title="ডানে স্ক্রল"
+              >
+                ▶
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (onViewAll) onViewAll();
+                setShowAllExpanded(!showAllExpanded);
+              }}
+              className="flex items-center gap-1 text-xs font-bold text-[#00695C] hover:text-[#004D40] hover:underline transition cursor-pointer"
+            >
+              <span>{showAllExpanded ? 'কম দেখুন' : 'সব দেখুন'}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
-        {/* Category Grid (Responsive: 4 on mobile, 8 on desktop) */}
-        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 sm:gap-2.5">
+        {/* Category Row / Grid (Supports smooth sideways horizontal scrolling on mobile) */}
+        <div
+          id="storefront-categories-container"
+          className={`${
+            showAllExpanded
+              ? 'grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8'
+              : 'flex sm:grid sm:grid-cols-6 md:grid-cols-8 overflow-x-auto touch-pan-x scrollbar-thin'
+          } gap-2 sm:gap-2.5 pb-1`}
+        >
           {displayCategories.map((cat) => {
             const isSelected = selectedCategory === cat.name;
             const count = getProductCountForCategory(cat.name);
@@ -78,8 +107,8 @@ export const StorefrontCategoryGrid: React.FC<StorefrontCategoryGridProps> = ({
                   }
                 }}
                 className={`group p-2 sm:p-2.5 rounded-2xl sm:rounded-3xl border transition-all cursor-pointer flex flex-col items-center justify-center text-center relative active:scale-95 ${
-                  cat.bgColor
-                } ${cat.borderColor} ${
+                  showAllExpanded ? 'w-full' : 'shrink-0 w-[76px] sm:w-auto'
+                } ${cat.bgColor} ${cat.borderColor} ${
                   isSelected
                     ? 'ring-2 ring-[#00695C] shadow-md scale-105'
                     : 'hover:shadow-xs hover:border-teal-500/50'

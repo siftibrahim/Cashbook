@@ -166,6 +166,43 @@ export const marketplaceAdminApi = {
     return data;
   },
 
+  async getVendorBalances(): Promise<{
+    success: boolean;
+    summary: {
+      totalVendorsCount: number;
+      totalGrossSales: number;
+      totalDeliveredSales: number;
+      totalSettledAmount: number;
+      totalDueToVendors: number;
+      totalPendingWithdrawals: number;
+    };
+    vendors: any[];
+  }> {
+    const res = await fetch('/api/marketplace/admin/vendor-balances', {
+      headers: this.getAuthHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ভেন্ডর ব্যালেন্স ও প্রাপ্য তালিকা লোড করা যায়নি');
+    return data;
+  },
+
+  async recordVendorPayout(vendorId: string, payload: {
+    amount: number;
+    paymentMethod?: string;
+    accountNumber?: string;
+    transactionId: string;
+    note?: string;
+  }): Promise<{ success: boolean; message: string; requestId?: string }> {
+    const res = await fetch(`/api/marketplace/admin/vendors/${encodeURIComponent(vendorId)}/record-payout`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ভেন্ডর পেআউট নিষ্পত্তি ব্যর্থ হয়েছে');
+    return data;
+  },
+
   async processPayoutRequest(id: string, payload: {
     action: 'approve' | 'reject' | 'hold' | 'unhold';
     adminTransactionId?: string;

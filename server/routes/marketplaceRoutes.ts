@@ -3406,6 +3406,454 @@ router.post('/vendor/payout-request', authenticateUser, async (req: Authenticate
 });
 
 /**
+ * 15.1 GET /api/marketplace/admin/vendor-balances - Super Admin Vendor Earnings & Balances Directory
+ */
+router.get('/admin/vendor-balances', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
+    if (!isSuperAdmin) {
+      return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
+    }
+
+    const pool = getDbPool();
+    const holds = await loadVendorPayoutHolds();
+
+    if (pool) {
+      // 1. Fetch all users
+      const usersRes = await pool.query(`
+        SELECT u.id, u.name, u.shop_name, u.phone, u.email,
+               COALESCE(s.store_name, u.shop_name) as effective_shop_name,
+               COALESCE(s.phone, u.phone) as effective_phone
+        FROM users u
+        LEFT JOIN online_store_configs s ON s.user_id = u.id
+        WHERE u.role != 'super_admin' AND u.id != 'usr_super_admin'
+        ORDER BY u.created_at DESC
+      `).catch(() => ({ rows: [] }));
+
+      // 2. Fetch all marketplace suborders
+      const ordersRes = await pool.query(`
+        SELECT id, user_id, order_number, total_amount, subtotal, delivery_charge,
+               order_status, payment_status, vendor_payout_status, is_rejected_by_admin,
+               created_at, customer_name, customer_phone, items
+        FROM online_orders
+        WHERE (order_source = 'marketplace' OR master_order_id IS NOT NULL)
+          AND is_rejected_by_admin IS NOT TRUE
+          AND order_status != 'cancelled'
+        ORDER BY created_at DESC
+      `).catch(() => ({ rows: [] }));
+
+      // 3. Fetch all approved and pending payout requests
+      const payoutsRes = await pool.query(`
+        SELECT id, user_id, amount, status, payment_method, account_number,
+               admin_transaction_id, admin_note, processed_at, created_at
+        FROM vendor_payout_requests
+        ORDER BY created_at DESC
+      `).catch(() => ({ rows: [] }));
+
+      // 4. Products count per user
+      const prodsRes = await pool.query(`
+        SELECT user_id, COUNT(*) as prod_count,
+               COUNT(CASE WHEN is_listed_on_marketplace = TRUE THEN 1 END) as listed_count
+        FROM products
+        GROUP BY user_id
+      `).catch(() => ({ rows: [] }));
+
+      const prodMap = new Map();
+      prodsRes.rows.forEach(r => prodMap.set(r.user_id, { total: parseInt(r.prod_count) || 0, listed: parseInt(r.listed_count) || 0 }));
+
+      // Group orders by vendor
+      const vendorOrdersMap = new Map<string, any[]>();
+      ordersRes.rows.forEach(o => {
+        const uId = o.user_id;
+        if (!vendorOrdersMap.has(uId)) vendorOrdersMap.set(uId, []);
+        vendorOrdersMap.get(uId)!.push({
+          id: o.id,
+          orderNumber: o.order_number,
+          totalAmount: parseFloat(o.total_amount) || 0,
+          subtotal: parseFloat(o.subtotal) || 0,
+          deliveryCharge: parseFloat(o.delivery_charge) || 0,
+          orderStatus: o.order_status,
+          paymentStatus: o.payment_status,
+          vendorPayoutStatus: o.vendor_payout_status || 'unsettled',
+          createdAt: Number(o.created_at),
+          customerName: o.customer_name,
+          customerPhone: o.customer_phone,
+          itemsCount: (typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || [])).length,
+        });
+      });
+
+      // Group payouts by vendor
+      const vendorPayoutsMap = new Map<string, any[]>();
+      payoutsRes.rows.forEach(p => {
+        const uId = p.user_id;
+        if (!vendorPayoutsMap.has(uId)) vendorPayoutsMap.set(uId, []);
+        vendorPayoutsMap.get(uId)!.push({
+          id: p.id,
+          amount: parseFloat(p.amount) || 0,
+          status: p.status,
+          paymentMethod: p.payment_method,
+          accountNumber: p.account_number,
+          transactionId: p.admin_transaction_id,
+          note: p.admin_note,
+          processedAt: Number(p.processed_at || p.created_at),
+          createdAt: Number(p.created_at),
+        });
+      });
+
+      // Build all vendor IDs from users + orders + payouts + products
+      const allVendorIds = new Set<string>();
+      usersRes.rows.forEach(u => allVendorIds.add(u.id));
+      ordersRes.rows.forEach(o => { if (o.user_id) allVendorIds.add(o.user_id); });
+      payoutsRes.rows.forEach(p => { if (p.user_id) allVendorIds.add(p.user_id); });
+      prodsRes.rows.forEach(p => { if (p.user_id) allVendorIds.add(p.user_id); });
+
+      const userMap = new Map();
+      usersRes.rows.forEach(u => userMap.set(u.id, u));
+
+      const vendorLedgers: any[] = [];
+      let totalGrossSales = 0;
+      let totalDeliveredSales = 0;
+      let totalSettledAmount = 0;
+      let totalDueToVendors = 0;
+      let totalPendingWithdrawals = 0;
+
+      for (const vId of allVendorIds) {
+        const u = userMap.get(vId) || {
+          id: vId,
+          name: vId === 'vendor_official' ? 'অফিসিয়াল স্টোর (Platform Direct)' : `ভেন্ডর (${vId.substring(0, 10)})`,
+          effective_shop_name: vId === 'vendor_official' ? 'সেন্ট্রাল মল অফিসিয়াল শপ' : `স্টোর (${vId.substring(0, 10)})`,
+          effective_phone: vId === 'vendor_official' ? '01306908115' : '',
+          email: '',
+        };
+
+        const vOrders = vendorOrdersMap.get(vId) || [];
+        const vPayouts = vendorPayoutsMap.get(vId) || [];
+        const pInfo = prodMap.get(vId) || { total: 0, listed: 0 };
+
+        // Only include if vendor has products, orders or payouts
+        if (vOrders.length === 0 && pInfo.total === 0 && vPayouts.length === 0) {
+          continue;
+        }
+
+        const grossSales = vOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+        const deliveredOrders = vOrders.filter(o => o.orderStatus === 'delivered');
+        const deliveredSales = deliveredOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+        const inProgressOrders = vOrders.filter(o => ['confirmed', 'processing', 'shipped'].includes(o.orderStatus));
+        const inProgressSales = inProgressOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+        const pendingOrders = vOrders.filter(o => o.orderStatus === 'pending');
+        const pendingSales = pendingOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+
+        // Settled from approved payout requests
+        const approvedPayoutsTotal = vPayouts
+          .filter(p => p.status === 'approved')
+          .reduce((sum, p) => sum + p.amount, 0);
+
+        // Also check orders marked settled
+        const settledOrdersTotal = vOrders
+          .filter(o => o.vendorPayoutStatus === 'settled')
+          .reduce((sum, o) => sum + o.totalAmount, 0);
+
+        const settledAmount = Math.max(approvedPayoutsTotal, settledOrdersTotal);
+
+        const pendingWithdrawals = vPayouts
+          .filter(p => p.status === 'pending')
+          .reduce((sum, p) => sum + p.amount, 0);
+
+        // Due / Payable: delivered sales minus what has been settled
+        const dueBalance = Math.max(0, deliveredSales - settledAmount);
+        const potentialDue = Math.max(0, grossSales - settledAmount);
+
+        totalGrossSales += grossSales;
+        totalDeliveredSales += deliveredSales;
+        totalSettledAmount += settledAmount;
+        totalDueToVendors += dueBalance;
+        totalPendingWithdrawals += pendingWithdrawals;
+
+        vendorLedgers.push({
+          vendorId: vId,
+          name: u.name || 'ভেন্ডর',
+          shopName: u.effective_shop_name || u.shop_name || u.name || 'দোকান',
+          phone: u.effective_phone || u.phone || '',
+          email: u.email || '',
+          totalOrdersCount: vOrders.length,
+          deliveredOrdersCount: deliveredOrders.length,
+          inProgressOrdersCount: inProgressOrders.length,
+          pendingOrdersCount: pendingOrders.length,
+          productCount: pInfo.total,
+          listedProductCount: pInfo.listed,
+          grossSales,
+          deliveredSales,
+          inProgressSales,
+          pendingSales,
+          settledAmount,
+          dueBalance,
+          potentialDue,
+          pendingWithdrawals,
+          isPayoutHeld: Boolean(holds[vId]?.isHeld),
+          holdReason: holds[vId]?.reason || '',
+          orders: vOrders.slice(0, 50),
+          recentPayouts: vPayouts.slice(0, 10),
+        });
+      }
+
+      // Sort by dueBalance DESC (vendors owed the most money first!)
+      vendorLedgers.sort((a, b) => b.dueBalance - a.dueBalance || b.grossSales - a.grossSales);
+
+      return res.json({
+        success: true,
+        summary: {
+          totalVendorsCount: vendorLedgers.length,
+          totalGrossSales,
+          totalDeliveredSales,
+          totalSettledAmount,
+          totalDueToVendors,
+          totalPendingWithdrawals,
+        },
+        vendors: vendorLedgers,
+      });
+    } else {
+      // In-memory fallback
+      const users = (inMemoryStore.users || []).filter((u: any) => u.role !== 'super_admin');
+      const orders = (inMemoryStore.online_orders || []).filter(
+        (o: any) => (o.orderSource === 'marketplace' || o.masterOrderId) && !o.isRejectedByAdmin && o.orderStatus !== 'cancelled'
+      );
+      const payouts = (inMemoryStore as any).vendor_payout_requests || [];
+
+      const vendorLedgers = users.map((u: any) => {
+        const vOrders = orders.filter((o: any) => o.userId === u.id || o.user_id === u.id);
+        const vPayouts = payouts.filter((p: any) => p.userId === u.id || p.user_id === u.id);
+        const prods = (inMemoryStore.products || []).filter((p: any) => p.userId === u.id);
+
+        const grossSales = vOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
+        const deliveredOrders = vOrders.filter((o: any) => o.orderStatus === 'delivered');
+        const deliveredSales = deliveredOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
+        const approvedPayoutsTotal = vPayouts
+          .filter((p: any) => p.status === 'approved')
+          .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+        const settledOrdersTotal = vOrders
+          .filter((o: any) => o.vendorPayoutStatus === 'settled')
+          .reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
+        const settledAmount = Math.max(approvedPayoutsTotal, settledOrdersTotal);
+        const dueBalance = Math.max(0, deliveredSales - settledAmount);
+
+        return {
+          vendorId: u.id,
+          name: u.name || 'ভেন্ডর',
+          shopName: u.shopName || u.shop_name || u.name || 'দোকান',
+          phone: u.phone || '',
+          email: u.email || '',
+          totalOrdersCount: vOrders.length,
+          deliveredOrdersCount: deliveredOrders.length,
+          pendingOrdersCount: vOrders.filter((o: any) => o.orderStatus !== 'delivered').length,
+          productCount: prods.length,
+          listedProductCount: prods.filter((p: any) => p.isListedOnMarketplace).length,
+          grossSales,
+          deliveredSales,
+          settledAmount,
+          dueBalance,
+          pendingWithdrawals: 0,
+          isPayoutHeld: Boolean(holds[u.id]?.isHeld),
+          holdReason: holds[u.id]?.reason || '',
+          orders: vOrders.slice(0, 50),
+          recentPayouts: vPayouts.slice(0, 10),
+        };
+      }).filter((v: any) => v.totalOrdersCount > 0 || v.productCount > 0);
+
+      vendorLedgers.sort((a: any, b: any) => b.dueBalance - a.dueBalance);
+
+      return res.json({
+        success: true,
+        summary: {
+          totalVendorsCount: vendorLedgers.length,
+          totalGrossSales: vendorLedgers.reduce((s: number, v: any) => s + v.grossSales, 0),
+          totalDeliveredSales: vendorLedgers.reduce((s: number, v: any) => s + v.deliveredSales, 0),
+          totalSettledAmount: vendorLedgers.reduce((s: number, v: any) => s + v.settledAmount, 0),
+          totalDueToVendors: vendorLedgers.reduce((s: number, v: any) => s + v.dueBalance, 0),
+          totalPendingWithdrawals: 0,
+        },
+        vendors: vendorLedgers,
+      });
+    }
+  } catch (err: any) {
+    console.error('Error fetching vendor balances:', err);
+    return res.status(500).json({ error: err.message || 'ভেন্ডর ব্যালেন্স লোড করা যায়নি' });
+  }
+});
+
+/**
+ * 15.2 POST /api/marketplace/admin/vendors/:vendorId/record-payout - Super Admin Directly Settles Vendor Due
+ */
+router.post('/admin/vendors/:vendorId/record-payout', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
+    if (!isSuperAdmin) {
+      return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
+    }
+
+    const { vendorId } = req.params;
+    const { amount, paymentMethod = 'bkash', accountNumber, transactionId, note } = req.body;
+
+    const numAmount = parseFloat(amount);
+    if (!numAmount || numAmount <= 0) {
+      return res.status(400).json({ error: 'সঠিক পেআউট পরিমাণ দিন' });
+    }
+
+    const cleanTrx = String(transactionId || '').trim();
+    if (!cleanTrx) {
+      return res.status(400).json({ error: 'পেমেন্ট TrxID বা ভাউচার নম্বর দেওয়া আবশ্যক' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+    const requestId = 'payout_dir_' + now.toString(36) + Math.random().toString(36).substring(2, 6);
+
+    let vendorName = 'ভেন্ডর';
+    let vendorShop = 'ভেন্ডর শপ';
+    let vendorPhone = accountNumber || '';
+
+    if (pool) {
+      const uRes = await pool.query('SELECT name, shop_name, phone FROM users WHERE id = $1', [vendorId]);
+      if (uRes.rows.length > 0) {
+        vendorName = uRes.rows[0].name || vendorName;
+        vendorShop = uRes.rows[0].shop_name || vendorShop;
+        if (!vendorPhone) vendorPhone = uRes.rows[0].phone || '';
+      }
+
+      // 1. Insert approved payout record in vendor_payout_requests
+      await pool.query(`
+        INSERT INTO vendor_payout_requests (
+          id, user_id, store_name, store_phone, amount, payment_method,
+          account_number, status, admin_transaction_id, admin_note,
+          processed_at, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'approved', $8, $9, $10, $10, $10)
+      `, [
+        requestId,
+        vendorId,
+        vendorShop,
+        vendorPhone,
+        numAmount,
+        paymentMethod,
+        accountNumber || vendorPhone,
+        cleanTrx,
+        note || 'সুপার অ্যাডমিন কর্তৃক সরাসরি পেআউট নিষ্পত্তি',
+        now,
+      ]);
+
+      // 2. Mark unsettled delivered / confirmed orders up to amount as 'settled'
+      const unDelivOrders = await pool.query(`
+        SELECT id, total_amount, order_status FROM online_orders
+        WHERE user_id = $1
+          AND (order_source = 'marketplace' OR master_order_id IS NOT NULL)
+          AND order_status IN ('delivered', 'confirmed', 'processing', 'shipped')
+          AND (vendor_payout_status IS NULL OR vendor_payout_status != 'settled')
+        ORDER BY (CASE WHEN order_status = 'delivered' THEN 0 ELSE 1 END), created_at ASC
+      `, [vendorId]);
+
+      let remainingToSettle = numAmount;
+      for (const ord of unDelivOrders.rows) {
+        const ordAmt = parseFloat(ord.total_amount) || 0;
+        await pool.query(`
+          UPDATE online_orders 
+          SET vendor_payout_status = 'settled',
+              updated_at = $1
+          WHERE id = $2
+        `, [now, ord.id]).catch(() => {});
+        remainingToSettle -= ordAmt;
+        if (remainingToSettle <= 0) break;
+      }
+
+      // 3. Insert income entry into vendor's cashbook transactions
+      try {
+        const mktCustomerId = 'cust_mkt_' + vendorId;
+        await pool.query(`
+          INSERT INTO customers (id, user_id, name, phone, address, balance, created_at, updated_at)
+          VALUES ($1, $2, 'সেন্ট্রাল মার্কেটপ্লেস মল', '01306908115', 'সেন্ট্রাল মল অ্যাডমিন', 0, $3, $3)
+          ON CONFLICT (id) DO NOTHING
+        `, [mktCustomerId, vendorId, now]);
+
+        const txId = 'tx_payout_' + now.toString(36) + Math.random().toString(36).substring(2, 6);
+        const dateStr = new Date(now).toISOString().split('T')[0];
+        const timeStr = new Date(now).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
+
+        await pool.query(`
+          INSERT INTO transactions (
+            id, user_id, customer_id, type, amount, description,
+            date, time, balance_after, payment_method, created_at
+          ) VALUES ($1, $2, $3, 'payment', $4, $5, $6, $7, 0, $8, $9)
+        `, [
+          txId,
+          vendorId,
+          mktCustomerId,
+          numAmount,
+          `সেন্ট্রাল মার্কেটপ্লেস সেলস পেআউট জমা (TrxID: ${cleanTrx})${note ? ` - ${note}` : ''}`,
+          dateStr,
+          timeStr,
+          paymentMethod,
+          now,
+        ]);
+      } catch (txErr) {
+        console.warn('Could not insert cashbook transaction:', txErr);
+      }
+
+      // 4. Send in-app notification to vendor
+      const notifId = 'notif_payout_' + now;
+      await pool.query(`
+        INSERT INTO notifications (id, user_id, title, message, type, target, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, 'payout', 'user', 2, false, $5)
+      `, [
+        notifId,
+        vendorId,
+        '🎉 সেন্ট্রাল মার্কেটপ্লেস পেআউট জমা হয়েছে',
+        `সুপার অ্যাডমিন আপনার সেন্ট্রাল মলের বিক্রয় বাবদ ৳${numAmount.toLocaleString('en-US')} পরিশোধ করেছেন। মাধ্যম: ${paymentMethod.toUpperCase()} (${accountNumber || vendorPhone}), TrxID: ${cleanTrx}। টাকাটি আপনার ক্যাশবুকে স্বয়ংক্রিয়ভাবে জমা যুক্ত করা হয়েছে।`,
+        now,
+      ]).catch(() => {});
+
+      // 5. Send SMS notification to vendor if available
+      if (vendorPhone && vendorPhone.length >= 11) {
+        const smsMsg = `Twing মল: আপনার সেন্ট্রাল বিক্রয়ের ৳${numAmount} পেআউট পরিশোধ করা হয়েছে (${paymentMethod.toUpperCase()}, TrxID: ${cleanTrx})। ক্যাশবুকে জমা চেক করুন।`;
+        sendSmsNotification(vendorPhone, smsMsg).catch(() => {});
+      }
+    } else {
+      // In-memory fallback
+      if (!(inMemoryStore as any).vendor_payout_requests) (inMemoryStore as any).vendor_payout_requests = [];
+      (inMemoryStore as any).vendor_payout_requests.unshift({
+        id: requestId,
+        userId: vendorId,
+        storeName: vendorShop,
+        storePhone: vendorPhone,
+        amount: numAmount,
+        paymentMethod,
+        accountNumber: accountNumber || vendorPhone,
+        status: 'approved',
+        adminTransactionId: cleanTrx,
+        adminNote: note,
+        processedAt: now,
+        createdAt: now,
+      });
+
+      (inMemoryStore.online_orders || [])
+        .filter((o: any) => (o.userId === vendorId || o.user_id === vendorId) && o.orderStatus === 'delivered')
+        .forEach((o: any) => { o.vendorPayoutStatus = 'settled'; });
+
+      saveInMemoryStoreToDisk();
+    }
+
+    // Broadcast realtime event
+    realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'vendor_payout_recorded', vendorId });
+    realtimeEvents.broadcastToUser(vendorId, 'payout_processed', { amount: numAmount, transactionId: cleanTrx });
+
+    return res.json({
+      success: true,
+      message: `🎉 ভেন্ডর ${vendorName} (${vendorShop})-কে ৳${numAmount.toLocaleString('en-US')} পেআউট সফলভাবে পরিশোধ ও ক্যাশবুকে জমা করা হয়েছে।`,
+      payoutId: requestId,
+    });
+  } catch (err: any) {
+    console.error('Error recording vendor payout:', err);
+    return res.status(500).json({ error: err.message || 'পেআউট রেকর্ড করতে সমস্যা হয়েছে' });
+  }
+});
+
+/**
  * 16. GET /api/marketplace/admin/payout-requests - Super Admin Lists Vendor Payout Requests
  */
 router.get('/admin/payout-requests', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {

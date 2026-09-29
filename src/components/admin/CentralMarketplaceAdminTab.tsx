@@ -44,6 +44,10 @@ import {
   Image as ImageIcon,
   Link as LinkIcon,
   Upload,
+  ChevronLeft,
+  ArrowLeftRight,
+  FileText,
+  Printer,
 } from 'lucide-react';
 import { marketplaceAdminApi } from '../../services/marketplaceAdminService';
 
@@ -52,7 +56,7 @@ interface CentralMarketplaceAdminTabProps {
 }
 
 export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProps> = ({ isSuperAdmin }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'payouts' | 'products' | 'categories' | 'settings'>('orders');
+  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'vendor_balances' | 'payouts' | 'products' | 'categories' | 'settings'>('orders');
   const [isLoading, setIsLoading] = useState(true);
   const [data, setData] = useState<{
     masterOrders: any[];
@@ -67,6 +71,45 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     categories: [],
     settings: {},
   });
+
+  // Vendor Balances & Earnings Ledger State (কোন ভেন্ডর কত টাকা পাবে)
+  const [vendorBalances, setVendorBalances] = useState<{
+    summary: {
+      totalVendorsCount: number;
+      totalGrossSales: number;
+      totalDeliveredSales: number;
+      totalSettledAmount: number;
+      totalDueToVendors: number;
+      totalPendingWithdrawals: number;
+    };
+    vendors: any[];
+  }>({
+    summary: {
+      totalVendorsCount: 0,
+      totalGrossSales: 0,
+      totalDeliveredSales: 0,
+      totalSettledAmount: 0,
+      totalDueToVendors: 0,
+      totalPendingWithdrawals: 0,
+    },
+    vendors: [],
+  });
+  const [isVendorBalancesLoading, setIsVendorBalancesLoading] = useState(false);
+  const [vendorBalanceSearch, setVendorBalanceSearch] = useState('');
+  const [vendorBalanceFilter, setVendorBalanceFilter] = useState<'all' | 'due' | 'settled' | 'held'>('all');
+  const [vendorBalanceSort, setVendorBalanceSort] = useState<'due_desc' | 'sales_desc' | 'orders_desc'>('due_desc');
+
+  // Direct Payout Modal State (সুপার অ্যাডমিন সরাসরি ভেন্ডরের বকেয়া পরিশোধ)
+  const [directPayoutVendor, setDirectPayoutVendor] = useState<any | null>(null);
+  const [directPayoutAmount, setDirectPayoutAmount] = useState<string>('');
+  const [directPayoutMethod, setDirectPayoutMethod] = useState<'bkash' | 'nagad' | 'rocket' | 'bank' | 'cash'>('bkash');
+  const [directPayoutAccount, setDirectPayoutAccount] = useState<string>('');
+  const [directPayoutTrxId, setDirectPayoutTrxId] = useState<string>('');
+  const [directPayoutNote, setDirectPayoutNote] = useState<string>('');
+  const [isSubmittingDirectPayout, setIsSubmittingDirectPayout] = useState(false);
+
+  // Vendor Detail Breakdown Drawer / Modal State
+  const [selectedVendorForDetail, setSelectedVendorForDetail] = useState<any | null>(null);
 
   // Payout Management State
   const [payoutRequests, setPayoutRequests] = useState<any[]>([]);
@@ -173,12 +216,86 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       } catch (e) {
         console.warn('Payout requests load notice:', e);
       }
+
+      // Load vendor balances & earnings ledger (কে কত টাকা পাবে)
+      try {
+        const balancesRes = await marketplaceAdminApi.getVendorBalances();
+        if (balancesRes && balancesRes.success) {
+          setVendorBalances({
+            summary: balancesRes.summary || {
+              totalVendorsCount: 0,
+              totalGrossSales: 0,
+              totalDeliveredSales: 0,
+              totalSettledAmount: 0,
+              totalDueToVendors: 0,
+              totalPendingWithdrawals: 0,
+            },
+            vendors: balancesRes.vendors || [],
+          });
+        }
+      } catch (e) {
+        console.warn('Vendor balances load notice:', e);
+      }
     } catch (err: any) {
       console.warn('Marketplace admin load error:', err);
       setLoadError(err.message || 'মার্কেটপ্লেস ডাটা লোড হতে সমস্যা হয়েছে');
     } finally {
       if (showSpinner) setIsLoading(false);
     }
+  };
+
+  const handleOpenDirectPayout = (vendor: any) => {
+    setDirectPayoutVendor(vendor);
+    const suggested = vendor.dueBalance > 0 ? vendor.dueBalance : (vendor.grossSales - vendor.settledAmount > 0 ? vendor.grossSales - vendor.settledAmount : '');
+    setDirectPayoutAmount(suggested ? String(suggested) : '');
+    setDirectPayoutAccount(vendor.phone || '');
+    setDirectPayoutTrxId('');
+    setDirectPayoutNote(`সেন্ট্রাল মার্কেটপ্লেস অর্ডার বিক্রয় বাবদ সরাসরি পেআউট`);
+    setDirectPayoutMethod('bkash');
+  };
+
+  const handleConfirmDirectPayout = async () => {
+    if (!directPayoutVendor) return;
+    const numAmt = parseFloat(directPayoutAmount);
+    if (!numAmt || numAmt <= 0) {
+      showToast('⚠️ সঠিক পেআউট পরিমাণ লিখুন');
+      return;
+    }
+    const cleanTrx = directPayoutTrxId.trim();
+    if (!cleanTrx) {
+      showToast('⚠️ ট্রানজেকশন আইডি (TrxID) বা ক্যাশ ভাউচার নম্বর দিন');
+      return;
+    }
+
+    setIsSubmittingDirectPayout(true);
+    try {
+      const res = await marketplaceAdminApi.recordVendorPayout(directPayoutVendor.vendorId, {
+        amount: numAmt,
+        paymentMethod: directPayoutMethod,
+        accountNumber: directPayoutAccount.trim() || directPayoutVendor.phone,
+        transactionId: cleanTrx,
+        note: directPayoutNote.trim() || 'সুপার অ্যাডমিন কর্তৃক সরাসরি পেআউট নিষ্পত্তি',
+      });
+
+      if (res && res.success) {
+        showToast(`✅ ${directPayoutVendor.shopName}-কে ৳${numAmt.toLocaleString()} পেআউট সফলভাবে পরিশোধ ও রেকর্ড করা হয়েছে!`);
+        setDirectPayoutVendor(null);
+        setDirectPayoutAmount('');
+        setDirectPayoutTrxId('');
+        setDirectPayoutNote('');
+        await loadData(false);
+      } else {
+        throw new Error(res?.message || 'পেআউট রেকর্ড করতে সমস্যা হয়েছে');
+      }
+    } catch (err: any) {
+      showToast(`❌ ${err.message || 'পেআউট প্রদান ব্যর্থ হয়েছে'}`);
+    } finally {
+      setIsSubmittingDirectPayout(false);
+    }
+  };
+
+  const handleOpenVendorDetail = (vendor: any) => {
+    setSelectedVendorForDetail(vendor);
   };
 
   // Real-time automatic background polling + SSE push listener
@@ -661,8 +778,8 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       )}
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs space-y-1">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-3.5">
+        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-xs space-y-1">
           <p className="text-xs text-slate-500 font-medium">মোট মাস্টার অর্ডার</p>
           <div className="flex items-baseline justify-between">
             <span className="text-xl sm:text-2xl font-black text-slate-900">{totalMasterOrders}</span>
@@ -670,7 +787,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs space-y-1">
+        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-xs space-y-1">
           <p className="text-xs text-slate-500 font-medium">মোট জিএমভি (বিক্রয়)</p>
           <div className="flex items-baseline justify-between">
             <span className="text-xl sm:text-2xl font-black text-teal-900">৳{totalGmv.toLocaleString()}</span>
@@ -678,9 +795,32 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           </div>
         </div>
 
+        {/* Vendor Dues (কে কত পাবে সামারি) */}
+        <div
+          onClick={() => setActiveSubTab('vendor_balances')}
+          className={`p-3.5 sm:p-4 rounded-xl border cursor-pointer transition shadow-xs space-y-1 ${
+            activeSubTab === 'vendor_balances'
+              ? 'bg-emerald-100/90 border-emerald-400 ring-2 ring-emerald-400/40'
+              : 'bg-emerald-50/70 border-emerald-200 hover:bg-emerald-100/50'
+          }`}
+        >
+          <p className="text-xs text-emerald-950 font-bold flex items-center justify-between">
+            <span>ভেন্ডরদের প্রাপ্য (বকেয়া)</span>
+            <Wallet className="w-3.5 h-3.5 text-emerald-700" />
+          </p>
+          <div className="flex items-baseline justify-between">
+            <span className="text-xl sm:text-2xl font-black text-emerald-950">
+              ৳{vendorBalances.summary.totalDueToVendors.toLocaleString()}
+            </span>
+            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-200/80 px-2 py-0.5 rounded-full">
+              লেজার দেখুন ➔
+            </span>
+          </div>
+        </div>
+
         <div
           onClick={() => { setActiveSubTab('orders'); setOrderStatusFilter('pending_approval'); }}
-          className={`p-4 rounded-xl border cursor-pointer transition shadow-xs space-y-1 ${
+          className={`p-3.5 sm:p-4 rounded-xl border cursor-pointer transition shadow-xs space-y-1 ${
             orderStatusFilter === 'pending_approval' && activeSubTab === 'orders'
               ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-400/40'
               : 'bg-amber-50/70 border-amber-200 hover:bg-amber-100/50'
@@ -700,7 +840,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
 
         <div
           onClick={() => setActiveSubTab('products')}
-          className={`p-4 rounded-xl border cursor-pointer transition shadow-xs space-y-1 ${
+          className={`p-3.5 sm:p-4 rounded-xl border cursor-pointer transition shadow-xs space-y-1 col-span-2 sm:col-span-1 ${
             activeSubTab === 'products' ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-300/40' : 'bg-white border-slate-200/80 hover:bg-slate-50'
           }`}
         >
@@ -714,77 +854,120 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
         </div>
       </div>
 
-      {/* Sub-tab Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-200 overflow-x-auto pb-1 scrollbar-none">
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('orders')}
-          className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer flex items-center gap-1.5 ${
-            activeSubTab === 'orders'
-              ? 'border-teal-700 text-teal-900'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-          }`}
-        >
-          <span>📋 সেন্ট্রাল মাস্টার অর্ডার ({data.masterOrders.length})</span>
-          {pendingInquiriesCount > 0 && (
-            <span className="px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-black animate-pulse">
-              {pendingInquiriesCount} ইনকোয়ারি
-            </span>
-          )}
-        </button>
+      {/* Sub-tab Navigation with Sideways Scroll Buttons */}
+      <div className="bg-white border-b border-slate-200 rounded-t-xl px-2 pt-2 relative">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => document.getElementById('marketplace-subtabs-scroll')?.scrollBy({ left: -220, behavior: 'smooth' })}
+            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 shrink-0 cursor-pointer shadow-2xs"
+            title="ট্যাব বামে স্ক্রল করুন"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('payouts')}
-          className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer flex items-center gap-1.5 ${
-            activeSubTab === 'payouts'
-              ? 'border-teal-700 text-teal-900'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-          }`}
-        >
-          <span>💸 ভেন্ডর পেআউট সেটেলমেন্ট</span>
-          {payoutRequests.filter(p => p.status === 'pending').length > 0 && (
-            <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[10px] font-black animate-pulse">
-              {payoutRequests.filter(p => p.status === 'pending').length}
-            </span>
-          )}
-        </button>
+          <div
+            id="marketplace-subtabs-scroll"
+            className="flex-1 flex items-center gap-2 overflow-x-auto touch-pan-x scrollbar-thin pb-1"
+          >
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('orders')}
+              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                activeSubTab === 'orders'
+                  ? 'border-teal-700 text-teal-900 bg-teal-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <span>📋 সেন্ট্রাল মাস্টার অর্ডার ({data.masterOrders.length})</span>
+              {pendingInquiriesCount > 0 && (
+                <span className="px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-black animate-pulse">
+                  {pendingInquiriesCount} ইনকোয়ারি
+                </span>
+              )}
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('products')}
-          className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${
-            activeSubTab === 'products'
-              ? 'border-teal-700 text-teal-900'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-          }`}
-        >
-          📦 পণ্য মডারেশন ও অনুমোদন ({data.products.length})
-        </button>
+            {/* NEW DEDICATED SUBTAB: ভেন্ডর ব্যালেন্স ও প্রাপ্য হিসাব */}
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('vendor_balances')}
+              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                activeSubTab === 'vendor_balances'
+                  ? 'border-emerald-700 text-emerald-900 bg-emerald-50/70'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <span>💰 কোন ভেন্ডর কত পাবে (লেজার)</span>
+              {vendorBalances.summary.totalDueToVendors > 0 && (
+                <span className="px-2 py-0.5 bg-emerald-600 text-white rounded-full text-[10px] font-black animate-pulse shadow-xs">
+                  ৳{vendorBalances.summary.totalDueToVendors.toLocaleString()} প্রদেয়
+                </span>
+              )}
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('categories')}
-          className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${
-            activeSubTab === 'categories'
-              ? 'border-teal-700 text-teal-900'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-          }`}
-        >
-          🏷️ ক্যাটাগরি তালিকা ({data.categories.length})
-        </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('payouts')}
+              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                activeSubTab === 'payouts'
+                  ? 'border-teal-700 text-teal-900 bg-teal-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <span>📥 উইথড্রল রিকোয়েস্ট ({payoutRequests.length})</span>
+              {payoutRequests.filter(p => p.status === 'pending').length > 0 && (
+                <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[10px] font-black animate-pulse">
+                  {payoutRequests.filter(p => p.status === 'pending').length} বাকি
+                </span>
+              )}
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('settings')}
-          className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer ${
-            activeSubTab === 'settings'
-              ? 'border-teal-700 text-teal-900'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-          }`}
-        >
-          ⚙️ মার্কেটপ্লেস প্ল্যাটফর্ম সেটিংস
-        </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('products')}
+              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer shrink-0 ${
+                activeSubTab === 'products'
+                  ? 'border-teal-700 text-teal-900 bg-teal-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              📦 পণ্য মডারেশন ও অনুমোদন ({data.products.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('categories')}
+              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer shrink-0 ${
+                activeSubTab === 'categories'
+                  ? 'border-teal-700 text-teal-900 bg-teal-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              🏷️ ক্যাটাগরি তালিকা ({data.categories.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('settings')}
+              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer shrink-0 ${
+                activeSubTab === 'settings'
+                  ? 'border-teal-700 text-teal-900 bg-teal-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              ⚙️ মার্কেটপ্লেস প্ল্যাটফর্ম সেটিংস
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => document.getElementById('marketplace-subtabs-scroll')?.scrollBy({ left: 220, behavior: 'smooth' })}
+            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 shrink-0 cursor-pointer shadow-2xs"
+            title="ট্যাব ডানে স্ক্রল করুন"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* SUB-TAB 1: MASTER ORDERS */}
@@ -846,8 +1029,34 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             </div>
           ) : (
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-700 divide-y divide-slate-100">
+              {/* Horizontal Scroll Hint and Navigation Buttons */}
+              <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-600">
+                <div className="flex items-center gap-1.5 font-medium">
+                  <span className="text-teal-800 font-bold">↔ সাইড স্ক্রল:</span>
+                  <span>স্ক্রিন ছোট হলে টেবিলটি ডানে-বামে সোয়াইপ বা স্ক্রল করে সম্পূর্ণ কলাম ও অ্যাকশন বাটন দেখুন</span>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('master-orders-scroll-table')?.scrollBy({ left: -250, behavior: 'smooth' })}
+                    className="px-2.5 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded font-bold text-slate-700 shadow-2xs cursor-pointer text-xs"
+                    title="বামে স্ক্রল"
+                  >
+                    ◀ বামে
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('master-orders-scroll-table')?.scrollBy({ left: 250, behavior: 'smooth' })}
+                    className="px-2.5 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded font-bold text-slate-700 shadow-2xs cursor-pointer text-xs"
+                    title="ডানে স্ক্রল"
+                  >
+                    ডানে ▶
+                  </button>
+                </div>
+              </div>
+
+              <div id="master-orders-scroll-table" className="overflow-x-auto touch-pan-x scrollbar-thin">
+                <table className="w-full text-left text-xs text-slate-700 divide-y divide-slate-100 min-w-[920px]">
                   <thead className="bg-slate-50 font-bold text-slate-800">
                     <tr>
                       <th className="p-3.5">অর্ডার নম্বর ও তারিখ</th>
@@ -1253,6 +1462,400 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
         </div>
       )}
 
+      {/* SUB-TAB: VENDOR EARNINGS & PAYOUT BALANCES (কোন ভেন্ডর কত পাবে - পূর্ণাঙ্গ লেজার) */}
+      {activeSubTab === 'vendor_balances' && (
+        <div className="space-y-4">
+          {/* Header Policy Banner */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white shadow-md border border-emerald-700/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                <Wallet className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base font-black text-white">💰 কোন ভেন্ডর কত টাকা পাবে — সেন্ট্রাল মার্কেটপ্লেস লেজার</h2>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 text-[10px] font-black border border-emerald-400/40">
+                    রিয়েল-টাইম হিসাব
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-100/80 leading-relaxed max-w-3xl">
+                  সুপার অ্যাডমিন এই প্যানেল থেকে সেন্ট্রাল মলের প্রতিটি ভেন্ডরের মোট বিক্রয়, ডেলিভারি সম্পন্ন অর্ডারের প্রাপ্য টাকা, ইতিমধ্যে পরিশোধিত অর্থ এবং বর্তমান বকেয়া পর্যবেক্ষণ করে সরাসরি পেআউট নিষ্পত্তি (Settle) করতে পারবেন।
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => loadData(true)}
+                className="px-3.5 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-white transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                <span>রিফ্রেশ</span>
+              </button>
+            </div>
+          </div>
+
+          {/* KPI Summary Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl space-y-1 shadow-2xs">
+              <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
+                ভেন্ডরদের মোট প্রাপ্য (বকেয়া)
+              </span>
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-black text-emerald-950">
+                  ৳{vendorBalances.summary.totalDueToVendors.toLocaleString()}
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold">
+                  বকেয়া
+                </span>
+              </div>
+              <p className="text-[10px] text-emerald-700">ডেলিভারি সম্পন্ন অর্ডারের ভিত্তিতে প্রদেয় টাকা</p>
+            </div>
+
+            <div className="bg-white border border-slate-200 p-4 rounded-2xl space-y-1 shadow-2xs">
+              <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
+                সেন্ট্রাল মলে মোট বিক্রয় (GMV)
+              </span>
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-black text-slate-900">
+                  ৳{vendorBalances.summary.totalGrossSales.toLocaleString()}
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold">
+                  মোট সেলস
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500">সকল সক্রিয় ভেন্ডরের সম্পূর্ণ বিক্রয়মূল্য</p>
+            </div>
+
+            <div className="bg-white border border-slate-200 p-4 rounded-2xl space-y-1 shadow-2xs">
+              <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
+                ডেলিভারি সম্পন্ন সেলস
+              </span>
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-black text-teal-900">
+                  ৳{vendorBalances.summary.totalDeliveredSales.toLocaleString()}
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 text-[10px] font-bold">
+                  ডেলিভার্ড
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500">গ্রাহকের কাছে সফলভাবে পৌঁছে যাওয়া পার্সেল</p>
+            </div>
+
+            <div className="bg-white border border-slate-200 p-4 rounded-2xl space-y-1 shadow-2xs">
+              <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
+                ইতিমধ্যে পরিশোধিত (Settled)
+              </span>
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-black text-indigo-900">
+                  ৳{vendorBalances.summary.totalSettledAmount.toLocaleString()}
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold">
+                  পরিশোধিত
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500">ভেন্ডরদের বিকাশ/নগদ/ব্যাংকে পাঠানো হয়েছে</p>
+            </div>
+          </div>
+
+          {/* Search, Filter & Sort Toolbar */}
+          <div className="flex flex-col sm:flex-row gap-2.5 justify-between items-stretch sm:items-center">
+            <div className="relative flex-1 max-w-md">
+              <input
+                type="text"
+                value={vendorBalanceSearch}
+                onChange={(e) => setVendorBalanceSearch(e.target.value)}
+                placeholder="দোকানের নাম, ভেন্ডর নাম বা মোবাইল নম্বর দিয়ে খুঁজুন..."
+                className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-700/30 focus:outline-none"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setVendorBalanceFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                    vendorBalanceFilter === 'all' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  সব ({vendorBalances.vendors.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVendorBalanceFilter('due')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                    vendorBalanceFilter === 'due' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-emerald-700 hover:bg-emerald-50'
+                  }`}
+                >
+                  টাকা পাবে ({vendorBalances.vendors.filter(v => v.dueBalance > 0).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVendorBalanceFilter('settled')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                    vendorBalanceFilter === 'settled' ? 'bg-slate-800 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  পরিশোধিত ({vendorBalances.vendors.filter(v => v.dueBalance === 0 && v.grossSales > 0).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVendorBalanceFilter('held')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                    vendorBalanceFilter === 'held' ? 'bg-rose-700 text-white shadow-2xs' : 'text-rose-700 hover:bg-rose-50'
+                  }`}
+                >
+                  স্থগিত ({vendorBalances.vendors.filter(v => v.isPayoutHeld).length})
+                </button>
+              </div>
+
+              <select
+                value={vendorBalanceSort}
+                onChange={(e) => setVendorBalanceSort(e.target.value as any)}
+                className="px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl focus:outline-none cursor-pointer"
+              >
+                <option value="due_desc">বকেয়া বেশি থেকে কম</option>
+                <option value="sales_desc">সর্বমোট বিক্রয় বেশি থেকে কম</option>
+                <option value="orders_desc">অর্ডার সংখ্যা বেশি থেকে কম</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Vendor Balances Table Container with Sideways Scroll Affordance */}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
+            {/* Horizontal Scroll Hint Banner & Navigation Buttons */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-600">
+              <div className="flex items-center gap-2 font-medium">
+                <span className="text-emerald-800 font-black">↔ সাইড স্ক্রল (Swipe / Scroll sideways):</span>
+                <span>মোবাইল বা ছোট স্ক্রিনে টেবিলটি ডানে-বামে স্ক্রল করে সকল ভেন্ডরের প্রাপ্য টাকা ও পেআউট বাটন দেখুন</span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('vendor-balances-scroll-table')?.scrollBy({ left: -250, behavior: 'smooth' })}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded-lg font-bold text-slate-700 shadow-2xs cursor-pointer text-xs flex items-center gap-1"
+                  title="বামে স্ক্রল"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>বামে</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('vendor-balances-scroll-table')?.scrollBy({ left: 250, behavior: 'smooth' })}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded-lg font-bold text-slate-700 shadow-2xs cursor-pointer text-xs flex items-center gap-1"
+                  title="ডানে স্ক্রল"
+                >
+                  <span>ডানে</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {vendorBalances.vendors.length === 0 ? (
+              <div className="p-12 text-center space-y-2">
+                <Store className="w-10 h-10 text-slate-300 mx-auto" />
+                <p className="text-sm font-bold text-slate-700">কোনো ভেন্ডর ডাটা পাওয়া যায়নি</p>
+                <p className="text-xs text-slate-400">মার্কেটপ্লেস অর্ডার ও পণ্য থাকলে ভেন্ডরদের তালিকা প্রদর্শিত হবে</p>
+              </div>
+            ) : (
+              <div id="vendor-balances-scroll-table" className="overflow-x-auto touch-pan-x scrollbar-thin">
+                <table className="w-full text-left text-xs divide-y divide-slate-100 min-w-[1050px]">
+                  <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3.5 sm:px-4">ভেন্ডর ও দোকান</th>
+                      <th className="p-3.5 sm:px-4 text-center">অর্ডার সংখ্যা</th>
+                      <th className="p-3.5 sm:px-4">মোট বিক্রয় (GMV)</th>
+                      <th className="p-3.5 sm:px-4">ডেলিভার্ড বিক্রয়</th>
+                      <th className="p-3.5 sm:px-4">পরিশোধিত (Settled)</th>
+                      <th className="p-3.5 sm:px-4">বর্তমানে প্রাপ্য (বকেয়া)</th>
+                      <th className="p-3.5 sm:px-4 text-center">স্ট্যাটাস</th>
+                      <th className="p-3.5 sm:px-4 text-right">অ্যাকশন</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {vendorBalances.vendors
+                      .filter((v) => {
+                        if (vendorBalanceFilter === 'due' && v.dueBalance <= 0) return false;
+                        if (vendorBalanceFilter === 'settled' && (v.dueBalance > 0 || v.grossSales === 0)) return false;
+                        if (vendorBalanceFilter === 'held' && !v.isPayoutHeld) return false;
+                        if (!vendorBalanceSearch.trim()) return true;
+                        const q = vendorBalanceSearch.toLowerCase();
+                        return (
+                          (v.name && v.name.toLowerCase().includes(q)) ||
+                          (v.shopName && v.shopName.toLowerCase().includes(q)) ||
+                          (v.phone && v.phone.includes(q)) ||
+                          (v.vendorId && v.vendorId.toLowerCase().includes(q))
+                        );
+                      })
+                      .sort((a, b) => {
+                        if (vendorBalanceSort === 'due_desc') return b.dueBalance - a.dueBalance || b.grossSales - a.grossSales;
+                        if (vendorBalanceSort === 'sales_desc') return b.grossSales - a.grossSales;
+                        if (vendorBalanceSort === 'orders_desc') return b.totalOrdersCount - a.totalOrdersCount;
+                        return 0;
+                      })
+                      .map((v) => {
+                        const hasDues = v.dueBalance > 0;
+                        const isHeld = v.isPayoutHeld;
+
+                        return (
+                          <tr key={v.vendorId} className="hover:bg-slate-50/80 transition">
+                            <td className="p-3.5 sm:px-4">
+                              <div className="font-bold text-slate-900 text-sm">{v.shopName || v.name}</div>
+                              <div className="text-[11px] text-slate-600 flex items-center gap-1.5 mt-0.5">
+                                <span>মালিক: {v.name}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
+                                <Phone className="w-3 h-3 text-slate-400" />
+                                <span className="font-mono">{v.phone || 'ফোন নেই'}</span>
+                                {v.phone && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(v.phone, v.vendorId)}
+                                    className="p-0.5 text-slate-400 hover:text-teal-700 cursor-pointer"
+                                    title="নম্বর কপি করুন"
+                                  >
+                                    {copiedId === v.vendorId ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+
+                            <td className="p-3.5 sm:px-4 text-center">
+                              <span className="font-bold text-slate-800 text-sm block">{v.totalOrdersCount} টি</span>
+                              <span className="text-[10px] text-emerald-700 block font-semibold">
+                                {v.deliveredOrdersCount} ডেলিভার্ড
+                              </span>
+                              {v.inProgressOrdersCount > 0 && (
+                                <span className="text-[10px] text-amber-700 block">
+                                  {v.inProgressOrdersCount} টি প্রসেসিং
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="p-3.5 sm:px-4 whitespace-nowrap">
+                              <span className="font-bold text-slate-900 text-sm block">
+                                ৳{Number(v.grossSales).toLocaleString('en-US')}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                {v.productCount || 0} টি প্রোডাক্ট
+                              </span>
+                            </td>
+
+                            <td className="p-3.5 sm:px-4 whitespace-nowrap">
+                              <span className="font-bold text-teal-900 text-sm block">
+                                ৳{Number(v.deliveredSales).toLocaleString('en-US')}
+                              </span>
+                              <span className="text-[10px] text-teal-700 font-medium">ডেলিভারি সম্পন্ন</span>
+                            </td>
+
+                            <td className="p-3.5 sm:px-4 whitespace-nowrap">
+                              <span className="font-bold text-slate-700 text-sm block">
+                                ৳{Number(v.settledAmount).toLocaleString('en-US')}
+                              </span>
+                              <span className="text-[10px] text-slate-400">ইতিমধ্যে পেইড</span>
+                            </td>
+
+                            <td className="p-3.5 sm:px-4 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-base font-black ${hasDues ? 'text-emerald-700' : 'text-slate-500'}`}>
+                                  ৳{Number(v.dueBalance).toLocaleString('en-US')}
+                                </span>
+                                {hasDues ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200">
+                                    প্রদেয়
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                    পরিশোধিত
+                                  </span>
+                                )}
+                              </div>
+                              {v.potentialDue > v.dueBalance && (
+                                <span className="text-[10px] text-amber-800 font-medium block mt-0.5">
+                                  চলমানসহ সম্ভাব্য: ৳{Number(v.potentialDue).toLocaleString('en-US')}
+                                </span>
+                              )}
+                              {v.pendingWithdrawals > 0 && (
+                                <span className="text-[10px] text-rose-700 font-bold block">
+                                  ⚠️ উইথড্র আবেদন: ৳{Number(v.pendingWithdrawals).toLocaleString('en-US')}
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="p-3.5 sm:px-4 text-center whitespace-nowrap">
+                              {isHeld ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">
+                                  <Lock className="w-3 h-3 text-rose-600" />
+                                  <span>স্থগিত</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span>সক্রিয়</span>
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="p-3.5 sm:px-4 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {/* Direct Payout Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenDirectPayout(v)}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1 cursor-pointer active:scale-95"
+                                  title="সরাসরি পেআউট পরিশোধ করুন"
+                                >
+                                  <Wallet className="w-3.5 h-3.5" />
+                                  <span>পেআউট দিন</span>
+                                </button>
+
+                                {/* Order & Payout History Breakdown */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenVendorDetail(v)}
+                                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition cursor-pointer"
+                                  title="বিস্তারিত অর্ডার ও পেআউট বিবরণী দেখুন"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+
+                                {/* Toggle Hold / Unhold */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setVendorHoldModal({
+                                      vendorId: v.vendorId,
+                                      vendorName: v.shopName || v.name,
+                                      isHeld: v.isPayoutHeld,
+                                      currentReason: v.holdReason || '',
+                                    });
+                                    setVendorHoldReasonInput(v.holdReason || '');
+                                  }}
+                                  className={`p-1.5 rounded-xl border transition cursor-pointer ${
+                                    isHeld
+                                      ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                                      : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                                  }`}
+                                  title={isHeld ? 'হোল্ড তুলে নিন' : 'পেআউট স্থগিত করুন'}
+                                >
+                                  <Lock className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* SUB-TAB: VENDOR PAYOUT SETTLEMENT */}
       {activeSubTab === 'payouts' && (
         <div className="space-y-4">
@@ -1329,8 +1932,32 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             </div>
           </div>
 
-          {/* Payout Requests List Table */}
+          {/* Payout Requests List Table with Sideways Scroll Affordance */}
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
+            {/* Horizontal scroll hint & navigation buttons */}
+            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-600">
+              <div className="flex items-center gap-1.5 font-medium">
+                <span className="text-teal-800 font-bold">↔ সাইড স্ক্রল:</span>
+                <span>ডানে-বামে সোয়াইপ বা স্ক্রল করে সম্পূর্ণ উইথড্র তথ্য ও অ্যাকশন বাটন দেখুন</span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('payout-requests-scroll-table')?.scrollBy({ left: -250, behavior: 'smooth' })}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded font-bold text-slate-700 shadow-2xs cursor-pointer text-xs"
+                >
+                  ◀ বামে
+                </button>
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('payout-requests-scroll-table')?.scrollBy({ left: 250, behavior: 'smooth' })}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded font-bold text-slate-700 shadow-2xs cursor-pointer text-xs"
+                >
+                  ডানে ▶
+                </button>
+              </div>
+            </div>
+
             {payoutRequests.length === 0 ? (
               <div className="p-12 text-center space-y-2">
                 <Wallet className="w-10 h-10 text-slate-300 mx-auto" />
@@ -1338,8 +1965,8 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 <p className="text-xs text-slate-400">ভেন্ডররা মার্কেটপ্লেস ব্যালেন্স তোলার আবেদন করলে এখানে তালিকা আসবে</p>
               </div>
             ) : (
-              <div className="overflow-x-auto divide-y divide-slate-100">
-                <table className="w-full text-left text-xs">
+              <div id="payout-requests-scroll-table" className="overflow-x-auto touch-pan-x scrollbar-thin divide-y divide-slate-100">
+                <table className="w-full text-left text-xs min-w-[950px]">
                   <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-100">
                     <tr>
                       <th className="p-3.5 sm:px-5">ভেন্ডর ও দোকান</th>
@@ -1861,7 +2488,30 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-            <table className="w-full text-left text-xs divide-y divide-slate-100">
+            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-600">
+              <div className="flex items-center gap-1.5 font-medium">
+                <span className="text-teal-800 font-bold">↔ সাইড স্ক্রল:</span>
+                <span>ক্যাটাগরি টেবিল ডানে-বামে স্ক্রল করুন</span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('categories-scroll-table')?.scrollBy({ left: -200, behavior: 'smooth' })}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded font-bold text-slate-700 shadow-2xs cursor-pointer text-xs"
+                >
+                  ◀ বামে
+                </button>
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('categories-scroll-table')?.scrollBy({ left: 200, behavior: 'smooth' })}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded font-bold text-slate-700 shadow-2xs cursor-pointer text-xs"
+                >
+                  ডানে ▶
+                </button>
+              </div>
+            </div>
+            <div id="categories-scroll-table" className="overflow-x-auto touch-pan-x scrollbar-thin">
+              <table className="w-full text-left text-xs divide-y divide-slate-100 min-w-[700px]">
               <thead className="bg-slate-50 font-bold text-slate-800">
                 <tr>
                   <th className="p-3">ক্রম</th>
@@ -1915,6 +2565,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* Category Add/Edit Modal */}
@@ -2691,6 +3342,372 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
               >
                 ফিরে যান
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: DIRECT VENDOR PAYOUT ================= */}
+      {directPayoutVendor && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-emerald-800 to-teal-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/20 text-white flex items-center justify-center">
+                  <Wallet className="w-5 h-5 text-emerald-300" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black">ভেন্ডরকে সরাসরি পেআউট প্রদান</h3>
+                  <p className="text-[11px] text-emerald-200">{directPayoutVendor.shopName} ({directPayoutVendor.name})</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDirectPayoutVendor(null)}
+                className="p-1 rounded-lg text-emerald-200 hover:text-white hover:bg-white/10 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
+              {/* Due Summary Card */}
+              <div className="p-3.5 bg-emerald-50 rounded-2xl border border-emerald-200 flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-bold text-emerald-900 block">বর্তমান প্রদেয় বকেয়া</span>
+                  <span className="text-xl font-black text-emerald-800">
+                    ৳{Number(directPayoutVendor.dueBalance).toLocaleString('en-US')}
+                  </span>
+                  {directPayoutVendor.potentialDue > directPayoutVendor.dueBalance && (
+                    <span className="text-[10px] text-slate-500 block">
+                      চলমান অর্ডারসহ মোট সম্ভাব্য: ৳{Number(directPayoutVendor.potentialDue).toLocaleString('en-US')}
+                    </span>
+                  )}
+                </div>
+                <div className="text-right text-[11px] text-slate-600">
+                  <div>মোট সেলস: ৳{Number(directPayoutVendor.grossSales).toLocaleString('en-US')}</div>
+                  <div className="text-emerald-700 font-semibold">ইতিমধ্যে পেইড: ৳{Number(directPayoutVendor.settledAmount).toLocaleString('en-US')}</div>
+                </div>
+              </div>
+
+              {/* Form Inputs */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-black text-slate-700 mb-1">
+                    পেআউট পরিমাণ (৳) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={directPayoutAmount}
+                    onChange={(e) => setDirectPayoutAmount(e.target.value)}
+                    placeholder="টাকার পরিমাণ লিখুন..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  />
+                  <div className="flex gap-2 mt-1">
+                    {directPayoutVendor.dueBalance > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setDirectPayoutAmount(String(directPayoutVendor.dueBalance))}
+                        className="text-[10px] font-bold text-emerald-700 hover:underline cursor-pointer"
+                      >
+                        সম্পূর্ণ বকেয়া (৳{directPayoutVendor.dueBalance})
+                      </button>
+                    )}
+                    {directPayoutVendor.grossSales - directPayoutVendor.settledAmount > directPayoutVendor.dueBalance && (
+                      <button
+                        type="button"
+                        onClick={() => setDirectPayoutAmount(String(directPayoutVendor.grossSales - directPayoutVendor.settledAmount))}
+                        className="text-[10px] font-bold text-teal-700 hover:underline cursor-pointer"
+                      >
+                        সর্বমোট সম্ভাব্য (৳{directPayoutVendor.grossSales - directPayoutVendor.settledAmount})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-700 mb-1">
+                      পেমেন্ট মেথড <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={directPayoutMethod}
+                      onChange={(e) => setDirectPayoutMethod(e.target.value as any)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none cursor-pointer"
+                    >
+                      <option value="bkash">বিকাশ (bKash)</option>
+                      <option value="nagad">নগদ (Nagad)</option>
+                      <option value="rocket">রকেট (Rocket)</option>
+                      <option value="bank">ব্যাংক ট্রান্সফার (Bank)</option>
+                      <option value="cash">সরাসরি ক্যাশ (Cash)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-700 mb-1">
+                      প্রাপক নম্বর / অ্যাকাউন্ট
+                    </label>
+                    <input
+                      type="text"
+                      value={directPayoutAccount}
+                      onChange={(e) => setDirectPayoutAccount(e.target.value)}
+                      placeholder="বিকাশ/নগদ নম্বর বা ব্যাংক হিসাব..."
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black text-slate-700 mb-1">
+                    ট্রানজেকশন আইডি (TrxID) বা ক্যাশ ভাউচার <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={directPayoutTrxId}
+                    onChange={(e) => setDirectPayoutTrxId(e.target.value)}
+                    placeholder="যেমন: 9B73XDF8 లేదా CASH-VOUCHER-01..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">ভেন্ডরের ক্যাশবুকে এই TrxID জমা হবে</p>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black text-slate-700 mb-1">
+                    অ্যাডমিন নোট (ঐচ্ছিক)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={directPayoutNote}
+                    onChange={(e) => setDirectPayoutNote(e.target.value)}
+                    placeholder="পেআউট সংক্রান্ত কোনো নোট..."
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Action Note */}
+              <div className="p-3 bg-slate-100 rounded-xl text-[11px] text-slate-600 space-y-1">
+                <span className="font-bold text-slate-800 block">💡 নিষ্পত্তি সংক্রান্ত তথ্য:</span>
+                <p>
+                  পেআউট নিশ্চিত করলে ভেন্ডরের ডেলিভারি হওয়া অর্ডারগুলোর ব্যালেন্স স্বয়ংক্রিয়ভাবে নিষ্পত্তিকৃত (Settled) হিসেবে আপডেট হবে এবং ভেন্ডরের অ্যাপের ক্যাশবুকে আয়ের ভাউচার যোগ হবে।
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setDirectPayoutVendor(null)}
+                disabled={isSubmittingDirectPayout}
+                className="px-4 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-xl transition cursor-pointer"
+              >
+                বাতিল
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDirectPayout}
+                disabled={isSubmittingDirectPayout || !directPayoutAmount || !directPayoutTrxId}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl transition flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
+              >
+                {isSubmittingDirectPayout ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>প্রসেসিং হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>পেআউট নিশ্চিত ও নিষ্পত্তি করুন</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: VENDOR ORDER & PAYOUT BREAKDOWN ================= */}
+      {selectedVendorForDetail && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-4xl w-full shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[92vh]">
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/10 text-teal-300 flex items-center justify-center border border-white/20">
+                  <Store className="w-5 h-5 text-teal-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">{selectedVendorForDetail.shopName}</h3>
+                  <p className="text-xs text-slate-300">
+                    মালিক: {selectedVendorForDetail.name} • ফোন: {selectedVendorForDetail.phone || 'নেই'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedVendorForDetail(null)}
+                className="p-1 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-5 text-xs">
+              {/* Vendor Financial Summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200">
+                  <span className="text-[10px] font-bold text-emerald-800 uppercase block">বর্তমানে প্রাপ্য বকেয়া</span>
+                  <span className="text-lg font-black text-emerald-950">৳{Number(selectedVendorForDetail.dueBalance).toLocaleString('en-US')}</span>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-600 uppercase block">সর্বমোট বিক্রয় (GMV)</span>
+                  <span className="text-lg font-black text-slate-900">৳{Number(selectedVendorForDetail.grossSales).toLocaleString('en-US')}</span>
+                </div>
+                <div className="p-3 bg-teal-50 rounded-2xl border border-teal-200">
+                  <span className="text-[10px] font-bold text-teal-800 uppercase block">ডেলিভারি সম্পন্ন বিক্রয়</span>
+                  <span className="text-lg font-black text-teal-950">৳{Number(selectedVendorForDetail.deliveredSales).toLocaleString('en-US')}</span>
+                </div>
+                <div className="p-3 bg-indigo-50 rounded-2xl border border-indigo-200">
+                  <span className="text-[10px] font-bold text-indigo-800 uppercase block">ইতিমধ্যে পরিশোধিত</span>
+                  <span className="text-lg font-black text-indigo-950">৳{Number(selectedVendorForDetail.settledAmount).toLocaleString('en-US')}</span>
+                </div>
+              </div>
+
+              {/* Central Marketplace Orders of this Vendor */}
+              <div className="space-y-2">
+                <h4 className="font-black text-sm text-slate-900 flex items-center justify-between">
+                  <span>📦 সেন্ট্রাল মার্কেটপ্লেস অর্ডারসমূহ ({selectedVendorForDetail.orders?.length || 0})</span>
+                  <span className="text-xs font-normal text-slate-500">ডেলিভার্ড পার্সেলগুলো পেআউটের জন্য বিবেচিত হয়</span>
+                </h4>
+
+                <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="overflow-x-auto touch-pan-x scrollbar-thin">
+                    <table className="w-full text-left text-xs divide-y divide-slate-100 min-w-[650px]">
+                      <thead className="bg-slate-50 text-slate-700 font-bold">
+                        <tr>
+                          <th className="p-2.5">অর্ডার নম্বর</th>
+                          <th className="p-2.5">কাস্টমার</th>
+                          <th className="p-2.5">আইটেম</th>
+                          <th className="p-2.5">পরিমাণ</th>
+                          <th className="p-2.5">ডেলিভারি স্ট্যাটাস</th>
+                          <th className="p-2.5">পেআউট স্ট্যাটাস</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {(!selectedVendorForDetail.orders || selectedVendorForDetail.orders.length === 0) ? (
+                          <tr>
+                            <td colSpan={6} className="p-6 text-center text-slate-400 font-medium">
+                              এই ভেন্ডরের কোনো অর্ডার নেই
+                            </td>
+                          </tr>
+                        ) : (
+                          selectedVendorForDetail.orders.map((ord: any) => (
+                            <tr key={ord.id} className="hover:bg-slate-50/60">
+                              <td className="p-2.5 font-mono font-bold text-teal-950">{ord.orderNumber}</td>
+                              <td className="p-2.5">
+                                <div className="font-bold text-slate-800">{ord.customerName}</div>
+                                <div className="text-[10px] text-slate-400 font-mono">{ord.customerPhone}</div>
+                              </td>
+                              <td className="p-2.5">{ord.itemsCount || 1} টি</td>
+                              <td className="p-2.5 font-bold text-slate-900">৳{Number(ord.totalAmount).toLocaleString('en-US')}</td>
+                              <td className="p-2.5">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  ord.orderStatus === 'delivered'
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : ord.orderStatus === 'cancelled'
+                                    ? 'bg-rose-50 text-rose-700'
+                                    : 'bg-amber-50 text-amber-700'
+                                }`}>
+                                  {ord.orderStatus}
+                                </span>
+                              </td>
+                              <td className="p-2.5">
+                                {ord.vendorPayoutStatus === 'settled' ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-800">
+                                    ✅ পেইড
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900">
+                                    ⏳ অপরিশোধিত
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recent Payouts to this Vendor */}
+              <div className="space-y-2">
+                <h4 className="font-black text-sm text-slate-900">💸 পেআউট হিস্ট্রি (পূর্বে প্রদত্ত পরিশোধ)</h4>
+                <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="overflow-x-auto touch-pan-x scrollbar-thin">
+                    <table className="w-full text-left text-xs divide-y divide-slate-100 min-w-[600px]">
+                      <thead className="bg-slate-50 text-slate-700 font-bold">
+                        <tr>
+                          <th className="p-2.5">তারিখ</th>
+                          <th className="p-2.5">পরিমাণ</th>
+                          <th className="p-2.5">মেথড ও অ্যাকাউন্ট</th>
+                          <th className="p-2.5">TrxID</th>
+                          <th className="p-2.5">নোট</th>
+                          <th className="p-2.5">স্ট্যাটাস</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {(!selectedVendorForDetail.recentPayouts || selectedVendorForDetail.recentPayouts.length === 0) ? (
+                          <tr>
+                            <td colSpan={6} className="p-6 text-center text-slate-400 font-medium">
+                              এই ভেন্ডরকে পূর্বে কোনো পেআউট প্রদান করা হয়নি
+                            </td>
+                          </tr>
+                        ) : (
+                          selectedVendorForDetail.recentPayouts.map((p: any) => (
+                            <tr key={p.id} className="hover:bg-slate-50/60">
+                              <td className="p-2.5 text-slate-600">
+                                {new Date(p.processedAt || p.createdAt).toLocaleDateString('bn-BD')}
+                              </td>
+                              <td className="p-2.5 font-bold text-emerald-800">৳{Number(p.amount).toLocaleString('en-US')}</td>
+                              <td className="p-2.5 font-mono">{p.paymentMethod} ({p.accountNumber})</td>
+                              <td className="p-2.5 font-mono font-bold text-slate-800">{p.transactionId || '-'}</td>
+                              <td className="p-2.5 text-slate-500 italic max-w-xs truncate">{p.note || '-'}</td>
+                              <td className="p-2.5">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                  {p.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = selectedVendorForDetail;
+                  setSelectedVendorForDetail(null);
+                  handleOpenDirectPayout(target);
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Wallet className="w-3.5 h-3.5" />
+                <span>এই ভেন্ডরকে সরাসরি পেআউট দিন</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedVendorForDetail(null)}
+                className="px-4 py-2 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                বন্ধ করুন
               </button>
             </div>
           </div>
