@@ -321,9 +321,16 @@ router.get('/featured', async (_req: Request, res: Response) => {
   }
 });
 
+const BANGLA_MONTHS = [
+  'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন',
+  'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
+];
+
 const DEFAULT_MARKETPLACE_SETTINGS = {
   isMarketplaceActive: true,
-  commissionPercent: 0,
+  commissionPercent: 5,
+  platformDeliveryMargin: 10,
+  customVendorCommissions: {} as Record<string, number>,
   deliveryFeeDhaka: 70,
   deliveryFeeOutside: 130,
   onlineGatewayEnabled: true,
@@ -1883,6 +1890,10 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
         isAdminApproved: m.is_admin_approved === true,
         isRejectedByAdmin: m.is_rejected_by_admin === true,
         adminRejectionReason: m.admin_rejection_reason,
+        courierName: m.courier_name || '',
+        courierTrackingCode: m.courier_tracking_code || '',
+        returnReason: m.return_reason || '',
+        refundAmount: parseFloat(m.refund_amount) || 0,
         vendorIds: typeof m.vendor_ids === 'string' ? JSON.parse(m.vendor_ids) : (m.vendor_ids || []),
         subOrderIds: typeof m.sub_order_ids === 'string' ? JSON.parse(m.sub_order_ids) : (m.sub_order_ids || []),
         createdAt: Number(m.created_at),
@@ -1898,6 +1909,10 @@ router.get('/admin/overview', authenticateUser, async (req: AuthenticatedRequest
         vendorPhone: o.vendor_phone,
         customerName: o.customer_name,
         customerPhone: o.customer_phone,
+        customerAddress: o.customer_address || '',
+        courierName: o.courier_name || '',
+        courierTrackingCode: o.courier_tracking_code || '',
+        deliveryCharge: parseFloat(o.delivery_charge) || 0,
         items: typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || []),
         subtotal: parseFloat(o.subtotal) || 0,
         totalAmount: parseFloat(o.total_amount) || 0,
@@ -1995,7 +2010,7 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const { id } = req.params;
-    const { overallStatus, paymentStatus } = req.body;
+    const { overallStatus, paymentStatus, courierName, courierTrackingCode, returnReason, refundAmount } = req.body;
     const pool = getDbPool();
 
     if (pool) {
@@ -2003,21 +2018,43 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
         UPDATE marketplace_master_orders 
         SET overall_status = COALESCE($1, overall_status),
             payment_status = COALESCE($2, payment_status),
-            updated_at = $3
-        WHERE id = $4 OR order_number = $4
-      `, [overallStatus || null, paymentStatus || null, Date.now(), id]);
+            courier_name = COALESCE($3, courier_name),
+            courier_tracking_code = COALESCE($4, courier_tracking_code),
+            return_reason = COALESCE($5, return_reason),
+            refund_amount = COALESCE($6, refund_amount),
+            updated_at = $7
+        WHERE id = $8 OR order_number = $8
+      `, [
+        overallStatus || null,
+        paymentStatus || null,
+        courierName !== undefined ? courierName : null,
+        courierTrackingCode !== undefined ? courierTrackingCode : null,
+        returnReason !== undefined ? returnReason : null,
+        refundAmount !== undefined ? refundAmount : null,
+        Date.now(),
+        id
+      ]);
 
       // Synchronize all corresponding suborders in online_orders for real-time calculations!
       await pool.query(`
         UPDATE online_orders 
         SET order_status = COALESCE($1, order_status),
             payment_status = COALESCE($2, payment_status),
-            updated_at = $3
-        WHERE master_order_id = $4 
-           OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $4 OR order_number = $4)
-           OR id = $4 
-           OR order_number = $4
-      `, [overallStatus || null, paymentStatus || null, Date.now(), id]).catch(() => {});
+            courier_name = COALESCE($3, courier_name),
+            courier_tracking_code = COALESCE($4, courier_tracking_code),
+            updated_at = $5
+        WHERE master_order_id = $6 
+           OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $6 OR order_number = $6)
+           OR id = $6 
+           OR order_number = $6
+      `, [
+        overallStatus || null,
+        paymentStatus || null,
+        courierName !== undefined ? courierName : null,
+        courierTrackingCode !== undefined ? courierTrackingCode : null,
+        Date.now(),
+        id
+      ]).catch(() => {});
     } else {
       const ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
       const targetId = ord?.id || id;
@@ -2025,6 +2062,10 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
       if (ord) {
         if (overallStatus) ord.overallStatus = overallStatus;
         if (paymentStatus) ord.paymentStatus = paymentStatus;
+        if (courierName !== undefined) ord.courierName = courierName;
+        if (courierTrackingCode !== undefined) ord.courierTrackingCode = courierTrackingCode;
+        if (returnReason !== undefined) ord.returnReason = returnReason;
+        if (refundAmount !== undefined) ord.refundAmount = refundAmount;
         ord.updatedAt = Date.now();
       }
       // Synchronize all corresponding suborders in online_orders in-memory!
@@ -2040,6 +2081,8 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
         .forEach((sub: any) => {
           if (overallStatus) sub.orderStatus = overallStatus;
           if (paymentStatus) sub.paymentStatus = paymentStatus;
+          if (courierName !== undefined) sub.courierName = courierName;
+          if (courierTrackingCode !== undefined) sub.courierTrackingCode = courierTrackingCode;
           sub.updatedAt = Date.now();
         });
       saveInMemoryStoreToDisk();
@@ -3190,15 +3233,23 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
       const isPayoutHeld = Boolean(holds[userId]?.isHeld);
       const payoutHoldReason = holds[userId]?.reason || '';
 
-      // Available balance is delivered money minus settled by super admin, held, and in-progress requests
+      const mktSettings = await getStoredMarketplaceSettings();
+      const commissionPercent = Number(mktSettings.commissionPercent ?? 5);
+      const commissionAmount = Math.round((deliveredSales * commissionPercent) / 100);
+      const netDeliveredSales = Math.max(0, deliveredSales - commissionAmount);
+
+      // Available balance is delivered money (minus platform commission), minus settled by super admin, held, and in-progress requests
       const availableForWithdrawal = isPayoutHeld 
         ? 0 
-        : Math.max(0, deliveredSales - totalSettledAmount - heldSales - pendingWithdrawalAmount - onHoldPayoutAmount);
+        : Math.max(0, netDeliveredSales - totalSettledAmount - heldSales - pendingWithdrawalAmount - onHoldPayoutAmount);
 
       return res.json({
         success: true,
         totalSales,
         deliveredSales,
+        commissionPercent,
+        commissionAmount,
+        netDeliveredSales,
         settledSales: totalSettledAmount,
         heldSales,
         pendingDeliverySales,
@@ -3252,14 +3303,22 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
       const isPayoutHeld = Boolean(holds[userId]?.isHeld);
       const payoutHoldReason = holds[userId]?.reason || '';
 
+      const mktSettings = await getStoredMarketplaceSettings();
+      const commissionPercent = Number(mktSettings.commissionPercent ?? 5);
+      const commissionAmount = Math.round((deliveredSales * commissionPercent) / 100);
+      const netDeliveredSales = Math.max(0, deliveredSales - commissionAmount);
+
       const availableForWithdrawal = isPayoutHeld
         ? 0
-        : Math.max(0, deliveredSales - totalSettledAmount - heldSales - pendingWithdrawalAmount - onHoldPayoutAmount);
+        : Math.max(0, netDeliveredSales - totalSettledAmount - heldSales - pendingWithdrawalAmount - onHoldPayoutAmount);
 
       return res.json({
         success: true,
         totalSales,
         deliveredSales,
+        commissionPercent,
+        commissionAmount,
+        netDeliveredSales,
         settledSales: totalSettledAmount,
         heldSales,
         pendingDeliverySales,
@@ -3622,6 +3681,18 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
       let totalOrdersCountAll = 0;
       const allSoldProductsMap = new Map<string, any>();
 
+      const mktSettings = await getStoredMarketplaceSettings();
+      const defaultCommissionPercent = Number(mktSettings.commissionPercent ?? 5);
+      const deliveryMarginPerOrder = Number(mktSettings.platformDeliveryMargin ?? 10);
+      const customVendorCommissions = (mktSettings.customVendorCommissions && typeof mktSettings.customVendorCommissions === 'object')
+        ? mktSettings.customVendorCommissions
+        : {};
+
+      let totalPlatformCommissionProfit = 0;
+      let totalDeliveryMarginProfit = 0;
+      let totalDeliveredOrdersCount = 0;
+      const monthlyProfitMap = new Map<string, any>();
+
       for (const vId of allVendorIds) {
         const u = userMap.get(vId) || {
           id: vId,
@@ -3758,18 +3829,76 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           .filter(p => p.status === 'pending')
           .reduce((sum, p) => sum + p.amount, 0);
 
-        // Receivable amount strictly for delivered products (minus what Super Admin already paid)
-        const deliveredDue = Math.max(0, deliveredSales - settledAmount);
+        // Platform Commission & Profit Model
+        const commissionRate = typeof customVendorCommissions[vId] === 'number'
+          ? Number(customVendorCommissions[vId])
+          : defaultCommissionPercent;
+        const commissionAmount = Math.round((deliveredSales * commissionRate) / 100);
+        const deliveryMarginProfit = deliveredOrders.length * deliveryMarginPerOrder;
+        const totalVendorPlatformProfit = commissionAmount + deliveryMarginProfit;
+        const netDeliveredSales = Math.max(0, deliveredSales - commissionAmount);
+
+        // Receivable amount strictly for delivered products minus platform commission (minus what Super Admin already paid)
+        const deliveredDue = Math.max(0, netDeliveredSales - settledAmount);
         const dueBalance = deliveredDue;
-        const potentialDue = Math.max(0, grossSales - settledAmount);
-        const isFullySettled = settledAmount >= deliveredSales && deliveredSales > 0;
+        const potentialDue = Math.max(0, Math.round(grossSales * (1 - commissionRate / 100)) - settledAmount);
+        const isFullySettled = settledAmount >= netDeliveredSales && netDeliveredSales > 0;
 
         totalGrossSales += grossSales;
         totalDeliveredSales += deliveredSales;
+        totalPlatformCommissionProfit += commissionAmount;
+        totalDeliveryMarginProfit += deliveryMarginProfit;
+        totalDeliveredOrdersCount += deliveredOrders.length;
         totalSettledAmount += settledAmount;
         totalDueToVendors += deliveredDue;
         totalPendingWithdrawals += pendingWithdrawals;
         totalOrdersCountAll += vOrders.length;
+
+        // Month-by-month aggregation for delivered orders
+        for (const ord of deliveredOrders) {
+          const rawCreated: any = ord.createdAt;
+          const ts = typeof rawCreated === 'number'
+            ? rawCreated
+            : rawCreated instanceof Date
+              ? rawCreated.getTime()
+              : !isNaN(Number(rawCreated))
+                ? Number(rawCreated)
+                : Date.parse(String(rawCreated)) || Date.now();
+          const d = new Date(ts);
+          const y = d.getFullYear();
+          const m = d.getMonth();
+          const monthKey = `${y}-${String(m + 1).padStart(2, '0')}`;
+          const monthName = `${BANGLA_MONTHS[m] || 'মাস'} ${y}`;
+          const ordSubtotal = Number(ord.subtotal) || (Number(ord.totalAmount) - Number(ord.deliveryCharge || 0)) || Number(ord.totalAmount) || 0;
+          const ordComm = Math.round((ordSubtotal * commissionRate) / 100);
+          const ordMargin = deliveryMarginPerOrder;
+
+          if (!monthlyProfitMap.has(monthKey)) {
+            monthlyProfitMap.set(monthKey, {
+              monthKey,
+              monthName,
+              year: y,
+              month: m + 1,
+              deliveredOrdersCount: 0,
+              grossSales: 0,
+              productsAmount: 0,
+              deliveryAmount: 0,
+              platformCommissionProfit: 0,
+              deliveryMarginProfit: 0,
+              totalPlatformProfit: 0,
+              vendorNetPayable: 0,
+            });
+          }
+          const mEntry = monthlyProfitMap.get(monthKey)!;
+          mEntry.deliveredOrdersCount += 1;
+          mEntry.grossSales += Number(ord.totalAmount) || 0;
+          mEntry.productsAmount += ordSubtotal;
+          mEntry.deliveryAmount += Number(ord.deliveryCharge) || 0;
+          mEntry.platformCommissionProfit += ordComm;
+          mEntry.deliveryMarginProfit += ordMargin;
+          mEntry.totalPlatformProfit += (ordComm + ordMargin);
+          mEntry.vendorNetPayable += Math.max(0, (Number(ord.totalAmount) || 0) - ordComm);
+        }
 
         vendorLedgers.push({
           vendorId: vId,
@@ -3790,6 +3919,11 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           totalProductsAmount,
           totalDeliveryAmount,
           deliveredSales,
+          commissionRate,
+          commissionAmount,
+          deliveryMarginProfit,
+          platformProfit: totalVendorPlatformProfit,
+          netDeliveredSales,
           inProgressSales,
           pendingSales,
           settledAmount,
@@ -3808,15 +3942,33 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
       // Sort by grossSales / dueBalance DESC
       vendorLedgers.sort((a, b) => b.grossSales - a.grossSales || b.dueBalance - a.dueBalance);
 
+      const monthlyProfitBreakdown = Array.from(monthlyProfitMap.values()).sort(
+        (a, b) => b.monthKey.localeCompare(a.monthKey)
+      );
+
+      const curD = new Date();
+      const currentMonthKey = `${curD.getFullYear()}-${String(curD.getMonth() + 1).padStart(2, '0')}`;
+      const thisMonthEntry = monthlyProfitMap.get(currentMonthKey);
+      const thisMonthProfit = thisMonthEntry ? thisMonthEntry.totalPlatformProfit : 0;
+      const totalPlatformProfit = totalPlatformCommissionProfit + totalDeliveryMarginProfit;
+
       return res.json({
         success: true,
         summary: {
           totalVendorsCount: vendorLedgers.length,
           totalOrdersCount: totalOrdersCountAll,
+          totalDeliveredOrdersCount,
           totalSoldProductsCount: allSoldProductsMap.size,
           totalSoldUnitsCount,
           totalGrossSales,
           totalDeliveredSales,
+          totalPlatformCommissionProfit,
+          totalDeliveryMarginProfit,
+          totalPlatformProfit,
+          thisMonthProfit,
+          defaultCommissionPercent,
+          platformDeliveryMargin: deliveryMarginPerOrder,
+          monthlyProfitBreakdown,
           totalSettledAmount,
           totalDueToVendors,
           totalPendingWithdrawals,
@@ -3836,6 +3988,13 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
       let totalSoldUnitsCount = 0;
       let totalOrdersCountAll = 0;
       const allSoldProductsMap = new Map<string, any>();
+
+      const mktSettingsFallback = await getStoredMarketplaceSettings();
+      const defaultCommissionPercent = Number(mktSettingsFallback.commissionPercent ?? 5);
+      const deliveryMarginPerOrder = Number(mktSettingsFallback.platformDeliveryMargin ?? 10);
+      const customVendorCommissions = (mktSettingsFallback.customVendorCommissions && typeof mktSettingsFallback.customVendorCommissions === 'object')
+        ? mktSettingsFallback.customVendorCommissions
+        : {};
 
       const vendorLedgers = users.map((u: any) => {
         const shopLabel = u.shopName || u.shop_name || u.name || 'দোকান';
@@ -3979,6 +4138,14 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           (a, b) => b.receivableAmount - a.receivableAmount
         );
 
+        const commissionRate = typeof customVendorCommissions[u.id] === 'number'
+          ? Number(customVendorCommissions[u.id])
+          : defaultCommissionPercent;
+        const commissionAmount = Math.round((deliveredSales * commissionRate) / 100);
+        const deliveryMarginProfit = deliveredOrders.length * deliveryMarginPerOrder;
+        const totalVendorPlatformProfit = commissionAmount + deliveryMarginProfit;
+        const netDeliveredSales = Math.max(0, deliveredSales - commissionAmount);
+
         const approvedPayoutsTotal = vPayouts
           .filter((p: any) => p.status === 'approved')
           .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
@@ -3986,10 +4153,10 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           .filter((o: any) => o.vendorPayoutStatus === 'settled')
           .reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
         const settledAmount = Math.max(approvedPayoutsTotal, settledOrdersTotal);
-        const deliveredDue = Math.max(0, deliveredSales - settledAmount);
+        const deliveredDue = Math.max(0, netDeliveredSales - settledAmount);
         const dueBalance = deliveredDue;
-        const potentialDue = Math.max(0, grossSales - settledAmount);
-        const isFullySettled = settledAmount >= deliveredSales && deliveredSales > 0;
+        const potentialDue = Math.max(0, Math.round(grossSales * (1 - commissionRate / 100)) - settledAmount);
+        const isFullySettled = settledAmount >= netDeliveredSales && netDeliveredSales > 0;
         totalOrdersCountAll += vOrders.length;
 
         return {
@@ -4011,6 +4178,11 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           totalProductsAmount,
           totalDeliveryAmount,
           deliveredSales,
+          commissionRate,
+          commissionAmount,
+          deliveryMarginProfit,
+          platformProfit: totalVendorPlatformProfit,
+          netDeliveredSales,
           inProgressSales,
           pendingSales,
           settledAmount,
@@ -4028,15 +4200,86 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
 
       vendorLedgers.sort((a: any, b: any) => b.grossSales - a.grossSales || b.dueBalance - a.dueBalance);
 
+      const defMargin = Number(mktSettingsFallback.platformDeliveryMargin ?? 10);
+      const totalDeliv = vendorLedgers.reduce((s: number, v: any) => s + v.deliveredSales, 0);
+      const totalCommission = vendorLedgers.reduce((s: number, v: any) => s + (v.commissionAmount || 0), 0);
+      const totalDelivMargin = vendorLedgers.reduce((s: number, v: any) => s + (v.deliveryMarginProfit || 0), 0);
+      const totalOrdersDeliv = vendorLedgers.reduce((s: number, v: any) => s + (v.deliveredOrdersCount || 0), 0);
+
+      // Build monthly breakdown in memory
+      const memMonthlyProfitMap = new Map<string, any>();
+      for (const v of vendorLedgers) {
+        for (const ord of (v.orders || []).filter((o: any) => o.orderStatus === 'delivered')) {
+          const rawCreated: any = ord.createdAt;
+          const ts = typeof rawCreated === 'number'
+            ? rawCreated
+            : rawCreated instanceof Date
+              ? rawCreated.getTime()
+              : !isNaN(Number(rawCreated))
+                ? Number(rawCreated)
+                : Date.parse(String(rawCreated)) || Date.now();
+          const d = new Date(ts);
+          const y = d.getFullYear();
+          const m = d.getMonth();
+          const monthKey = `${y}-${String(m + 1).padStart(2, '0')}`;
+          const monthName = `${BANGLA_MONTHS[m] || 'মাস'} ${y}`;
+          const ordSubtotal = Number(ord.subtotal) || (Number(ord.totalAmount) - Number(ord.deliveryCharge || 0)) || Number(ord.totalAmount) || 0;
+          const ordComm = Math.round((ordSubtotal * (v.commissionRate || 5)) / 100);
+          const ordMargin = defMargin;
+
+          if (!memMonthlyProfitMap.has(monthKey)) {
+            memMonthlyProfitMap.set(monthKey, {
+              monthKey,
+              monthName,
+              year: y,
+              month: m + 1,
+              deliveredOrdersCount: 0,
+              grossSales: 0,
+              productsAmount: 0,
+              deliveryAmount: 0,
+              platformCommissionProfit: 0,
+              deliveryMarginProfit: 0,
+              totalPlatformProfit: 0,
+              vendorNetPayable: 0,
+            });
+          }
+          const mEntry = memMonthlyProfitMap.get(monthKey)!;
+          mEntry.deliveredOrdersCount += 1;
+          mEntry.grossSales += Number(ord.totalAmount) || 0;
+          mEntry.productsAmount += ordSubtotal;
+          mEntry.deliveryAmount += Number(ord.deliveryCharge) || 0;
+          mEntry.platformCommissionProfit += ordComm;
+          mEntry.deliveryMarginProfit += ordMargin;
+          mEntry.totalPlatformProfit += (ordComm + ordMargin);
+          mEntry.vendorNetPayable += Math.max(0, (Number(ord.totalAmount) || 0) - ordComm);
+        }
+      }
+
+      const memMonthlyBreakdown = Array.from(memMonthlyProfitMap.values()).sort(
+        (a, b) => b.monthKey.localeCompare(a.monthKey)
+      );
+      const curDMem = new Date();
+      const currentMonthKeyMem = `${curDMem.getFullYear()}-${String(curDMem.getMonth() + 1).padStart(2, '0')}`;
+      const thisMonthMemEntry = memMonthlyProfitMap.get(currentMonthKeyMem);
+      const thisMonthProfitMem = thisMonthMemEntry ? thisMonthMemEntry.totalPlatformProfit : 0;
+
       return res.json({
         success: true,
         summary: {
           totalVendorsCount: vendorLedgers.length,
           totalOrdersCount: totalOrdersCountAll,
+          totalDeliveredOrdersCount: totalOrdersDeliv,
           totalSoldProductsCount: allSoldProductsMap.size,
           totalSoldUnitsCount,
           totalGrossSales: vendorLedgers.reduce((s: number, v: any) => s + v.grossSales, 0),
-          totalDeliveredSales: vendorLedgers.reduce((s: number, v: any) => s + v.deliveredSales, 0),
+          totalDeliveredSales: totalDeliv,
+          totalPlatformCommissionProfit: totalCommission,
+          totalDeliveryMarginProfit: totalDelivMargin,
+          totalPlatformProfit: totalCommission + totalDelivMargin,
+          thisMonthProfit: thisMonthProfitMem,
+          defaultCommissionPercent: Number(mktSettingsFallback.commissionPercent ?? 5),
+          platformDeliveryMargin: defMargin,
+          monthlyProfitBreakdown: memMonthlyBreakdown,
           totalSettledAmount: vendorLedgers.reduce((s: number, v: any) => s + v.settledAmount, 0),
           totalDueToVendors: vendorLedgers.reduce((s: number, v: any) => s + v.deliveredDue, 0),
           totalPendingWithdrawals: 0,
@@ -4048,6 +4291,49 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
   } catch (err: any) {
     console.error('Error fetching vendor balances:', err);
     return res.status(500).json({ error: err.message || 'ভেন্ডর ব্যালেন্স লোড করা যায়নি' });
+  }
+});
+
+/**
+ * 15.1B POST /api/marketplace/admin/vendor-commission - Super Admin Custom Vendor Commission Rate Override
+ */
+router.post('/admin/vendor-commission', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const isSuperAdmin = checkIsSuperAdminOrStaff(req);
+    if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
+
+    const { vendorId, commissionPercent } = req.body;
+    if (!vendorId) return res.status(400).json({ error: 'ভেন্ডর আইডি দিন' });
+
+    const numRate = Math.max(0, Math.min(100, Number(commissionPercent) || 0));
+    const pool = getDbPool();
+    const mktSettings = await getStoredMarketplaceSettings();
+    if (!mktSettings.customVendorCommissions) {
+      mktSettings.customVendorCommissions = {};
+    }
+    mktSettings.customVendorCommissions[vendorId] = numRate;
+
+    if (pool) {
+      await pool.query(`
+        INSERT INTO marketplace_settings (id, data, updated_at)
+        VALUES ('global_settings', $1, $2)
+        ON CONFLICT (id) DO UPDATE SET
+          data = EXCLUDED.data,
+          updated_at = EXCLUDED.updated_at
+      `, [JSON.stringify(mktSettings), Date.now()]);
+    } else {
+      inMemoryStore.marketplace_settings = mktSettings;
+      saveInMemoryStoreToDisk();
+    }
+
+    return res.json({
+      success: true,
+      message: `ভেন্ডরের কমিশন রেট ${numRate}% নির্ধারণ করা হয়েছে`,
+      vendorId,
+      commissionPercent: numRate,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

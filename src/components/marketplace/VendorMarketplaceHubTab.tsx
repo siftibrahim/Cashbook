@@ -30,10 +30,16 @@ import {
   ShieldCheck,
   BookOpen,
   Lock,
+  Truck,
+  MessageSquare,
+  Percent,
 } from 'lucide-react';
 import { Product, OnlineOrder, StoreProfile, VendorPayoutRequest, VendorWalletSummary } from '../../types';
 import { marketplaceApi } from '../../services/marketplaceService';
 import { storeApi } from '../../services/apiService';
+import { MarketplaceOrderInvoiceModal } from './MarketplaceOrderInvoiceModal';
+import { MarketplaceCourierModal } from './MarketplaceCourierModal';
+import { MarketplaceSmsModal } from './MarketplaceSmsModal';
 
 interface VendorMarketplaceHubTabProps {
   products: Product[];
@@ -74,6 +80,42 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
   const [localOrderStatuses, setLocalOrderStatuses] = useState<Record<string, OnlineOrder['orderStatus']>>({});
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
+
+  // Commerce Modals
+  const [printingInvoiceOrder, setPrintingInvoiceOrder] = useState<any | null>(null);
+  const [courierManagingOrder, setCourierManagingOrder] = useState<any | null>(null);
+  const [smsNotifyingOrder, setSmsNotifyingOrder] = useState<any | null>(null);
+
+  const handleSaveCourierForVendorOrder = async (data: {
+    courierName: string;
+    courierTrackingCode: string;
+    deliveryManName?: string;
+    deliveryManPhone?: string;
+    autoShip?: boolean;
+  }) => {
+    if (!courierManagingOrder) return;
+    const targetStatus = data.autoShip ? 'shipped' : (courierManagingOrder.orderStatus || 'processing');
+    try {
+      await storeApi.updateOrderStatus(courierManagingOrder.id, targetStatus, {
+        courierName: data.courierName,
+        courierTrackingCode: data.courierTrackingCode,
+        deliveryManName: data.deliveryManName,
+        deliveryManPhone: data.deliveryManPhone,
+      });
+      courierManagingOrder.courierName = data.courierName;
+      courierManagingOrder.courierTrackingCode = data.courierTrackingCode;
+      courierManagingOrder.orderStatus = targetStatus;
+      setLocalOrderStatuses((prev) => ({ ...prev, [courierManagingOrder.id]: targetStatus }));
+      if (onShowToast) {
+        onShowToast(`✅ কুরিয়ার ট্র্যাকিং #${data.courierTrackingCode || ''} সফলভাবে সংরক্ষিত হয়েছে!`);
+      }
+      loadWalletData();
+    } catch (err: any) {
+      if (onShowToast) {
+        onShowToast(`❌ কুরিয়ার আপডেট ব্যর্থ হয়েছে: ${err.message}`);
+      }
+    }
+  };
 
   // Withdraw Form State
   const [withdrawForm, setWithdrawForm] = useState({
@@ -257,8 +299,13 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
     return true;
   });
 
-  const availableBalance = wallet?.availableForWithdrawal ?? Math.max(0, deliveredMarketplaceSales - settledSales);
-  const pendingDelivery = wallet?.pendingDeliverySales ?? Math.max(0, totalMarketplaceSales - deliveredMarketplaceSales);
+  const deliveredSalesAmount = wallet?.deliveredSales ?? deliveredMarketplaceSales;
+  const commPercent = wallet?.commissionPercent ?? 5;
+  const commAmount = wallet?.commissionAmount ?? Math.round((deliveredSalesAmount * commPercent) / 100);
+  const netDeliveredSales = wallet?.netDeliveredSales ?? Math.max(0, deliveredSalesAmount - commAmount);
+
+  const availableBalance = wallet?.availableForWithdrawal ?? Math.max(0, netDeliveredSales - settledSales);
+  const pendingDelivery = wallet?.pendingDeliverySales ?? Math.max(0, totalMarketplaceSales - deliveredSalesAmount);
   const inProcessWithdraw = wallet?.pendingWithdrawalAmount ?? 0;
   const totalSettled = wallet?.settledSales ?? settledSales;
 
@@ -524,6 +571,34 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
             </div>
           </div>
 
+          {/* Transparent Ledger Breakdown Banner */}
+          <div className="bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-blue-50/60 rounded-2xl p-4 border border-emerald-200 shadow-2xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-emerald-950 font-black">
+                  <Percent className="w-4 h-4 text-emerald-700" />
+                  <span>স্বচ্ছ ভেন্ডর পেমেন্ট হিসাব সূত্র (Transparent Monetization Breakdown)</span>
+                </div>
+                <div className="text-[11px] text-slate-700 flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
+                  <span>ডেলিভারি সম্পন্ন বিক্রি: <strong className="text-slate-900 font-bold">৳{deliveredSalesAmount.toLocaleString()}</strong></span>
+                  <span className="text-slate-400">➔</span>
+                  <span className="text-rose-700 font-semibold">প্ল্যাটফর্ম কমিশন ({commPercent}%): <strong>-৳{commAmount.toLocaleString()}</strong></span>
+                  <span className="text-slate-400">➔</span>
+                  <span className="text-emerald-800 font-bold">নিট প্রাপ্য: <strong>৳{netDeliveredSales.toLocaleString()}</strong></span>
+                  <span className="text-slate-400">➔</span>
+                  <span className="text-slate-600">পরিশোধিত: <strong>৳{totalSettled.toLocaleString()}</strong></span>
+                  <span className="text-slate-400">➔</span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-700 text-white font-black text-[10px]">
+                    বর্তমান ব্যালেন্স: ৳{availableBalance.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+              <div className="text-[10px] text-emerald-900 bg-white/80 px-2.5 py-1.5 rounded-xl border border-emerald-200/80 font-bold self-start sm:self-center shrink-0">
+                🔒 ১০০% নিরাপদ সেন্ট্রাল ওয়ালেট
+              </div>
+            </div>
+          </div>
+
           {/* How Payout Works Explainer Card */}
           <div className="bg-teal-50/60 rounded-2xl p-4 sm:p-5 border border-teal-200/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
@@ -535,7 +610,7 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                   সেন্ট্রাল মার্কেটপ্লেস পেমেন্ট কীভাবে কাজ করে?
                 </h4>
                 <p className="text-[11px] sm:text-xs text-teal-900/80 leading-relaxed">
-                  ১. কাস্টমার সেন্ট্রাল মলে বিকাশ/নগদে অর্ডার দিলে টাকা সুপার এডমিনের কাছে থাকে। ২. আপনি পণ্য পাঠাবেন এবং কাস্টমার ডেলিভারি গ্রহণ করবে। ৩. ডেলিভারি সম্পন্ন হলেই আপনি ‘টাকা তোলার আবেদন’ পাঠাবেন। ৪. এডমিন আপনার বিকাশ/নগদে Send Money করে TrxID দিয়ে পরিশোধ নিশ্চিত করবে এবং আপনার ক্যাশবুকে স্বয়ংক্রিয় এন্ট্রি হয়ে যাবে।
+                  ১. কাস্টমার সেন্ট্রাল মলে পেমেন্ট দিয়ে অর্ডার করলে টাকা প্ল্যাটফর্মের কাছে সংরক্ষিত থাকে। ২. আপনি পণ্য পাঠাবেন এবং কাস্টমার ডেলিভারি গ্রহণ করবে। ৩. ডেলিভারি সম্পন্ন হলে পণ্যের ওপর প্ল্যাটফর্ম সার্ভিস ফি ({wallet?.commissionPercent ?? 5}%) স্বয়ংক্রিয়ভাবে বাদে নিট টাকা আপনার উত্তোলনযোগ্য ব্যালেন্সে যুক্ত হবে। ৪. ‘টাকা তোলার আবেদন’ পাঠালে সুপার এডমিন আপনার বিকাশ/নগদে Send Money করে TrxID দেবেন।
                 </p>
               </div>
             </div>
@@ -972,6 +1047,36 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                             <option value="delivered">🎉 ডেলিভারি সম্পন্ন</option>
                             <option value="cancelled">❌ অর্ডার বাতিল</option>
                           </select>
+
+                          <button
+                            type="button"
+                            onClick={() => setPrintingInvoiceOrder(ord)}
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                            title="ক্যাশ মেমো / চালান প্রিন্ট করুন"
+                          >
+                            <Printer className="w-3.5 h-3.5 text-teal-800" />
+                            <span>মেমো প্রিন্ট</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setCourierManagingOrder(ord)}
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                            title="কুরিয়ার পার্টনার ও ট্র্যাকিং কোড এসাইন"
+                          >
+                            <Truck className="w-3.5 h-3.5 text-blue-700" />
+                            <span>{ord.courierName ? 'কুরিয়ার' : '+ কুরিয়ার'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setSmsNotifyingOrder(ord)}
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                            title="কাস্টমারকে এসএমএস ও হোয়াটসঅ্যাপ আপডেট পাঠান"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>এসএমএস</span>
+                          </button>
 
                           {onConvertOrderToSale && (
                             <button
@@ -1416,6 +1521,35 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
             </div>
           </div>
         </div>
+      )}
+
+      {/* INVOICE PRINT MODAL */}
+      {printingInvoiceOrder && (
+        <MarketplaceOrderInvoiceModal
+          order={printingInvoiceOrder}
+          onClose={() => setPrintingInvoiceOrder(null)}
+          storeName={store?.name || 'ভেন্ডর শপ'}
+          storePhone={store?.phone || ''}
+          isSuperAdmin={false}
+        />
+      )}
+
+      {/* COURIER MANAGEMENT MODAL */}
+      {courierManagingOrder && (
+        <MarketplaceCourierModal
+          order={courierManagingOrder}
+          onClose={() => setCourierManagingOrder(null)}
+          onSaveCourier={handleSaveCourierForVendorOrder}
+        />
+      )}
+
+      {/* SMS & WHATSAPP MODAL */}
+      {smsNotifyingOrder && (
+        <MarketplaceSmsModal
+          order={smsNotifyingOrder}
+          onClose={() => setSmsNotifyingOrder(null)}
+          storeName={store?.name || 'ভেন্ডর শপ'}
+        />
       )}
     </div>
   );

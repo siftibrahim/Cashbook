@@ -1361,6 +1361,10 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS is_admin_approved BOOLEAN DEFAULT FALSE;
       ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS is_rejected_by_admin BOOLEAN DEFAULT FALSE;
       ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS admin_rejection_reason TEXT;
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS courier_name VARCHAR(100);
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS courier_tracking_code VARCHAR(100);
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS return_reason TEXT;
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(12, 2) DEFAULT 0;
       CREATE INDEX IF NOT EXISTS idx_mkt_orders_phone ON marketplace_master_orders(customer_phone);
       CREATE INDEX IF NOT EXISTS idx_mkt_orders_created ON marketplace_master_orders(created_at DESC);
 
