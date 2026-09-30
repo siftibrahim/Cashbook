@@ -835,7 +835,7 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
   }, [marketplaceSettings, paymentSettings]);
 
   return (
-    <div className="w-full min-h-[100dvh] bg-[#F8FAFC] flex flex-col justify-between overflow-x-hidden relative">
+    <div className="w-full min-h-screen bg-[#F8FAFC] flex flex-col justify-between overflow-x-clip relative">
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (

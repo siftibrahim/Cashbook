@@ -88,7 +88,7 @@ export const StorefrontCategoryGrid: React.FC<StorefrontCategoryGridProps> = ({
           className={`${
             showAllExpanded
               ? 'grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8'
-              : 'flex sm:grid sm:grid-cols-6 md:grid-cols-8 overflow-x-auto touch-pan-x scrollbar-thin'
+              : 'flex sm:grid sm:grid-cols-6 md:grid-cols-8 overflow-x-auto scrollbar-thin'
           } gap-2 sm:gap-2.5 pb-1`}
         >
           {displayCategories.map((cat) => {

@@ -2006,14 +2006,43 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
             updated_at = $3
         WHERE id = $4 OR order_number = $4
       `, [overallStatus || null, paymentStatus || null, Date.now(), id]);
+
+      // Synchronize all corresponding suborders in online_orders for real-time calculations!
+      await pool.query(`
+        UPDATE online_orders 
+        SET order_status = COALESCE($1, order_status),
+            payment_status = COALESCE($2, payment_status),
+            updated_at = $3
+        WHERE master_order_id = $4 
+           OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $4 OR order_number = $4)
+           OR id = $4 
+           OR order_number = $4
+      `, [overallStatus || null, paymentStatus || null, Date.now(), id]).catch(() => {});
     } else {
       const ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
+      const targetId = ord?.id || id;
+      const targetNumber = ord?.orderNumber || id;
       if (ord) {
         if (overallStatus) ord.overallStatus = overallStatus;
         if (paymentStatus) ord.paymentStatus = paymentStatus;
         ord.updatedAt = Date.now();
-        saveInMemoryStoreToDisk();
       }
+      // Synchronize all corresponding suborders in online_orders in-memory!
+      (inMemoryStore.online_orders || [])
+        .filter((sub: any) =>
+          sub.masterOrderId === targetId ||
+          sub.master_order_id === targetId ||
+          sub.masterOrderId === targetNumber ||
+          sub.id === id ||
+          sub.orderNumber === id ||
+          (sub.orderNumber && targetNumber && sub.orderNumber.startsWith(targetNumber))
+        )
+        .forEach((sub: any) => {
+          if (overallStatus) sub.orderStatus = overallStatus;
+          if (paymentStatus) sub.paymentStatus = paymentStatus;
+          sub.updatedAt = Date.now();
+        });
+      saveInMemoryStoreToDisk();
     }
 
     realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'order_status', id });
@@ -3131,9 +3160,16 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
       const totalSales = nonCancelledOrders.reduce((sum, o) => sum + o.totalAmount, 0);
       const deliveredOrders = nonCancelledOrders.filter(o => o.orderStatus === 'delivered');
       const deliveredSales = deliveredOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-      const settledSales = nonCancelledOrders
+
+      // Total settled = approved payout requests OR settled orders (whichever is recorded)
+      const approvedPayoutsTotal = payoutRequests
+        .filter(p => p.status === 'approved')
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const settledOrdersTotal = nonCancelledOrders
         .filter(o => o.vendorPayoutStatus === 'settled')
         .reduce((sum, o) => sum + o.totalAmount, 0);
+      const totalSettledAmount = Math.max(approvedPayoutsTotal, settledOrdersTotal);
+
       const heldSales = nonCancelledOrders
         .filter(o => o.vendorPayoutStatus === 'hold' || o.vendorPayoutStatus === 'held')
         .reduce((sum, o) => sum + o.totalAmount, 0);
@@ -3154,16 +3190,16 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
       const isPayoutHeld = Boolean(holds[userId]?.isHeld);
       const payoutHoldReason = holds[userId]?.reason || '';
 
-      // Available balance is delivered money minus settled, held, and in-progress requests
+      // Available balance is delivered money minus settled by super admin, held, and in-progress requests
       const availableForWithdrawal = isPayoutHeld 
         ? 0 
-        : Math.max(0, deliveredSales - settledSales - heldSales - pendingWithdrawalAmount - onHoldPayoutAmount);
+        : Math.max(0, deliveredSales - totalSettledAmount - heldSales - pendingWithdrawalAmount - onHoldPayoutAmount);
 
       return res.json({
         success: true,
         totalSales,
         deliveredSales,
-        settledSales,
+        settledSales: totalSettledAmount,
         heldSales,
         pendingDeliverySales,
         pendingWithdrawalAmount,
@@ -3178,7 +3214,7 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
     } else {
       // In-memory fallback
       const orders = (inMemoryStore.online_orders || []).filter(
-        o => o.userId === userId && (o.orderSource === 'marketplace' || o.masterOrderId)
+        o => (o.userId === userId || o.user_id === userId) && (o.orderSource === 'marketplace' || o.masterOrderId)
       );
       const payoutRequests = ((inMemoryStore as any).vendor_payout_requests || [])
         .filter((p: any) => p.userId === userId || p.user_id === userId)
@@ -3188,9 +3224,15 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
       const totalSales = nonCancelledOrders.reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
       const deliveredOrders = nonCancelledOrders.filter((o: any) => o.orderStatus === 'delivered');
       const deliveredSales = deliveredOrders.reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
-      const settledSales = nonCancelledOrders
+
+      const approvedPayoutsTotal = payoutRequests
+        .filter((p: any) => p.status === 'approved')
+        .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+      const settledOrdersTotal = nonCancelledOrders
         .filter((o: any) => o.vendorPayoutStatus === 'settled')
         .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
+      const totalSettledAmount = Math.max(approvedPayoutsTotal, settledOrdersTotal);
+
       const heldSales = nonCancelledOrders
         .filter((o: any) => o.vendorPayoutStatus === 'hold' || o.vendorPayoutStatus === 'held')
         .reduce((sum: number, o: any) => sum + (Number(o.totalAmount) || 0), 0);
@@ -3212,13 +3254,13 @@ router.get('/vendor/wallet', authenticateUser, async (req: AuthenticatedRequest,
 
       const availableForWithdrawal = isPayoutHeld
         ? 0
-        : Math.max(0, deliveredSales - settledSales - heldSales - pendingWithdrawalAmount - onHoldPayoutAmount);
+        : Math.max(0, deliveredSales - totalSettledAmount - heldSales - pendingWithdrawalAmount - onHoldPayoutAmount);
 
       return res.json({
         success: true,
         totalSales,
         deliveredSales,
-        settledSales,
+        settledSales: totalSettledAmount,
         heldSales,
         pendingDeliverySales,
         pendingWithdrawalAmount,
@@ -3470,7 +3512,7 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
       const ordersRes = await pool.query(`
         SELECT id, user_id, order_number, total_amount, subtotal, delivery_charge,
                order_status, payment_status, vendor_payout_status, is_rejected_by_admin,
-               created_at, customer_name, customer_phone, items
+               created_at, customer_name, customer_phone, customer_address, items
         FROM online_orders
         WHERE (order_source = 'marketplace' OR master_order_id IS NOT NULL)
           AND is_rejected_by_admin IS NOT TRUE
@@ -3536,6 +3578,7 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           createdAt: Number(o.created_at),
           customerName: o.customer_name,
           customerPhone: o.customer_phone,
+          customerAddress: o.customer_address || '',
           items: parsedItems,
           itemsCount: parsedItems.length,
         });
@@ -3715,15 +3758,16 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           .filter(p => p.status === 'pending')
           .reduce((sum, p) => sum + p.amount, 0);
 
-        // Receivable amount for sold products
-        const dueBalance = Math.max(0, grossSales - settledAmount);
+        // Receivable amount strictly for delivered products (minus what Super Admin already paid)
         const deliveredDue = Math.max(0, deliveredSales - settledAmount);
+        const dueBalance = deliveredDue;
         const potentialDue = Math.max(0, grossSales - settledAmount);
+        const isFullySettled = settledAmount >= deliveredSales && deliveredSales > 0;
 
         totalGrossSales += grossSales;
         totalDeliveredSales += deliveredSales;
         totalSettledAmount += settledAmount;
-        totalDueToVendors += dueBalance;
+        totalDueToVendors += deliveredDue;
         totalPendingWithdrawals += pendingWithdrawals;
         totalOrdersCountAll += vOrders.length;
 
@@ -3752,6 +3796,7 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           dueBalance,
           deliveredDue,
           potentialDue,
+          isFullySettled,
           pendingWithdrawals,
           isPayoutHeld: Boolean(holds[vId]?.isHeld),
           holdReason: holds[vId]?.reason || '',
@@ -3828,6 +3873,7 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
             createdAt: Number(o.createdAt || o.created_at || Date.now()),
             customerName: o.customerName || o.customer_name,
             customerPhone: o.customerPhone || o.customer_phone,
+            customerAddress: o.customerAddress || o.customer_address || o.shippingAddress || o.shipping_address || '',
             items: parsedItems,
             itemsCount: parsedItems.length,
           };
@@ -3940,7 +3986,10 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           .filter((o: any) => o.vendorPayoutStatus === 'settled')
           .reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0);
         const settledAmount = Math.max(approvedPayoutsTotal, settledOrdersTotal);
-        const dueBalance = Math.max(0, grossSales - settledAmount);
+        const deliveredDue = Math.max(0, deliveredSales - settledAmount);
+        const dueBalance = deliveredDue;
+        const potentialDue = Math.max(0, grossSales - settledAmount);
+        const isFullySettled = settledAmount >= deliveredSales && deliveredSales > 0;
         totalOrdersCountAll += vOrders.length;
 
         return {
@@ -3966,7 +4015,9 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           pendingSales,
           settledAmount,
           dueBalance,
-          potentialDue: dueBalance,
+          deliveredDue,
+          potentialDue,
+          isFullySettled,
           pendingWithdrawals: 0,
           isPayoutHeld: Boolean(holds[u.id]?.isHeld),
           holdReason: holds[u.id]?.reason || '',
@@ -3987,7 +4038,7 @@ router.get('/admin/vendor-balances', authenticateUser, async (req: Authenticated
           totalGrossSales: vendorLedgers.reduce((s: number, v: any) => s + v.grossSales, 0),
           totalDeliveredSales: vendorLedgers.reduce((s: number, v: any) => s + v.deliveredSales, 0),
           totalSettledAmount: vendorLedgers.reduce((s: number, v: any) => s + v.settledAmount, 0),
-          totalDueToVendors: vendorLedgers.reduce((s: number, v: any) => s + v.dueBalance, 0),
+          totalDueToVendors: vendorLedgers.reduce((s: number, v: any) => s + v.deliveredDue, 0),
           totalPendingWithdrawals: 0,
           allSoldProducts: Array.from(allSoldProductsMap.values()).sort((a, b) => b.receivableAmount - a.receivableAmount),
         },

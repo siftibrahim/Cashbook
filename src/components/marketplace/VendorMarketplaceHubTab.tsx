@@ -100,6 +100,10 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
     0
   );
 
+  const deliveredMarketplaceSales = marketplaceOrders
+    .filter((o) => o.orderStatus === 'delivered')
+    .reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+
   const settledSales = marketplaceOrders
     .filter((o) => o.vendorPayoutStatus === 'settled')
     .reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
@@ -253,8 +257,8 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
     return true;
   });
 
-  const availableBalance = wallet?.availableForWithdrawal ?? Math.max(0, totalMarketplaceSales - settledSales);
-  const pendingDelivery = wallet?.pendingDeliverySales ?? (totalMarketplaceSales - settledSales);
+  const availableBalance = wallet?.availableForWithdrawal ?? Math.max(0, deliveredMarketplaceSales - settledSales);
+  const pendingDelivery = wallet?.pendingDeliverySales ?? Math.max(0, totalMarketplaceSales - deliveredMarketplaceSales);
   const inProcessWithdraw = wallet?.pendingWithdrawalAmount ?? 0;
   const totalSettled = wallet?.settledSales ?? settledSales;
 
@@ -452,7 +456,11 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                   ৳{availableBalance.toLocaleString('en-US')}
                 </div>
                 <p className="text-[11px] text-emerald-800/80 mt-1">
-                  সফলভাবে ডেলিভার্ড অর্ডারের টাকা যা এখনই তুলতে পারেন
+                  {availableBalance > 0
+                    ? 'সফলভাবে ডেলিভার্ড অর্ডারের টাকা যা এখনই তুলতে পারেন'
+                    : totalSettled > 0
+                    ? '✅ ডেলিভারি সম্পন্ন অর্ডারের সব টাকা সুপার এডমিন ইতিমধ্যে পরিশোধ করেছেন'
+                    : 'ডেলিভারি সম্পন্ন হওয়া মাত্র ব্যালেন্স এখানে উত্তোলনযোগ্য হবে'}
                 </p>
               </div>
               <button
@@ -504,14 +512,14 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
             {/* 4. Total Settled / Withdrawn */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">ইতিমধ্যে পরিশোধিত</span>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">ইতিমধ্যে পরিশোধ করেছে সুপার অ্যাডমিন</span>
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               </div>
               <div className="text-2xl font-black text-slate-900">
                 ৳{totalSettled.toLocaleString('en-US')}
               </div>
               <p className="text-[11px] text-slate-500 leading-tight">
-                এডমিন কর্তৃক আপনার বিকাশ/নগদ/ব্যাংকে সফলভাবে পাঠানো মোট টাকা
+                সুপার এডমিন কর্তৃক আপনার বিকাশ/নগদ/ব্যাংকে সফলভাবে পাঠানো মোট টাকা
               </p>
             </div>
           </div>
@@ -738,7 +746,7 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
           </div>
 
           {/* Product List */}
-          <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+          <div className="divide-y divide-slate-100">
             {filteredProducts.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-xs">
                 কোনো পণ্য পাওয়া যায়নি
@@ -829,7 +837,7 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
               <p className="text-[11px] text-slate-400">আপনার পণ্যগুলো সেন্ট্রাল মলে যুক্ত করে রাখুন, অর্ডার আসলেই সাথে সাথে এখানে নোটিফিকেশন পাবেন</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+            <div className="divide-y divide-slate-100">
               {marketplaceOrders.map((ord) => {
                 const isLocked = ord.isLockedForVendor === true || ord.adminApprovalStatus === 'pending_approval' || !ord.isAdminApproved;
                 const currentStatus = localOrderStatuses[ord.id] || ord.orderStatus || 'pending';
@@ -876,6 +884,22 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                       </div>
                       <p className="text-xs font-bold text-slate-900">{ord.customerName} • <span className="font-mono text-slate-500">{ord.customerPhone}</span></p>
                       <p className="text-[11px] text-slate-500 truncate max-w-md">{ord.customerAddress}</p>
+                      {/* Products memo calculation (তেল ২কেজি ৪২০×২=৮৪০৳) */}
+                      {Array.isArray(ord.items) && ord.items.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {ord.items.map((it: any, iIdx: number) => {
+                            const q = Number(it.quantity) || 1;
+                            const u = it.unit || 'পিস';
+                            const p = Number(it.unitPrice || it.price || 0);
+                            const sub = Number(it.subtotal || p * q);
+                            return (
+                              <span key={iIdx} className="bg-slate-100 text-slate-800 text-[11px] px-2 py-0.5 rounded-md font-medium border border-slate-200">
+                                📦 {it.name} {q}{u} ({p} × {q} = {sub}৳)
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                       {isLocked && (
                         <p className="text-[10px] text-amber-800 font-medium">
                           🔒 সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।

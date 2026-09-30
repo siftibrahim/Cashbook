@@ -327,7 +327,9 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       phone: '',
       grossSales: vendorBalances.summary.totalGrossSales || totalGmv,
       deliveredSales: vendorBalances.summary.totalDeliveredSales || 0,
-      dueBalance: vendorBalances.summary.totalGrossSales || totalGmv,
+      settledAmount: vendorBalances.summary.totalSettledAmount || 0,
+      deliveredDue: vendorBalances.summary.totalDueToVendors || 0,
+      dueBalance: vendorBalances.summary.totalDueToVendors || 0,
       soldProductsCount: vendorBalances.summary.totalSoldProductsCount || (vendorBalances.summary.allSoldProducts?.length || 0),
       soldUnitsCount: vendorBalances.summary.totalSoldUnitsCount || 0,
       soldProducts: vendorBalances.summary.allSoldProducts || [],
@@ -705,6 +707,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const totalBlockedProducts = data.products.filter(p => p.marketplaceStatus === 'blocked').length;
   const totalUnlistedProducts = data.products.filter(p => !p.isListedOnMarketplace && p.marketplaceStatus !== 'blocked').length;
   const totalAllProducts = data.products.length;
+  const pendingPayoutsCount = payoutRequests.filter((p: any) => p.status === 'pending').length;
 
   // Filtered Orders
   const filteredOrders = data.masterOrders.filter((ord) => {
@@ -814,178 +817,239 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
         </div>
       )}
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-3.5">
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-xs space-y-1">
-          <p className="text-xs text-slate-500 font-medium">মোট মাস্টার অর্ডার</p>
-          <div className="flex items-baseline justify-between">
-            <span className="text-xl sm:text-2xl font-black text-slate-900">{totalMasterOrders}</span>
-            <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full">সর্বমোট</span>
+      {/* 6 Clean Metric Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-3.5">
+        {/* Card 1: Master Orders */}
+        <div
+          onClick={() => setActiveSubTab('orders')}
+          className={`p-3.5 rounded-2xl border cursor-pointer transition shadow-2xs space-y-1 ${
+            activeSubTab === 'orders'
+              ? 'bg-teal-50 border-teal-500 ring-2 ring-teal-500/20'
+              : 'bg-white border-slate-200/90 hover:border-teal-300'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+            <span>মাস্টার অর্ডার</span>
+            <ShoppingBag className="w-3.5 h-3.5 text-teal-700" />
           </div>
+          <div className="text-xl sm:text-2xl font-black text-slate-900">{totalMasterOrders}</div>
+          <p className="text-[10px] text-teal-700 font-semibold">মোট সেন্ট্রাল অর্ডার</p>
         </div>
 
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/80 shadow-xs space-y-1">
-          <p className="text-xs text-slate-500 font-medium">মোট জিএমভি (বিক্রয়)</p>
-          <div className="flex items-baseline justify-between">
-            <span className="text-xl sm:text-2xl font-black text-teal-900">৳{totalGmv.toLocaleString()}</span>
-            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">গ্রস সেলস</span>
-          </div>
-        </div>
-
-        {/* Central Mall Receivable Summary (সেন্ট্রাল মল কত টাকা পাবে) */}
+        {/* Card 2: Total GMV */}
         <div
           onClick={() => setActiveSubTab('vendor_balances')}
-          className={`p-3.5 sm:p-4 rounded-xl border cursor-pointer transition shadow-xs space-y-1 ${
+          className={`p-3.5 rounded-2xl border cursor-pointer transition shadow-2xs space-y-1 ${
             activeSubTab === 'vendor_balances'
-              ? 'bg-emerald-100/90 border-emerald-400 ring-2 ring-emerald-400/40'
-              : 'bg-emerald-50/70 border-emerald-200 hover:bg-emerald-100/50'
+              ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/20'
+              : 'bg-white border-slate-200/90 hover:border-emerald-300'
           }`}
         >
-          <p className="text-xs text-emerald-950 font-bold flex items-center justify-between">
-            <span>সেন্ট্রাল মল কত টাকা পাবে</span>
-            <Wallet className="w-3.5 h-3.5 text-emerald-700" />
-          </p>
-          <div className="flex items-baseline justify-between">
-            <span className="text-xl sm:text-2xl font-black text-emerald-950">
-              ৳{(vendorBalances.summary.totalGrossSales || totalGmv).toLocaleString()}
-            </span>
-            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-200/80 px-2 py-0.5 rounded-full">
-              বিস্তারিত দেখুন ➔
-            </span>
+          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+            <span>মোট বিক্রয় (GMV)</span>
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
           </div>
+          <div className="text-xl sm:text-2xl font-black text-emerald-950">৳{totalGmv.toLocaleString()}</div>
+          <p className="text-[10px] text-emerald-700 font-semibold">গ্রস সেন্ট্রাল সেলস</p>
         </div>
 
+        {/* Card 3: Vendor Delivered Receivables */}
         <div
-          onClick={() => { setActiveSubTab('orders'); setOrderStatusFilter('pending_approval'); }}
-          className={`p-3.5 sm:p-4 rounded-xl border cursor-pointer transition shadow-xs space-y-1 ${
-            orderStatusFilter === 'pending_approval' && activeSubTab === 'orders'
-              ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-400/40'
-              : 'bg-amber-50/70 border-amber-200 hover:bg-amber-100/50'
+          onClick={() => setActiveSubTab('vendor_balances')}
+          className={`p-3.5 rounded-2xl border cursor-pointer transition shadow-2xs space-y-1 ${
+            activeSubTab === 'vendor_balances'
+              ? 'bg-emerald-100/90 border-emerald-500 ring-2 ring-emerald-500/30'
+              : 'bg-emerald-50/70 border-emerald-200 hover:bg-emerald-100/60'
           }`}
         >
-          <p className="text-xs text-amber-900 font-bold flex items-center justify-between">
-            <span>পেমেন্ট ইনকোয়ারি (লক)</span>
-            <Lock className="w-3.5 h-3.5 text-amber-600" />
-          </p>
-          <div className="flex items-baseline justify-between">
-            <span className="text-xl sm:text-2xl font-black text-amber-950">{pendingInquiriesCount}</span>
-            <span className="text-[10px] font-bold text-amber-800 bg-amber-200/80 px-2 py-0.5 rounded-full">
-              যাচাই বাকি
-            </span>
+          <div className="flex items-center justify-between text-xs text-emerald-950 font-bold">
+            <span>ডেলিভারি সম্পন্ন টাকা</span>
+            <Wallet className="w-3.5 h-3.5 text-emerald-700" />
           </div>
+          <div className="text-xl sm:text-2xl font-black text-emerald-950">
+            ৳{vendorBalances.summary.totalDeliveredSales.toLocaleString()}
+          </div>
+          <p className="text-[10px] text-emerald-800 font-bold">ভেন্ডরের বিস্তারিত ➔</p>
         </div>
 
+        {/* Card 4: Verification Remaining (Lock) */}
+        <div
+          onClick={() => {
+            setActiveSubTab('orders');
+            setOrderStatusFilter('pending_approval');
+          }}
+          className={`p-3.5 rounded-2xl border cursor-pointer transition shadow-2xs space-y-1 ${
+            orderStatusFilter === 'pending_approval' && activeSubTab === 'orders'
+              ? 'bg-amber-100/90 border-amber-500 ring-2 ring-amber-500/30'
+              : 'bg-amber-50/80 border-amber-200 hover:bg-amber-100/60'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-amber-900 font-bold">
+            <span>পেমেন্ট যাচাই বাকি</span>
+            <Lock className="w-3.5 h-3.5 text-amber-600" />
+          </div>
+          <div className="text-xl sm:text-2xl font-black text-amber-950">{pendingInquiriesCount}</div>
+          <p className="text-[10px] text-amber-800 font-semibold">
+            {pendingInquiriesCount > 0 ? 'অনুমোদন প্রয়োজন' : 'সব অনুমোদিত'}
+          </p>
+        </div>
+
+        {/* Card 5: Payout Requests */}
+        <div
+          onClick={() => setActiveSubTab('payouts')}
+          className={`p-3.5 rounded-2xl border cursor-pointer transition shadow-2xs space-y-1 ${
+            activeSubTab === 'payouts'
+              ? 'bg-purple-50 border-purple-500 ring-2 ring-purple-500/20'
+              : 'bg-white border-slate-200/90 hover:border-purple-300'
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+            <span>পেআউট আবেদন</span>
+            <CreditCard className="w-3.5 h-3.5 text-purple-600" />
+          </div>
+          <div className="text-xl sm:text-2xl font-black text-purple-950">{pendingPayoutsCount}</div>
+          <p className="text-[10px] text-purple-700 font-semibold">
+            {pendingPayoutsCount > 0 ? 'টাকা পাঠানো বাকি' : 'কোনো বাকি নেই'}
+          </p>
+        </div>
+
+        {/* Card 6: Live Products */}
         <div
           onClick={() => setActiveSubTab('products')}
-          className={`p-3.5 sm:p-4 rounded-xl border cursor-pointer transition shadow-xs space-y-1 col-span-2 sm:col-span-1 ${
-            activeSubTab === 'products' ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-300/40' : 'bg-white border-slate-200/80 hover:bg-slate-50'
+          className={`p-3.5 rounded-2xl border cursor-pointer transition shadow-2xs space-y-1 ${
+            activeSubTab === 'products'
+              ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500/20'
+              : 'bg-white border-slate-200/90 hover:border-indigo-300'
           }`}
         >
-          <p className="text-xs text-slate-500 font-medium">মার্কেটপ্লেস লাইভ পণ্য</p>
-          <div className="flex items-baseline justify-between">
-            <span className="text-xl sm:text-2xl font-black text-indigo-900">{totalListedProducts}</span>
-            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">
-              অন-মল ({totalAllProducts} পণ্য)
-            </span>
+          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+            <span>মার্কেটপ্লেস লাইভ</span>
+            <Package className="w-3.5 h-3.5 text-indigo-600" />
           </div>
+          <div className="text-xl sm:text-2xl font-black text-indigo-950">{totalListedProducts}</div>
+          <p className="text-[10px] text-indigo-700 font-semibold">অন-মল পণ্য ({totalAllProducts})</p>
         </div>
       </div>
 
-      {/* Sub-tab Navigation with Sideways Scroll Buttons */}
-      <div className="bg-white border-b border-slate-200 rounded-t-xl px-2 pt-2 relative">
-        <div className="flex items-center gap-1.5">
+      {/* Sub-tab Navigation (Clean, fully responsive, smooth horizontal scroll without locking vertical page scroll) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-1.5 shadow-2xs">
+        <div
+          id="marketplace-subtabs-scroll"
+          className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin py-0.5"
+        >
+          {/* Subtab 1: Orders */}
           <button
             type="button"
-            onClick={() => document.getElementById('marketplace-subtabs-scroll')?.scrollBy({ left: -220, behavior: 'smooth' })}
-            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 shrink-0 cursor-pointer shadow-2xs"
-            title="ট্যাব বামে স্ক্রল করুন"
+            onClick={() => setActiveSubTab('orders')}
+            className={`px-3.5 py-2.5 text-xs font-bold rounded-xl transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeSubTab === 'orders'
+                ? 'bg-teal-800 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
           >
-            <ChevronLeft className="w-4 h-4" />
+            <span>📋 মাস্টার অর্ডার</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              activeSubTab === 'orders' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+            }`}>
+              {data.masterOrders.length}
+            </span>
+            {pendingInquiriesCount > 0 && (
+              <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-black animate-pulse">
+                {pendingInquiriesCount} যাচাই
+              </span>
+            )}
           </button>
 
-          <div
-            id="marketplace-subtabs-scroll"
-            className="flex-1 flex items-center gap-2 overflow-x-auto touch-pan-x scrollbar-thin pb-1"
-          >
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('orders')}
-              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                activeSubTab === 'orders'
-                  ? 'border-teal-700 text-teal-900 bg-teal-50/50'
-                  : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              <span>📋 সেন্ট্রাল মাস্টার অর্ডার ({data.masterOrders.length})</span>
-              {pendingInquiriesCount > 0 && (
-                <span className="px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-black animate-pulse">
-                  {pendingInquiriesCount} ইনকোয়ারি
-                </span>
-              )}
-            </button>
-
-            {/* DEDICATED SUBTAB: সেন্ট্রাল মল কত টাকা পাবে (বিক্রিত প্রোডাক্ট ও প্রাপ্য টাকার হিসাব) */}
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('vendor_balances')}
-              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                activeSubTab === 'vendor_balances'
-                  ? 'border-emerald-700 text-emerald-900 bg-emerald-50/70'
-                  : 'border-transparent text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <span>💰 কত টাকা পাবে (বিক্রিত প্রোডাক্ট ও প্রাপ্য হিসাব)</span>
-              {(vendorBalances.summary.totalGrossSales > 0 || totalGmv > 0) && (
-                <span className="px-2 py-0.5 bg-emerald-600 text-white rounded-full text-[10px] font-black shadow-xs">
-                  ৳{(vendorBalances.summary.totalGrossSales || totalGmv).toLocaleString()} পাবে
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('products')}
-              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer shrink-0 ${
-                activeSubTab === 'products'
-                  ? 'border-teal-700 text-teal-900 bg-teal-50/50'
-                  : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              📦 পণ্য মডারেশন ও অনুমোদন ({data.products.length})
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('categories')}
-              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer shrink-0 ${
-                activeSubTab === 'categories'
-                  ? 'border-teal-700 text-teal-900 bg-teal-50/50'
-                  : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              🏷️ ক্যাটাগরি তালিকা ({data.categories.length})
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('settings')}
-              className={`px-4 py-2.5 text-xs font-bold transition whitespace-nowrap border-b-2 cursor-pointer shrink-0 ${
-                activeSubTab === 'settings'
-                  ? 'border-teal-700 text-teal-900 bg-teal-50/50'
-                  : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              ⚙️ মার্কেটপ্লেস প্ল্যাটফর্ম সেটিংস
-            </button>
-          </div>
-
+          {/* Subtab 2: Vendor Balances (ডেলিভারি সম্পন্ন টাকা) */}
           <button
             type="button"
-            onClick={() => document.getElementById('marketplace-subtabs-scroll')?.scrollBy({ left: 220, behavior: 'smooth' })}
-            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 shrink-0 cursor-pointer shadow-2xs"
-            title="ট্যাব ডানে স্ক্রল করুন"
+            onClick={() => setActiveSubTab('vendor_balances')}
+            className={`px-3.5 py-2.5 text-xs font-bold rounded-xl transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeSubTab === 'vendor_balances'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'text-emerald-800 hover:text-emerald-950 hover:bg-emerald-50'
+            }`}
           >
-            <ChevronRight className="w-4 h-4" />
+            <span>💰 ডেলিভারি সম্পন্ন টাকা</span>
+            {vendorBalances.summary.totalDeliveredSales > 0 && (
+              <span className={`px-2 py-0.2 rounded-full text-[10px] font-black ${
+                activeSubTab === 'vendor_balances' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                ৳{vendorBalances.summary.totalDeliveredSales.toLocaleString()}
+              </span>
+            )}
+          </button>
+
+          {/* Subtab 3: Payouts */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('payouts')}
+            className={`px-3.5 py-2.5 text-xs font-bold rounded-xl transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeSubTab === 'payouts'
+                ? 'bg-purple-700 text-white shadow-xs'
+                : 'text-purple-800 hover:text-purple-950 hover:bg-purple-50'
+            }`}
+          >
+            <span>💸 পেআউট রিকোয়েস্ট</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              activeSubTab === 'payouts' ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-800'
+            }`}>
+              {payoutRequests.length}
+            </span>
+            {pendingPayoutsCount > 0 && (
+              <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 rounded-full text-[10px] font-black animate-pulse">
+                {pendingPayoutsCount} অপেক্ষমাণ
+              </span>
+            )}
+          </button>
+
+          {/* Subtab 4: Products */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('products')}
+            className={`px-3.5 py-2.5 text-xs font-bold rounded-xl transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeSubTab === 'products'
+                ? 'bg-indigo-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <span>📦 পণ্য মডারেশন</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              activeSubTab === 'products' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+            }`}>
+              {totalListedProducts}/{totalAllProducts || data.products.length}
+            </span>
+          </button>
+
+          {/* Subtab 5: Categories */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('categories')}
+            className={`px-3.5 py-2.5 text-xs font-bold rounded-xl transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeSubTab === 'categories'
+                ? 'bg-teal-800 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <span>🏷️ ক্যাটাগরি তালিকা</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              activeSubTab === 'categories' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+            }`}>
+              {data.categories.length}
+            </span>
+          </button>
+
+          {/* Subtab 6: Settings */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('settings')}
+            className={`px-3.5 py-2.5 text-xs font-bold rounded-xl transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeSubTab === 'settings'
+                ? 'bg-slate-800 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <span>⚙️ মল সেটিংস</span>
           </button>
         </div>
       </div>
@@ -1075,7 +1139,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 </div>
               </div>
 
-              <div id="master-orders-scroll-table" className="overflow-x-auto touch-pan-x scrollbar-thin">
+              <div id="master-orders-scroll-table" className="overflow-x-auto scrollbar-thin">
                 <table className="w-full text-left text-xs text-slate-700 divide-y divide-slate-100 min-w-[920px]">
                   <thead className="bg-slate-50 font-bold text-slate-800">
                     <tr>
@@ -1421,33 +1485,55 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
 
                   {data.subOrders
                     .filter((s) => s.masterOrderId === selectedMasterOrder.id)
-                    .map((sub) => (
-                      <div key={sub.id} className="border border-slate-200 rounded-xl p-3 bg-white space-y-2 text-xs">
-                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                          <div>
-                            <span className="font-bold text-slate-900">{sub.vendorShopName || 'ভেন্ডর দোকান'}</span>
-                            <span className="text-[11px] text-slate-500 font-mono block">ফোন: {sub.vendorPhone}</span>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-[10px] text-slate-500 font-semibold block">মোট প্রাপ্য টাকা (পাবে)</span>
-                            <span className="font-black text-emerald-700 text-sm block">৳{sub.totalAmount}</span>
-                          </div>
-                        </div>
-
-                        {/* Items in sub-order */}
-                        <div className="space-y-1">
-                          <span className="text-[11px] font-bold text-slate-700 block">বিক্রিত প্রোডাক্টের তালিকা:</span>
-                          {sub.items.map((it: any, idx: number) => (
-                            <div key={idx} className="flex justify-between text-slate-700 bg-slate-50 px-2.5 py-1.5 rounded-lg">
-                              <span className="font-medium">
-                                {it.name} × {it.quantity} {it.unit || 'পিস'} (দর: ৳{it.unitPrice || it.price || 0})
-                              </span>
-                              <span className="font-bold text-emerald-800">পাবে: ৳{it.subtotal || (it.unitPrice || it.price || 0) * it.quantity}</span>
+                    .map((sub) => {
+                      const isSettled = sub.vendorPayoutStatus === 'settled';
+                      return (
+                        <div key={sub.id} className="border border-slate-200 rounded-xl p-3 bg-white space-y-2 text-xs">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div>
+                              <span className="font-bold text-slate-900">{sub.vendorShopName || 'ভেন্ডর দোকান'}</span>
+                              <span className="text-[11px] text-slate-500 font-mono block">ফোন: {sub.vendorPhone}</span>
                             </div>
-                          ))}
+                            <div className="text-right">
+                              {isSettled ? (
+                                <>
+                                  <span className="text-[10px] text-emerald-700 font-bold block">✅ ইতিমধ্যে সুপার এডমিন পরিশোধ করেছেন</span>
+                                  <span className="font-black text-slate-900 text-sm block">৳{sub.totalAmount}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-[10px] text-amber-700 font-semibold block">
+                                    {selectedMasterOrder.overallStatus === 'delivered' ? '⏳ সুপার এডমিনের কাছে পাবে' : '⏳ ডেলিভারি শেষে প্রাপ্য'}
+                                  </span>
+                                  <span className="font-black text-emerald-800 text-sm block">৳{sub.totalAmount}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Items in sub-order */}
+                          <div className="space-y-1">
+                            <span className="text-[11px] font-bold text-slate-700 block">বিক্রিত পণ্যের মেমো বিবরণী:</span>
+                            {sub.items.map((it: any, idx: number) => {
+                              const qty = Number(it.quantity) || 1;
+                              const unit = it.unit || 'পিস';
+                              const price = Number(it.unitPrice || it.price || 0);
+                              const subAmt = Number(it.subtotal || price * qty);
+                              return (
+                                <div key={idx} className="flex justify-between items-center text-slate-700 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100 text-xs">
+                                  <span className="font-bold text-slate-900">
+                                    • {it.name} {qty} {unit}
+                                  </span>
+                                  <span className="font-mono font-black text-emerald-950 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                                    {price} × {qty} = ৳{subAmt.toLocaleString('en-US')}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                 </div>
               </div>
             </div>
@@ -1455,135 +1541,93 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
         </div>
       )}
 
-      {/* SUB-TAB: CENTRAL MALL RECEIVABLE & SOLD PRODUCTS BREAKDOWN (সেন্ট্রাল মল কত টাকা পাবে - কোনো পেআউট অপশন ছাড়া) */}
+      {/* SUB-TAB: VENDOR DELIVERED EARNINGS BREAKDOWN (শুধুমাত্র ডেলিভারি সম্পন্ন হয়েছে কত টাকা ও ভেন্ডরের বিস্তারিত) */}
       {activeSubTab === 'vendor_balances' && (
         <div className="space-y-4">
-          {/* Header Banner */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white shadow-md border border-emerald-700/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0 border border-emerald-500/30">
-                <Wallet className="w-5 h-5 text-emerald-400" />
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-base sm:text-lg font-black text-white">
-                    💰 সেন্ট্রাল মল কত টাকা পাবে — বিক্রিত প্রোডাক্ট ও প্রাপ্য টাকার হিসাব
-                  </h2>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 text-[10px] font-black border border-emerald-400/40">
-                    রিয়েল-টাইম হিসাব
-                  </span>
+          {/* ডেলিভারি সম্পন্ন হয়েছে মোট কত টাকা (Hero Card) */}
+          <div className="bg-gradient-to-r from-emerald-800 via-teal-900 to-slate-950 rounded-3xl p-4 sm:p-6 text-white shadow-md border border-emerald-600/40 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0 border border-emerald-400/30">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-400" />
                 </div>
-                <p className="text-xs text-emerald-100/85 leading-relaxed max-w-3xl">
-                  সেন্ট্রাল মলে কোন কোন প্রোডাক্ট বিক্রি হয়েছে এবং কোন প্রোডাক্টের কত টাকা পাবে তার সম্পূর্ণ হিসাব এখানে দেখুন। প্রতিটি ভেন্ডরের পাশে বা নিচের বাটনে <strong>"বিস্তারিত দেখুন"</strong>-এ ক্লিক করলে বিক্রিত প্রতিটি প্রোডাক্ট ও প্রাপ্য টাকার তালিকা দেখা যাবে।
-                </p>
+                <div>
+                  <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider block">
+                    সেন্ট্রাল মল — ডেলিভারি সম্পন্ন হিসাব ও ভেন্ডর পেআউট
+                  </span>
+                  <h3 className="text-lg sm:text-xl font-black text-white mt-0.5">
+                    শুধুমাত্র ডেলিভারি সম্পন্ন অর্ডারের রিয়েল-টাইম হিসাব
+                  </h3>
+                  <p className="text-[11px] text-emerald-100/80 mt-0.5">
+                    কাস্টমারের হাতে পৌঁছানো পণ্যের প্রকৃত মূল্য, সুপার এডমিন কর্তৃক পরিশোধিত এবং বর্তমান প্রদেয় বকেয়া
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleOpenAllCentralMallDetail}
+                  className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl transition flex items-center gap-1.5 shadow-md active:scale-95 cursor-pointer"
+                >
+                  <Eye className="w-4 h-4 text-slate-950" />
+                  <span>সকল বিক্রিত পণ্যের বিস্তারিত</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => loadData(true)}
+                  className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                  title="রিফ্রেশ"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                </button>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleOpenAllCentralMallDetail}
-                className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95"
-              >
-                <Eye className="w-4 h-4 text-slate-950" />
-                <span>সকল বিক্রিত প্রোডাক্টের বিস্তারিত দেখুন</span>
-              </button>
+            {/* 3 Real-time Clear Metric Badges */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-emerald-700/40">
+              <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-3.5 border border-white/10 space-y-1">
+                <span className="text-[11px] font-bold text-emerald-200 block">
+                  ১. ডেলিভারি সম্পন্ন মোট বিক্রি:
+                </span>
+                <div className="text-2xl sm:text-3xl font-black text-white">
+                  ৳{Number(vendorBalances.summary.totalDeliveredSales || 0).toLocaleString('en-US')}
+                </div>
+                <p className="text-[10px] text-emerald-200/70">গ্রাহকের কাছে পৌঁছানো সফল অর্ডার</p>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => loadData(true)}
-                className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-white transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                <span>রিফ্রেশ</span>
-              </button>
+              <div className="bg-emerald-500/20 backdrop-blur-xs rounded-2xl p-3.5 border border-emerald-400/30 space-y-1">
+                <span className="text-[11px] font-bold text-emerald-300 block">
+                  ২. ইতিমধ্যে পরিশোধ করেছে সুপার অ্যাডমিন:
+                </span>
+                <div className="text-2xl sm:text-3xl font-black text-emerald-300">
+                  ৳{Number(vendorBalances.summary.totalSettledAmount || 0).toLocaleString('en-US')}
+                </div>
+                <p className="text-[10px] text-emerald-100/70">ভেন্ডরদের সফলভাবে পাঠানো মোট পেআউট</p>
+              </div>
+
+              <div className="bg-amber-500/20 backdrop-blur-xs rounded-2xl p-3.5 border border-amber-400/30 space-y-1">
+                <span className="text-[11px] font-bold text-amber-200 block">
+                  ৩. সুপার এডমিনের কাছে মোট বকেয়া প্রাপ্য:
+                </span>
+                <div className="text-2xl sm:text-3xl font-black text-amber-300">
+                  ৳{Number(vendorBalances.summary.totalDueToVendors || 0).toLocaleString('en-US')}
+                </div>
+                <p className="text-[10px] text-amber-100/70">ডেলিভারি সম্পন্ন বাবদ অবশিষ্ট প্রদেয়</p>
+              </div>
             </div>
           </div>
 
-          {/* KPI Summary Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div
-              onClick={handleOpenAllCentralMallDetail}
-              className="bg-emerald-50 border-2 border-emerald-300 p-4 rounded-2xl space-y-1 shadow-2xs cursor-pointer hover:bg-emerald-100/70 transition"
-            >
-              <span className="text-[11px] font-bold text-emerald-900 uppercase tracking-wider block">
-                সর্বমোট কত টাকা পাবে (মোট প্রাপ্য)
-              </span>
-              <div className="flex items-baseline justify-between">
-                <span className="text-2xl font-black text-emerald-950">
-                  ৳{(vendorBalances.summary.totalGrossSales || totalGmv).toLocaleString()}
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-700 text-white text-[10px] font-bold">
-                  বিস্তারিত ➔
-                </span>
-              </div>
-              <p className="text-[10px] text-emerald-800 font-medium">সকল বিক্রিত প্রোডাক্টের মোট প্রাপ্য টাকা</p>
-            </div>
-
-            <div
-              onClick={handleOpenAllCentralMallDetail}
-              className="bg-white border border-slate-200 p-4 rounded-2xl space-y-1 shadow-2xs cursor-pointer hover:bg-slate-50 transition"
-            >
-              <span className="text-[11px] font-bold text-teal-800 uppercase tracking-wider block">
-                ডেলিভারি সম্পন্ন প্রোডাক্টের টাকা পাবে
-              </span>
-              <div className="flex items-baseline justify-between">
-                <span className="text-2xl font-black text-teal-900">
-                  ৳{vendorBalances.summary.totalDeliveredSales.toLocaleString()}
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 text-[10px] font-bold">
-                  ডেলিভার্ড
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500">গ্রাহকের কাছে পৌঁছে যাওয়া প্রোডাক্টের টাকা</p>
-            </div>
-
-            <div
-              onClick={handleOpenAllCentralMallDetail}
-              className="bg-white border border-slate-200 p-4 rounded-2xl space-y-1 shadow-2xs cursor-pointer hover:bg-slate-50 transition"
-            >
-              <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider block">
-                চলমান অর্ডারের প্রোডাক্টের টাকা পাবে
-              </span>
-              <div className="flex items-baseline justify-between">
-                <span className="text-2xl font-black text-amber-900">
-                  ৳{Math.max(0, (vendorBalances.summary.totalGrossSales || 0) - (vendorBalances.summary.totalDeliveredSales || 0)).toLocaleString()}
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 text-[10px] font-bold">
-                  চলমান
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500">ডেলিভারি প্রক্রিয়াধীন প্রোডাক্টের প্রাপ্য টাকা</p>
-            </div>
-
-            <div
-              onClick={handleOpenAllCentralMallDetail}
-              className="bg-white border border-slate-200 p-4 rounded-2xl space-y-1 shadow-2xs cursor-pointer hover:bg-slate-50 transition"
-            >
-              <span className="text-[11px] font-bold text-indigo-800 uppercase tracking-wider block">
-                মোট বিক্রিত প্রোডাক্ট সংখ্যা
-              </span>
-              <div className="flex items-baseline justify-between">
-                <span className="text-2xl font-black text-indigo-950">
-                  {vendorBalances.summary.totalSoldUnitsCount || 0} পিস
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-bold">
-                  {vendorBalances.summary.totalSoldProductsCount || 0} টি পণ্য
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500">ক্লিক করে কোন কোন প্রোডাক্ট বিক্রি হয়েছে দেখুন</p>
-            </div>
-          </div>
-
-          {/* Search, Filter & Sort Toolbar */}
+          {/* Search & Filter Toolbar */}
           <div className="flex flex-col sm:flex-row gap-2.5 justify-between items-stretch sm:items-center">
             <div className="relative flex-1 max-w-md">
               <input
                 type="text"
                 value={vendorBalanceSearch}
                 onChange={(e) => setVendorBalanceSearch(e.target.value)}
-                placeholder="দোকানের নাম, প্রোডাক্টের নাম, ভেন্ডর নাম বা মোবাইল নম্বর দিয়ে খুঁজুন..."
-                className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-700/30 focus:outline-none"
+                placeholder="দোকানের নাম, ভেন্ডর নাম বা ফোন নম্বর খুঁজুন..."
+                className="w-full pl-9 pr-4 py-2.5 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-700/30 focus:outline-none"
               />
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             </div>
@@ -1593,8 +1637,10 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 <button
                   type="button"
                   onClick={() => setVendorBalanceFilter('all')}
-                  className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
-                    vendorBalanceFilter === 'all' ? 'bg-teal-800 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                    vendorBalanceFilter === 'all'
+                      ? 'bg-teal-800 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   সব ভেন্ডর ({vendorBalances.vendors.length})
@@ -1602,231 +1648,306 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 <button
                   type="button"
                   onClick={() => setVendorBalanceFilter('due')}
-                  className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer ${
-                    vendorBalanceFilter === 'due' ? 'bg-emerald-700 text-white shadow-2xs' : 'text-emerald-700 hover:bg-emerald-50'
+                  className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                    vendorBalanceFilter === 'due'
+                      ? 'bg-amber-600 text-white shadow-2xs'
+                      : 'text-amber-800 hover:bg-amber-50'
                   }`}
                 >
-                  প্রোডাক্ট বিক্রি হয়েছে ও টাকা পাবে ({vendorBalances.vendors.filter(v => v.grossSales > 0).length})
+                  বকেয়া পাবে ({vendorBalances.vendors.filter((v) => Number(v.deliveredDue ?? Math.max(0, (v.deliveredSales || 0) - (v.settledAmount || 0))) > 0).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVendorBalanceFilter('settled')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                    vendorBalanceFilter === 'settled'
+                      ? 'bg-emerald-700 text-white shadow-2xs'
+                      : 'text-emerald-700 hover:bg-emerald-50'
+                  }`}
+                >
+                  সব পরিশোধিত ({vendorBalances.vendors.filter((v) => (v.deliveredSales || 0) > 0 && Number(v.deliveredDue ?? Math.max(0, (v.deliveredSales || 0) - (v.settledAmount || 0))) <= 0).length})
                 </button>
               </div>
-
-              <select
-                value={vendorBalanceSort}
-                onChange={(e) => setVendorBalanceSort(e.target.value as any)}
-                className="px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl focus:outline-none cursor-pointer"
-              >
-                <option value="sales_desc">প্রাপ্য টাকা বেশি থেকে কম</option>
-                <option value="due_desc">ডেলিভারি সম্পন্ন টাকা বেশি থেকে কম</option>
-                <option value="orders_desc">অর্ডার সংখ্যা বেশি থেকে কম</option>
-              </select>
             </div>
           </div>
 
-          {/* Vendor Receivable & Sold Products Table */}
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
-            {/* Horizontal Scroll Hint Banner & Navigation Buttons */}
-            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-600">
-              <div className="flex items-center gap-2 font-medium">
-                <span className="text-emerald-800 font-black">↔ সাইড স্ক্রল:</span>
-                <span>ডানে-বামে স্ক্রল করে কোন ভেন্ডর কত টাকা পাবে এবং "বিস্তারিত দেখুন" বাটনে ক্লিক করে বিক্রিত প্রোডাক্টের তালিকা দেখুন</span>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => document.getElementById('vendor-balances-scroll-table')?.scrollBy({ left: -250, behavior: 'smooth' })}
-                  className="px-2.5 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded-lg font-bold text-slate-700 shadow-2xs cursor-pointer text-xs flex items-center gap-1"
-                  title="বামে স্ক্রল"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                  <span>বামে</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => document.getElementById('vendor-balances-scroll-table')?.scrollBy({ left: 250, behavior: 'smooth' })}
-                  className="px-2.5 py-1 bg-white hover:bg-slate-200 border border-slate-300 rounded-lg font-bold text-slate-700 shadow-2xs cursor-pointer text-xs flex items-center gap-1"
-                  title="ডানে স্ক্রল"
-                >
-                  <span>ডানে</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
+          {/* VENDOR BREAKDOWN LIST: Mobile Cards + Desktop Table */}
+          {(() => {
+            const filteredVendors = vendorBalances.vendors
+              .filter((v) => {
+                const due = Number(v.deliveredDue ?? Math.max(0, (v.deliveredSales || 0) - (v.settledAmount || 0)));
+                const deliv = Number(v.deliveredSales || 0);
+                if (vendorBalanceFilter === 'due' && due <= 0) return false;
+                if (vendorBalanceFilter === 'settled' && (deliv <= 0 || due > 0)) return false;
+                if (!vendorBalanceSearch.trim()) return true;
+                const q = vendorBalanceSearch.toLowerCase();
+                const matchesProduct = (v.soldProducts || []).some(
+                  (sp: any) => sp.name && sp.name.toLowerCase().includes(q)
+                );
+                return (
+                  matchesProduct ||
+                  (v.name && v.name.toLowerCase().includes(q)) ||
+                  (v.shopName && v.shopName.toLowerCase().includes(q)) ||
+                  (v.phone && v.phone.includes(q)) ||
+                  (v.vendorId && v.vendorId.toLowerCase().includes(q))
+                );
+              })
+              .sort((a, b) => {
+                const dueA = Number(a.deliveredDue ?? Math.max(0, (a.deliveredSales || 0) - (a.settledAmount || 0)));
+                const dueB = Number(b.deliveredDue ?? Math.max(0, (b.deliveredSales || 0) - (b.settledAmount || 0)));
+                return dueB - dueA || (b.deliveredSales || 0) - (a.deliveredSales || 0);
+              });
 
-            {vendorBalances.vendors.length === 0 ? (
-              <div className="p-12 text-center space-y-2">
-                <Store className="w-10 h-10 text-slate-300 mx-auto" />
-                <p className="text-sm font-bold text-slate-700">কোনো ভেন্ডর বা বিক্রিত প্রোডাক্টের ডাটা পাওয়া যায়নি</p>
-                <p className="text-xs text-slate-400">সেন্ট্রাল মলে প্রোডাক্ট বিক্রি হলে এখানে কে কত টাকা পাবে তা প্রদর্শিত হবে</p>
-              </div>
-            ) : (
-              <div id="vendor-balances-scroll-table" className="overflow-x-auto touch-pan-x scrollbar-thin">
-                <table className="w-full text-left text-xs divide-y divide-slate-100 min-w-[980px]">
-                  <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
-                    <tr>
-                      <th className="p-3.5 sm:px-4">ভেন্ডর ও দোকান</th>
-                      <th className="p-3.5 sm:px-4">কোন কোন প্রোডাক্ট বিক্রি হয়েছে</th>
-                      <th className="p-3.5 sm:px-4 text-center">অর্ডার ও ডেলিভারি</th>
-                      <th className="p-3.5 sm:px-4">প্রোডাক্টের দাম ও ডেলিভারি</th>
-                      <th className="p-3.5 sm:px-4">কত টাকা পাবে (মোট প্রাপ্য)</th>
-                      <th className="p-3.5 sm:px-4 text-right">বিস্তারিত</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {vendorBalances.vendors
-                      .filter((v) => {
-                        if (vendorBalanceFilter === 'due' && v.grossSales <= 0) return false;
-                        if (!vendorBalanceSearch.trim()) return true;
-                        const q = vendorBalanceSearch.toLowerCase();
-                        const matchesProduct = (v.soldProducts || []).some(
-                          (sp: any) => sp.name && sp.name.toLowerCase().includes(q)
-                        );
-                        return (
-                          matchesProduct ||
-                          (v.name && v.name.toLowerCase().includes(q)) ||
-                          (v.shopName && v.shopName.toLowerCase().includes(q)) ||
-                          (v.phone && v.phone.includes(q)) ||
-                          (v.vendorId && v.vendorId.toLowerCase().includes(q))
-                        );
-                      })
-                      .sort((a, b) => {
-                        if (vendorBalanceSort === 'due_desc') return b.deliveredSales - a.deliveredSales || b.grossSales - a.grossSales;
-                        if (vendorBalanceSort === 'sales_desc') return b.grossSales - a.grossSales;
-                        if (vendorBalanceSort === 'orders_desc') return b.totalOrdersCount - a.totalOrdersCount;
-                        return 0;
-                      })
-                      .map((v) => {
+            if (filteredVendors.length === 0) {
+              return (
+                <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-2">
+                  <Store className="w-10 h-10 text-slate-300 mx-auto" />
+                  <p className="text-sm font-bold text-slate-700">কোনো ভেন্ডর বা বিক্রির তথ্য পাওয়া যায়নি</p>
+                  <p className="text-xs text-slate-400">ফিল্টার পরিবর্তন করে অনুসন্ধান করুন</p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="space-y-3">
+                {/* 1. Mobile Cards View (Screen < md) - Very clean, responsive & easy to scroll */}
+                <div className="grid grid-cols-1 gap-3 md:hidden">
+                  {filteredVendors.map((v) => {
+                    const soldProds: any[] = v.soldProducts || [];
+                    const delivSales = Number(v.deliveredSales || 0);
+                    const settled = Number(v.settledAmount || 0);
+                    const due = Number(v.deliveredDue ?? Math.max(0, delivSales - settled));
+
+                    return (
+                      <div
+                        key={v.vendorId}
+                        className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs space-y-3 transition hover:border-emerald-300"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h4 className="font-black text-slate-900 text-sm truncate">
+                              {v.shopName || v.name}
+                            </h4>
+                            <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                              <span>মালিক: {v.name}</span>
+                              {v.phone && (
+                                <span className="font-mono text-[11px] text-slate-600">• 📞 {v.phone}</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                            {v.deliveredOrdersCount || 0} টি ডেলিভার্ড
+                          </span>
+                        </div>
+
+                        {/* ৩টি মূল হিসাব: ডেলিভারি সম্পন্ন, ইতিমধ্যে পরিশোধিত, ও বর্তমান বকেয়া */}
+                        <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200/80 text-xs">
+                          <div>
+                            <span className="text-[10px] text-slate-500 font-semibold block leading-tight">
+                              ডেলিভারি সম্পন্ন
+                            </span>
+                            <span className="text-xs font-black text-slate-900 block mt-0.5">
+                              ৳{delivSales.toLocaleString('en-US')}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span className="text-[10px] text-emerald-700 font-semibold block leading-tight">
+                              ইতিমধ্যে পরিশোধিত
+                            </span>
+                            <span className="text-xs font-black text-emerald-700 block mt-0.5">
+                              ৳{settled.toLocaleString('en-US')}
+                            </span>
+                          </div>
+
+                          <div>
+                            <span className="text-[10px] text-amber-800 font-semibold block leading-tight">
+                              সুপার এডমিনে পাবে
+                            </span>
+                            {due > 0 ? (
+                              <span className="text-xs font-black text-amber-800 block mt-0.5">
+                                ৳{due.toLocaleString('en-US')}
+                              </span>
+                            ) : delivSales > 0 ? (
+                              <span className="text-[10px] font-bold text-emerald-700 block mt-0.5">
+                                ✅ সব পেইড
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-400 block mt-0.5">৳০</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Sold Products Quick Info */}
+                        {soldProds.length > 0 && (
+                          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs space-y-1">
+                            <div className="flex items-center justify-between text-slate-600 font-semibold text-[11px]">
+                              <span>বিক্রিত প্রোডাক্ট ({soldProds.length} ধরনের):</span>
+                              <span className="text-teal-800 font-bold">
+                                মোট {v.soldUnitsCount || soldProds.reduce((s: number, p: any) => s + (p.totalQuantitySold || 0), 0)} পিস
+                              </span>
+                            </div>
+                            <div className="truncate text-[11px] text-slate-500">
+                              {soldProds.map((sp: any) => `${sp.name} (${sp.totalQuantitySold || 1}টি)`).join(', ')}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenVendorDetail(v)}
+                            className="flex-1 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition active:scale-95 cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-amber-300" />
+                            <span>বিস্তারিত দেখুন</span>
+                          </button>
+
+                          {due > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDirectPayout(v)}
+                              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer shrink-0"
+                            >
+                              <CreditCard className="w-3.5 h-3.5" />
+                              <span>পরিশোধ</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 2. Desktop Table View (Screen >= md) */}
+                <div className="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
+                  <table className="w-full text-left text-xs divide-y divide-slate-100">
+                    <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3.5 sm:px-4">ভেন্ডর ও দোকান</th>
+                        <th className="p-3.5 sm:px-4">কোন কোন প্রোডাক্ট বিক্রি হয়েছে</th>
+                        <th className="p-3.5 sm:px-4 text-center">ডেলিভারি সম্পন্ন অর্ডার</th>
+                        <th className="p-3.5 sm:px-4">ডেলিভারি সম্পন্ন বিক্রি</th>
+                        <th className="p-3.5 sm:px-4">ইতিমধ্যে পরিশোধ করেছে সুপার অ্যাডমিন</th>
+                        <th className="p-3.5 sm:px-4">সুপার এডমিনের কাছে পাবে (বর্তমান বকেয়া)</th>
+                        <th className="p-3.5 sm:px-4 text-right">অ্যাকশন</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredVendors.map((v) => {
                         const soldProds: any[] = v.soldProducts || [];
-                        const totalReceivable = Number(v.grossSales) || 0;
-                        const deliveredReceivable = Number(v.deliveredSales) || 0;
-                        const inProgressReceivable = Math.max(0, totalReceivable - deliveredReceivable);
+                        const delivSales = Number(v.deliveredSales || 0);
+                        const settled = Number(v.settledAmount || 0);
+                        const due = Number(v.deliveredDue ?? Math.max(0, delivSales - settled));
 
                         return (
                           <tr key={v.vendorId} className="hover:bg-slate-50/80 transition">
-                            {/* 1. Vendor & Shop */}
                             <td className="p-3.5 sm:px-4">
                               <div className="font-bold text-slate-900 text-sm">{v.shopName || v.name}</div>
-                              <div className="text-[11px] text-slate-600 flex items-center gap-1.5 mt-0.5">
-                                <span>মালিক: {v.name}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
-                                <Phone className="w-3 h-3 text-slate-400" />
-                                <span className="font-mono">{v.phone || 'ফোন নেই'}</span>
-                                {v.phone && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopy(v.phone, v.vendorId)}
-                                    className="p-0.5 text-slate-400 hover:text-teal-700 cursor-pointer"
-                                    title="নম্বর কপি করুন"
-                                  >
-                                    {copiedId === v.vendorId ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                                  </button>
-                                )}
-                              </div>
+                              <div className="text-[11px] text-slate-600 mt-0.5">মালিক: {v.name}</div>
+                              {v.phone && (
+                                <div className="text-[11px] text-slate-500 font-mono mt-0.5">📞 {v.phone}</div>
+                              )}
                             </td>
 
-                            {/* 2. Sold Products Summary */}
                             <td className="p-3.5 sm:px-4 max-w-xs">
                               {soldProds.length === 0 ? (
-                                <span className="text-[11px] text-slate-400">এখনো কোনো প্রোডাক্ট বিক্রি হয়নি ({v.productCount || 0} টি লিস্টেড)</span>
+                                <span className="text-[11px] text-slate-400">কোনো প্রোডাক্ট বিক্রি হয়নি</span>
                               ) : (
                                 <div className="space-y-1">
                                   <div className="font-bold text-teal-900 text-xs">
-                                    {soldProds.length} ধরনের প্রোডাক্ট (মোট {v.soldUnitsCount || soldProds.reduce((s: number, p: any) => s + (p.totalQuantitySold || 0), 0)} পিস বিক্রি)
+                                    {soldProds.length} ধরনের প্রোডাক্ট (মোট {v.soldUnitsCount || soldProds.reduce((s: number, p: any) => s + (p.totalQuantitySold || 0), 0)} পিস)
                                   </div>
-                                  <div className="space-y-0.5">
-                                    {soldProds.slice(0, 3).map((sp: any, idx: number) => (
-                                      <div key={idx} className="text-[11px] text-slate-700 flex items-center justify-between gap-2 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
-                                        <span className="truncate font-medium">
-                                          • {sp.name} × {sp.totalQuantitySold} {sp.unit || 'পিস'}
-                                        </span>
-                                        <span className="font-bold text-emerald-700 shrink-0">
-                                          ৳{Number(sp.receivableAmount || sp.totalSoldAmount || 0).toLocaleString('en-US')}
-                                        </span>
-                                      </div>
-                                    ))}
-                                    {soldProds.length > 3 && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOpenVendorDetail(v)}
-                                        className="text-[11px] font-bold text-teal-700 hover:underline cursor-pointer pt-0.5"
-                                      >
-                                        + আরও {soldProds.length - 3} টি প্রোডাক্ট দেখুন...
-                                      </button>
-                                    )}
+                                  <div className="truncate text-[11px] text-slate-500">
+                                    {soldProds.map((sp: any) => `${sp.name} (${sp.totalQuantitySold || 1}টি)`).join(', ')}
                                   </div>
                                 </div>
                               )}
                             </td>
 
-                            {/* 3. Orders Count */}
                             <td className="p-3.5 sm:px-4 text-center whitespace-nowrap">
-                              <span className="font-bold text-slate-800 text-sm block">{v.totalOrdersCount} টি অর্ডার</span>
-                              <span className="text-[11px] text-emerald-700 block font-bold">
-                                ✅ {v.deliveredOrdersCount} টি ডেলিভার্ড
+                              <span className="font-bold text-emerald-700 text-sm block">
+                                ✅ {v.deliveredOrdersCount || 0} টি ডেলিভার্ড
                               </span>
-                              {(v.totalOrdersCount - v.deliveredOrdersCount) > 0 && (
-                                <span className="text-[10px] text-amber-700 block font-semibold">
-                                  ⏳ {v.totalOrdersCount - v.deliveredOrdersCount} টি চলমান
-                                </span>
+                              <span className="text-[10px] text-slate-400 block">
+                                মোট অর্ডার: {v.totalOrdersCount} টি
+                              </span>
+                            </td>
+
+                            <td className="p-3.5 sm:px-4 whitespace-nowrap">
+                              <div className="text-sm font-black text-slate-900">
+                                ৳{delivSales.toLocaleString('en-US')}
+                              </div>
+                              <span className="text-[10px] text-slate-500 block">
+                                পৌঁছানো পণ্যের দাম
+                              </span>
+                            </td>
+
+                            <td className="p-3.5 sm:px-4 whitespace-nowrap">
+                              <div className="text-sm font-black text-emerald-700">
+                                ৳{settled.toLocaleString('en-US')}
+                              </div>
+                              <span className="text-[10px] text-emerald-600 block">
+                                ইতিমধ্যে পরিশোধিত
+                              </span>
+                            </td>
+
+                            <td className="p-3.5 sm:px-4 whitespace-nowrap">
+                              {due > 0 ? (
+                                <div>
+                                  <div className="text-base font-black text-amber-800">
+                                    ৳{due.toLocaleString('en-US')}
+                                  </div>
+                                  <span className="text-[10px] text-amber-700 font-bold block">
+                                    ⏳ সুপার এডমিনের কাছে পাবে
+                                  </span>
+                                </div>
+                              ) : delivSales > 0 ? (
+                                <div>
+                                  <div className="text-xs font-black text-emerald-700">৳০</div>
+                                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[10px] font-bold inline-block">
+                                    ✅ সব পরিশোধিত (বকেয়া নেই)
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-slate-400">কোনো ডেলিভারি হয়নি</span>
                               )}
                             </td>
 
-                            {/* 4. Product Value & Delivery */}
-                            <td className="p-3.5 sm:px-4 whitespace-nowrap">
-                              <span className="font-bold text-slate-900 text-xs block">
-                                প্রোডাক্ট: ৳{Number(v.totalProductsAmount ?? v.grossSales).toLocaleString('en-US')}
-                              </span>
-                              {Number(v.totalDeliveryAmount) > 0 && (
-                                <span className="text-[11px] text-slate-500 block">
-                                  + ডেলিভারি: ৳{Number(v.totalDeliveryAmount).toLocaleString('en-US')}
-                                </span>
-                              )}
-                            </td>
-
-                            {/* 5. How Much Money Will Receive (কত টাকা পাবে) */}
-                            <td className="p-3.5 sm:px-4 whitespace-nowrap">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`text-base font-black ${totalReceivable > 0 ? 'text-emerald-700' : 'text-slate-500'}`}>
-                                  ৳{totalReceivable.toLocaleString('en-US')}
-                                </span>
-                                {totalReceivable > 0 && (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                    পাবে
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10px] space-y-0.5 mt-0.5">
-                                <span className="text-teal-800 font-bold block">
-                                  ডেলিভারি সম্পন্ন বাবদ পাবে: ৳{deliveredReceivable.toLocaleString('en-US')}
-                                </span>
-                                {inProgressReceivable > 0 && (
-                                  <span className="text-amber-700 font-semibold block">
-                                    চলমান অর্ডার বাবদ পাবে: ৳{inProgressReceivable.toLocaleString('en-US')}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-
-                            {/* 6. Details Action ONLY (No Payout Option) */}
                             <td className="p-3.5 sm:px-4 text-right whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenVendorDetail(v)}
-                                className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-xl shadow-xs transition inline-flex items-center gap-1.5 cursor-pointer active:scale-95"
-                                title="কোন কোন প্রোডাক্ট বিক্রি হয়েছে এবং কোন প্রোডাক্টের কত টাকা পাবে বিস্তারিত দেখুন"
-                              >
-                                <Eye className="w-4 h-4" />
-                                <span>বিস্তারিত দেখুন</span>
-                              </button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenVendorDetail(v)}
+                                  className="px-3 py-1.5 bg-teal-800 hover:bg-teal-900 text-white font-bold text-xs rounded-xl shadow-xs transition inline-flex items-center gap-1 cursor-pointer active:scale-95"
+                                >
+                                  <Eye className="w-3.5 h-3.5 text-amber-300" />
+                                  <span>বিস্তারিত</span>
+                                </button>
+
+                                {due > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDirectPayout(v)}
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition inline-flex items-center gap-1 cursor-pointer active:scale-95"
+                                    title="ভেন্ডরের বকেয়া সরাসরি পরিশোধ করুন"
+                                  >
+                                    <CreditCard className="w-3.5 h-3.5" />
+                                    <span>পরিশোধ</span>
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );
                       })}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            )}
-          </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1939,7 +2060,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 <p className="text-xs text-slate-400">ভেন্ডররা মার্কেটপ্লেস ব্যালেন্স তোলার আবেদন করলে এখানে তালিকা আসবে</p>
               </div>
             ) : (
-              <div id="payout-requests-scroll-table" className="overflow-x-auto touch-pan-x scrollbar-thin divide-y divide-slate-100">
+              <div id="payout-requests-scroll-table" className="overflow-x-auto scrollbar-thin divide-y divide-slate-100">
                 <table className="w-full text-left text-xs min-w-[950px]">
                   <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-100">
                     <tr>
@@ -2240,44 +2361,27 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                     </button>
                   </>
                 ) : (
-                  <>
-                    <button
-                      type="button"
+                  <div className="flex items-center gap-1.5">
+                    <select
                       disabled={isBatchProcessing}
-                      onClick={() => handleBatchProductsAction('publish_all')}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!val) return;
+                        if (val === 'publish_all') handleBatchProductsAction('publish_all');
+                        else if (val === 'unpublish_all') handleBatchProductsAction('unpublish_all');
+                        else if (val === 'block_all') handleBatchProductsAction('block_all');
+                        else if (val === 'remove_all_marketplace') handleBatchProductsAction('remove_all_marketplace');
+                        e.target.value = '';
+                      }}
+                      className="px-2.5 py-1.5 bg-white border border-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer focus:outline-none hover:bg-slate-50"
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>সকল পণ্য পাবলিশ</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBatchProcessing}
-                      onClick={() => handleBatchProductsAction('unpublish_all')}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                    >
-                      <PauseCircle className="w-3.5 h-3.5" />
-                      <span>সকল আনপাবলিশ</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBatchProcessing}
-                      onClick={() => handleBatchProductsAction('block_all')}
-                      className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                    >
-                      <Ban className="w-3.5 h-3.5" />
-                      <span>সকল পণ্য ব্লক</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBatchProcessing}
-                      onClick={() => handleBatchProductsAction('remove_all_marketplace')}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>মল থেকে সব ডিলিট</span>
-                    </button>
-                  </>
+                      <option value="">⚡ এক ক্লিকে সকল পণ্যের অ্যাকশন ▾</option>
+                      <option value="publish_all">✅ সকল পণ্য এক ক্লিকে পাবলিশ করুন</option>
+                      <option value="unpublish_all">⏸️ সকল পণ্য এক ক্লিকে আনপাবলিশ করুন</option>
+                      <option value="block_all">🚫 সকল পণ্য এক ক্লিকে ব্লক করুন</option>
+                      <option value="remove_all_marketplace">🗑️ সেন্ট্রাল মল থেকে সব পণ্য সরান</option>
+                    </select>
+                  </div>
                 )}
               </div>
             </div>
@@ -2484,7 +2588,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 </button>
               </div>
             </div>
-            <div id="categories-scroll-table" className="overflow-x-auto touch-pan-x scrollbar-thin">
+            <div id="categories-scroll-table" className="overflow-x-auto scrollbar-thin">
               <table className="w-full text-left text-xs divide-y divide-slate-100 min-w-[700px]">
               <thead className="bg-slate-50 font-bold text-slate-800">
                 <tr>
@@ -3130,10 +3234,38 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                   </span>
                 </div>
               )}
+              {approvingOrder.customerAddress && (
+                <div className="flex justify-between items-start text-[11px] text-slate-600">
+                  <span className="text-slate-500">ঠিকানা:</span>
+                  <span className="text-right max-w-[200px] font-medium">{approvingOrder.customerAddress}</span>
+                </div>
+              )}
               {approvingOrder.senderPhone && (
                 <div className="flex justify-between items-center text-[11px] text-slate-600">
                   <span>টাকা প্রেরকের ফোন:</span>
                   <span className="font-mono font-bold">{approvingOrder.senderPhone}</span>
+                </div>
+              )}
+
+              {/* পণ্যের মেমো হিসাব (তেল ২কেজি ৪২০×২=৮৪০৳) */}
+              {Array.isArray(approvingOrder.items) && approvingOrder.items.length > 0 && (
+                <div className="pt-2 border-t border-slate-200 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    অর্ডারের মেমো হিসাব:
+                  </span>
+                  {approvingOrder.items.map((it: any, idx: number) => {
+                    const q = Number(it.quantity) || 1;
+                    const p = Number(it.unitPrice || it.price || 0);
+                    const sub = Number(it.subtotal || p * q);
+                    return (
+                      <div key={idx} className="flex justify-between items-center text-xs py-0.5 px-2 bg-white rounded border border-slate-100">
+                        <span className="font-bold text-slate-800">• {it.name} {q} {it.unit || 'পিস'}</span>
+                        <span className="font-mono font-black text-emerald-950 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 text-[11px]">
+                          {p} × {q} = ৳{sub}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -3325,7 +3457,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       {/* ================= MODAL: DIRECT VENDOR PAYOUT ================= */}
       {directPayoutVendor && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[92vh]">
             <div className="p-4 sm:p-5 bg-gradient-to-r from-emerald-800 to-teal-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-white/20 text-white flex items-center justify-center">
@@ -3362,6 +3494,122 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 <div className="text-right text-[11px] text-slate-600">
                   <div>মোট সেলস: ৳{Number(directPayoutVendor.grossSales).toLocaleString('en-US')}</div>
                   <div className="text-emerald-700 font-semibold">ইতিমধ্যে পেইড: ৳{Number(directPayoutVendor.settledAmount).toLocaleString('en-US')}</div>
+                </div>
+              </div>
+
+              {/* কাস্টমার ডিটেলস ও মেমো আকারে পণ্যের হিসাব বিবরণী (পেমেন্ট করার আগে স্পষ্ট হিসাব) */}
+              <div className="bg-slate-50 rounded-2xl border border-slate-200 p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-black text-slate-900 text-xs flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-teal-700" />
+                    <span>কাস্টমার মেমো বিবরণী (এত টাকা কীভাবে হলো)</span>
+                  </span>
+                  <span className="text-[10px] font-bold bg-white px-2 py-0.5 rounded-full border border-slate-200 text-slate-600">
+                    {(directPayoutVendor.orders || []).length} টি অর্ডার
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  পেমেন্ট সম্পন্ন করার পূর্বে প্রতিটি অর্ডারের কাস্টমার তথ্য এবং পণ্যের মেমো হিসাব (যেমন: তেল ২কেজি ৪২০×২=৮৪০৳) মিলিয়ে নিন:
+                </p>
+
+                <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1 scrollbar-thin">
+                  {(directPayoutVendor.orders || []).length === 0 ? (
+                    <div className="text-center py-4 text-slate-400 font-medium">কোনো অর্ডারের তথ্য পাওয়া যায়নি</div>
+                  ) : (
+                    (directPayoutVendor.orders || []).map((ord: any, oIdx: number) => {
+                      const isDelivered = ord.orderStatus === 'delivered';
+                      const isSettled = ord.vendorPayoutStatus === 'settled';
+                      const items: any[] = Array.isArray(ord.items) ? ord.items : [];
+
+                      return (
+                        <div
+                          key={ord.id || oIdx}
+                          className={`p-3 rounded-xl border transition ${
+                            isSettled
+                              ? 'bg-slate-100/70 border-slate-200'
+                              : isDelivered
+                              ? 'bg-emerald-50/60 border-emerald-300'
+                              : 'bg-white border-slate-200'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-200/80 pb-1.5 mb-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono font-bold text-teal-950 text-xs">#{ord.orderNumber}</span>
+                              {ord.createdAt && (
+                                <span className="text-[10px] text-slate-400">
+                                  {new Date(ord.createdAt).toLocaleDateString('bn-BD', { day: 'numeric', month: 'short' })}
+                                </span>
+                              )}
+                              {isDelivered ? (
+                                <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                  ✅ ডেলিভারি সম্পন্ন
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                                  ⏳ চলমান
+                                </span>
+                              )}
+                            </div>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                              isSettled ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
+                            }`}>
+                              {isSettled ? '✅ ইতিমধ্যে পেইড' : '⏳ পেআউট বকেয়া'}
+                            </span>
+                          </div>
+
+                          {/* Customer Details Block */}
+                          <div className="bg-white p-2 rounded-lg border border-slate-200/70 text-[11px] mb-2 space-y-0.5">
+                            <div className="flex items-center justify-between">
+                              <span className="font-black text-slate-900">
+                                👤 কাস্টমার: {ord.customerName || 'গ্রাহক'}
+                              </span>
+                              <span className="font-mono font-bold text-slate-700">
+                                📞 {ord.customerPhone}
+                              </span>
+                            </div>
+                            {ord.customerAddress && (
+                              <div className="text-slate-500 text-[10px] truncate" title={ord.customerAddress}>
+                                📍 ঠিকানা: {ord.customerAddress}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Memo format items list (যেমন তেল ২কেজি ৪২০×২=৮৪০৳) */}
+                          <div className="space-y-1">
+                            {items.map((it: any, iIdx: number) => {
+                              const qty = Number(it.quantity) || 1;
+                              const unit = it.unit || 'পিস';
+                              const price = Number(it.unitPrice || it.price || (it.subtotal ? it.subtotal / qty : 0));
+                              const sub = Number(it.subtotal || price * qty);
+
+                              return (
+                                <div
+                                  key={iIdx}
+                                  className="flex items-center justify-between text-xs py-1 px-2 bg-white rounded-lg border border-slate-100"
+                                >
+                                  <span className="font-bold text-slate-800">
+                                    • {it.name} {qty} {unit}
+                                  </span>
+                                  <span className="font-mono font-black text-emerald-950 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-xs">
+                                    {price} × {qty} = ৳{sub.toLocaleString('en-US')}
+                                  </span>
+                                </div>
+                              );
+                            })}
+
+                            <div className="flex items-center justify-between pt-1 text-xs font-bold border-t border-slate-200">
+                              <span className="text-slate-500 text-[11px]">
+                                {Number(ord.deliveryCharge) > 0 ? `+ ডেলিভারি চার্জ: ৳${ord.deliveryCharge}` : 'অর্ডার মোট বিল:'}
+                              </span>
+                              <span className="font-black text-slate-900 text-sm">
+                                মোট: ৳{Number(ord.totalAmount).toLocaleString('en-US')}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -3533,41 +3781,67 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
 
             <div className="p-4 sm:p-6 overflow-y-auto space-y-5 text-xs">
               {/* Financial & Sold Products Summary Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3.5 bg-emerald-50 rounded-2xl border-2 border-emerald-200">
-                  <span className="text-[10px] font-bold text-emerald-800 uppercase block">সর্বমোট কত টাকা পাবে</span>
-                  <span className="text-xl font-black text-emerald-950">
-                    ৳{Number(selectedVendorForDetail.grossSales || 0).toLocaleString('en-US')}
-                  </span>
-                  <span className="text-[10px] text-emerald-700 block mt-0.5">বিক্রিত প্রোডাক্টের মোট প্রাপ্য</span>
-                </div>
+              {(() => {
+                const vDeliv = Number(selectedVendorForDetail.deliveredSales || 0);
+                const vSettled = Number(selectedVendorForDetail.settledAmount || 0);
+                const vDue = Number(selectedVendorForDetail.deliveredDue ?? Math.max(0, vDeliv - vSettled));
+                const soldUnits = selectedVendorForDetail.soldUnitsCount || (selectedVendorForDetail.soldProducts || []).reduce((s: number, p: any) => s + (Number(p.totalQuantitySold) || 0), 0);
+                const soldTypes = (selectedVendorForDetail.soldProducts || []).length;
 
-                <div className="p-3.5 bg-teal-50 rounded-2xl border border-teal-200">
-                  <span className="text-[10px] font-bold text-teal-800 uppercase block">ডেলিভারি সম্পন্ন প্রোডাক্টের টাকা</span>
-                  <span className="text-xl font-black text-teal-950">
-                    ৳{Number(selectedVendorForDetail.deliveredSales || 0).toLocaleString('en-US')}
-                  </span>
-                  <span className="text-[10px] text-teal-700 block mt-0.5">ডেলিভারি সম্পন্ন অর্ডার বাবদ পাবে</span>
-                </div>
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                      <span className="text-[10px] font-bold text-slate-600 uppercase block">১. ডেলিভারি সম্পন্ন মোট বিক্রি</span>
+                      <span className="text-xl font-black text-slate-900 block mt-0.5">
+                        ৳{vDeliv.toLocaleString('en-US')}
+                      </span>
+                      <span className="text-[10px] text-slate-500 block mt-0.5">গ্রাহকের কাছে পৌঁছানো পণ্য</span>
+                    </div>
 
-                <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200">
-                  <span className="text-[10px] font-bold text-amber-800 uppercase block">চলমান অর্ডারের প্রোডাক্টের টাকা</span>
-                  <span className="text-xl font-black text-amber-950">
-                    ৳{Math.max(0, Number(selectedVendorForDetail.grossSales || 0) - Number(selectedVendorForDetail.deliveredSales || 0)).toLocaleString('en-US')}
-                  </span>
-                  <span className="text-[10px] text-amber-700 block mt-0.5">ডেলিভারি শেষে পাবে</span>
-                </div>
+                    <div className="p-3.5 bg-emerald-50 rounded-2xl border-2 border-emerald-200">
+                      <span className="text-[10px] font-bold text-emerald-800 uppercase block">২. ইতিমধ্যে পরিশোধ করেছে সুপার অ্যাডমিন</span>
+                      <span className="text-xl font-black text-emerald-700 block mt-0.5">
+                        ৳{vSettled.toLocaleString('en-US')}
+                      </span>
+                      <span className="text-[10px] text-emerald-600 block mt-0.5">ভেন্ডরকে পরিশোধিত মোট পেআউট</span>
+                    </div>
 
-                <div className="p-3.5 bg-indigo-50 rounded-2xl border border-indigo-200">
-                  <span className="text-[10px] font-bold text-indigo-800 uppercase block">মোট বিক্রিত প্রোডাক্ট</span>
-                  <span className="text-xl font-black text-indigo-950">
-                    {selectedVendorForDetail.soldUnitsCount || (selectedVendorForDetail.soldProducts || []).reduce((s: number, p: any) => s + (Number(p.totalQuantitySold) || 0), 0)} পিস
-                  </span>
-                  <span className="text-[10px] text-indigo-700 block mt-0.5">
-                    {(selectedVendorForDetail.soldProducts || []).length} ধরনের প্রোডাক্ট বিক্রি হয়েছে
-                  </span>
-                </div>
-              </div>
+                    <div className={`p-3.5 rounded-2xl border-2 ${vDue > 0 ? 'bg-amber-50 border-amber-300' : 'bg-emerald-50/70 border-emerald-300'}`}>
+                      <span className={`text-[10px] font-bold uppercase block ${vDue > 0 ? 'text-amber-900' : 'text-emerald-800'}`}>
+                        ৩. সুপার এডমিনের কাছে পাবে
+                      </span>
+                      {vDue > 0 ? (
+                        <>
+                          <span className="text-xl font-black text-amber-900 block mt-0.5">
+                            ৳{vDue.toLocaleString('en-US')}
+                          </span>
+                          <span className="text-[10px] text-amber-700 font-semibold block mt-0.5">⏳ অবশিষ্ট প্রদেয় বকেয়া</span>
+                        </>
+                      ) : vDeliv > 0 ? (
+                        <>
+                          <span className="text-xl font-black text-emerald-800 block mt-0.5">৳০</span>
+                          <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">✅ সব পরিশোধিত (বকেয়া নেই)</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xl font-black text-slate-400 block mt-0.5">৳০</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">কোনো ডেলিভারি হয়নি</span>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="p-3.5 bg-indigo-50 rounded-2xl border border-indigo-200">
+                      <span className="text-[10px] font-bold text-indigo-800 uppercase block">৪. মোট বিক্রিত প্রোডাক্ট</span>
+                      <span className="text-xl font-black text-indigo-950 block mt-0.5">
+                        {soldUnits} পিস
+                      </span>
+                      <span className="text-[10px] text-indigo-700 block mt-0.5">
+                        {soldTypes} ধরনের প্রোডাক্ট
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Section Switcher & Status Filter */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
@@ -3582,7 +3856,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                     }`}
                   >
                     <Package className="w-3.5 h-3.5" />
-                    <span>কোন কোন প্রোডাক্ট বিক্রি হয়েছে ও কত টাকা পাবে ({(selectedVendorForDetail.soldProducts || []).length})</span>
+                    <span>কোন কোন প্রোডাক্ট বিক্রি হয়েছে ({(selectedVendorForDetail.soldProducts || []).length})</span>
                   </button>
 
                   <button
@@ -3617,7 +3891,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                       detailFilterTab === 'delivered' ? 'bg-emerald-700 text-white' : 'text-emerald-700 hover:bg-emerald-50'
                     }`}
                   >
-                    ডেলিভারি সম্পন্ন (টাকা পাবে)
+                    ডেলিভারি সম্পন্ন
                   </button>
                   <button
                     type="button"
@@ -3644,7 +3918,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                   </div>
 
                   <div className="border border-slate-200 rounded-2xl overflow-hidden">
-                    <div className="overflow-x-auto touch-pan-x scrollbar-thin">
+                    <div className="overflow-x-auto scrollbar-thin">
                       <table className="w-full text-left text-xs divide-y divide-slate-100 min-w-[760px]">
                         <thead className="bg-slate-50 text-slate-700 font-bold">
                           <tr>
@@ -3755,18 +4029,21 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                                   </td>
 
                                   <td className="p-3 text-right whitespace-nowrap">
-                                    <div className="text-base font-black text-emerald-700">
-                                      ৳{totalAmt.toLocaleString('en-US')} পাবে
+                                    <div className="text-sm font-black text-slate-900">
+                                      ৳{totalAmt.toLocaleString('en-US')}
+                                    </div>
+                                    <div className="text-[10px] font-mono font-bold text-teal-900 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-200 inline-block mt-0.5">
+                                      {prod.unitPrice || 0} × {prod.totalQuantitySold} = ৳{totalAmt.toLocaleString('en-US')}
                                     </div>
                                     <div className="text-[10px] space-y-0.5 mt-0.5">
                                       {delivAmt > 0 && (
                                         <span className="text-emerald-800 font-bold block">
-                                          ✅ ডেলিভারি সম্পন্ন বাবদ পাবে: ৳{delivAmt.toLocaleString('en-US')}
+                                          ✅ ডেলিভারি সম্পন্ন: ৳{delivAmt.toLocaleString('en-US')} ({delivQty}টি)
                                         </span>
                                       )}
                                       {inProgAmt > 0 && (
                                         <span className="text-amber-700 font-semibold block">
-                                          ⏳ ডেলিভারি শেষে পাবে: ৳{inProgAmt.toLocaleString('en-US')}
+                                          ⏳ ডেলিভারি চলমান: ৳{inProgAmt.toLocaleString('en-US')} ({inProgQty}টি)
                                         </span>
                                       )}
                                     </div>
@@ -3782,23 +4059,26 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 </div>
               )}
 
-              {/* VIEW 2: ORDER-BY-ORDER SOLD PRODUCTS & RECEIVABLES */}
+              {/* VIEW 2: ORDER-BY-ORDER SOLD PRODUCTS & RECEIVABLES WITH FULL CUSTOMER MEMO */}
               {detailViewSection === 'orders' && (
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <h4 className="font-black text-sm text-slate-900">
-                      🧾 অর্ডার অনুযায়ী কোন কোন প্রোডাক্ট বিক্রি হয়েছে ও কত টাকা পাবে ({selectedVendorForDetail.orders?.length || 0})
+                      🧾 অর্ডার অনুযায়ী কাস্টমার ডিটেলস ও পণ্যের মেমো হিসাব ({selectedVendorForDetail.orders?.length || 0})
                     </h4>
+                    <span className="text-[11px] text-teal-800 font-bold bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">
+                      প্রতিটি অর্ডারে তেল ২কেজি ৪২০×২=৮৪০৳ মেমো বিবরণী
+                    </span>
                   </div>
 
                   <div className="border border-slate-200 rounded-2xl overflow-hidden">
-                    <div className="overflow-x-auto touch-pan-x scrollbar-thin">
-                      <table className="w-full text-left text-xs divide-y divide-slate-100 min-w-[780px]">
+                    <div className="overflow-x-auto scrollbar-thin">
+                      <table className="w-full text-left text-xs divide-y divide-slate-100 min-w-[820px]">
                         <thead className="bg-slate-50 text-slate-700 font-bold">
                           <tr>
                             <th className="p-3">অর্ডার নম্বর ও তারিখ</th>
-                            <th className="p-3">কাস্টমার</th>
-                            <th className="p-3">বিক্রিত প্রোডাক্টের তালিকা (নাম, পরিমাণ ও দাম)</th>
+                            <th className="p-3">কাস্টমার তথ্য ও ঠিকানা</th>
+                            <th className="p-3">পণ্যের মেমো হিসাব (নাম, দর × পরিমাণ = মোট)</th>
                             <th className="p-3">ডেলিভারি স্ট্যাটাস</th>
                             <th className="p-3 text-right">কত টাকা পাবে (প্রাপ্য)</th>
                           </tr>
@@ -3837,7 +4117,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                                   <span className="font-mono font-bold text-teal-950 block">#{ord.orderNumber}</span>
                                   {ord.createdAt && (
                                     <span className="text-[10px] text-slate-400 block">
-                                      {new Date(ord.createdAt).toLocaleDateString('bn-BD')}
+                                      {new Date(ord.createdAt).toLocaleDateString('bn-BD', { day: 'numeric', month: 'short', year: 'numeric' })}
                                     </span>
                                   )}
                                   {selectedVendorForDetail.isAllCentralMall && ord.vendorShopName && (
@@ -3847,35 +4127,50 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                                   )}
                                 </td>
 
-                                <td className="p-3 whitespace-nowrap">
-                                  <div className="font-bold text-slate-800">{ord.customerName}</div>
-                                  <div className="text-[10px] text-slate-500 font-mono">{ord.customerPhone}</div>
+                                <td className="p-3">
+                                  <div className="font-black text-slate-900">{ord.customerName || 'গ্রাহক'}</div>
+                                  <div className="text-[10px] text-slate-600 font-mono font-bold">📞 {ord.customerPhone}</div>
+                                  {ord.customerAddress && (
+                                    <div className="text-[10px] text-slate-500 max-w-[200px] truncate mt-0.5" title={ord.customerAddress}>
+                                      📍 {ord.customerAddress}
+                                    </div>
+                                  )}
                                 </td>
 
                                 <td className="p-3">
                                   {Array.isArray(ord.items) && ord.items.length > 0 ? (
-                                    <div className="space-y-1">
-                                      {ord.items.map((it: any, iIdx: number) => (
-                                        <div
-                                          key={iIdx}
-                                          className="flex items-center justify-between gap-3 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100"
-                                        >
-                                          <div className="flex items-center gap-2 min-w-0">
-                                            {it.imageUrl ? (
-                                              <img src={it.imageUrl} alt={it.name} className="w-6 h-6 rounded object-cover shrink-0" />
-                                            ) : null}
-                                            <span className="font-bold text-slate-800 truncate">
-                                              {it.name} × {it.quantity} {it.unit || 'পিস'}
+                                    <div className="space-y-1.5 min-w-[240px]">
+                                      {ord.items.map((it: any, iIdx: number) => {
+                                        const qty = Number(it.quantity) || 1;
+                                        const unit = it.unit || 'পিস';
+                                        const price = Number(it.unitPrice || it.price || (it.subtotal ? it.subtotal / qty : 0));
+                                        const sub = Number(it.subtotal || price * qty);
+
+                                        return (
+                                          <div
+                                            key={iIdx}
+                                            className="flex items-center justify-between gap-2 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200/80"
+                                          >
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                              {it.imageUrl ? (
+                                                <img src={it.imageUrl} alt={it.name} className="w-6 h-6 rounded object-cover shrink-0" />
+                                              ) : (
+                                                <span className="text-xs">📦</span>
+                                              )}
+                                              <span className="font-bold text-slate-800 truncate text-xs">
+                                                {it.name} {qty} {unit}
+                                              </span>
+                                            </div>
+                                            <span className="font-mono font-black text-emerald-950 bg-white px-2 py-0.5 rounded border border-emerald-200 text-xs shrink-0">
+                                              {price} × {qty} = ৳{sub.toLocaleString('en-US')}
                                             </span>
                                           </div>
-                                          <span className="font-bold text-emerald-800 shrink-0">
-                                            ৳{Number(it.subtotal || (it.unitPrice || 0) * (it.quantity || 1)).toLocaleString('en-US')}
-                                          </span>
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                       {Number(ord.deliveryCharge) > 0 && (
-                                        <div className="text-[10px] text-slate-500 pl-1">
-                                          + ডেলিভারি চার্জ: ৳{Number(ord.deliveryCharge).toLocaleString('en-US')}
+                                        <div className="text-[10px] text-slate-500 pl-1 flex items-center justify-between">
+                                          <span>+ ডেলিভারি চার্জ:</span>
+                                          <span className="font-bold font-mono">৳{Number(ord.deliveryCharge).toLocaleString('en-US')}</span>
                                         </div>
                                       )}
                                     </div>
@@ -3901,12 +4196,24 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                                 </td>
 
                                 <td className="p-3 text-right whitespace-nowrap">
-                                  <span className="text-sm font-black text-emerald-700 block">
-                                    ৳{Number(ord.totalAmount).toLocaleString('en-US')} পাবে
-                                  </span>
-                                  <span className="text-[10px] text-slate-500 block">
-                                    {ord.orderStatus === 'delivered' ? '✅ ডেলিভারি সম্পন্ন' : '⏳ ডেলিভারি শেষে প্রাপ্য'}
-                                  </span>
+                                  <div className="text-sm font-black text-slate-900">
+                                    ৳{Number(ord.totalAmount).toLocaleString('en-US')}
+                                  </div>
+                                  <div className="text-[10px] mt-0.5">
+                                    {ord.vendorPayoutStatus === 'settled' ? (
+                                      <span className="text-emerald-700 font-bold block">
+                                        ✅ ইতিমধ্যে পরিশোধিত
+                                      </span>
+                                    ) : ord.orderStatus === 'delivered' ? (
+                                      <span className="text-amber-800 font-bold block">
+                                        ⏳ সুপার এডমিনের কাছে পাবে
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-500 block">
+                                        ⏳ ডেলিভারি শেষে প্রাপ্য
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
                             ));
