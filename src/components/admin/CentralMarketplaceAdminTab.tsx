@@ -539,7 +539,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
               isAdminApproved: true,
               isLockedForVendor: false,
               paymentStatus: 'paid',
-              orderStatus: 'pending',
+              orderStatus: 'confirmed',
             }
           : s
       ),

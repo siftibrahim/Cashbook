@@ -462,13 +462,13 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       const pType = urlParams.get('type');
       const orderId = urlParams.get('order_id') || urlParams.get('payment_id');
 
-      if (pStatus === 'cancelled' && (pType === 'marketplace' || (orderId && orderId.includes('mkt')))) {
-        showToast(pMsg ? decodeURIComponent(pMsg) : '⚠️ পেমেন্ট বাতিল করা হয়েছে। কোনো অর্ডার গৃহীত হয়নি।');
+      if ((pStatus === 'cancelled' || pStatus === 'failed') && (pType === 'marketplace' || (orderId && (orderId.includes('mkt') || orderId.startsWith('PAY-'))))) {
+        showToast(pMsg ? decodeURIComponent(pMsg) : '⚠️ পেমেন্ট বাতিল বা ব্যর্থ হয়েছে। কোনো অর্ডার গৃহীত হয়নি।');
         if (orderId) {
-          marketplaceApi.cancelOrder(orderId, 'গ্রাহক পেমেন্ট বাতিল করেছেন').catch(() => {});
+          marketplaceApi.cancelOrder(orderId, 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন').catch(() => {});
         }
         window.history.replaceState({}, '', window.location.pathname);
-      } else if (pStatus === 'success' && (pType === 'marketplace' || (orderId && orderId.includes('mkt')))) {
+      } else if (pStatus === 'success' && (pType === 'marketplace' || (orderId && (orderId.includes('mkt') || orderId.startsWith('PAY-'))))) {
         showToast('🎉 আপনার অনলাইন পেমেন্ট সফলভাবে সম্পন্ন হয়েছে!');
         window.history.replaceState({}, '', window.location.pathname);
       }
@@ -652,9 +652,14 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       deviceToken: devRecord?.deviceToken || `dev_${standardPhone}`,
       items: cart.map((it) => ({
         productId: it.product.id,
-        vendorId: it.product.vendorId,
+        vendorId: it.product.vendorId || (it.product as any).userId,
         name: it.product.name,
+        description: it.product.description || '',
+        variant: (it as any).variant || (it.product as any).variant || '',
+        size: (it as any).size || (it.product as any).size || '',
+        color: (it as any).color || (it.product as any).color || '',
         salePrice: it.product.salePrice,
+        price: it.product.salePrice || (it.product as any).price,
         quantity: it.quantity,
         unit: it.product.unit,
         imageUrl: it.product.imageUrl,
@@ -1969,13 +1974,26 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
       {/* Active Online Gateway Payment Session Modal */}
       <AnimatePresence>
         {activePaymentlySession && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) handleCancelPaymentlySession();
+            }}
+          >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full text-center space-y-4 shadow-2xl border border-slate-200"
+              className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full text-center space-y-4 shadow-2xl border border-slate-200 relative"
             >
+              <button
+                type="button"
+                onClick={handleCancelPaymentlySession}
+                className="absolute top-4 right-4 p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                title="পেমেন্ট বাতিল ও বন্ধ করুন"
+              >
+                <X className="w-4 h-4" />
+              </button>
               <div className="w-14 h-14 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center border border-teal-200 shadow-inner">
                 <CreditCard className="w-7 h-7 animate-pulse text-teal-700" />
               </div>

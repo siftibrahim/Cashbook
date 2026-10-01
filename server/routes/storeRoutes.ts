@@ -515,6 +515,8 @@ function mapDbRowToOrder(r: any) {
 
   return {
     id: r.id,
+    userId: r.user_id,
+    vendorId: r.user_id,
     orderNumber: r.order_number,
     customerName: r.customer_name,
     customerPhone: r.customer_phone,
@@ -567,20 +569,32 @@ function mapDbRowToOrder(r: any) {
 router.get('/orders', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
+    const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com');
     const pool = getDbPool();
 
     if (pool) {
       await ensureOnlineOrdersSchema(pool);
 
       const result = await pool.query(
-        'SELECT * FROM online_orders WHERE user_id = $1 AND is_hidden_from_vendor IS NOT TRUE AND is_rejected_by_admin IS NOT TRUE ORDER BY created_at DESC',
-        [userId]
+        `SELECT * FROM online_orders 
+         WHERE user_id = $1 
+           AND (order_source != 'marketplace' OR is_admin_approved = TRUE OR $2 = TRUE)
+           AND is_hidden_from_vendor IS NOT TRUE 
+           AND is_rejected_by_admin IS NOT TRUE 
+         ORDER BY created_at DESC`,
+        [userId, isSuperAdmin]
       );
       const orders = result.rows.map(mapDbRowToOrder);
       return res.json({ orders });
     } else {
       const memoryOrders = (inMemoryStore.online_orders || [])
-        .filter((o) => o.userId === userId && !o.isHiddenFromVendor && !o.isRejectedByAdmin)
+        .filter((o) => {
+          if (!isSuperAdmin && o.userId !== userId) return false;
+          if (o.isHiddenFromVendor || o.isRejectedByAdmin) return false;
+          const isMkt = o.orderSource === 'marketplace' || Boolean(o.masterOrderId);
+          if (isMkt && !isSuperAdmin && o.isAdminApproved !== true) return false;
+          return true;
+        })
         .map((o) => {
           const isMkt = o.orderSource === 'marketplace' || Boolean(o.masterOrderId);
           return {
@@ -595,6 +609,56 @@ router.get('/orders', authenticateUser, async (req: AuthenticatedRequest, res: R
     }
   } catch (err: any) {
     console.error('Error fetching online orders:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/store/orders/:id - Get single order details for vendor (strictly isolated to vendor)
+ */
+router.get('/orders/:id', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com');
+    const { id } = req.params;
+    const cleanId = (id || '').replace(/^#/, '').trim();
+    const pool = getDbPool();
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const result = await pool.query(
+        'SELECT * FROM online_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
+        [id, cleanId]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+      }
+      const order = mapDbRowToOrder(result.rows[0]);
+      if (!isSuperAdmin && order.userId !== userId) {
+        return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি শুধুমাত্র নিজের অর্ডারের তথ্য দেখতে পারবেন।' });
+      }
+      const isMkt = order.orderSource === 'marketplace' || Boolean(order.masterOrderId);
+      if (isMkt && !isSuperAdmin && order.isAdminApproved !== true) {
+        return res.status(403).json({ error: '🔒 সুপার এডমিন কর্তৃক পেমেন্ট অনুমোদনের পর এই অর্ডারটি আনলক হবে।' });
+      }
+      return res.json({ order });
+    } else {
+      const o = (inMemoryStore.online_orders || []).find(
+        (x) => x.id === id || x.orderNumber === id || x.id === cleanId || x.orderNumber === cleanId
+      );
+      if (!o) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+      }
+      if (!isSuperAdmin && o.userId !== userId) {
+        return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি শুধুমাত্র নিজের অর্ডারের তথ্য দেখতে পারবেন।' });
+      }
+      const isMkt = o.orderSource === 'marketplace' || Boolean(o.masterOrderId);
+      if (isMkt && !isSuperAdmin && o.isAdminApproved !== true) {
+        return res.status(403).json({ error: '🔒 সুপার এডমিন কর্তৃক পেমেন্ট অনুমোদনের পর এই অর্ডারটি আনলক হবে।' });
+      }
+      return res.json({ order: o });
+    }
+  } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
@@ -2111,12 +2175,23 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
       let existingOrder: any = null;
       if (pool) {
         const chk = await pool.query(
-          'SELECT order_source, master_order_id, is_admin_approved, admin_approval_status, is_rejected_by_admin FROM online_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
+          'SELECT user_id, order_source, master_order_id, is_admin_approved, admin_approval_status, is_rejected_by_admin FROM online_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
           [orderId, cleanOrderId]
         );
         if (chk.rows.length > 0) existingOrder = chk.rows[0];
       } else {
         existingOrder = (inMemoryStore.online_orders || []).find((o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId);
+      }
+
+      if (!existingOrder) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+      }
+
+      const orderOwner = existingOrder.user_id || existingOrder.userId;
+      if (!isSuperAdmin && orderOwner !== userId) {
+        return res.status(403).json({
+          error: 'অ্যাক্সেস অস্বীকৃত: আপনি শুধুমাত্র নিজের অর্ডারের ডেলিভারি স্ট্যাটাস পরিবর্তন করতে পারবেন।',
+        });
       }
 
       const isMktOrder = existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId));
@@ -2148,7 +2223,7 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
              collected_at = CASE WHEN $9 = true THEN $10 ELSE collected_at END,
              updated_at = $10 
          WHERE (id = $11 OR order_number = $11 OR id = $14 OR order_number = $14) 
-           AND (user_id = $12 OR user_id = 'default_vendor' OR user_id = 'vendor_official' OR user_id IS NULL OR $13 = true) 
+           AND (user_id = $12 OR $13 = true) 
          RETURNING *`,
         [
           orderStatus || null,
@@ -2173,6 +2248,9 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           (o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId
         );
         if (order) {
+          if (!isSuperAdmin && order.userId !== userId) {
+            return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি শুধুমাত্র নিজের অর্ডারের ডেলিভারি স্ট্যাটাস পরিবর্তন করতে পারবেন।' });
+          }
           if (orderStatus) order.orderStatus = orderStatus;
           if (courierName !== undefined) order.courierName = courierName;
           if (courierTrackingCode !== undefined) order.courierTrackingCode = courierTrackingCode;
@@ -2273,13 +2351,13 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
     if (pool) {
       await ensureOnlineOrdersSchema(pool);
       const chk = await pool.query(
-        'SELECT * FROM online_orders WHERE (id = $1 OR order_number = $1) AND (user_id = $2 OR user_id = \'default_vendor\' OR user_id IS NULL OR $3 = true) LIMIT 1',
+        'SELECT * FROM online_orders WHERE (id = $1 OR order_number = $1) AND (user_id = $2 OR $3 = true) LIMIT 1',
         [orderId, userId, isSuperAdmin]
       );
       if (chk.rows.length > 0) existingOrder = chk.rows[0];
     } else {
       existingOrder = (inMemoryStore.online_orders || []).find(
-        (o) => (o.id === orderId || o.orderNumber === orderId) && (o.userId === userId || o.userId === 'default_vendor' || !o.userId || isSuperAdmin)
+        (o) => (o.id === orderId || o.orderNumber === orderId) && (o.userId === userId || isSuperAdmin)
       );
     }
 

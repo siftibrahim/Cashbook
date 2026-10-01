@@ -875,17 +875,25 @@ router.post('/checkout', async (req: Request, res: Response) => {
     for (const item of items) {
       const pId = item.id || item.productId;
       let vId = item.vendorId || item.userId;
-      if ((!vId || vId === 'vendor_official') && pool) {
+      let pDesc = item.description || (item as any).productDescription || '';
+      let pName = item.name || (item as any).productName || 'পণ্য';
+      if ((!vId || vId === 'vendor_official' || !pDesc) && pool) {
         try {
-          const pRes = await pool.query('SELECT user_id FROM products WHERE id = $1', [pId]);
-          if (pRes.rows.length > 0 && pRes.rows[0].user_id) {
-            vId = pRes.rows[0].user_id;
+          const pRes = await pool.query('SELECT user_id, description, name FROM products WHERE id = $1', [pId]);
+          if (pRes.rows.length > 0) {
+            if (pRes.rows[0].user_id) vId = pRes.rows[0].user_id;
+            if (!pDesc && pRes.rows[0].description) pDesc = pRes.rows[0].description;
+            if (!pName && pRes.rows[0].name) pName = pRes.rows[0].name;
           }
         } catch {}
       }
-      if ((!vId || vId === 'vendor_official') && inMemoryStore.products) {
+      if ((!vId || vId === 'vendor_official' || !pDesc) && inMemoryStore.products) {
         const found = inMemoryStore.products.find(p => p.id === pId);
-        if (found && found.userId) vId = found.userId;
+        if (found) {
+          if (found.userId) vId = found.userId;
+          if (!pDesc && found.description) pDesc = found.description;
+          if (!pName && found.name) pName = found.name;
+        }
       }
       if (!vId) vId = 'vendor_official';
 
@@ -899,11 +907,20 @@ router.post('/checkout', async (req: Request, res: Response) => {
 
       vendorItemsMap[vId].push({
         productId: pId,
-        name: item.name,
+        vendorId: vId,
+        name: pName,
+        productName: pName,
+        description: pDesc,
+        productDescription: pDesc,
+        variant: item.variant || item.selectedVariant || (item as any).size || (item as any).color || '',
+        size: item.size || (item as any).variantSize || '',
+        color: item.color || (item as any).variantColor || '',
         unit: item.unit || 'পিস',
         unitPrice,
+        price: unitPrice,
         quantity: qty,
         subtotal,
+        total: subtotal,
         imageUrl: item.imageUrl || '',
       });
     }
@@ -917,7 +934,7 @@ router.post('/checkout', async (req: Request, res: Response) => {
 
     const now = Date.now();
     const masterOrderId = `mkt_ord_${now}_${Math.random().toString(36).substring(2, 7)}`;
-    const masterOrderNumber = `MKT-${Math.floor(100000 + Math.random() * 900000)}`;
+    const masterOrderNumber = `PAY-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const initialPaymentStatus = isAutoPaid 
       ? 'paid' 
@@ -930,7 +947,8 @@ router.post('/checkout', async (req: Request, res: Response) => {
     const initialAdminApprovalStatus = isAutoPaid 
       ? 'approved' 
       : (isPaymently ? 'pending_payment' : 'pending_approval');
-    const initialIsHiddenFromVendor = isPaymently && !isAutoPaid;
+    const initialIsHiddenFromVendor = !isAutoPaid;
+    const initialIsLockedForVendor = !isAutoPaid;
     const initialSubOrderStatus = isAutoPaid 
       ? 'confirmed' 
       : (isPaymently ? 'pending_payment' : 'pending');
@@ -1017,7 +1035,7 @@ router.post('/checkout', async (req: Request, res: Response) => {
             cleanTrxId,
             cleanSenderPhone,
             normalizedPaymentMethod === 'cod' ? 0 : vTotal,
-            `[🔒 লক - সুপার এডমিনের পেমেন্ট অনুমোদনের অপেক্ষায়] সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${masterOrderNumber}। ${notes}`.trim(),
+            (notes || '').trim(),
             'marketplace',
             masterOrderId,
             'unsettled',
@@ -1039,6 +1057,7 @@ router.post('/checkout', async (req: Request, res: Response) => {
             adminApprovalStatus: initialAdminApprovalStatus,
             isAdminApproved: isAutoPaid,
             isLockedForVendor: !isAutoPaid,
+            isHiddenFromVendor: initialIsHiddenFromVendor,
           });
         }
 
@@ -1133,7 +1152,7 @@ router.post('/checkout', async (req: Request, res: Response) => {
           isHiddenFromVendor: initialIsHiddenFromVendor,
           trxId: cleanTrxId,
           senderPhone: cleanSenderPhone,
-          notes: `[🔒 লক - সুপার এডমিনের পেমেন্ট অনুমোদনের অপেক্ষায়] সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${masterOrderNumber}। ${notes}`.trim(),
+          notes: (notes || '').trim(),
           createdAt: now,
           updatedAt: now,
         };
@@ -2181,14 +2200,15 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
             WHERE id = $3::text
           `, [noteText, now, targetOrder.id]);
 
-          // 2. Unlock ALL sub-orders for vendors (keep order_status = 'pending' so it appears under 'নতুন অর্ডার' for vendor to accept)!
+          // 2. Unlock ALL sub-orders for vendors with confirmed status and unhide from vendor
           const subRes = await client.query(`
             UPDATE online_orders 
             SET admin_approval_status = 'approved',
                 is_admin_approved = TRUE,
                 payment_status = 'paid',
-                order_status = 'pending',
+                order_status = 'confirmed',
                 is_locked_for_vendor = FALSE,
+                is_hidden_from_vendor = FALSE,
                 updated_at = $1::bigint
             WHERE master_order_id = $2::text OR master_order_id = $3::text OR id = $2::text OR id = $4::text
             RETURNING id, order_number, user_id, total_amount
@@ -2202,8 +2222,9 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
             SET admin_approval_status = 'approved',
                 is_admin_approved = TRUE,
                 payment_status = 'paid',
-                order_status = 'pending',
+                order_status = 'confirmed',
                 is_locked_for_vendor = FALSE,
+                is_hidden_from_vendor = FALSE,
                 notes = CASE 
                   WHEN $1::text IS NOT NULL AND $1::text != '' 
                   THEN COALESCE(notes, '') || ' [এডমিন পেমেন্ট অনুমোদন: ' || $1::text || ']' 
@@ -2249,8 +2270,9 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
           sub.adminApprovalStatus = 'approved';
           sub.isAdminApproved = true;
           sub.isLockedForVendor = false;
+          sub.isHiddenFromVendor = false;
           sub.paymentStatus = 'paid';
-          sub.orderStatus = 'pending';
+          sub.orderStatus = 'confirmed';
           sub.notes = `[✅ সুপার এডমিন কর্তৃক পেমেন্ট ভেরিফাইড] ${sub.notes || ''}`.trim();
           sub.updatedAt = now;
           targetOrder = sub;
@@ -2264,13 +2286,14 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
         ord.overallStatus = 'confirmed';
         ord.updatedAt = now;
 
-        subOrders = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === ord.id);
+        subOrders = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === ord.id || o.masterOrderId === ord.orderNumber);
         for (const sub of subOrders) {
           sub.adminApprovalStatus = 'approved';
           sub.isAdminApproved = true;
           sub.isLockedForVendor = false;
+          sub.isHiddenFromVendor = false;
           sub.paymentStatus = 'paid';
-          sub.orderStatus = 'pending';
+          sub.orderStatus = 'confirmed';
           sub.notes = `[✅ সুপার এডমিন কর্তৃক পেমেন্ট ভেরিফাইড] ${sub.notes || ''}`.trim();
           sub.updatedAt = now;
 

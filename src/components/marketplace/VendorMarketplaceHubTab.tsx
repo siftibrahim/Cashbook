@@ -33,6 +33,11 @@ import {
   Truck,
   MessageSquare,
   Percent,
+  Eye,
+  User,
+  Phone,
+  MapPin,
+  Calendar,
 } from 'lucide-react';
 import { Product, OnlineOrder, StoreProfile, VendorPayoutRequest, VendorWalletSummary } from '../../types';
 import { marketplaceApi } from '../../services/marketplaceService';
@@ -82,6 +87,7 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
 
   // Commerce Modals
+  const [viewingDetailOrder, setViewingDetailOrder] = useState<OnlineOrder | null>(null);
   const [printingInvoiceOrder, setPrintingInvoiceOrder] = useState<any | null>(null);
   const [courierManagingOrder, setCourierManagingOrder] = useState<any | null>(null);
   const [smsNotifyingOrder, setSmsNotifyingOrder] = useState<any | null>(null);
@@ -967,13 +973,20 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                             const u = it.unit || 'পিস';
                             const p = Number(it.unitPrice || it.price || 0);
                             const sub = Number(it.subtotal || p * q);
+                            const vStr = it.variant || [it.size, it.color].filter(Boolean).join('/');
                             return (
                               <span key={iIdx} className="bg-slate-100 text-slate-800 text-[11px] px-2 py-0.5 rounded-md font-medium border border-slate-200">
-                                📦 {it.name} {q}{u} ({p} × {q} = {sub}৳)
+                                📦 {it.name || it.productName} {q}{u} ({p} × {q} = {sub}৳)
+                                {vStr && <span className="text-teal-800 font-bold ml-1">[{vStr}]</span>}
                               </span>
                             );
                           })}
                         </div>
+                      )}
+                      {ord.notes && (
+                        <p className="text-[11px] text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 mt-1 inline-block">
+                          <strong>কাস্টমার নোট:</strong> {ord.notes}
+                        </p>
                       )}
                       {isLocked && (
                         <p className="text-[10px] text-amber-800 font-medium">
@@ -993,17 +1006,38 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                       </div>
 
                       {isLocked ? (
-                        <button
-                          type="button"
-                          disabled
-                          className="px-3 py-1.5 bg-slate-100 border border-slate-300 text-slate-400 rounded-lg text-xs font-bold flex items-center gap-1 cursor-not-allowed opacity-75"
-                          title="সুপার এডমিন কর্তৃক পেমেন্ট যাচাই সম্পন্ন না হওয়া পর্যন্ত স্ট্যাটাস পরিবর্তন লক থাকবে"
-                        >
-                          <Lock className="w-3.5 h-3.5 text-slate-400" />
-                          <span>লক (স্ট্যাটাস পরিবর্তন বন্ধ)</span>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setViewingDetailOrder(ord)}
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 border border-indigo-200"
+                            title="অর্ডারের তথ্য দেখুন"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-indigo-700" />
+                            <span>বিস্তারিত</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled
+                            className="px-3 py-1.5 bg-slate-100 border border-slate-300 text-slate-400 rounded-lg text-xs font-bold flex items-center gap-1 cursor-not-allowed opacity-75"
+                            title="সুপার এডমিন কর্তৃক পেমেন্ট যাচাই সম্পন্ন না হওয়া পর্যন্ত স্ট্যাটাস পরিবর্তন লক থাকবে"
+                          >
+                            <Lock className="w-3.5 h-3.5 text-slate-400" />
+                            <span>লক (পেমেন্ট যাচাই বাকি)</span>
+                          </button>
+                        </div>
                       ) : (
                         <>
+                          <button
+                            type="button"
+                            onClick={() => setViewingDetailOrder(ord)}
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 border border-indigo-200"
+                            title="অর্ডারের সকল তথ্য ও পণ্যের বিস্তারিত দেখুন"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-indigo-700" />
+                            <span>বিস্তারিত</span>
+                          </button>
+
                           <select
                             value={currentStatus}
                             disabled={updatingOrderId === ord.id}
@@ -1522,6 +1556,292 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
           </div>
         </div>
       )}
+
+      {/* VENDOR MARKETPLACE ORDER DETAILS MODAL (REQUIREMENT 3: ALL ORDER DETAILS) */}
+      {viewingDetailOrder && (() => {
+        const ord = viewingDetailOrder;
+        const isLocked = ord.isLockedForVendor === true || ord.adminApprovalStatus === 'pending_approval' || !ord.isAdminApproved;
+        const currentStatus = localOrderStatuses[ord.id] || ord.orderStatus || 'pending';
+        const statusLabelMap: Record<string, string> = {
+          pending: '⏳ পেন্ডিং (নতুন অর্ডার)',
+          confirmed: '✅ কনফার্মড',
+          processing: '📦 প্রস্তুত হচ্ছে (প্রসেসিং)',
+          shipped: '🚚 কুরিয়ারে পাঠানো হয়েছে (শিপড)',
+          delivered: '🎉 ডেলিভারি সম্পন্ন (Delivered)',
+          cancelled: '❌ অর্ডার বাতিল (Cancelled)',
+        };
+
+        const createdDate = ord.createdAt ? new Date(Number(ord.createdAt)) : new Date();
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <div className="bg-white rounded-3xl w-full max-w-2xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
+              {/* Header */}
+              <div className="p-4 sm:p-5 bg-gradient-to-r from-teal-900 via-teal-800 to-teal-950 text-white flex items-center justify-between gap-3 shrink-0">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono font-black text-sm bg-white/10 px-2.5 py-0.5 rounded-lg border border-white/20">
+                      #{ord.orderNumber}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-200 border border-teal-400/30 text-[10px] font-black">
+                      🏛️ সেন্ট্রাল মল অর্ডার
+                    </span>
+                    {ord.masterOrderId && (
+                      <span className="text-[10px] font-mono text-teal-200 opacity-90">
+                        (মাস্টার: #{ord.masterOrderId})
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="font-bold text-sm sm:text-base text-teal-50">
+                    অর্ডার ও ডেলিভারি বিস্তারিত
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewingDetailOrder(null)}
+                  className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
+                {/* 1. Status & Payment Badge Summary */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] text-slate-500 font-bold">পেমেন্ট স্ট্যাটাস</p>
+                      <p className="font-black text-sm text-slate-900 mt-0.5">
+                        {ord.paymentStatus === 'paid' ? '✅ পেইড (অনুমোদিত)' : ord.paymentStatus === 'unpaid' ? 'ক্যাশ অন ডেলিভারি' : 'যাচাইকৃত'}
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-800 font-black text-[11px]">
+                      {isLocked ? '🔒 লক' : '✅ আনলকড'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] text-slate-500 font-bold">ডেলিভারি স্ট্যাটাস</p>
+                      <p className="font-black text-sm text-teal-900 mt-0.5">
+                        {statusLabelMap[currentStatus] || currentStatus}
+                      </p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-lg bg-teal-100 text-teal-800 font-bold text-[10px]">
+                      {ord.courierName || 'কুরিয়ার নির্ধারিত হয়নি'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Customer Information */}
+                <div className="p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <h4 className="font-black text-slate-900 flex items-center gap-1.5 text-xs">
+                      <User className="w-4 h-4 text-teal-700" />
+                      <span>গ্রাহকের তথ্য ও ডেলিভারি ঠিকানা</span>
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={`tel:${ord.customerPhone}`}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-[11px] font-bold flex items-center gap-1 transition"
+                      >
+                        <Phone className="w-3 h-3 text-emerald-600" />
+                        <span>কল দিন</span>
+                      </a>
+                      <a
+                        href={`https://wa.me/88${(ord.customerPhone || '').replace(/\D/g, '')}?text=${encodeURIComponent(`আসসালামু আলাইকুম ${ord.customerName}, আপনার অর্ডার #${ord.orderNumber} এর ডেলিভারি বিষয়ে যোগাযোগ করছি।`)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition shadow-2xs"
+                      >
+                        <MessageSquare className="w-3 h-3" />
+                        <span>WhatsApp</span>
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-700 pt-1">
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">নাম:</span>
+                      <strong className="text-slate-900 text-sm">{ord.customerName}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">মোবাইল:</span>
+                      <strong className="text-slate-900 font-mono text-sm">{ord.customerPhone}</strong>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <span className="text-slate-400 block text-[10px]">ডেলিভারি ঠিকানা:</span>
+                      <p className="text-slate-800 font-medium leading-relaxed bg-white p-2 rounded-xl border border-slate-200 mt-0.5">
+                        <MapPin className="w-3.5 h-3.5 text-rose-500 inline mr-1" />
+                        {ord.customerAddress}
+                        {ord.deliveryArea && (
+                          <span className="ml-1 text-slate-500 font-normal">
+                            ({String(ord.deliveryArea) === 'dhaka' || ord.deliveryArea === 'inside_dhaka' ? 'ঢাকা সিটির ভেতরে' : 'ঢাকার বাইরে'})
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Customer Notes */}
+                  {ord.notes && (
+                    <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-950">
+                      <span className="font-bold text-[11px] block">📝 গ্রাহকের বিশেষ নির্দেশনা / নোট:</span>
+                      <p className="mt-0.5 leading-relaxed text-amber-900">{ord.notes}</p>
+                    </div>
+                  )}
+
+                  {/* Order Date */}
+                  <div className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                    <span>অর্ডারের সময়: {createdDate.toLocaleDateString('bn-BD')} | {createdDate.toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                </div>
+
+                {/* 3. Ordered Products Details */}
+                <div className="space-y-2">
+                  <h4 className="font-black text-slate-900 flex items-center gap-1.5 text-xs">
+                    <Package className="w-4 h-4 text-teal-700" />
+                    <span>অর্ডারকৃত পণ্যসমূহ (আপনার স্টোরের পণ্য)</span>
+                  </h4>
+
+                  <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                    {Array.isArray(ord.items) && ord.items.map((it: any, idx: number) => {
+                      const q = Number(it.quantity) || 1;
+                      const u = it.unit || 'পিস';
+                      const p = Number(it.unitPrice || it.price || 0);
+                      const sub = Number(it.subtotal || it.total || p * q);
+                      const desc = it.description || it.productDescription || '';
+                      const variantStr = it.variant || [it.size, it.color].filter(Boolean).join(' • ');
+
+                      return (
+                        <div key={idx} className="p-3 hover:bg-slate-50/60 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="space-y-1 max-w-md">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-900 text-xs sm:text-sm">
+                                {it.name || it.productName || 'পণ্য'}
+                              </span>
+                              {variantStr && (
+                                <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-bold">
+                                  ভ্যারিয়েন্ট: {variantStr}
+                                </span>
+                              )}
+                            </div>
+                            {desc && (
+                              <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+                                {desc}
+                              </p>
+                            )}
+                            <div className="text-[11px] text-slate-600 font-mono">
+                              মূল্য: ৳{p} × {q}{u}
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <span className="text-sm font-black text-slate-900 block font-mono">৳{sub}</span>
+                            <span className="text-[10px] text-slate-400 font-medium">মোট আইটেম বিল</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 4. Financial Calculations */}
+                <div className="p-3.5 bg-teal-50/50 rounded-2xl border border-teal-200/80 space-y-1.5">
+                  <div className="flex justify-between text-slate-600 text-[11px]">
+                    <span>পণ্য সাবটোটাল:</span>
+                    <span className="font-mono font-bold text-slate-800">৳{ord.subtotal || 0}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600 text-[11px]">
+                    <span>ডেলিভারি চার্জ (আপনার অংশের অংশীদারিত্ব):</span>
+                    <span className="font-mono font-bold text-slate-800">৳{ord.deliveryCharge || 0}</span>
+                  </div>
+                  <div className="flex justify-between text-teal-950 font-black text-sm pt-1 border-t border-teal-200">
+                    <span>সর্বমোট আদায়যোগ্য / প্রদেয় বিল:</span>
+                    <span className="font-mono text-base text-teal-900">৳{ord.totalAmount}</span>
+                  </div>
+                </div>
+
+                {/* 5. Delivery Status Change Section */}
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                  <h4 className="font-black text-slate-900 flex items-center gap-1.5 text-xs">
+                    <Truck className="w-4 h-4 text-teal-700" />
+                    <span>ডেলিভারি স্ট্যাটাস আপডেট করুন</span>
+                  </h4>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <select
+                      value={currentStatus}
+                      disabled={isLocked || updatingOrderId === ord.id}
+                      onChange={async (e) => {
+                        const nextSt = e.target.value as OnlineOrder['orderStatus'];
+                        setUpdatingOrderId(ord.id);
+                        try {
+                          await storeApi.updateOrderStatus(ord.id, nextSt);
+                          ord.orderStatus = nextSt;
+                          setLocalOrderStatuses((prev) => ({ ...prev, [ord.id]: nextSt }));
+                          if (onShowToast) {
+                            onShowToast(`✅ অর্ডার #${ord.orderNumber} এর স্ট্যাটাস "${statusLabelMap[nextSt] || nextSt}" এ আপডেট হয়েছে!`);
+                          }
+                          loadWalletData();
+                        } catch (err: any) {
+                          if (onShowToast) onShowToast(`❌ ${err?.message || 'আপডেট ব্যর্থ'}`);
+                        } finally {
+                          setUpdatingOrderId(null);
+                        }
+                      }}
+                      className="px-3 py-2 bg-white border border-teal-400 text-teal-950 rounded-xl text-xs font-black focus:ring-2 focus:ring-teal-600 cursor-pointer disabled:opacity-50"
+                    >
+                      <option value="pending">⏳ পেন্ডিং (নতুন অর্ডার)</option>
+                      <option value="confirmed">✅ কনফার্মড</option>
+                      <option value="processing">📦 প্রস্তুত হচ্ছে (প্রসেসিং)</option>
+                      <option value="shipped">🚚 কুরিয়ারে পাঠানো হয়েছে (শিপড)</option>
+                      <option value="delivered">🎉 ডেলিভারি সম্পন্ন (Delivered)</option>
+                      <option value="cancelled">❌ অর্ডার বাতিল (Cancelled)</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCourierManagingOrder(ord);
+                        setViewingDetailOrder(null);
+                      }}
+                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Truck className="w-3.5 h-3.5 text-blue-700" />
+                      <span>{ord.courierName ? `কুরিয়ার: ${ord.courierName}` : '+ কুরিয়ার যুক্ত করুন'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPrintingInvoiceOrder(ord);
+                        setViewingDetailOrder(null);
+                      }}
+                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-teal-800" />
+                      <span>মেমো প্রিন্ট</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setViewingDetailOrder(null)}
+                  className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs"
+                >
+                  বন্ধ করুন
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* INVOICE PRINT MODAL */}
       {printingInvoiceOrder && (
