@@ -1361,6 +1361,10 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS is_admin_approved BOOLEAN DEFAULT FALSE;
       ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS is_rejected_by_admin BOOLEAN DEFAULT FALSE;
       ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS admin_rejection_reason TEXT;
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS courier_name VARCHAR(100);
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS courier_tracking_code VARCHAR(100);
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS return_reason TEXT;
+      ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(12, 2) DEFAULT 0;
       CREATE INDEX IF NOT EXISTS idx_mkt_orders_phone ON marketplace_master_orders(customer_phone);
       CREATE INDEX IF NOT EXISTS idx_mkt_orders_created ON marketplace_master_orders(created_at DESC);
 
@@ -2010,7 +2014,88 @@ function seedDefaultDataInMemory() {
   };
 
   inMemoryStore.staff = [];
+  if (!Array.isArray(inMemoryStore.admin_activity_logs) || inMemoryStore.admin_activity_logs.length === 0) {
+    inMemoryStore.admin_activity_logs = [
+      {
+        id: 'log_system_init',
+        adminEmail: 'siftibrahim@gmail.com',
+        action: 'SYSTEM_BOOT',
+        targetEntity: 'System',
+        targetId: 'system_core',
+        targetName: 'TWING হিসাবি ক্লাউড',
+        details: 'সুপার অ্যাডমিন সিকিউরিটি, সেন্ট্রাল মার্কেটপ্লেস ও অডিট ইঞ্জিন সক্রিয় করা হয়েছে।',
+        timestamp: Date.now() - 3600000,
+      },
+    ];
+  }
   saveInMemoryStoreToDisk();
+}
+
+export interface AuditLogEntryInput {
+  id?: string;
+  adminEmail?: string;
+  action: string;
+  targetEntity?: string;
+  targetId?: string;
+  targetName?: string;
+  details: string;
+  timestamp?: number;
+}
+
+/**
+ * Unified helper to record Super Admin & Staff Audit Logs in both PostgreSQL and Local Persistent Store
+ */
+export async function recordAdminAuditLog(entry: AuditLogEntryInput): Promise<any> {
+  const now = entry.timestamp || Date.now();
+  const id = entry.id || `log_${now}_${Math.random().toString(36).substring(2, 7)}`;
+  const adminEmail = (entry.adminEmail || 'admin@twing.com').trim();
+  const action = (entry.action || 'ADMIN_ACTION').trim();
+  const targetEntity = (entry.targetEntity || 'System').trim();
+  const targetId = entry.targetId ? String(entry.targetId).trim() : '';
+  const targetName = entry.targetName ? String(entry.targetName).trim() : '';
+  const details = (entry.details || '').trim();
+
+  const logRecord = {
+    id,
+    adminEmail,
+    action,
+    targetEntity,
+    targetId,
+    targetName,
+    details,
+    timestamp: now,
+  };
+
+  // 1. Always record in inMemoryStore & persist to disk for zero data loss
+  try {
+    if (!Array.isArray(inMemoryStore.admin_activity_logs)) {
+      inMemoryStore.admin_activity_logs = [];
+    }
+    inMemoryStore.admin_activity_logs = [
+      logRecord,
+      ...inMemoryStore.admin_activity_logs.filter((x: any) => x && x.id !== id),
+    ].slice(0, 500);
+    saveInMemoryStoreToDisk();
+  } catch (memErr) {
+    console.warn('Could not write audit log to inMemoryStore:', memErr);
+  }
+
+  // 2. Also insert into PostgreSQL if connected
+  const activePool = getDbPool();
+  if (activePool) {
+    try {
+      await activePool.query(
+        `INSERT INTO admin_activity_logs (id, admin_email, action, target_entity, target_id, target_name, details, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO NOTHING`,
+        [id, adminEmail, action, targetEntity, targetId || null, targetName || null, details, now]
+      );
+    } catch (dbErr) {
+      console.warn('Could not write audit log to PostgreSQL:', dbErr);
+    }
+  }
+
+  return logRecord;
 }
 
 /**

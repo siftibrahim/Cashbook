@@ -368,9 +368,46 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return cart.reduce((acc, curr) => acc + (curr.product.salePrice || 0) * curr.quantity, 0);
   }, [cart]);
 
-  const deliveryCharge = deliveryArea === 'inside_dhaka'
+  // Model 1: Group items by distinct vendor packages
+  const vendorPackages = useMemo(() => {
+    const map = new Map<string, {
+      vendorId: string;
+      vendorShopName: string;
+      vendorPhone?: string;
+      vendorAddress?: string;
+      items: MarketplaceCartItem[];
+      packageSubtotal: number;
+    }>();
+
+    cart.forEach((item) => {
+      const vId = item.product.vendorId || (item.product as any).userId || 'vendor_official';
+      const vName = item.product.vendorShopName || (item.product as any).shopName || 'অফিসিয়াল ভেন্ডর';
+      if (!map.has(vId)) {
+        map.set(vId, {
+          vendorId: vId,
+          vendorShopName: vName,
+          vendorPhone: item.product.vendorPhone,
+          vendorAddress: item.product.vendorAddress,
+          items: [],
+          packageSubtotal: 0,
+        });
+      }
+      const pack = map.get(vId)!;
+      pack.items.push(item);
+      pack.packageSubtotal += (item.product.salePrice || 0) * item.quantity;
+    });
+
+    return Array.from(map.values());
+  }, [cart]);
+
+  const vendorPackageCount = vendorPackages.length;
+
+  const unitDeliveryFee = deliveryArea === 'inside_dhaka'
     ? Number(marketplaceSettings.deliveryFeeDhaka || 70)
     : Number(marketplaceSettings.deliveryFeeOutside || 130);
+
+  // Model 1: Each distinct vendor parcel gets its own delivery fee (separate shipments from each vendor)
+  const deliveryCharge = cart.length > 0 ? (vendorPackageCount || 1) * unitDeliveryFee : 0;
 
   const grandTotal = subtotal + (cart.length > 0 ? deliveryCharge : 0);
 
@@ -462,13 +499,13 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       const pType = urlParams.get('type');
       const orderId = urlParams.get('order_id') || urlParams.get('payment_id');
 
-      if (pStatus === 'cancelled' && (pType === 'marketplace' || (orderId && orderId.includes('mkt')))) {
-        showToast(pMsg ? decodeURIComponent(pMsg) : '⚠️ পেমেন্ট বাতিল করা হয়েছে। কোনো অর্ডার গৃহীত হয়নি।');
+      if ((pStatus === 'cancelled' || pStatus === 'failed') && (pType === 'marketplace' || (orderId && (orderId.includes('mkt') || orderId.startsWith('PAY-'))))) {
+        showToast(pMsg ? decodeURIComponent(pMsg) : '⚠️ পেমেন্ট বাতিল বা ব্যর্থ হয়েছে। কোনো অর্ডার গৃহীত হয়নি।');
         if (orderId) {
-          marketplaceApi.cancelOrder(orderId, 'গ্রাহক পেমেন্ট বাতিল করেছেন').catch(() => {});
+          marketplaceApi.cancelOrder(orderId, 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন').catch(() => {});
         }
         window.history.replaceState({}, '', window.location.pathname);
-      } else if (pStatus === 'success' && (pType === 'marketplace' || (orderId && orderId.includes('mkt')))) {
+      } else if (pStatus === 'success' && (pType === 'marketplace' || (orderId && (orderId.includes('mkt') || orderId.startsWith('PAY-'))))) {
         showToast('🎉 আপনার অনলাইন পেমেন্ট সফলভাবে সম্পন্ন হয়েছে!');
         window.history.replaceState({}, '', window.location.pathname);
       }
@@ -650,11 +687,20 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       notes: orderNotes.trim(),
       isPhoneVerified: true,
       deviceToken: devRecord?.deviceToken || `dev_${standardPhone}`,
+      deliveryModel: 'model_1_per_vendor',
+      vendorPackageCount,
+      unitDeliveryFee,
+      totalDeliveryCharge: deliveryCharge,
       items: cart.map((it) => ({
         productId: it.product.id,
-        vendorId: it.product.vendorId,
+        vendorId: it.product.vendorId || (it.product as any).userId,
         name: it.product.name,
+        description: it.product.description || '',
+        variant: (it as any).variant || (it.product as any).variant || '',
+        size: (it as any).size || (it.product as any).size || '',
+        color: (it as any).color || (it.product as any).color || '',
         salePrice: it.product.salePrice,
+        price: it.product.salePrice || (it.product as any).price,
         quantity: it.quantity,
         unit: it.product.unit,
         imageUrl: it.product.imageUrl,
@@ -835,7 +881,7 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
   }, [marketplaceSettings, paymentSettings]);
 
   return (
-    <div className="w-full min-h-[100dvh] bg-[#F8FAFC] flex flex-col justify-between overflow-x-hidden relative">
+    <div className="w-full min-h-screen bg-[#F8FAFC] flex flex-col justify-between overflow-x-clip relative">
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (
@@ -1357,62 +1403,114 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                     <p className="text-xs text-slate-400">মার্কেটপ্লেস থেকে পছন্দের পণ্য যোগ করুন।</p>
                   </div>
                 ) : !isCheckoutStep ? (
-                  /* Step 1: Cart Items List */
-                  <div className="space-y-3">
-                    {cart.map((item) => (
+                  /* Step 1: Cart Items List (Grouped by Vendor Packages under Model 1) */
+                  <div className="space-y-4">
+                    {/* Multi-Vendor Model 1 Notice */}
+                    {vendorPackageCount > 1 ? (
+                      <div className="p-3 rounded-2xl bg-teal-50 border border-teal-200/90 text-teal-900 text-xs flex items-start gap-2.5 shadow-2xs">
+                        <div className="w-6 h-6 rounded-lg bg-teal-600 text-white flex items-center justify-center shrink-0 font-bold text-xs mt-0.5">
+                          {vendorPackageCount}
+                        </div>
+                        <div className="flex-1 space-y-0.5">
+                          <p className="font-bold text-teal-950">
+                            আলাদা পার্সেল ডেলিভারি ({vendorPackageCount}টি প্যাকেজ)
+                          </p>
+                          <p className="text-[11px] text-teal-800 leading-relaxed">
+                            আপনি {vendorPackageCount}টি ভিন্ন ভেন্ডরের পণ্য নির্বাচন করেছেন। মডেল ১ নীতি অনুযায়ী প্রতিটি ভেন্ডর তাদের নিজস্ব গোডাউন থেকে আলাদা কুরিয়ারে সরাসরি আপনার ঠিকানায় পার্সেল পাঠাবে।
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="px-2 py-1 flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+                        <Store className="w-3.5 h-3.5 text-teal-600" />
+                        <span>১টি দোকান থেকে ১টি পার্সেল ডেলিভারি</span>
+                      </div>
+                    )}
+
+                    {/* Grouped Vendor Packages */}
+                    {vendorPackages.map((pack, idx) => (
                       <div
-                        key={item.product.id}
-                        className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-3"
+                        key={pack.vendorId}
+                        className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs space-y-2.5"
                       >
-                        <div className="min-w-0 flex-1">
-                          <h4 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
-                            {item.product.name}
-                          </h4>
-                          <div className="text-[10px] text-teal-800 font-bold truncate">
-                            🏪 {item.product.vendorShopName || 'অফিসিয়াল ভেন্ডর'}
-                          </div>
-                          <div className="text-xs text-slate-500 mt-0.5">
-                            ৳{formatMoney(item.product.salePrice)} x {item.quantity} ={' '}
-                            <span className="font-bold text-teal-800">
-                              ৳{formatMoney(item.product.salePrice * item.quantity)}
+                        {/* Package Header */}
+                        <div className="px-3.5 py-2.5 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="w-5 h-5 rounded-md bg-teal-800 text-white font-bold text-[10px] flex items-center justify-center">
+                              #{idx + 1}
+                            </span>
+                            <span className="font-black text-slate-800 truncate max-w-[180px]">
+                              🏪 {pack.vendorShopName}
                             </span>
                           </div>
+                          <span className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                            ডেলিভারি ফি: ৳{unitDeliveryFee}
+                          </span>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          <div className="flex items-center bg-white border border-slate-200 rounded-xl p-0.5">
-                            <button
-                              type="button"
-                              onClick={() => updateQuantity(item.product.id, -1)}
-                              className="w-6 h-6 flex items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-bold"
+                        {/* Items under this vendor package */}
+                        <div className="p-3 space-y-2.5">
+                          {pack.items.map((item) => (
+                            <div
+                              key={item.product.id}
+                              className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 flex items-center justify-between gap-3"
                             >
-                              -
-                            </button>
-                            <span className="w-6 text-center text-xs font-bold text-slate-800">
-                              {item.quantity}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => updateQuantity(item.product.id, 1)}
-                              className="w-6 h-6 flex items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-bold"
-                            >
-                              +
-                            </button>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeFromCart(item.product.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                              <div className="min-w-0 flex-1">
+                                <h4 className="font-bold text-xs text-slate-900 truncate">
+                                  {item.product.name}
+                                </h4>
+                                <div className="text-xs text-slate-500 mt-0.5">
+                                  ৳{formatMoney(item.product.salePrice)} x {item.quantity} ={' '}
+                                  <span className="font-bold text-teal-800">
+                                    ৳{formatMoney(item.product.salePrice * item.quantity)}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center bg-white border border-slate-200 rounded-xl p-0.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => updateQuantity(item.product.id, -1)}
+                                    className="w-6 h-6 flex items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-bold"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="w-6 text-center text-xs font-bold text-slate-800">
+                                    {item.quantity}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => updateQuantity(item.product.id, 1)}
+                                    className="w-6 h-6 flex items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-bold"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => removeFromCart(item.product.id)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     ))}
 
                     {/* Delivery Area Selection */}
                     <div className="p-3.5 bg-white border border-slate-200 rounded-2xl space-y-2">
-                      <div className="text-xs font-bold text-slate-800">ডেলিভারি এলাকা নির্বাচন করুন:</div>
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                        <span>ডেলিভারি এলাকা নির্বাচন করুন:</span>
+                        {vendorPackageCount > 1 && (
+                          <span className="text-[10px] text-teal-700 font-semibold">
+                            (প্রতি প্যাকেজ হিসেবে প্রযোজ্য)
+                          </span>
+                        )}
+                      </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <label
                           className={`p-2.5 rounded-xl border flex flex-col cursor-pointer transition ${
@@ -1430,7 +1528,7 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                           />
                           <span>ঢাকা সিটির ভেতরে</span>
                           <span className="text-[11px] font-black text-teal-800 mt-0.5">
-                            ৳ {marketplaceSettings.deliveryFeeDhaka || 70}
+                            ৳ {marketplaceSettings.deliveryFeeDhaka || 70} {vendorPackageCount > 1 ? `× ${vendorPackageCount} = ৳${(marketplaceSettings.deliveryFeeDhaka || 70) * vendorPackageCount}` : ''}
                           </span>
                         </label>
 
@@ -1450,7 +1548,7 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                           />
                           <span>ঢাকার বাইরে</span>
                           <span className="text-[11px] font-black text-teal-800 mt-0.5">
-                            ৳ {marketplaceSettings.deliveryFeeOutside || 130}
+                            ৳ {marketplaceSettings.deliveryFeeOutside || 130} {vendorPackageCount > 1 ? `× ${vendorPackageCount} = ৳${(marketplaceSettings.deliveryFeeOutside || 130) * vendorPackageCount}` : ''}
                           </span>
                         </label>
                       </div>
@@ -1909,9 +2007,19 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                     <span>৳{formatMoney(subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-slate-500">
-                    <span>ডেলিভারি ফি ({deliveryArea === 'inside_dhaka' ? 'ঢাকা' : 'ঢাকার বাইরে'}):</span>
-                    <span>৳{formatMoney(deliveryCharge)}</span>
+                    <span>
+                      ডেলিভারি ফি ({deliveryArea === 'inside_dhaka' ? 'ঢাকা' : 'ঢাকার বাইরে'}
+                      {vendorPackageCount > 1 ? ` • ${vendorPackageCount}টি পার্সেল` : ''}):
+                    </span>
+                    <span className="font-semibold text-slate-700">
+                      {vendorPackageCount > 1 ? `${vendorPackageCount} × ৳${unitDeliveryFee} = ` : ''}৳{formatMoney(deliveryCharge)}
+                    </span>
                   </div>
+                  {vendorPackageCount > 1 && (
+                    <div className="text-[10px] text-teal-800 bg-teal-50 px-2 py-1 rounded-lg border border-teal-200">
+                      📦 মডেল ১: {vendorPackageCount}টি দোকান থেকে আলাদা পার্সেল হিসেবে পাঠানো হবে
+                    </div>
+                  )}
                   <div className="flex justify-between font-black text-sm sm:text-base text-slate-900 pt-1.5 border-t border-slate-200">
                     <span>সর্বমোট:</span>
                     <span className="text-[#004D40]">৳{formatMoney(grandTotal)}</span>
@@ -1969,13 +2077,26 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
       {/* Active Online Gateway Payment Session Modal */}
       <AnimatePresence>
         {activePaymentlySession && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) handleCancelPaymentlySession();
+            }}
+          >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full text-center space-y-4 shadow-2xl border border-slate-200"
+              className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full text-center space-y-4 shadow-2xl border border-slate-200 relative"
             >
+              <button
+                type="button"
+                onClick={handleCancelPaymentlySession}
+                className="absolute top-4 right-4 p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                title="পেমেন্ট বাতিল ও বন্ধ করুন"
+              >
+                <X className="w-4 h-4" />
+              </button>
               <div className="w-14 h-14 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center border border-teal-200 shadow-inner">
                 <CreditCard className="w-7 h-7 animate-pulse text-teal-700" />
               </div>

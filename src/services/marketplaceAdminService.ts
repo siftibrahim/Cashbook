@@ -28,7 +28,14 @@ export const marketplaceAdminApi = {
     return await res.json();
   },
 
-  async updateOrderStatus(orderId: string, payload: { overallStatus?: string; paymentStatus?: string }): Promise<any> {
+  async updateOrderStatus(orderId: string, payload: {
+    overallStatus?: string;
+    paymentStatus?: string;
+    courierName?: string;
+    courierTrackingCode?: string;
+    returnReason?: string;
+    refundAmount?: number;
+  }): Promise<any> {
     const res = await fetch(`/api/marketplace/admin/orders/${encodeURIComponent(orderId)}/status`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
@@ -170,11 +177,23 @@ export const marketplaceAdminApi = {
     success: boolean;
     summary: {
       totalVendorsCount: number;
+      totalOrdersCount?: number;
+      totalDeliveredOrdersCount?: number;
+      totalSoldProductsCount?: number;
+      totalSoldUnitsCount?: number;
       totalGrossSales: number;
       totalDeliveredSales: number;
+      totalPlatformCommissionProfit?: number;
+      totalDeliveryMarginProfit?: number;
+      totalPlatformProfit?: number;
+      thisMonthProfit?: number;
+      defaultCommissionPercent?: number;
+      platformDeliveryMargin?: number;
+      monthlyProfitBreakdown?: any[];
       totalSettledAmount: number;
       totalDueToVendors: number;
       totalPendingWithdrawals: number;
+      allSoldProducts?: any[];
     };
     vendors: any[];
   }> {
@@ -183,6 +202,17 @@ export const marketplaceAdminApi = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'ভেন্ডর ব্যালেন্স ও প্রাপ্য তালিকা লোড করা যায়নি');
+    return data;
+  },
+
+  async setVendorCommission(vendorId: string, commissionPercent: number): Promise<{ success: boolean; message: string; vendorId: string; commissionPercent: number }> {
+    const res = await fetch('/api/marketplace/admin/vendor-commission', {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ vendorId, commissionPercent }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'কমিশন রেট সংরক্ষণ করা যায়নি');
     return data;
   },
 

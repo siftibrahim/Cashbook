@@ -39,6 +39,8 @@ import {
   deleteAnnouncement,
   saveAppUpdateConfigToCloud,
   clearAllActivityLogs,
+  deleteSingleActivityLog,
+  refreshActivityLogs,
   triggerUserPasswordReset,
   saveStaffMember,
   updateStaffStatus,
@@ -567,8 +569,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       </div>
 
       {/* Dynamic Tab Content Workspace */}
-      <main className="flex-1 min-h-0 min-w-0 w-full overflow-y-auto p-3 sm:p-5 lg:p-6 bg-[#0B1120]">
-        <div className="max-w-7xl w-full min-w-0 mx-auto">
+      <main className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 lg:p-6 bg-[#0B1120]">
+        <div className="max-w-7xl mx-auto">
           {activeTab === 'dashboard' && (
             <AdminDashboardOverview
               users={clientUsers}
@@ -858,6 +860,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <ActivityLogTab
               logs={logs}
               onClearLogs={clearAllActivityLogs}
+              onDeleteLog={deleteSingleActivityLog}
+              onRefreshLogs={refreshActivityLogs}
               onShowToast={showToast}
             />
           )}

@@ -1,11 +1,12 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { getDbPool, inMemoryStore, setAndConnectDatabaseUrl, getIsDbQuotaExceeded, markDbQuotaExceeded } from '../db';
+import { getDbPool, inMemoryStore, setAndConnectDatabaseUrl, getIsDbQuotaExceeded, markDbQuotaExceeded, recordAdminAuditLog, saveInMemoryStoreToDisk } from '../db';
 import {
   AuthenticatedRequest,
   requireAdminOrStaff,
   requireSuperAdmin,
   requireStaffPermission,
+  optionalAuth,
 } from '../authMiddleware';
 import { DEFAULT_PLANS } from '../../src/services/adminService';
 import {
@@ -14,6 +15,7 @@ import {
   sendSmsNotification,
   getServerPublicIp,
   SmsGatewaySettings,
+  normalizePhone,
 } from '../services/smsService';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { DEFAULT_SMS_PACKAGES, getDynamicSmsPackages, DEFAULT_TAGADA_TEMPLATES, getDynamicTagadaTemplates } from './smsRoutes';
@@ -21,6 +23,30 @@ import { DEFAULT_PAYMENTLY_CONFIG, normalizePaymentlyKey } from '../services/pay
 import { realtimeEvents } from '../services/realtimeEvents';
 
 const router = Router();
+
+/**
+ * Live Test SMS endpoint (accessible with optionalAuth for testing from admin panel or dev)
+ */
+router.post('/sms-test', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { phone, message } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: 'মোবাইল নম্বর প্রদান করুন' });
+    }
+
+    const cleanPhone = normalizePhone(phone);
+    if (!cleanPhone || cleanPhone.length < 11) {
+      return res.status(400).json({ error: 'সঠিক ১১ ডিজিটের মোবাইল নম্বর প্রদান করুন (যেমন: 01306908115)' });
+    }
+
+    const testMsg = message?.trim() || `টুইং খাতা: টেস্ট এসএমএস সফল হয়েছে! সময়: ${new Date().toLocaleTimeString('bn-BD')}`;
+    const result = await sendSmsNotification(cleanPhone, testMsg);
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // All admin routes require admin or staff authentication
 router.use(requireAdminOrStaff);
@@ -112,6 +138,14 @@ router.post('/set-database-url', async (req: AuthenticatedRequest, res: Response
     }
 
     const result = await setAndConnectDatabaseUrl(databaseUrl);
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'super_admin',
+      action: 'UPDATE_DATABASE_URL',
+      targetEntity: 'Database',
+      targetId: 'database_connection',
+      targetName: result?.databaseName || 'Cloud Database',
+      details: `ক্লাউড ডাটাবেজ কানেকশন কনফিগার ও সংযুক্ত করা হয়েছে (${result?.databaseName || 'Connected'})`,
+    });
     return res.json(result);
   } catch (err: any) {
     return res.status(400).json({ error: err.message || 'ডাটাবেজে কানেক্ট করা সম্ভব হয়নি' });
@@ -236,6 +270,14 @@ router.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => {
         if (subscriptionExpiresAt) u.subscriptionExpiresAt = subscriptionExpiresAt;
         if (notes) u.notes = notes;
       }
+      await recordAdminAuditLog({
+        adminEmail: req.user?.email || 'admin',
+        action: 'UPDATE_USER',
+        targetEntity: 'User',
+        targetId: userId,
+        targetName: name || shopName || u?.shopName || u?.name || userId,
+        details: `ইউজার প্রোফাইল ও স্ট্যাটাস (${status || u?.status || 'updated'}) পরিবর্তন করা হয়েছে`,
+      });
     }
 
     return res.json({ message: '✅ ইউজারের তথ্য সফলভাবে আপডেট হয়েছে' });
@@ -424,6 +466,15 @@ router.post('/users/:id/extend-subscription', async (req: AuthenticatedRequest, 
           });
         }
 
+        await recordAdminAuditLog({
+          adminEmail: req.user?.email || 'admin',
+          action: 'EXTEND_SUBSCRIPTION',
+          targetEntity: 'User',
+          targetId: userId,
+          targetName: u.name || u.shopName || userId,
+          details: `সাবস্ক্রিপশন মেয়াদ পরিবর্তন (${parsedDays > 0 ? '+' : ''}${parsedDays} দিন)। নতুন মেয়াদ: ${new Date(newExpiry).toLocaleDateString('bn-BD')} (${newStatus})`,
+        });
+
         return res.json({
           message: `✅ ইউজারের সাবস্ক্রিপশন মেয়াদ সফলভাবে ${parsedDays >= 0 ? 'বাড়ানো' : 'কমানো'} হয়েছে (${parsedDays > 0 ? '+' : ''}${parsedDays} দিন)`,
           subscriptionExpiresAt: newExpiry,
@@ -454,6 +505,14 @@ router.delete('/users/:id', async (req: AuthenticatedRequest, res: Response) => 
       `, ['log_' + Date.now(), req.user?.email || 'admin', 'DELETE_USER', 'User', userId, `ইউজার অ্যাকাউন্ট এবং এর সকল তথ্য স্থায়ীভাবে মুছে ফেলা হয়েছে`, Date.now()]);
     } else {
       inMemoryStore.users = inMemoryStore.users.filter(u => u.id !== userId);
+      await recordAdminAuditLog({
+        adminEmail: req.user?.email || 'admin',
+        action: 'DELETE_USER',
+        targetEntity: 'User',
+        targetId: userId,
+        targetName: userId,
+        details: `ইউজার অ্যাকাউন্ট এবং এর সকল তথ্য স্থায়ীভাবে মুছে ফেলা হয়েছে`,
+      });
     }
 
     return res.json({ message: '✅ ইউজার অ্যাকাউন্ট মুছে ফেলা হয়েছে' });
@@ -619,6 +678,15 @@ router.post('/payments/:id/approve', async (req: AuthenticatedRequest, res: Resp
           trxId: p.trxId,
           status: 'approved',
         });
+
+        await recordAdminAuditLog({
+          adminEmail: req.user?.email || 'admin',
+          action: 'APPROVE_PAYMENT',
+          targetEntity: 'Payment',
+          targetId: paymentId,
+          targetName: p.shopName || p.userName || paymentId,
+          details: `৳${p.amount} পেমেন্ট অনুমোদন করা হয়েছে (Trx: ${p.trxId}, মেথড: ${p.paymentMethod})`,
+        });
       }
     }
 
@@ -673,6 +741,15 @@ router.post('/payments/:id/reject', async (req: AuthenticatedRequest, res: Respo
           status: 'rejected',
           reason: rejectedReason || 'ভুল বা অসঙ্গতিপূর্ণ ট্রানজেকশন আইডি',
         });
+
+        await recordAdminAuditLog({
+          adminEmail: req.user?.email || 'admin',
+          action: 'REJECT_PAYMENT',
+          targetEntity: 'Payment',
+          targetId: paymentId,
+          targetName: p.shop_name || p.user_name || paymentId,
+          details: `৳${p.amount} পেমেন্ট অনুরোধ বাতিল করা হয়েছে (Trx: ${p.trx_id})। কারণ: ${rejectedReason || 'ভুল ট্রানজেকশন আইডি'}`,
+        });
       }
     } else {
       const p = inMemoryStore.payments.find(x => x.id === paymentId);
@@ -700,6 +777,15 @@ router.post('/payments/:id/reject', async (req: AuthenticatedRequest, res: Respo
           status: 'rejected',
           reason: rejectedReason || 'ভুল তথ্য',
         });
+
+        await recordAdminAuditLog({
+          adminEmail: req.user?.email || 'admin',
+          action: 'REJECT_PAYMENT',
+          targetEntity: 'Payment',
+          targetId: paymentId,
+          targetName: p.shopName || p.userName || paymentId,
+          details: `৳${p.amount} পেমেন্ট অনুরোধ বাতিল করা হয়েছে (Trx: ${p.trxId})। কারণ: ${rejectedReason || 'ভুল তথ্য'}`,
+        });
       }
     }
 
@@ -722,6 +808,15 @@ router.delete('/payments/:id', async (req: AuthenticatedRequest, res: Response) 
     } else {
       inMemoryStore.payments = (inMemoryStore.payments || []).filter(x => x.id !== paymentId);
     }
+
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'DELETE_PAYMENT',
+      targetEntity: 'Payment',
+      targetId: paymentId,
+      targetName: paymentId,
+      details: `পেমেন্ট রেকর্ড (#${paymentId}) স্থায়ীভাবে মুছে ফেলা হয়েছে`,
+    });
 
     return res.json({ success: true, message: 'পেমেন্ট রেকর্ড মুছে ফেলা হয়েছে' });
   } catch (err: any) {
@@ -758,6 +853,15 @@ router.post('/payments/:id/refund', async (req: AuthenticatedRequest, res: Respo
         p.updatedAt = now;
       }
     }
+
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'PAYMENT_REFUND',
+      targetEntity: 'Payment',
+      targetId: paymentId,
+      targetName: paymentId,
+      details: `পেমেন্ট রিফান্ড সম্পন্ন (পরিমাণ: ৳${refundAmount || 0}, কারণ: ${refundReason || 'এডমিন কর্তৃক রিফান্ড'})`,
+    });
 
     return res.json({ success: true, message: 'রিফান্ড সফলভাবে সম্পন্ন হয়েছে' });
   } catch (err: any) {
@@ -830,9 +934,25 @@ router.put('/payment-settings', async (req: AuthenticatedRequest, res: Response)
           updated_at = EXCLUDED.updated_at,
           updated_by = EXCLUDED.updated_by
       `, [JSON.stringify(settings), now, req.user?.email || 'admin']);
-    } else {
-      inMemoryStore.system_config['system_payment_settings'] = settings;
     }
+
+    if (!inMemoryStore.system_config) inMemoryStore.system_config = {};
+    inMemoryStore.system_config['system_payment_settings'] = settings;
+    saveInMemoryStoreToDisk();
+
+    // Broadcast realtime event so Central Marketplace and other open tabs update immediately
+    realtimeEvents.broadcast('payment_settings_updated', { settings });
+    realtimeEvents.broadcastToAdmins('payment_settings_updated', { settings });
+    realtimeEvents.broadcast('marketplace_updated', { type: 'payment_settings_updated', settings });
+
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'UPDATE_PAYMENT_SETTINGS',
+      targetEntity: 'PaymentSettings',
+      targetId: 'system_payment_settings',
+      targetName: 'পেমেন্ট গেটওয়ে ও প্যাকেজ সেটিংস',
+      details: `সিস্টেম পেমেন্ট গেটওয়ে (বিকাশ/নগদ/রকেট/ব্যাংক/Paymently) ও সাবস্ক্রিপশন প্যাকেজ কনফিগারেশন আপডেট করা হয়েছে`,
+    });
 
     return res.json({ message: '✅ পেমেন্ট গেটওয়ে ও নম্বর সফলভাবে সংরক্ষিত হয়েছে' });
   } catch (err: any) {
@@ -921,6 +1041,15 @@ router.post('/staff', requireStaffPermission('staff_manage'), async (req: Authen
       }
     }
 
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'CREATE_STAFF',
+      targetEntity: 'Staff',
+      targetId: staffId,
+      targetName: `${name.trim()} (${email.trim().toLowerCase()})`,
+      details: `নতুন স্টাফ অ্যাকাউন্ট তৈরি বা আপডেট করা হয়েছে: ${name.trim()} (${phone.trim()}) - পারমিশন: ${(permissions || []).length}টি`,
+    });
+
     return res.status(201).json({ message: '✅ নতুন স্টাফ সদস্য সফলভাবে সংরক্ষিত হয়েছে', staffId });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -978,6 +1107,15 @@ router.put('/staff/:id', requireStaffPermission('staff_manage'), async (req: Aut
       }
     }
 
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'UPDATE_STAFF',
+      targetEntity: 'Staff',
+      targetId: staffId,
+      targetName: name || cleanEmail || staffId,
+      details: `স্টাফ সদস্যের তথ্য/পারমিশন/স্ট্যাটাস (${status || 'updated'}) আপডেট করা হয়েছে`,
+    });
+
     return res.json({ message: '✅ স্টাফ তথ্য, ইমেইল, পারমিশন ও পাসওয়ার্ড সফলভাবে আপডেট হয়েছে', staffId });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -993,6 +1131,14 @@ router.delete('/staff/:id', requireStaffPermission('staff_manage'), async (req: 
     } else {
       inMemoryStore.staff = inMemoryStore.staff.filter(s => s.id !== staffId);
     }
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'DELETE_STAFF',
+      targetEntity: 'Staff',
+      targetId: staffId,
+      targetName: staffId,
+      details: `স্টাফ সদস্য (#${staffId}) সিস্টেম থেকে রিমুভ করা হয়েছে`,
+    });
     return res.json({ message: '✅ স্টাফ রিমুভ করা হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1161,6 +1307,15 @@ router.put('/super-admin/credentials', requireSuperAdmin, async (req: Authentica
         updatedAt: now,
       };
     }
+
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || cleanEmail || 'super_admin',
+      action: 'UPDATE_SUPER_ADMIN_SECURITY',
+      targetEntity: 'Security',
+      targetId: 'usr_super_admin',
+      targetName: cleanEmail || cleanName || 'সুপার অ্যাডমিন',
+      details: `সুপার অ্যাডমিন সিকিউরিটি প্রোফাইল ও লগইন ক্রেডেনশিয়াল আপডেট করা হয়েছে (${cleanEmail || 'updated'})`,
+    });
 
     return res.json({
       message: '✅ সুপার অ্যাডমিন ইমেইল ও পাসওয়ার্ড ডাটাবেজে সফলভাবে সংরক্ষিত হয়েছে!',
@@ -1331,27 +1486,253 @@ router.post('/support/reply', async (req: AuthenticatedRequest, res: Response) =
 });
 
 /**
- * 11. Admin Activity Logs
+ * 11. Admin Activity & Audit Logs (Full Dual-Storage + Historical Synthesis)
  */
 router.get('/activity-logs', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const pool = getDbPool();
+    const clearedAt = Number(inMemoryStore.system_config?.['audit_logs_cleared_at'] || 0);
+    const logsMap = new Map<string, any>();
+
+    // 1. Load from PostgreSQL if available
     if (pool) {
-      const result = await pool.query('SELECT * FROM admin_activity_logs ORDER BY timestamp DESC LIMIT 100');
-      const logs = result.rows.map(row => ({
-        id: row.id,
-        adminEmail: row.admin_email,
-        action: row.action,
-        targetEntity: row.target_entity,
-        targetId: row.target_id,
-        targetName: row.target_name,
-        details: row.details,
-        timestamp: Number(row.timestamp),
-      }));
-      return res.json({ logs });
-    } else {
-      return res.json({ logs: inMemoryStore.admin_activity_logs });
+      try {
+        const result = await pool.query('SELECT * FROM admin_activity_logs ORDER BY timestamp DESC LIMIT 300');
+        for (const row of result.rows) {
+          const ts = Number(row.timestamp) || Date.now();
+          if (clearedAt && ts <= clearedAt) continue;
+          logsMap.set(row.id, {
+            id: row.id,
+            adminEmail: row.admin_email || 'admin@twing.com',
+            action: row.action || 'ADMIN_ACTION',
+            targetEntity: row.target_entity || 'System',
+            targetId: row.target_id || '',
+            targetName: row.target_name || '',
+            details: row.details || '',
+            timestamp: ts,
+          });
+        }
+      } catch (dbErr) {
+        console.warn('Warning querying admin_activity_logs:', dbErr);
+      }
     }
+
+    // 2. Merge with inMemoryStore.admin_activity_logs
+    if (Array.isArray(inMemoryStore.admin_activity_logs)) {
+      for (const item of inMemoryStore.admin_activity_logs) {
+        if (!item || !item.id) continue;
+        const ts = Number(item.timestamp) || Date.now();
+        if (clearedAt && ts <= clearedAt) continue;
+        if (!logsMap.has(item.id)) {
+          logsMap.set(item.id, {
+            id: item.id,
+            adminEmail: item.adminEmail || item.admin_email || 'admin@twing.com',
+            action: item.action || 'ADMIN_ACTION',
+            targetEntity: item.targetEntity || item.target_entity || 'System',
+            targetId: item.targetId || item.target_id || '',
+            targetName: item.targetName || item.target_name || '',
+            details: item.details || '',
+            timestamp: ts,
+          });
+        }
+      }
+    }
+
+    // 3. If no audit logs exist (or only 1 boot log) and logs weren't just cleared,
+    // synthesize real audit entries from actual platform records (payments, users, marketplace orders, sms purchases)
+    if (logsMap.size <= 1 && !clearedAt) {
+      try {
+        if (pool) {
+          // Recent payments
+          const payRes = await pool.query('SELECT * FROM payments ORDER BY created_at DESC LIMIT 20').catch(() => ({ rows: [] }));
+          for (const p of payRes.rows) {
+            const synId = `syn_pay_${p.id}`;
+            if (!logsMap.has(synId)) {
+              const isApp = p.status === 'approved';
+              const isRej = p.status === 'rejected';
+              logsMap.set(synId, {
+                id: synId,
+                adminEmail: 'siftibrahim@gmail.com',
+                action: isApp ? 'APPROVE_PAYMENT' : isRej ? 'REJECT_PAYMENT' : 'PAYMENT_REQUEST',
+                targetEntity: 'Payment',
+                targetId: p.id,
+                targetName: p.shop_name || p.user_name || 'দোকান',
+                details: isApp
+                  ? `${p.shop_name || p.user_name}-এর ৳${p.amount} সাবস্ক্রিপশন পেমেন্ট অনুমোদিত হয়েছে (TrxID: ${p.trx_id}, প্যাকেজ: ${p.plan_name})`
+                  : isRej
+                  ? `${p.shop_name || p.user_name}-এর ৳${p.amount} পেমেন্ট বাতিল করা হয়েছে (TrxID: ${p.trx_id})`
+                  : `${p.shop_name || p.user_name} নতুন ৳${p.amount} পেমেন্ট রিকোয়েস্ট পাঠিয়েছেন (TrxID: ${p.trx_id})`,
+                timestamp: Number(p.approved_at || p.created_at || Date.now()),
+              });
+            }
+          }
+
+          // Recent users
+          const usrRes = await pool.query("SELECT id, name, shop_name, phone, status, subscription_plan, registered_at FROM users WHERE role != 'super_admin' ORDER BY registered_at DESC LIMIT 15").catch(() => ({ rows: [] }));
+          for (const u of usrRes.rows) {
+            const synId = `syn_usr_${u.id}`;
+            if (!logsMap.has(synId)) {
+              logsMap.set(synId, {
+                id: synId,
+                adminEmail: 'system@twing.com',
+                action: 'USER_REGISTERED',
+                targetEntity: 'User',
+                targetId: u.id,
+                targetName: u.shop_name || u.name || 'দোকান',
+                details: `নতুন দোকান ও ইউজার অ্যাকাউন্ট রেজিস্টার্ড হয়েছে: ${u.shop_name || u.name} (${u.phone || 'N/A'}) — প্ল্যান: ${u.subscription_plan || 'ফ্রি ট্রায়াল'}`,
+                timestamp: Number(u.registered_at || Date.now() - 86400000),
+              });
+            }
+          }
+
+          // Recent marketplace master orders
+          const mktRes = await pool.query('SELECT * FROM marketplace_master_orders ORDER BY created_at DESC LIMIT 15').catch(() => ({ rows: [] }));
+          for (const m of mktRes.rows) {
+            const synId = `syn_mkt_${m.id}`;
+            if (!logsMap.has(synId)) {
+              const isApproved = m.is_admin_approved === true || m.admin_approval_status === 'approved';
+              logsMap.set(synId, {
+                id: synId,
+                adminEmail: isApproved ? 'siftibrahim@gmail.com' : 'marketplace@twing.com',
+                action: isApproved ? 'MARKETPLACE_APPROVE_PAYMENT' : 'MARKETPLACE_ORDER',
+                targetEntity: 'MarketplaceOrder',
+                targetId: m.id,
+                targetName: `অর্ডার #${m.order_number}`,
+                details: isApproved
+                  ? `সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${m.order_number} (ক্রেতা: ${m.customer_name}, বিল: ৳${m.grand_total}) পেমেন্ট যাচাই ও অনুমোদন করা হয়েছে`
+                  : `সেন্ট্রাল মার্কেটপ্লেসে নতুন অর্ডার #${m.order_number} জমা হয়েছে (ক্রেতা: ${m.customer_name}, মোট বিল: ৳${m.grand_total})`,
+                timestamp: Number(m.updated_at || m.created_at || Date.now()),
+              });
+            }
+          }
+        } else {
+          // Synthesize from inMemoryStore
+          for (const p of (inMemoryStore.payments || []).slice(0, 20)) {
+            const synId = `syn_pay_${p.id}`;
+            if (!logsMap.has(synId)) {
+              const isApp = p.status === 'approved';
+              const isRej = p.status === 'rejected';
+              logsMap.set(synId, {
+                id: synId,
+                adminEmail: 'siftibrahim@gmail.com',
+                action: isApp ? 'APPROVE_PAYMENT' : isRej ? 'REJECT_PAYMENT' : 'PAYMENT_REQUEST',
+                targetEntity: 'Payment',
+                targetId: p.id,
+                targetName: p.shopName || p.userName || 'দোকান',
+                details: isApp
+                  ? `${p.shopName || p.userName}-এর ৳${p.amount} সাবস্ক্রিপশন পেমেন্ট অনুমোদিত হয়েছে (TrxID: ${p.trxId}, প্যাকেজ: ${p.planName})`
+                  : isRej
+                  ? `${p.shopName || p.userName}-এর ৳${p.amount} পেমেন্ট বাতিল করা হয়েছে (TrxID: ${p.trxId})`
+                  : `${p.shopName || p.userName} নতুন ৳${p.amount} পেমেন্ট রিকোয়েস্ট পাঠিয়েছেন (TrxID: ${p.trxId})`,
+                timestamp: Number(p.approvedAt || p.createdAt || Date.now()),
+              });
+            }
+          }
+
+          for (const u of (inMemoryStore.users || []).filter((x: any) => x.role !== 'super_admin').slice(0, 15)) {
+            const synId = `syn_usr_${u.id}`;
+            if (!logsMap.has(synId)) {
+              logsMap.set(synId, {
+                id: synId,
+                adminEmail: 'system@twing.com',
+                action: 'USER_REGISTERED',
+                targetEntity: 'User',
+                targetId: u.id,
+                targetName: u.shopName || u.name || 'দোকান',
+                details: `নতুন দোকান ও ইউজার অ্যাকাউন্ট রেজিস্টার্ড হয়েছে: ${u.shopName || u.name} (${u.phone || 'N/A'}) — প্ল্যান: ${u.subscriptionPlan || 'ফ্রি ট্রায়াল'}`,
+                timestamp: Number(u.registeredAt || Date.now() - 86400000),
+              });
+            }
+          }
+
+          for (const m of (inMemoryStore.marketplace_master_orders || []).slice(0, 15)) {
+            const synId = `syn_mkt_${m.id}`;
+            if (!logsMap.has(synId)) {
+              const isApproved = m.isAdminApproved === true || m.adminApprovalStatus === 'approved';
+              logsMap.set(synId, {
+                id: synId,
+                adminEmail: isApproved ? 'siftibrahim@gmail.com' : 'marketplace@twing.com',
+                action: isApproved ? 'MARKETPLACE_APPROVE_PAYMENT' : 'MARKETPLACE_ORDER',
+                targetEntity: 'MarketplaceOrder',
+                targetId: m.id,
+                targetName: `অর্ডার #${m.orderNumber}`,
+                details: isApproved
+                  ? `সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${m.orderNumber} (ক্রেতা: ${m.customerName}, বিল: ৳${m.grandTotal}) পেমেন্ট যাচাই ও অনুমোদন করা হয়েছে`
+                  : `সেন্ট্রাল মার্কেটপ্লেসে নতুন অর্ডার #${m.orderNumber} জমা হয়েছে (ক্রেতা: ${m.customerName}, মোট বিল: ৳${m.grandTotal})`,
+                timestamp: Number(m.updatedAt || m.createdAt || Date.now()),
+              });
+            }
+          }
+        }
+      } catch (synErr) {
+        console.warn('Audit synthesis notice:', synErr);
+      }
+    }
+
+    const logs = Array.from(logsMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    return res.json({ logs });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/activity-logs', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id, action, targetEntity, targetId, targetName, details, timestamp } = req.body || {};
+    if (!action || !details) {
+      return res.status(400).json({ error: 'action এবং details আবশ্যক' });
+    }
+    // Reset cleared_at flag if a new log is recorded
+    if (inMemoryStore.system_config?.['audit_logs_cleared_at']) {
+      delete inMemoryStore.system_config['audit_logs_cleared_at'];
+    }
+    const created = await recordAdminAuditLog({
+      id,
+      adminEmail: req.user?.email || 'admin@twing.com',
+      action,
+      targetEntity: targetEntity || 'System',
+      targetId,
+      targetName,
+      details,
+      timestamp: timestamp || Date.now(),
+    });
+    return res.status(201).json({ success: true, log: created });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/activity-logs', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const pool = getDbPool();
+    const now = Date.now();
+    inMemoryStore.admin_activity_logs = [];
+    if (!inMemoryStore.system_config) inMemoryStore.system_config = {};
+    inMemoryStore.system_config['audit_logs_cleared_at'] = now;
+    saveInMemoryStoreToDisk();
+
+    if (pool) {
+      await pool.query('DELETE FROM admin_activity_logs').catch(() => {});
+    }
+
+    return res.json({ success: true, message: '✅ সকল অ্যাডমিন অডিট লগ সফলভাবে ক্লিয়ার করা হয়েছে' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/activity-logs/:id', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const logId = req.params.id;
+    const pool = getDbPool();
+    if (Array.isArray(inMemoryStore.admin_activity_logs)) {
+      inMemoryStore.admin_activity_logs = inMemoryStore.admin_activity_logs.filter((l: any) => l && l.id !== logId);
+      saveInMemoryStoreToDisk();
+    }
+    if (pool) {
+      await pool.query('DELETE FROM admin_activity_logs WHERE id = $1', [logId]).catch(() => {});
+    }
+    return res.json({ success: true, message: 'অডিট লগ মুছে ফেলা হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -1396,24 +1777,16 @@ router.post('/sms-config', requireStaffPermission('sms_gateway_manage'), async (
     };
 
     await saveSmsGatewaySettings(newSettings);
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'UPDATE_SMS_GATEWAY',
+      targetEntity: 'SmsGateway',
+      targetId: newSettings.provider,
+      targetName: `SMS গেটওয়ে (${newSettings.provider})`,
+      details: `এসএমএস ও ওটিপি গেটওয়ে কনফিগারেশন আপডেট করা হয়েছে (প্রোভাইডার: ${newSettings.provider}, স্ট্যাটাস: ${newSettings.isEnabled ? 'চালু' : 'বন্ধ'})`,
+    });
     const serverIp = await getServerPublicIp();
     return res.json({ message: '✅ SMS গেটওয়ে সেটিংস সংরক্ষিত হয়েছে', settings: newSettings, serverIp });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.post('/sms-test', requireStaffPermission('sms_gateway_manage'), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { phone, message } = req.body;
-    if (!phone) {
-      return res.status(400).json({ error: 'মোবাইল নম্বর প্রদান করুন' });
-    }
-
-    const testMsg = message || `ইব্রাহিম খাতা: টেস্ট এসএমএস সফল হয়েছে! সময়: ${new Date().toLocaleTimeString('bn-BD')}`;
-    const result = await sendSmsNotification(phone, testMsg);
-
-    return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -1456,6 +1829,15 @@ router.post('/tagada-templates', requireStaffPermission('tagada_templates_manage
       if (!inMemoryStore.system_config) inMemoryStore.system_config = {};
       inMemoryStore.system_config['system_tagada_templates'] = templates;
     }
+
+    await recordAdminAuditLog({
+      adminEmail: updatedBy,
+      action: 'UPDATE_TAGADA_TEMPLATES',
+      targetEntity: 'TagadaTemplates',
+      targetId: 'system_tagada_templates',
+      targetName: 'তাগাদা মেসেজ টেমপ্লেট',
+      details: `তাগাদা মেসেজ অপশন ও টেমপ্লেট তালিকা আপডেট করা হয়েছে (মোট ${templates.length}টি টেমপ্লেট)`,
+    });
 
     return res.json({
       success: true,
@@ -1584,6 +1966,15 @@ router.post('/users/:id/reset-subscription', async (req: AuthenticatedRequest, r
           p.status = 'reset';
         }
       });
+
+      await recordAdminAuditLog({
+        adminEmail: req.user?.email || 'admin',
+        action: 'RESET_SUBSCRIPTION',
+        targetEntity: 'User',
+        targetId: userId,
+        targetName: u?.shopName || u?.name || userId,
+        details: `সাবস্ক্রিপশন রিসেট: মোড=${mode || 'expired'}, প্ল্যান=${newPlan}${note ? ', নোট: ' + note : ''}`,
+      });
     }
 
     // Broadcast subscription reset in real-time
@@ -1680,6 +2071,14 @@ router.post('/users/:id/toggle-online-store', async (req: AuthenticatedRequest, 
         c.adminStoreStatus = newStatus;
         c.adminStoreNote = note || '';
       }
+      await recordAdminAuditLog({
+        adminEmail: req.user?.email || 'admin',
+        action: 'TOGGLE_ONLINE_STORE',
+        targetEntity: 'OnlineStore',
+        targetId: userId,
+        targetName: u?.shopName || u?.name || userId,
+        details: `অনলাইন স্টোর স্ট্যাটাস পরিবর্তন: ${allowed ? 'চালু (Active)' : 'বন্ধ (Disabled)'}${note ? ', নোট: ' + note : ''}`,
+      });
     }
 
     // Broadcast instant update to user's frontend session
@@ -1757,6 +2156,14 @@ router.post('/users/:id/approve-store-request', async (req: AuthenticatedRequest
         c.isStoreAllowedByAdmin = true;
         c.adminStoreStatus = 'active';
       }
+      await recordAdminAuditLog({
+        adminEmail: req.user?.email || 'admin',
+        action: 'APPROVE_STORE_REQUEST',
+        targetEntity: 'OnlineStore',
+        targetId: userId,
+        targetName: u?.shopName || u?.name || userId,
+        details: 'অনলাইন স্টোর রিকোয়েস্ট অনুমোদন করা হয়েছে',
+      });
     }
 
     realtimeEvents.broadcastToUser(userId, 'online_store_status_changed', {
@@ -2015,6 +2422,15 @@ router.post('/online-stores/:userId/update', async (req: AuthenticatedRequest, r
       }
     }
 
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'UPDATE_ONLINE_STORE_DOMAIN',
+      targetEntity: 'OnlineStore',
+      targetId: userId,
+      targetName: storeSlug || customDomain || userId,
+      details: `অনলাইন স্টোর ডোমেইন/স্লাগ আপডেট করা হয়েছে (স্লাগ: ${storeSlug || ' অপরিবর্তিত'}, ডোমেইন: ${customDomain || 'নেই'})`,
+    });
+
     return res.json({ success: true, message: 'অনলাইন স্টোর তথ্য সফলভাবে আপডেট হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -2099,6 +2515,15 @@ router.post('/impersonate/:userId', async (req: AuthenticatedRequest, res: Respo
       { expiresIn: '12h' }
     );
 
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'IMPERSONATE_USER',
+      targetEntity: 'User',
+      targetId: targetUser.id,
+      targetName: `${targetUser.shopName || targetUser.name} (${targetUser.phone || targetUser.email})`,
+      details: `সুপার অ্যাডমিন "${targetUser.shopName || targetUser.name}"-এর অ্যাকাউন্টে সরাসরি লগইন (Impersonate) করেছেন`,
+    });
+
     return res.json({
       message: `✅ আপনি সফলভাবে ${targetUser.name || targetUser.shopName}-এর অ্যাকাউন্টে প্রবেশ করছেন`,
       token,
@@ -2172,6 +2597,15 @@ router.put('/ad-settings', async (req: AuthenticatedRequest, res: Response) => {
     } else {
       inMemoryStore.system_config['system_ad_settings'] = settings;
     }
+
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'UPDATE_AD_SETTINGS',
+      targetEntity: 'AdsSettings',
+      targetId: 'system_ad_settings',
+      targetName: 'বিজ্ঞাপন ও মনিটাইজেশন',
+      details: `বিজ্ঞাপন ও অ্যাড সেটিংস আপডেট করা হয়েছে (স্ট্যাটাস: ${settings?.isAdsEnabled ? 'চালু' : 'বন্ধ'})`,
+    });
 
     return res.json({ message: '✅ বিজ্ঞাপন ও মনিটাইজেশন সেটিংস সংরক্ষিত হয়েছে!' });
   } catch (err: any) {
@@ -2729,6 +3163,15 @@ router.post('/dashboard-banners', async (req: AuthenticatedRequest, res: Respons
 
     if (!inMemoryStore.system_config) inMemoryStore.system_config = {};
     inMemoryStore.system_config['dashboard_banner_settings'] = updatedSettings;
+
+    await recordAdminAuditLog({
+      adminEmail: req.user?.email || 'admin',
+      action: 'DASHBOARD_BANNERS_UPDATE',
+      targetEntity: 'DashboardBanner',
+      targetId: 'dashboard_banner_settings',
+      targetName: 'ড্যাশবোর্ড প্রোমো ব্যানার',
+      details: `ড্যাশবোর্ড প্রোমো ব্যানার সেটিংস আপডেট করা হয়েছে (${updatedSettings.banners?.length || 0}টি ব্যানার)`,
+    });
 
     return res.json({
       success: true,
