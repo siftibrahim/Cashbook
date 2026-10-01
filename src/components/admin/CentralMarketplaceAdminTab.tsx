@@ -195,7 +195,6 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   // Platform & Delivery Settings
   const [settingsForm, setSettingsForm] = useState({
     isMarketplaceActive: true,
-    codEnabled: true,
     commissionPercent: 5,
     platformDeliveryMargin: 10,
     deliveryFeeDhaka: 70,
@@ -213,18 +212,6 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date>(new Date());
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  // Sync unified payment settings
-  useEffect(() => {
-    const unsub = subscribeToPaymentSettings((settings) => {
-      if (settings) {
-        setSystemPaymentSettings(settings);
-      }
-    });
-    return () => {
-      if (typeof unsub === 'function') unsub();
-    };
-  }, []);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -252,7 +239,6 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           setSettingsForm((prev) => ({
             ...prev,
             isMarketplaceActive: res.settings.isMarketplaceActive !== false,
-            codEnabled: res.settings.codEnabled !== false,
             commissionPercent: res.settings.commissionPercent ?? 5,
             platformDeliveryMargin: res.settings.platformDeliveryMargin ?? 10,
             deliveryFeeDhaka: res.settings.deliveryFeeDhaka ?? 70,
@@ -3011,23 +2997,13 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           </div>
 
           {/* Unified Platform Payment System Info Card */}
-          <div className="p-4 bg-gradient-to-br from-indigo-50/70 via-blue-50/50 to-slate-50 border border-indigo-200/80 rounded-2xl space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2 text-indigo-900 font-bold text-xs">
-                <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                <span>একীভূত প্ল্যাটফর্ম পেমেন্ট সিস্টেম (Unified System Payment Gateway)</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsPaymentSettingsModalOpen(true)}
-                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-              >
-                <CreditCard className="w-4 h-4" />
-                <span>⚙️ পেমেন্ট মেথড সেটিংস কনফিগারেশন খুলুন</span>
-              </button>
+          <div className="p-4 bg-gradient-to-br from-indigo-50/70 via-blue-50/50 to-slate-50 border border-indigo-200/80 rounded-2xl space-y-2">
+            <div className="flex items-center gap-2 text-indigo-900 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-indigo-600" />
+              <span>একীভূত প্ল্যাটফর্ম পেমেন্ট সিস্টেম (Unified System Payment Gateway)</span>
             </div>
             <p className="text-[11px] text-slate-600 leading-relaxed">
-              সেন্ট্রাল মার্কেটপ্লেস ও সাবস্ক্রিপশন উভয়ই সুপার অ্যাডমিন প্যানেলের প্রধান <strong className="text-slate-800">"পেমেন্ট সেটিংস"</strong> (System Payment Settings) এর অন্তর্ভুক্ত অনলাইন গেটওয়ে (Paymently), বিকাশ, নগদ, রকেট, উপায়, ব্যাংক ট্রান্সফার ও বাংলা কিউআর স্বয়ংক্রিয়ভাবে ব্যবহার করে। এখান থেকে সরাসরি কোনো মেথড চালু বা বন্ধ করলে সেন্ট্রাল মার্কেটপ্লেসে তাৎক্ষণিক পরিবর্তন কার্যকর হবে।
+              সেন্ট্রাল মার্কেটপ্লেসের জন্য আলাদা কোনো পেমেন্ট গেটওয়ে রাখা হয়নি। সাবস্ক্রিপশন ও সেন্ট্রাল মার্কেটপ্লেস উভয়ই সুপার অ্যাডমিন প্যানেলের প্রধান <strong className="text-slate-800">"পেমেন্ট সেটিংস"</strong> (System Payment Settings) এর অন্তর্ভুক্ত অনলাইন গেটওয়ে (UddoktaPay/Paymently), বিকাশ, নগদ, রকেট, ব্যাংক ট্রান্সফার ও বাংলা কিউআর স্বয়ংক্রিয়ভাবে ব্যবহার করে।
             </p>
           </div>
 
@@ -3042,23 +3018,6 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
               onClick={() => setSettingsForm({ ...settingsForm, isMarketplaceActive: !settingsForm.isMarketplaceActive })}
               className={`w-12 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
                 settingsForm.isMarketplaceActive ? 'bg-teal-700 justify-end' : 'bg-slate-300 justify-start'
-              }`}
-            >
-              <div className="bg-white w-4 h-4 rounded-full shadow-md" />
-            </button>
-          </div>
-
-          {/* Cash on Delivery (COD) Active Toggle */}
-          <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-            <div>
-              <p className="font-bold text-slate-900">💵 ক্যাশ অন ডেলিভারি (Cash on Delivery) সক্রিয় রাখুন</p>
-              <p className="text-[11px] text-slate-500">চালু থাকলে ক্রেতারা সেন্ট্রাল মার্কেটপ্লেস থেকে পণ্য হাতে পেয়ে মূল্য পরিশোধ করতে পারবে। বন্ধ করলে চেকআউটে COD অপশন দেখানো হবে না।</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSettingsForm({ ...settingsForm, codEnabled: settingsForm.codEnabled === false ? true : false })}
-              className={`w-12 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
-                settingsForm.codEnabled !== false ? 'bg-teal-700 justify-end' : 'bg-slate-300 justify-start'
               }`}
             >
               <div className="bg-white w-4 h-4 rounded-full shadow-md" />
