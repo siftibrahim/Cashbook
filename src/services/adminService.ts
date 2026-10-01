@@ -761,10 +761,14 @@ export async function processPaymentRefund(
 // ----------------------------------------------------
 // 3. PAYMENT SETTINGS
 // ----------------------------------------------------
+const paymentSettingsSubscribers = new Set<(settings: SystemPaymentSettings) => void>();
+
 export function subscribeToPaymentSettings(
   onUpdate: (settings: SystemPaymentSettings) => void,
   onError?: (err: Error) => void
 ) {
+  paymentSettingsSubscribers.add(onUpdate);
+
   const cached = getCached<SystemPaymentSettings>(STORAGE_KEYS.PAYMENT_SETTINGS, INITIAL_PAYMENT_SETTINGS);
   onUpdate(cached);
 
@@ -781,16 +785,52 @@ export function subscribeToPaymentSettings(
     }
   };
 
+  const handleCustomEvent = (e: any) => {
+    if (isSubscribed && e.detail) {
+      onUpdate(e.detail);
+    }
+  };
+
+  const handleStorageEvent = (e: StorageEvent) => {
+    if (isSubscribed && e.key === STORAGE_KEYS.PAYMENT_SETTINGS && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue);
+        onUpdate(parsed);
+      } catch {}
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('twing_payment_settings_updated', handleCustomEvent);
+    window.addEventListener('storage', handleStorageEvent);
+  }
+
   fetchSettings();
-  const interval = setInterval(fetchSettings, 30000);
+  const interval = setInterval(fetchSettings, 10000);
   return () => {
     isSubscribed = false;
+    paymentSettingsSubscribers.delete(onUpdate);
     clearInterval(interval);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('twing_payment_settings_updated', handleCustomEvent);
+      window.removeEventListener('storage', handleStorageEvent);
+    }
   };
 }
 
 export async function savePaymentSettings(settings: SystemPaymentSettings, updatedBy?: string): Promise<void> {
   setCached(STORAGE_KEYS.PAYMENT_SETTINGS, settings);
+  // Notify all in-memory subscribers immediately!
+  paymentSettingsSubscribers.forEach((cb) => {
+    try {
+      cb(settings);
+    } catch {}
+  });
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('twing_payment_settings_updated', { detail: settings }));
+  }
+
   try {
     await adminApi.updatePaymentSettings(settings);
   } catch (err) {

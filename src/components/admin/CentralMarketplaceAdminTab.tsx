@@ -58,6 +58,9 @@ import { MarketplaceCourierModal } from '../marketplace/MarketplaceCourierModal'
 import { MarketplaceReturnRefundModal } from '../marketplace/MarketplaceReturnRefundModal';
 import { MarketplaceSmsModal } from '../marketplace/MarketplaceSmsModal';
 import { MarketplaceProfitReportTab } from './MarketplaceProfitReportTab';
+import { PaymentSettingsModal } from './PaymentSettingsModal';
+import { SystemPaymentSettings } from '../../types/adminTypes';
+import { subscribeToPaymentSettings, savePaymentSettingsToCloud } from '../../services/adminService';
 
 interface CentralMarketplaceAdminTabProps {
   isSuperAdmin: boolean;
@@ -66,6 +69,8 @@ interface CentralMarketplaceAdminTabProps {
 export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProps> = ({ isSuperAdmin }) => {
   const [activeSubTab, setActiveSubTab] = useState<'orders' | 'vendor_balances' | 'profit' | 'payouts' | 'products' | 'categories' | 'settings'>('orders');
   const [isLoading, setIsLoading] = useState(true);
+  const [isPaymentSettingsModalOpen, setIsPaymentSettingsModalOpen] = useState(false);
+  const [systemPaymentSettings, setSystemPaymentSettings] = useState<SystemPaymentSettings | null>(null);
   const [data, setData] = useState<{
     masterOrders: any[];
     subOrders: any[];
@@ -190,6 +195,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   // Platform & Delivery Settings
   const [settingsForm, setSettingsForm] = useState({
     isMarketplaceActive: true,
+    codEnabled: true,
     commissionPercent: 5,
     platformDeliveryMargin: 10,
     deliveryFeeDhaka: 70,
@@ -207,6 +213,18 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date>(new Date());
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Sync unified payment settings
+  useEffect(() => {
+    const unsub = subscribeToPaymentSettings((settings) => {
+      if (settings) {
+        setSystemPaymentSettings(settings);
+      }
+    });
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
+  }, []);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -234,6 +252,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           setSettingsForm((prev) => ({
             ...prev,
             isMarketplaceActive: res.settings.isMarketplaceActive !== false,
+            codEnabled: res.settings.codEnabled !== false,
             commissionPercent: res.settings.commissionPercent ?? 5,
             platformDeliveryMargin: res.settings.platformDeliveryMargin ?? 10,
             deliveryFeeDhaka: res.settings.deliveryFeeDhaka ?? 70,
@@ -1373,15 +1392,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                                     <span className="hidden sm:inline">মেমো প্রিন্ট</span>
                                   </button>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => setCourierManagingOrder(ord)}
-                                    className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
-                                    title="কুরিয়ার পার্টনার ও ট্র্যাকিং কোড এসাইন"
-                                  >
-                                    <Truck className="w-3.5 h-3.5 text-blue-700" />
-                                    <span className="hidden sm:inline">{ord.courierName ? 'কুরিয়ার' : '+ কুরিয়ার'}</span>
-                                  </button>
+
 
                                   <button
                                     type="button"
@@ -1585,13 +1596,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                         )}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setCourierManagingOrder(selectedMasterOrder)}
-                      className="text-xs text-blue-700 font-bold hover:underline"
-                    >
-                      পরিবর্তন
-                    </button>
+<span className="text-[11px] text-blue-700 font-bold">ভেন্ডর কর্তৃক নির্ধারিত</span>
                   </div>
                 )}
 
@@ -1620,7 +1625,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                   <span className="text-[11px] font-black text-teal-950 uppercase tracking-wider block">
                     ⚡ দ্রুত অ্যাকশন ও কাস্টমার সার্ভিস:
                   </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={() => setPrintingInvoiceOrder(selectedMasterOrder)}
@@ -1630,14 +1635,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                       <span>মেমো প্রিন্ট</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setCourierManagingOrder(selectedMasterOrder)}
-                      className="p-2.5 bg-white hover:bg-blue-50 text-blue-950 font-bold border border-blue-300 rounded-xl text-xs flex flex-col items-center justify-center gap-1 shadow-2xs transition cursor-pointer"
-                    >
-                      <Truck className="w-4 h-4 text-blue-700" />
-                      <span>{selectedMasterOrder.courierName ? 'কুরিয়ার আপডেট' : 'কুরিয়ার এসাইন'}</span>
-                    </button>
+
 
                     <button
                       type="button"
@@ -1659,39 +1657,30 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                   </div>
                 </div>
 
-                {/* Status Update Actions */}
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
-                  <p className="font-bold text-slate-800">মাস্টার অর্ডার ডেলিভারি স্ট্যাটাস পরিবর্তন:</p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateOrderStatus(selectedMasterOrder.id, 'confirmed')}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold cursor-pointer"
-                    >
-                      অর্ডার নিশ্চিত করুন
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateOrderStatus(selectedMasterOrder.id, 'shipped')}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold cursor-pointer"
-                    >
-                      কুরিয়ারে পাঠানো (Shipped)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateOrderStatus(selectedMasterOrder.id, 'delivered')}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold cursor-pointer"
-                    >
-                      ডেলিভারি সম্পন্ন মার্ক করুন
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateOrderStatus(selectedMasterOrder.id, 'cancelled')}
-                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold cursor-pointer"
-                    >
-                      অর্ডার বাতিল
-                    </button>
+                {/* Vendor Delivery Governance & Real-Time Status Notice */}
+                <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-bold text-amber-950">
+                      <Truck className="w-4 h-4 text-amber-700" />
+                      <span>ভেন্ডর ডেলিভারি ও প্যাকেজিং পরিচালনা:</span>
+                    </div>
+                    {selectedMasterOrder.overallStatus !== 'cancelled' && selectedMasterOrder.overallStatus !== 'returned' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm('আপনি কি নিশ্চিত যে এই অর্ডারটি বাতিল করতে চান?')) {
+                            handleUpdateOrderStatus(selectedMasterOrder.id, 'cancelled');
+                          }
+                        }}
+                        className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg font-bold cursor-pointer text-[11px]"
+                      >
+                        অর্ডার বাতিল করুন
+                      </button>
+                    )}
                   </div>
+                  <p className="text-[11px] text-amber-900 leading-relaxed">
+                    সেন্ট্রাল মার্কেটপ্লেসের নীতিমালা অনুযায়ী পণ্য প্রস্তুত, প্যাকেজিং ও কুরিয়ার ডেলিভারি সম্পন্ন করার সম্পূর্ণ দায়িত্ব সংশ্লিষ্ট ভেন্ডরের। সুপার এডমিন বা অন্য কোনো ব্যক্তি ডেলিভারি স্ট্যাটাস পরিবর্তন করতে পারবেন না। ভেন্ডর যখন পণ্য পাঠাবেন ও ডেলিভারি আপডেট করবেন, তা স্বয়ংক্রিয়ভাবে এখানে লাইভ দেখা যাবে।
+                  </p>
                 </div>
 
                 {/* Sub-Orders Breakdown (Split by Vendor) */}
@@ -3022,13 +3011,23 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           </div>
 
           {/* Unified Platform Payment System Info Card */}
-          <div className="p-4 bg-gradient-to-br from-indigo-50/70 via-blue-50/50 to-slate-50 border border-indigo-200/80 rounded-2xl space-y-2">
-            <div className="flex items-center gap-2 text-indigo-900 font-bold text-xs">
-              <ShieldCheck className="w-4 h-4 text-indigo-600" />
-              <span>একীভূত প্ল্যাটফর্ম পেমেন্ট সিস্টেম (Unified System Payment Gateway)</span>
+          <div className="p-4 bg-gradient-to-br from-indigo-50/70 via-blue-50/50 to-slate-50 border border-indigo-200/80 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2 text-indigo-900 font-bold text-xs">
+                <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                <span>একীভূত প্ল্যাটফর্ম পেমেন্ট সিস্টেম (Unified System Payment Gateway)</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPaymentSettingsModalOpen(true)}
+                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>⚙️ পেমেন্ট মেথড সেটিংস কনফিগারেশন খুলুন</span>
+              </button>
             </div>
             <p className="text-[11px] text-slate-600 leading-relaxed">
-              সেন্ট্রাল মার্কেটপ্লেসের জন্য আলাদা কোনো পেমেন্ট গেটওয়ে রাখা হয়নি। সাবস্ক্রিপশন ও সেন্ট্রাল মার্কেটপ্লেস উভয়ই সুপার অ্যাডমিন প্যানেলের প্রধান <strong className="text-slate-800">"পেমেন্ট সেটিংস"</strong> (System Payment Settings) এর অন্তর্ভুক্ত অনলাইন গেটওয়ে (UddoktaPay/Paymently), বিকাশ, নগদ, রকেট, ব্যাংক ট্রান্সফার ও বাংলা কিউআর স্বয়ংক্রিয়ভাবে ব্যবহার করে।
+              সেন্ট্রাল মার্কেটপ্লেস ও সাবস্ক্রিপশন উভয়ই সুপার অ্যাডমিন প্যানেলের প্রধান <strong className="text-slate-800">"পেমেন্ট সেটিংস"</strong> (System Payment Settings) এর অন্তর্ভুক্ত অনলাইন গেটওয়ে (Paymently), বিকাশ, নগদ, রকেট, উপায়, ব্যাংক ট্রান্সফার ও বাংলা কিউআর স্বয়ংক্রিয়ভাবে ব্যবহার করে। এখান থেকে সরাসরি কোনো মেথড চালু বা বন্ধ করলে সেন্ট্রাল মার্কেটপ্লেসে তাৎক্ষণিক পরিবর্তন কার্যকর হবে।
             </p>
           </div>
 
@@ -3043,6 +3042,23 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
               onClick={() => setSettingsForm({ ...settingsForm, isMarketplaceActive: !settingsForm.isMarketplaceActive })}
               className={`w-12 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
                 settingsForm.isMarketplaceActive ? 'bg-teal-700 justify-end' : 'bg-slate-300 justify-start'
+              }`}
+            >
+              <div className="bg-white w-4 h-4 rounded-full shadow-md" />
+            </button>
+          </div>
+
+          {/* Cash on Delivery (COD) Active Toggle */}
+          <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            <div>
+              <p className="font-bold text-slate-900">💵 ক্যাশ অন ডেলিভারি (Cash on Delivery) সক্রিয় রাখুন</p>
+              <p className="text-[11px] text-slate-500">চালু থাকলে ক্রেতারা সেন্ট্রাল মার্কেটপ্লেস থেকে পণ্য হাতে পেয়ে মূল্য পরিশোধ করতে পারবে। বন্ধ করলে চেকআউটে COD অপশন দেখানো হবে না।</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSettingsForm({ ...settingsForm, codEnabled: settingsForm.codEnabled === false ? true : false })}
+              className={`w-12 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
+                settingsForm.codEnabled !== false ? 'bg-teal-700 justify-end' : 'bg-slate-300 justify-start'
               }`}
             >
               <div className="bg-white w-4 h-4 rounded-full shadow-md" />
@@ -3293,7 +3309,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
               {/* Quick Image Presets */}
               <div className="space-y-1.5 pt-1">
                 <span className="text-[11px] font-bold text-slate-500 block">এক ক্লিকে আকর্ষণীয় প্রিসেট ব্যানার নির্বাচন করুন:</span>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {[
                     {
                       label: '🥦 গ্রোসারি ও ফ্রেশ বাজার',

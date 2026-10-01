@@ -6,6 +6,7 @@ import {
   requireAdminOrStaff,
   requireSuperAdmin,
   requireStaffPermission,
+  optionalAuth,
 } from '../authMiddleware';
 import { DEFAULT_PLANS } from '../../src/services/adminService';
 import {
@@ -14,6 +15,7 @@ import {
   sendSmsNotification,
   getServerPublicIp,
   SmsGatewaySettings,
+  normalizePhone,
 } from '../services/smsService';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { DEFAULT_SMS_PACKAGES, getDynamicSmsPackages, DEFAULT_TAGADA_TEMPLATES, getDynamicTagadaTemplates } from './smsRoutes';
@@ -21,6 +23,30 @@ import { DEFAULT_PAYMENTLY_CONFIG, normalizePaymentlyKey } from '../services/pay
 import { realtimeEvents } from '../services/realtimeEvents';
 
 const router = Router();
+
+/**
+ * Live Test SMS endpoint (accessible with optionalAuth for testing from admin panel or dev)
+ */
+router.post('/sms-test', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { phone, message } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: 'মোবাইল নম্বর প্রদান করুন' });
+    }
+
+    const cleanPhone = normalizePhone(phone);
+    if (!cleanPhone || cleanPhone.length < 11) {
+      return res.status(400).json({ error: 'সঠিক ১১ ডিজিটের মোবাইল নম্বর প্রদান করুন (যেমন: 01306908115)' });
+    }
+
+    const testMsg = message?.trim() || `টুইং খাতা: টেস্ট এসএমএস সফল হয়েছে! সময়: ${new Date().toLocaleTimeString('bn-BD')}`;
+    const result = await sendSmsNotification(cleanPhone, testMsg);
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // All admin routes require admin or staff authentication
 router.use(requireAdminOrStaff);
@@ -908,9 +934,16 @@ router.put('/payment-settings', async (req: AuthenticatedRequest, res: Response)
           updated_at = EXCLUDED.updated_at,
           updated_by = EXCLUDED.updated_by
       `, [JSON.stringify(settings), now, req.user?.email || 'admin']);
-    } else {
-      inMemoryStore.system_config['system_payment_settings'] = settings;
     }
+
+    if (!inMemoryStore.system_config) inMemoryStore.system_config = {};
+    inMemoryStore.system_config['system_payment_settings'] = settings;
+    saveInMemoryStoreToDisk();
+
+    // Broadcast realtime event so Central Marketplace and other open tabs update immediately
+    realtimeEvents.broadcast('payment_settings_updated', { settings });
+    realtimeEvents.broadcastToAdmins('payment_settings_updated', { settings });
+    realtimeEvents.broadcast('marketplace_updated', { type: 'payment_settings_updated', settings });
 
     await recordAdminAuditLog({
       adminEmail: req.user?.email || 'admin',
@@ -1754,22 +1787,6 @@ router.post('/sms-config', requireStaffPermission('sms_gateway_manage'), async (
     });
     const serverIp = await getServerPublicIp();
     return res.json({ message: '✅ SMS গেটওয়ে সেটিংস সংরক্ষিত হয়েছে', settings: newSettings, serverIp });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.post('/sms-test', requireStaffPermission('sms_gateway_manage'), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { phone, message } = req.body;
-    if (!phone) {
-      return res.status(400).json({ error: 'মোবাইল নম্বর প্রদান করুন' });
-    }
-
-    const testMsg = message || `ইব্রাহিম খাতা: টেস্ট এসএমএস সফল হয়েছে! সময়: ${new Date().toLocaleTimeString('bn-BD')}`;
-    const result = await sendSmsNotification(phone, testMsg);
-
-    return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

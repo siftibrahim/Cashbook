@@ -2171,37 +2171,38 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
       await ensureOnlineOrdersSchema(pool);
     }
 
-    if (!isSuperAdmin) {
-      let existingOrder: any = null;
-      if (pool) {
-        const chk = await pool.query(
-          'SELECT user_id, order_source, master_order_id, is_admin_approved, admin_approval_status, is_rejected_by_admin FROM online_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
-          [orderId, cleanOrderId]
-        );
-        if (chk.rows.length > 0) existingOrder = chk.rows[0];
-      } else {
-        existingOrder = (inMemoryStore.online_orders || []).find((o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId);
-      }
+    // 🔒 Strictly enforce: Vendor orders MUST be delivered, packaged, and updated by the vendor owner!
+    // No one else (including Super Admin) can deliver or update a vendor's order status.
+    let existingOrder: any = null;
+    if (pool) {
+      const chk = await pool.query(
+        'SELECT user_id, order_source, master_order_id, is_admin_approved, admin_approval_status, is_rejected_by_admin FROM online_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
+        [orderId, cleanOrderId]
+      );
+      if (chk.rows.length > 0) existingOrder = chk.rows[0];
+    } else {
+      existingOrder = (inMemoryStore.online_orders || []).find((o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId);
+    }
 
-      if (!existingOrder) {
-        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
-      }
+    if (!existingOrder) {
+      return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+    }
 
-      const orderOwner = existingOrder.user_id || existingOrder.userId;
-      if (!isSuperAdmin && orderOwner !== userId) {
+    const orderOwner = existingOrder.user_id || existingOrder.userId;
+    // If user is not the order owner:
+    if (orderOwner && orderOwner !== userId) {
+      return res.status(403).json({
+        error: 'ভেন্ডরের অর্ডার শুধুমাত্র সংশ্লিষ্ট ভেন্ডর নিজে ডেলিভারি, প্যাকেজিং ও কুরিয়ার আপডেট করতে পারবেন। অন্য কেউ এটি আপডেট করতে পারবেন না।',
+      });
+    }
+
+    const isMktOrder = existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId));
+    if (isMktOrder) {
+      const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved';
+      if (!isApproved) {
         return res.status(403).json({
-          error: 'অ্যাক্সেস অস্বীকৃত: আপনি শুধুমাত্র নিজের অর্ডারের ডেলিভারি স্ট্যাটাস পরিবর্তন করতে পারবেন।',
+          error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডার সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।',
         });
-      }
-
-      const isMktOrder = existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId));
-      if (isMktOrder) {
-        const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved';
-        if (!isApproved) {
-          return res.status(403).json({
-            error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডার সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।',
-          });
-        }
       }
     }
 
@@ -2223,7 +2224,7 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
              collected_at = CASE WHEN $9 = true THEN $10 ELSE collected_at END,
              updated_at = $10 
          WHERE (id = $11 OR order_number = $11 OR id = $14 OR order_number = $14) 
-           AND (user_id = $12 OR $13 = true) 
+           AND user_id = $12 
          RETURNING *`,
         [
           orderStatus || null,
@@ -2248,8 +2249,8 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           (o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId
         );
         if (order) {
-          if (!isSuperAdmin && order.userId !== userId) {
-            return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি শুধুমাত্র নিজের অর্ডারের ডেলিভারি স্ট্যাটাস পরিবর্তন করতে পারবেন।' });
+          if (order.userId !== userId) {
+            return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: ভেন্ডরের অর্ডার শুধুমাত্র সংশ্লিষ্ট ভেন্ডর নিজে ডেলিভারি ও কুরিয়ার আপডেট করতে পারবেন। অন্য কেউ এটি আপডেট করতে পারবেন না।' });
           }
           if (orderStatus) order.orderStatus = orderStatus;
           if (courierName !== undefined) order.courierName = courierName;

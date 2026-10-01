@@ -407,6 +407,14 @@ async function getStoredMarketplaceSettings(): Promise<any> {
       isSandbox: plConfig.isSandbox,
     },
     // Merge live MFS, Bangla QR, and Bank details directly from systemPaymentSettings
+    codEnabled: mktSettings.codEnabled !== false,
+    bkashEnabled: systemPaymentSettings?.bkash ? systemPaymentSettings.bkash.isEnabled !== false : (mktSettings.bkashEnabled !== false),
+    nagadEnabled: systemPaymentSettings?.nagad ? systemPaymentSettings.nagad.isEnabled !== false : (mktSettings.nagadEnabled !== false),
+    rocketEnabled: systemPaymentSettings?.rocket ? systemPaymentSettings.rocket.isEnabled !== false : (mktSettings.rocketEnabled !== false),
+    upayEnabled: systemPaymentSettings?.upay ? systemPaymentSettings.upay.isEnabled !== false : (mktSettings.upayEnabled !== false),
+    banglaQrEnabled: systemPaymentSettings?.banglaQr ? systemPaymentSettings.banglaQr.isEnabled !== false : true,
+    bankEnabled: systemPaymentSettings?.bankTransfer ? systemPaymentSettings.bankTransfer.isEnabled !== false : (mktSettings.bankEnabled !== false),
+    onlineGatewayEnabled: (systemPaymentSettings?.paymently ? systemPaymentSettings.paymently.isEnabled !== false : true) && (plConfig.isEnabled !== false),
     bkash: systemPaymentSettings?.bkash || {
       isEnabled: true,
       personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ অ্যাপ থেকে Send Money করুন' },
@@ -861,8 +869,43 @@ router.post('/checkout', async (req: Request, res: Response) => {
     const cleanTrxId = String(paymentTrxId || (isAutoPaid ? `PGW_${Date.now().toString(36).toUpperCase()}` : '')).trim();
     const cleanSenderPhone = String(senderPhone || cleanPhone).trim();
 
-    // Fetch live settings for dynamic delivery rates
+    // Fetch live settings for dynamic delivery rates and payment method validation
     const settings = await getStoredMarketplaceSettings();
+
+    // 🔒 Enforce Super Admin payment method enable/disable configuration
+    if (normalizedPaymentMethod === 'cod' && settings.codEnabled === false) {
+      inFlightCheckoutKeys.delete(dedupeKey);
+      return res.status(400).json({ error: 'ক্যাশ অন ডেলিভারি (COD) বর্তমানে সুপার অ্যাডমিন কর্তৃক বন্ধ রয়েছে।' });
+    }
+    if (normalizedPaymentMethod === 'bkash' && settings.bkash?.isEnabled === false) {
+      inFlightCheckoutKeys.delete(dedupeKey);
+      return res.status(400).json({ error: 'বিকাশ (bKash) পেমেন্ট বর্তমানে বন্ধ রয়েছে।' });
+    }
+    if (normalizedPaymentMethod === 'nagad' && settings.nagad?.isEnabled === false) {
+      inFlightCheckoutKeys.delete(dedupeKey);
+      return res.status(400).json({ error: 'নগদ (Nagad) পেমেন্ট বর্তমানে বন্ধ রয়েছে।' });
+    }
+    if (normalizedPaymentMethod === 'rocket' && settings.rocket?.isEnabled === false) {
+      inFlightCheckoutKeys.delete(dedupeKey);
+      return res.status(400).json({ error: 'রকেট (Rocket) পেমেন্ট বর্তমানে বন্ধ রয়েছে।' });
+    }
+    if (normalizedPaymentMethod === 'upay' && settings.upay?.isEnabled === false) {
+      inFlightCheckoutKeys.delete(dedupeKey);
+      return res.status(400).json({ error: 'উপায় (Upay) পেমেন্ট বর্তমানে বন্ধ রয়েছে।' });
+    }
+    if (normalizedPaymentMethod === 'bangla_qr' && settings.banglaQr?.isEnabled === false) {
+      inFlightCheckoutKeys.delete(dedupeKey);
+      return res.status(400).json({ error: 'বাংলা কিউআর (Bangla QR) পেমেন্ট বর্তমানে বন্ধ রয়েছে।' });
+    }
+    if (normalizedPaymentMethod === 'bank' && settings.bankTransfer?.isEnabled === false) {
+      inFlightCheckoutKeys.delete(dedupeKey);
+      return res.status(400).json({ error: 'ব্যাংক ট্রান্সফার পেমেন্ট বর্তমানে বন্ধ রয়েছে।' });
+    }
+    if (isPaymently && settings.paymently?.isEnabled === false) {
+      inFlightCheckoutKeys.delete(dedupeKey);
+      return res.status(400).json({ error: 'অনলাইন পেমেন্ট গেটওয়ে বর্তমানে বন্ধ রয়েছে।' });
+    }
+
     const deliveryRate = deliveryCity === 'dhaka' 
       ? Number(settings.deliveryFeeDhaka || 70) 
       : Number(settings.deliveryFeeOutside || 130);
@@ -2032,6 +2075,14 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
     const { overallStatus, paymentStatus, courierName, courierTrackingCode, returnReason, refundAmount } = req.body;
     const pool = getDbPool();
 
+    // 🔒 Rule: Vendor orders MUST be delivered, packaged, and updated exclusively by the Vendor!
+    // Super Admin cannot manually force delivery status (confirmed, processing, packed, shipped, delivered) on vendor orders!
+    if (overallStatus && ['confirmed', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered'].includes(overallStatus)) {
+      return res.status(400).json({
+        error: 'ভেন্ডরের অর্ডার শুধুমাত্র সংশ্লিষ্ট ভেন্ডর নিজে প্যাকেজিং, কুরিয়ার ও ডেলিভারি আপডেট করতে পারবেন। সুপার এডমিন ডেলিভারি স্ট্যাটাস পরিবর্তন করতে পারবেন না।'
+      });
+    }
+
     if (pool) {
       await pool.query(`
         UPDATE marketplace_master_orders 
@@ -2054,26 +2105,27 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
         id
       ]);
 
-      // Synchronize all corresponding suborders in online_orders for real-time calculations!
-      await pool.query(`
-        UPDATE online_orders 
-        SET order_status = COALESCE($1, order_status),
-            payment_status = COALESCE($2, payment_status),
-            courier_name = COALESCE($3, courier_name),
-            courier_tracking_code = COALESCE($4, courier_tracking_code),
-            updated_at = $5
-        WHERE master_order_id = $6 
-           OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $6 OR order_number = $6)
-           OR id = $6 
-           OR order_number = $6
-      `, [
-        overallStatus || null,
-        paymentStatus || null,
-        courierName !== undefined ? courierName : null,
-        courierTrackingCode !== undefined ? courierTrackingCode : null,
-        Date.now(),
-        id
-      ]).catch(() => {});
+      // Only synchronize payment_status or return/cancellation to suborders, NEVER overwrite delivery/fulfillment status!
+      if (paymentStatus || overallStatus === 'cancelled' || overallStatus === 'returned') {
+        await pool.query(`
+          UPDATE online_orders 
+          SET payment_status = COALESCE($1, payment_status),
+              order_status = CASE 
+                WHEN $2 IN ('cancelled', 'returned') THEN $2 
+                ELSE order_status 
+              END,
+              updated_at = $3
+          WHERE master_order_id = $4 
+             OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $4 OR order_number = $4)
+             OR id = $4 
+             OR order_number = $4
+        `, [
+          paymentStatus || null,
+          overallStatus || null,
+          Date.now(),
+          id
+        ]).catch(() => {});
+      }
     } else {
       const ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
       const targetId = ord?.id || id;
@@ -2087,23 +2139,25 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
         if (refundAmount !== undefined) ord.refundAmount = refundAmount;
         ord.updatedAt = Date.now();
       }
-      // Synchronize all corresponding suborders in online_orders in-memory!
-      (inMemoryStore.online_orders || [])
-        .filter((sub: any) =>
-          sub.masterOrderId === targetId ||
-          sub.master_order_id === targetId ||
-          sub.masterOrderId === targetNumber ||
-          sub.id === id ||
-          sub.orderNumber === id ||
-          (sub.orderNumber && targetNumber && sub.orderNumber.startsWith(targetNumber))
-        )
-        .forEach((sub: any) => {
-          if (overallStatus) sub.orderStatus = overallStatus;
-          if (paymentStatus) sub.paymentStatus = paymentStatus;
-          if (courierName !== undefined) sub.courierName = courierName;
-          if (courierTrackingCode !== undefined) sub.courierTrackingCode = courierTrackingCode;
-          sub.updatedAt = Date.now();
-        });
+      // Only synchronize payment_status or cancellation/return in-memory, NEVER vendor delivery status
+      if (paymentStatus || overallStatus === 'cancelled' || overallStatus === 'returned') {
+        (inMemoryStore.online_orders || [])
+          .filter((sub: any) =>
+            sub.masterOrderId === targetId ||
+            sub.master_order_id === targetId ||
+            sub.masterOrderId === targetNumber ||
+            sub.id === id ||
+            sub.orderNumber === id ||
+            (sub.orderNumber && targetNumber && sub.orderNumber.startsWith(targetNumber))
+          )
+          .forEach((sub: any) => {
+            if (paymentStatus) sub.paymentStatus = paymentStatus;
+            if (overallStatus === 'cancelled' || overallStatus === 'returned') {
+              sub.orderStatus = overallStatus;
+            }
+            sub.updatedAt = Date.now();
+          });
+      }
       saveInMemoryStoreToDisk();
     }
 
@@ -2184,13 +2238,13 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
         if (masterRes.rows.length > 0) {
           targetOrder = masterRes.rows[0];
 
-          // 1. Update Master Order to Approved
+          // 1. Update Master Order to Approved (overall_status remains pending until vendor confirms & packs)
           await client.query(`
             UPDATE marketplace_master_orders 
             SET admin_approval_status = 'approved',
                 is_admin_approved = TRUE,
                 payment_status = 'paid',
-                overall_status = 'confirmed',
+                overall_status = 'pending',
                 notes = CASE 
                   WHEN $1::text IS NOT NULL AND $1::text != '' 
                   THEN COALESCE(notes, '') || ' [এডমিন পেমেন্ট অনুমোদন: ' || $1::text || ']' 
@@ -2200,13 +2254,13 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
             WHERE id = $3::text
           `, [noteText, now, targetOrder.id]);
 
-          // 2. Unlock ALL sub-orders for vendors with confirmed status and unhide from vendor
+          // 2. Unlock ALL sub-orders for vendors with pending status so they appear in "নতুন অর্ডার" (Step 1)
           const subRes = await client.query(`
             UPDATE online_orders 
             SET admin_approval_status = 'approved',
                 is_admin_approved = TRUE,
                 payment_status = 'paid',
-                order_status = 'confirmed',
+                order_status = 'pending',
                 is_locked_for_vendor = FALSE,
                 is_hidden_from_vendor = FALSE,
                 updated_at = $1::bigint
@@ -2222,7 +2276,7 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
             SET admin_approval_status = 'approved',
                 is_admin_approved = TRUE,
                 payment_status = 'paid',
-                order_status = 'confirmed',
+                order_status = 'pending',
                 is_locked_for_vendor = FALSE,
                 is_hidden_from_vendor = FALSE,
                 notes = CASE 
@@ -2247,8 +2301,8 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
             ) VALUES ($1, $2, $3, 'order', 'user', $4, 'high', FALSE, $5)
           `, [
             notifId,
-            '🔓 সেন্ট্রাল মল অর্ডার আনলক হয়েছে (প্রোডাক্ট রেডি করুন)!',
-            `অর্ডার #${sub.order_number} এর পেমেন্ট সুপার এডমিন যাচাই করে অনুমোদন দিয়েছেন! অর্ডারটি আনলক করা হয়েছে, এখন কাস্টমারের জন্য পণ্য প্রস্তুত ও ডেলিভারি দিন। মোট বিল: ৳${sub.total_amount}।`,
+            '🔓 সেন্ট্রাল মল অর্ডার আনলক হয়েছে (নতুন অর্ডার বিভাগে চেক করুন)!',
+            `অর্ডার #${sub.order_number} এর পেমেন্ট সুপার এডমিন যাচাই করে অনুমোদন দিয়েছেন! অর্ডারটি আনলক করা হয়েছে, এখন আপনার "নতুন অর্ডার" থেকে অর্ডার কনফার্ম করে পণ্য প্রস্তুত ও ডেলিভারি দিন। মোট বিল: ৳${sub.total_amount}।`,
             sub.user_id,
             now,
           ]).catch(() => {});
@@ -2272,7 +2326,7 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
           sub.isLockedForVendor = false;
           sub.isHiddenFromVendor = false;
           sub.paymentStatus = 'paid';
-          sub.orderStatus = 'confirmed';
+          sub.orderStatus = 'pending';
           sub.notes = `[✅ সুপার এডমিন কর্তৃক পেমেন্ট ভেরিফাইড] ${sub.notes || ''}`.trim();
           sub.updatedAt = now;
           targetOrder = sub;
@@ -2283,7 +2337,7 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
         ord.adminApprovalStatus = 'approved';
         ord.isAdminApproved = true;
         ord.paymentStatus = 'paid';
-        ord.overallStatus = 'confirmed';
+        ord.overallStatus = 'pending';
         ord.updatedAt = now;
 
         subOrders = (inMemoryStore.online_orders || []).filter(o => o.masterOrderId === ord.id || o.masterOrderId === ord.orderNumber);
@@ -2293,15 +2347,15 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
           sub.isLockedForVendor = false;
           sub.isHiddenFromVendor = false;
           sub.paymentStatus = 'paid';
-          sub.orderStatus = 'confirmed';
+          sub.orderStatus = 'pending';
           sub.notes = `[✅ সুপার এডমিন কর্তৃক পেমেন্ট ভেরিফাইড] ${sub.notes || ''}`.trim();
           sub.updatedAt = now;
 
           if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
           inMemoryStore.notifications.unshift({
             id: `notif_unlock_${now}`,
-            title: '🔓 সেন্ট্রাল মল অর্ডার আনলক হয়েছে (প্রোডাক্ট রেডি করুন)!',
-            message: `অর্ডার #${sub.orderNumber} এর পেমেন্ট সুপার এডমিন অনুমোদন করেছেন! অর্ডারটি আনলক হয়েছে, এখন পণ্য প্রস্তুত ও ডেলিভারি দিন।`,
+            title: '🔓 সেন্ট্রাল মল অর্ডার আনলক হয়েছে (নতুন অর্ডার বিভাগে চেক করুন)!',
+            message: `অর্ডার #${sub.orderNumber} এর পেমেন্ট সুপার এডমিন অনুমোদন করেছেন! অর্ডারটি আনলক হয়েছে, এখন আপনার "নতুন অর্ডার" থেকে অর্ডার কনফার্ম করে পণ্য প্রস্তুত ও ডেলিভারি দিন।`,
             type: 'order',
             target: 'user',
             target_user_id: sub.userId,

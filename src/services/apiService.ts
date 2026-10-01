@@ -1775,7 +1775,10 @@ export const adminApi = {
         method: 'PUT',
         body: JSON.stringify(settings),
       });
-    } catch {}
+    } catch (err) {
+      console.error('Failed to update payment settings on server:', err);
+      throw err;
+    }
   },
 
   async getStaff(): Promise<StaffMember[]> {
@@ -2065,10 +2068,21 @@ export const adminApi = {
   },
 
   async testSms(phone: string, message?: string): Promise<any> {
-    return await apiRequest('/admin/sms-test', {
-      method: 'POST',
-      body: JSON.stringify({ phone, message }),
-    });
+    try {
+      return await apiRequest('/admin/sms-test', {
+        method: 'POST',
+        body: JSON.stringify({ phone, message }),
+      });
+    } catch (adminErr) {
+      try {
+        return await apiRequest('/sms/test', {
+          method: 'POST',
+          body: JSON.stringify({ phone, message }),
+        });
+      } catch {
+        throw adminErr;
+      }
+    }
   },
 
   async resetSubscription(
