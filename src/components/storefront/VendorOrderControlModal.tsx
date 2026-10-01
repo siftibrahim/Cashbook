@@ -22,9 +22,6 @@ import {
   Clock,
   AlertCircle,
   BookOpen,
-  MessageSquare,
-  Calendar,
-  Eye,
 } from 'lucide-react';
 import { OnlineOrder, OnlineOrderItem } from '../../types';
 import { storeApi } from '../../services/apiService';
@@ -34,7 +31,7 @@ interface VendorOrderControlModalProps {
   storeName: string;
   storePhone: string;
   storeAddress?: string;
-  initialTab?: 'details' | 'payment' | 'delivery' | 'edit' | 'print';
+  initialTab?: 'payment' | 'delivery' | 'edit' | 'print';
   onClose: () => void;
   onOrderUpdated: (updatedOrder: OnlineOrder, message?: string) => void;
 }
@@ -55,7 +52,7 @@ export const VendorOrderControlModal: React.FC<VendorOrderControlModalProps> = (
   storeName,
   storePhone,
   storeAddress,
-  initialTab = 'details',
+  initialTab = 'payment',
   onClose,
   onOrderUpdated,
 }) => {
@@ -63,8 +60,8 @@ export const VendorOrderControlModal: React.FC<VendorOrderControlModalProps> = (
   const isMarketplaceLocked =
     isMarketplaceOrder &&
     (order.isLockedForVendor === true || order.adminApprovalStatus === 'pending_approval' || !order.isAdminApproved);
-  const [activeTab, setActiveTab] = useState<'details' | 'payment' | 'delivery' | 'edit' | 'print'>(
-    isMarketplaceOrder && initialTab === 'payment' ? 'details' : (initialTab || 'details')
+  const [activeTab, setActiveTab] = useState<'payment' | 'delivery' | 'edit' | 'print'>(
+    isMarketplaceOrder && initialTab === 'payment' ? 'delivery' : initialTab
   );
   const [saving, setSaving] = useState(false);
   const [syncingLedger, setSyncingLedger] = useState(false);
@@ -277,28 +274,6 @@ export const VendorOrderControlModal: React.FC<VendorOrderControlModalProps> = (
 
         {/* Navigation Tabs */}
         <div className="px-5 py-2.5 bg-slate-950/70 border-b border-slate-800 flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0">
-          <button
-            onClick={() => setActiveTab('details')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 whitespace-nowrap transition-all ${
-              activeTab === 'details'
-                ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/25'
-                : 'bg-slate-800/80 text-slate-400 hover:text-white'
-            }`}
-          >
-            <Eye className="w-4 h-4" />
-            ১. অর্ডার ও পণ্য বিস্তারিত
-          </button>
-          <button
-            onClick={() => setActiveTab('delivery')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 whitespace-nowrap transition-all ${
-              activeTab === 'delivery'
-                ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/25'
-                : 'bg-slate-800/80 text-slate-400 hover:text-white'
-            }`}
-          >
-            <Truck className="w-4 h-4" />
-            ২. ডেলিভারি ও কুরিয়ার
-          </button>
           {!isMarketplaceOrder && (
             <button
               onClick={() => setActiveTab('payment')}
@@ -309,9 +284,20 @@ export const VendorOrderControlModal: React.FC<VendorOrderControlModalProps> = (
               }`}
             >
               <CreditCard className="w-4 h-4" />
-              ৩. পেমেন্ট যাচাই ও আদায়
+              ১. পেমেন্ট যাচাই ও আদায়
             </button>
           )}
+          <button
+            onClick={() => setActiveTab('delivery')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 whitespace-nowrap transition-all ${
+              activeTab === 'delivery'
+                ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/25'
+                : 'bg-slate-800/80 text-slate-400 hover:text-white'
+            }`}
+          >
+            <Truck className="w-4 h-4" />
+            ২. ডেলিভারি ও কুরিয়ার আপডেট
+          </button>
           {!isMarketplaceOrder && (
             <button
               onClick={() => setActiveTab('edit')}
@@ -322,7 +308,7 @@ export const VendorOrderControlModal: React.FC<VendorOrderControlModalProps> = (
               }`}
             >
               <Edit3 className="w-4 h-4" />
-              ৪. অর্ডার ও পণ্য এডিট
+              ৩. অর্ডার ও পণ্য এডিট
             </button>
           )}
           <button
@@ -334,220 +320,12 @@ export const VendorOrderControlModal: React.FC<VendorOrderControlModalProps> = (
             }`}
           >
             <Printer className="w-4 h-4" />
-            ৫. পার্সেল স্লিপ ও ইনভয়েস
+            ৪. পার্সেল স্লিপ ও ইনভয়েস প্রিন্ট
           </button>
         </div>
 
         {/* Body Content */}
         <div className="p-5 overflow-y-auto flex-1 space-y-5">
-          {/* TAB: VENDOR COMPLETE ORDER & PRODUCT DETAILS (REQUIREMENT 3) */}
-          {activeTab === 'details' && (() => {
-            const createdDate = order.createdAt ? new Date(Number(order.createdAt)) : new Date();
-            const statusLabelMap: Record<string, string> = {
-              pending: '⏳ পেন্ডিং (নতুন অর্ডার)',
-              confirmed: '✅ কনফার্মড',
-              processing: '📦 প্রস্তুত হচ্ছে (প্রসেসিং)',
-              shipped: '🚚 কুরিয়ারে পাঠানো হয়েছে (শিপড)',
-              delivered: '🎉 ডেলিভারি সম্পন্ন (Delivered)',
-              cancelled: '❌ অর্ডার বাতিল (Cancelled)',
-            };
-
-            return (
-              <div className="space-y-4 text-xs">
-                {/* 1. Status & Payment Badge Summary */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3.5 bg-slate-800/70 rounded-2xl border border-slate-700 flex items-center justify-between">
-                    <div>
-                      <p className="text-[11px] text-slate-400 font-bold">পেমেন্ট স্ট্যাটাস</p>
-                      <p className="font-black text-sm text-white mt-0.5">
-                        {order.paymentStatus === 'paid'
-                          ? '✅ পেইড (অনুমোদিত)'
-                          : order.paymentMethod === 'cod'
-                          ? '💵 ক্যাশ অন ডেলিভারি'
-                          : '⏳ পেমেন্ট যাচাইাধীন'}
-                      </p>
-                    </div>
-                    <span className={`px-2.5 py-1 rounded-xl text-[11px] font-black ${
-                      isMarketplaceLocked
-                        ? 'bg-amber-900/60 text-amber-300 border border-amber-500/40'
-                        : 'bg-emerald-900/60 text-emerald-300 border border-emerald-500/40'
-                    }`}>
-                      {isMarketplaceLocked ? '🔒 লক (যাচাই বাকি)' : '✅ আনলকড'}
-                    </span>
-                  </div>
-
-                  <div className="p-3.5 bg-slate-800/70 rounded-2xl border border-slate-700 flex items-center justify-between">
-                    <div>
-                      <p className="text-[11px] text-slate-400 font-bold">ডেলিভারি স্ট্যাটাস</p>
-                      <p className="font-black text-sm text-teal-300 mt-0.5">
-                        {statusLabelMap[orderStatus] || orderStatus}
-                      </p>
-                    </div>
-                    <span className="px-2.5 py-1 rounded-lg bg-teal-900/60 text-teal-300 border border-teal-500/40 font-bold text-[10px]">
-                      {courierName || 'কুরিয়ার নির্ধারিত হয়নি'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 2. Customer Information Card */}
-                <div className="p-4 bg-slate-800/50 rounded-2xl border border-slate-700/80 space-y-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <h4 className="font-black text-white flex items-center gap-1.5 text-xs">
-                      <User className="w-4 h-4 text-teal-400" />
-                      <span>গ্রাহকের তথ্য ও ডেলিভারি ঠিকানা</span>
-                    </h4>
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={`tel:${customerPhone}`}
-                        className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition"
-                      >
-                        <Phone className="w-3 h-3 text-emerald-400" />
-                        <span>কল দিন</span>
-                      </a>
-                      <a
-                        href={`https://wa.me/88${customerPhone.replace(/\D/g, '')}?text=${encodeURIComponent(`আসসালামু আলাইকুম ${customerName}, আপনার অর্ডার #${order.orderNumber} এর বিষয়ে যোগাযোগ করছি।`)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 transition shadow-xs"
-                      >
-                        <MessageSquare className="w-3 h-3" />
-                        <span>WhatsApp</span>
-                      </a>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-300 pt-1">
-                    <div>
-                      <span className="text-slate-400 block text-[10px]">গ্রাহকের নাম:</span>
-                      <strong className="text-white text-sm">{customerName}</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block text-[10px]">মোবাইল নম্বর:</span>
-                      <strong className="text-white font-mono text-sm">{customerPhone}</strong>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <span className="text-slate-400 block text-[10px]">ডেলিভারি ঠিকানা:</span>
-                      <p className="text-slate-200 font-medium leading-relaxed bg-slate-900/80 p-2.5 rounded-xl border border-slate-700 mt-1">
-                        <MapPin className="w-3.5 h-3.5 text-rose-400 inline mr-1" />
-                        {customerAddress}
-                        {deliveryArea && (
-                          <span className="ml-1.5 text-teal-400 font-bold">
-                            ({deliveryArea === 'inside_dhaka' || String(deliveryArea) === 'dhaka' ? 'ঢাকা সিটির ভেতরে' : 'ঢাকার বাইরে'})
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Customer Notes / Special Instructions */}
-                  {notes && (
-                    <div className="p-3 bg-amber-950/40 rounded-xl border border-amber-500/40 text-amber-200">
-                      <span className="font-bold text-[11px] block text-amber-300">📝 গ্রাহকের বিশেষ নির্দেশনা / কাস্টমার নোট:</span>
-                      <p className="mt-1 leading-relaxed text-amber-100">{notes}</p>
-                    </div>
-                  )}
-
-                  {/* Order Date & Time */}
-                  <div className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-1">
-                    <Calendar className="w-3.5 h-3.5 text-teal-400" />
-                    <span>অর্ডারের সময়: {createdDate.toLocaleDateString('bn-BD')} | {createdDate.toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
-                </div>
-
-                {/* 3. Ordered Products Details (Vendor's Own Products) */}
-                <div className="space-y-2">
-                  <h4 className="font-black text-white flex items-center gap-1.5 text-xs">
-                    <Package className="w-4 h-4 text-teal-400" />
-                    <span>অর্ডারকৃত পণ্যসমূহ (আপনার স্টোরের পণ্য)</span>
-                  </h4>
-
-                  <div className="divide-y divide-slate-800 border border-slate-700 rounded-2xl overflow-hidden bg-slate-900/60">
-                    {items.map((it: any, idx: number) => {
-                      const q = Number(it.quantity) || 1;
-                      const u = it.unit || 'পিস';
-                      const p = Number(it.unitPrice || it.price || 0);
-                      const sub = Number(it.total || it.subtotal || p * q);
-                      const desc = it.description || it.productDescription || '';
-                      const variantStr = it.variant || [it.size, it.color].filter(Boolean).join(' • ');
-
-                      return (
-                        <div key={idx} className="p-3.5 hover:bg-slate-800/40 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="space-y-1 max-w-md">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-white text-xs sm:text-sm">
-                                {it.productName || it.name || 'পণ্য'}
-                              </span>
-                              {variantStr && (
-                                <span className="px-2 py-0.5 rounded-full bg-teal-950 text-teal-300 border border-teal-500/40 text-[10px] font-bold">
-                                  ভ্যারিয়েন্ট: {variantStr}
-                                </span>
-                              )}
-                            </div>
-                            {desc && (
-                              <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
-                                {desc}
-                              </p>
-                            )}
-                            <div className="text-[11px] text-slate-300 font-mono">
-                              মূল্য: ৳{p.toLocaleString('bn-BD')} × {q}{u}
-                            </div>
-                          </div>
-
-                          <div className="text-right shrink-0">
-                            <span className="text-sm font-black text-teal-300 block font-mono">৳{sub.toLocaleString('bn-BD')}</span>
-                            <span className="text-[10px] text-slate-400 font-medium">আইটেম সাবটোটাল</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 4. Financial Calculations */}
-                <div className="p-3.5 bg-slate-800/60 rounded-2xl border border-slate-700 space-y-1.5">
-                  <div className="flex justify-between text-slate-400 text-[11px]">
-                    <span>পণ্য সাবটোটাল:</span>
-                    <span className="font-mono font-bold text-white">৳{computedSubtotal.toLocaleString('bn-BD')}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-400 text-[11px]">
-                    <span>ডেলিভারি চার্জ:</span>
-                    <span className="font-mono font-bold text-white">৳{numDeliveryCharge.toLocaleString('bn-BD')}</span>
-                  </div>
-                  {numDiscount > 0 && (
-                    <div className="flex justify-between text-emerald-400 text-[11px]">
-                      <span>ডিসকাউন্ট:</span>
-                      <span className="font-mono font-bold">-৳{numDiscount.toLocaleString('bn-BD')}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-white font-black text-sm pt-1.5 border-t border-slate-700">
-                    <span>সর্বমোট বিল:</span>
-                    <span className="font-mono text-base text-teal-400">৳{computedGrandTotal.toLocaleString('bn-BD')}</span>
-                  </div>
-                </div>
-
-                {/* 5. Quick Action Switchers */}
-                <div className="pt-2 flex items-center justify-end gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('delivery')}
-                    className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition"
-                  >
-                    <Truck className="w-4 h-4" />
-                    <span>ডেলিভারি স্ট্যাটাস ও কুরিয়ার আপডেট করুন</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('print')}
-                    className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition border border-slate-700"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>পার্সেল স্লিপ প্রিন্ট</span>
-                  </button>
-                </div>
-              </div>
-            );
-          })()}
-
           {/* TAB 1: VENDOR PAYMENT VERIFICATION & MANAGEMENT (Personal Store Only) */}
           {activeTab === 'payment' && !isMarketplaceOrder && (
             <div className="space-y-5">

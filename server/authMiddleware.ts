@@ -67,7 +67,6 @@ export function optionalAuth(req: AuthenticatedRequest, res: Response, next: Nex
 export const SUPER_ADMIN_EMAILS = [
   'siftraihan@gmail.com',
   'siftibrahim@gmail.com',
-  'siftibrahim75@gmail.com',
   'admin@twing.com',
 ];
 

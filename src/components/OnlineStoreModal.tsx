@@ -274,7 +274,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [paymentTabFilter, setPaymentTabFilter] = useState<'all' | 'pending' | 'cod_due' | 'paid' | 'rejected'>('all');
   const [vendorControlModalOrder, setVendorControlModalOrder] = useState<{
     order: OnlineOrder;
-    initialTab: 'details' | 'payment' | 'delivery' | 'edit' | 'print';
+    initialTab: 'payment' | 'delivery' | 'edit' | 'print';
   } | null>(null);
 
   const handleRequestStoreActivation = async () => {
@@ -4259,18 +4259,10 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                   <div className="flex items-center gap-1.5">
                                     <button
                                       type="button"
-                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'details' })}
-                                      className="px-2.5 py-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
-                                      title="অর্ডার ও পণ্যের বিস্তারিত তথ্য দেখুন"
-                                    >
-                                      <Eye className="w-3 h-3" /> অর্ডার বিস্তারিত
-                                    </button>
-                                    <button
-                                      type="button"
                                       onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'delivery' })}
                                       className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
                                     >
-                                      <Truck className="w-3 h-3" /> ডেলিভারি ও কুরিয়ার
+                                      <Truck className="w-3 h-3" /> ডেলিভারি ও কুরিয়ার আপডেট
                                     </button>
                                     <button
                                       type="button"
@@ -4578,41 +4570,15 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                                   <span>অর্ডারকৃত পণ্য তালিকা:</span>
                                   <span className="text-slate-500 font-normal">({ord.items.length}টি আইটেম)</span>
                                 </div>
-                                <div className="space-y-2 divide-y divide-slate-200/60">
-                                  {ord.items.map((item, idx) => {
-                                    const variantStr = (item as any).variant || [(item as any).size, (item as any).color].filter(Boolean).join(' • ');
-                                    const desc = (item as any).description || (item as any).productDescription || '';
-                                    const q = Number(item.quantity) || 1;
-                                    const u = item.unit || 'পিস';
-                                    const p = Number(item.unitPrice || (item as any).price || 0);
-                                    const itemTotal = Number(item.total || (item as any).subtotal || p * q);
-
-                                    return (
-                                      <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-700 pt-2 first:pt-0 gap-1">
-                                        <div className="space-y-0.5">
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            <span className="font-bold text-slate-900">
-                                              {item.productName}
-                                            </span>
-                                            {variantStr && (
-                                              <span className="px-1.5 py-0.2 rounded bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-bold">
-                                                [{variantStr}]
-                                              </span>
-                                            )}
-                                          </div>
-                                          {desc && (
-                                            <p className="text-[11px] text-slate-500 line-clamp-1">{desc}</p>
-                                          )}
-                                          <span className="text-[11px] text-slate-500 font-mono">
-                                            ৳ {formatMoney(p)} × {q} {u}
-                                          </span>
-                                        </div>
-                                        <span className="font-bold text-slate-900 font-mono self-end sm:self-auto">
-                                          ৳ {formatMoney(itemTotal)}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
+                                <div className="space-y-1.5 divide-y divide-slate-200/60">
+                                  {ord.items.map((item, idx) => (
+                                    <div key={idx} className="flex justify-between text-xs text-slate-700 pt-1.5 first:pt-0">
+                                      <span>
+                                        {item.productName} × {item.quantity} {item.unit}
+                                      </span>
+                                      <span className="font-bold text-slate-900 font-mono">৳ {formatMoney(item.total)}</span>
+                                    </div>
+                                  ))}
                                 </div>
 
                                 <div className="border-t border-slate-200 pt-2 space-y-1 text-xs">

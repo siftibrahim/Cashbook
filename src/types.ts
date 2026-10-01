@@ -229,9 +229,6 @@ export interface VendorPayoutRequest {
 export interface VendorWalletSummary {
   totalSales: number;
   deliveredSales: number;
-  commissionPercent?: number;
-  commissionAmount?: number;
-  netDeliveredSales?: number;
   settledSales: number;
   pendingDeliverySales: number;
   pendingWithdrawalAmount: number;

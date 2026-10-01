@@ -25,37 +25,11 @@ import { SubscriptionEngine } from './server/services/subscriptionEngine';
 import { wildcardCors, dynamicSubdomainMiddleware } from './server/middleware/subdomainMiddleware';
 import { injectProductSeo, injectMarketplaceSeo } from './server/services/productSeoHelper';
 
-// Ensure process.env.PORT is not set to 8080 (which is reserved by Nginx reverse proxy)
-if (process.env.PORT === '8080') {
-  process.env.PORT = '3000';
-}
-
 dotenv.config();
-
-// Re-check after dotenv
-if (process.env.PORT === '8080') {
-  process.env.PORT = '3000';
-}
 
 async function startServer() {
   const app = express();
-
-  // Support CLI arguments --port <port> or -p <port> passed by dev server runners,
-  // falling back to 3000 (never 8080 which is reserved by Nginx proxy).
-  let PORT = 3000;
-  const args = process.argv.slice(2);
-  const portArgIdx = args.findIndex((arg) => arg === '--port' || arg === '-p');
-  if (portArgIdx !== -1 && args[portArgIdx + 1]) {
-    PORT = parseInt(args[portArgIdx + 1], 10);
-  } else if (process.env.DEFAULT_APP_PORT && process.env.DEFAULT_APP_PORT !== '8080') {
-    PORT = parseInt(process.env.DEFAULT_APP_PORT, 10);
-  } else if (process.env.APP_PORT) {
-    PORT = parseInt(process.env.APP_PORT, 10);
-  } else if (process.env.PORT && process.env.PORT !== '8080') {
-    PORT = parseInt(process.env.PORT, 10);
-  } else {
-    PORT = 3000;
-  }
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   // Trust reverse proxy (Render.com, Cloudflare, Nginx) for accurate Host, IP, and Protocol detection
   app.set('trust proxy', true);
@@ -285,8 +259,8 @@ Sitemap: ${baseUrl}/sitemap.xml
     });
   }
 
-  // Start listening immediately on all interfaces (dual-stack IPv4 & IPv6)
-  app.listen(PORT, () => {
+  // Start listening immediately
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
     // Initialize DB schema & seeds in background without blocking server startup
     initializeDatabaseSchema()
@@ -299,14 +273,6 @@ Sitemap: ${baseUrl}/sitemap.xml
       });
   });
 }
-
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled Rejection:', reason);
-});
 
 startServer().catch((err) => {
   console.error('❌ Failed to start server:', err);

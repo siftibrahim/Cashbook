@@ -28,8 +28,6 @@ function mapRowToProduct(row: any) {
     isListedOnMarketplace: row.is_listed_on_marketplace === true,
     rating: row.rating ? parseFloat(row.rating) : 5.0,
     reviewCount: row.review_count ? parseInt(row.review_count, 10) : 0,
-    userId: row.user_id,
-    vendorId: row.user_id,
     updatedAt: Number(row.updated_at),
   };
 }

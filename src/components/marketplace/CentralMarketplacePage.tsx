@@ -438,20 +438,6 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           }
           if (settingsRes?.success && settingsRes.settings) {
             setMarketplaceSettings((prev: any) => ({ ...prev, ...settingsRes.settings }));
-            if (settingsRes.settings.systemPaymentSettings) {
-              setPaymentSettings(settingsRes.settings.systemPaymentSettings);
-            } else if (settingsRes.settings.bkash || settingsRes.settings.banglaQr) {
-              setPaymentSettings((prev) => ({
-                ...prev,
-                bkash: settingsRes.settings.bkash || prev.bkash,
-                nagad: settingsRes.settings.nagad || prev.nagad,
-                rocket: settingsRes.settings.rocket || prev.rocket,
-                upay: settingsRes.settings.upay || prev.upay,
-                banglaQr: settingsRes.settings.banglaQr || prev.banglaQr,
-                bankTransfer: settingsRes.settings.bankTransfer || prev.bankTransfer,
-                paymently: settingsRes.settings.paymently || prev.paymently,
-              }));
-            }
           }
         }
       } catch (err) {
@@ -476,13 +462,13 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       const pType = urlParams.get('type');
       const orderId = urlParams.get('order_id') || urlParams.get('payment_id');
 
-      if ((pStatus === 'cancelled' || pStatus === 'failed') && (pType === 'marketplace' || (orderId && (orderId.includes('mkt') || orderId.startsWith('PAY-'))))) {
-        showToast(pMsg ? decodeURIComponent(pMsg) : '⚠️ পেমেন্ট বাতিল বা ব্যর্থ হয়েছে। কোনো অর্ডার গৃহীত হয়নি।');
+      if (pStatus === 'cancelled' && (pType === 'marketplace' || (orderId && orderId.includes('mkt')))) {
+        showToast(pMsg ? decodeURIComponent(pMsg) : '⚠️ পেমেন্ট বাতিল করা হয়েছে। কোনো অর্ডার গৃহীত হয়নি।');
         if (orderId) {
-          marketplaceApi.cancelOrder(orderId, 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন').catch(() => {});
+          marketplaceApi.cancelOrder(orderId, 'গ্রাহক পেমেন্ট বাতিল করেছেন').catch(() => {});
         }
         window.history.replaceState({}, '', window.location.pathname);
-      } else if (pStatus === 'success' && (pType === 'marketplace' || (orderId && (orderId.includes('mkt') || orderId.startsWith('PAY-'))))) {
+      } else if (pStatus === 'success' && (pType === 'marketplace' || (orderId && orderId.includes('mkt')))) {
         showToast('🎉 আপনার অনলাইন পেমেন্ট সফলভাবে সম্পন্ন হয়েছে!');
         window.history.replaceState({}, '', window.location.pathname);
       }
@@ -589,127 +575,10 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           type: paymentSettings.upay?.personal?.accountType || 'personal',
           color: 'amber',
         };
-      case 'bank':
-        const firstBank = paymentSettings.bankTransfer?.accounts?.[0];
-        return {
-          name: 'ব্যাংক ট্রান্সফার (Bank Transfer)',
-          number: firstBank ? `${firstBank.bankName} - A/C: ${firstBank.accountNumber}` : 'ব্যাংক অ্যাকাউন্ট',
-          instructions: firstBank?.instructions || 'ব্যাংক অ্যাকাউন্টে টাকা পাঠিয়ে ডিপোজিট স্লিপ নম্বর বা ট্রানজেকশন আইডি দিন',
-          type: 'bank',
-          color: 'blue',
-        };
       default:
         return null;
     }
   }, [paymentMethod, paymentSettings]);
-
-  // Dynamic Available Payment Methods based on Super Admin Payment Settings
-  const availablePaymentMethods = useMemo(() => {
-    const list: Array<{
-      id: 'bangla_qr' | 'paymently' | 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank';
-      title: string;
-      subtitle: string;
-      iconType: 'qr' | 'card' | 'cod' | 'bkash' | 'nagad' | 'rocket' | 'upay' | 'bank';
-      badge?: string;
-    }> = [];
-
-    // 1. Bangla QR (Check isEnabled)
-    if (paymentSettings.banglaQr?.isEnabled !== false) {
-      list.push({
-        id: 'bangla_qr',
-        title: '📱 বাংলা কিউআর',
-        subtitle: 'অটোমেটিক কিউআর গেটওয়ে',
-        iconType: 'qr',
-        badge: 'অটোমেটিক',
-      });
-    }
-
-    // 2. Automated Gateway (Paymently / Online Gateway)
-    const isGatewayActive =
-      paymentSettings.paymently?.isEnabled !== false &&
-      (paymentSettings.paymently?.isConfigured || marketplaceSettings.onlineGatewayEnabled !== false);
-    if (isGatewayActive) {
-      list.push({
-        id: 'paymently',
-        title: '🚀 অনলাইন গেটওয়ে',
-        subtitle: 'অটোমেটিক ইনস্ট্যান্ট পেমেন্ট',
-        iconType: 'card',
-        badge: 'ইনস্ট্যান্ট',
-      });
-    }
-
-    // 3. Cash on Delivery (COD)
-    if (marketplaceSettings.codEnabled !== false) {
-      list.push({
-        id: 'cod',
-        title: '💵 ক্যাশ অন ডেলিভারি',
-        subtitle: 'পণ্য পেয়ে মূল্য দিন',
-        iconType: 'cod',
-      });
-    }
-
-    // 4. bKash
-    if (paymentSettings.bkash?.isEnabled !== false) {
-      list.push({
-        id: 'bkash',
-        title: '🌸 বিকাশ (bKash)',
-        subtitle: 'Send Money / পেমেন্ট',
-        iconType: 'bkash',
-      });
-    }
-
-    // 5. Nagad
-    if (paymentSettings.nagad?.isEnabled !== false) {
-      list.push({
-        id: 'nagad',
-        title: '🍊 নগদ (Nagad)',
-        subtitle: 'Send Money',
-        iconType: 'nagad',
-      });
-    }
-
-    // 6. Rocket
-    if (paymentSettings.rocket?.isEnabled !== false) {
-      list.push({
-        id: 'rocket',
-        title: '🚀 রকেট (Rocket)',
-        subtitle: 'Send Money',
-        iconType: 'rocket',
-      });
-    }
-
-    // 7. Upay
-    if (paymentSettings.upay?.isEnabled !== false && !!paymentSettings.upay?.personal?.number) {
-      list.push({
-        id: 'upay',
-        title: '🟡 উপায় (Upay)',
-        subtitle: 'Send Money',
-        iconType: 'upay',
-      });
-    }
-
-    // 8. Bank Transfer
-    if (paymentSettings.bankTransfer?.isEnabled !== false && (paymentSettings.bankTransfer?.accounts?.length || 0) > 0) {
-      list.push({
-        id: 'bank',
-        title: '🏛️ ব্যাংক ট্রান্সফার',
-        subtitle: 'ব্যাংক অ্যাকাউন্টে জমা',
-        iconType: 'bank',
-      });
-    }
-
-    return list;
-  }, [paymentSettings, marketplaceSettings]);
-
-  // Keep paymentMethod aligned with available methods
-  useEffect(() => {
-    if (availablePaymentMethods.length > 0) {
-      const isCurrentValid = availablePaymentMethods.some((m) => m.id === paymentMethod);
-      if (!isCurrentValid) {
-        setPaymentMethod(availablePaymentMethods[0].id);
-      }
-    }
-  }, [availablePaymentMethods, paymentMethod]);
 
   const handleCopyNumber = (num: string) => {
     try {
@@ -783,14 +652,9 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       deviceToken: devRecord?.deviceToken || `dev_${standardPhone}`,
       items: cart.map((it) => ({
         productId: it.product.id,
-        vendorId: it.product.vendorId || (it.product as any).userId,
+        vendorId: it.product.vendorId,
         name: it.product.name,
-        description: it.product.description || '',
-        variant: (it as any).variant || (it.product as any).variant || '',
-        size: (it as any).size || (it.product as any).size || '',
-        color: (it as any).color || (it.product as any).color || '',
         salePrice: it.product.salePrice,
-        price: it.product.salePrice || (it.product as any).price,
         quantity: it.quantity,
         unit: it.product.unit,
         imageUrl: it.product.imageUrl,
@@ -971,7 +835,7 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
   }, [marketplaceSettings, paymentSettings]);
 
   return (
-    <div className="w-full min-h-screen bg-[#F8FAFC] flex flex-col justify-between overflow-x-clip relative">
+    <div className="w-full min-h-[100dvh] bg-[#F8FAFC] flex flex-col justify-between overflow-x-hidden relative">
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (
@@ -1779,58 +1643,97 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                           পেমেন্ট পদ্ধতি নির্বাচন করুন *
                         </label>
 
-                        {/* Payment Method Buttons - Driven Dynamically by Super Admin Enabled Settings */}
-                        {availablePaymentMethods.length === 0 ? (
-                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
-                            ⚠️ বর্তমানে সেন্ট্রাল মার্কেটপ্লেসে কোনো পেমেন্ট মেথড সক্রিয় নেই। অনুগ্রহ করে সুপার অ্যাডমিনের সাথে যোগাযোগ করুন।
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            {availablePaymentMethods.map((m) => {
-                              const isSelected = paymentMethod === m.id;
-                              return (
-                                <button
-                                  key={m.id}
-                                  type="button"
-                                  onClick={() => setPaymentMethod(m.id)}
-                                  className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer relative ${
-                                    isSelected
-                                      ? m.id === 'bangla_qr'
-                                        ? 'border-emerald-600 bg-emerald-50 text-emerald-950 font-black ring-2 ring-emerald-500/20 shadow-xs'
-                                        : m.id === 'paymently'
-                                        ? 'border-teal-600 bg-teal-50 text-teal-900 font-black ring-2 ring-teal-500/20 shadow-xs'
-                                        : m.id === 'bkash'
-                                        ? 'border-pink-500 bg-pink-50 text-pink-900 font-black ring-2 ring-pink-500/20 shadow-xs'
-                                        : m.id === 'nagad'
-                                        ? 'border-orange-500 bg-orange-50 text-orange-900 font-black ring-2 ring-orange-500/20 shadow-xs'
-                                        : m.id === 'rocket'
-                                        ? 'border-purple-500 bg-purple-50 text-purple-900 font-black ring-2 ring-purple-500/20 shadow-xs'
-                                        : m.id === 'upay'
-                                        ? 'border-amber-500 bg-amber-50 text-amber-900 font-black ring-2 ring-amber-500/20 shadow-xs'
-                                        : m.id === 'bank'
-                                        ? 'border-blue-600 bg-blue-50 text-blue-900 font-black ring-2 ring-blue-500/20 shadow-xs'
-                                        : 'border-teal-600 bg-teal-50 text-teal-900 font-black ring-2 ring-teal-500/20 shadow-xs'
-                                      : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5">
-                                      {m.iconType === 'qr' && <QrCode className="w-4 h-4 text-emerald-700 shrink-0" />}
-                                      {m.iconType === 'card' && <CreditCard className="w-4 h-4 text-teal-700 shrink-0" />}
-                                      <span className="font-bold">{m.title}</span>
-                                    </div>
-                                    {m.badge && (
-                                      <span className="text-[9px] px-1.5 py-0.5 rounded-md font-extrabold bg-teal-100 text-teal-800">
-                                        {m.badge}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-[10px] text-slate-500 font-normal mt-0.5">{m.subtitle}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          {/* Bangla QR (Official Super Admin Automatic QR Code Gateway) */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('bangla_qr')}
+                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
+                              paymentMethod === 'bangla_qr'
+                                ? 'border-emerald-600 bg-emerald-50 text-emerald-950 font-black ring-2 ring-emerald-500/20 shadow-xs'
+                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <QrCode className="w-4 h-4 text-emerald-700 shrink-0" />
+                              <span className="font-bold">📱 বাংলা কিউআর</span>
+                            </div>
+                            <span className="text-[10px] text-emerald-700 font-medium mt-0.5">অটোমেটিক কিউআর গেটওয়ে</span>
+                          </button>
+
+                          {/* Paymently / Automated Gateway */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('paymently')}
+                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
+                              paymentMethod === 'paymently'
+                                ? 'border-teal-600 bg-teal-50 text-teal-900 font-black ring-2 ring-teal-500/20 shadow-xs'
+                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <CreditCard className="w-4 h-4 text-teal-700 shrink-0" />
+                              <span className="font-bold">🚀 অনলাইন গেটওয়ে</span>
+                            </div>
+                            <span className="text-[10px] text-teal-700 font-normal mt-0.5">অটোমেটিক ইনস্ট্যান্ট পেমেন্ট</span>
+                          </button>
+
+                          {/* Cash on Delivery */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('cod')}
+                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
+                              paymentMethod === 'cod'
+                                ? 'border-teal-600 bg-teal-50 text-teal-900 font-black'
+                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>💵 ক্যাশ অন ডেলিভারি</span>
+                            <span className="text-[10px] text-slate-500 font-normal mt-0.5">পণ্য পেয়ে মূল্য দিন</span>
+                          </button>
+
+                          {/* bKash */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('bkash')}
+                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
+                              paymentMethod === 'bkash'
+                                ? 'border-pink-500 bg-pink-50 text-pink-900 font-black'
+                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>🌸 বিকাশ (bKash)</span>
+                            <span className="text-[10px] text-pink-700 font-normal mt-0.5">Send Money / পেমেন্ট</span>
+                          </button>
+
+                          {/* Nagad */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('nagad')}
+                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
+                              paymentMethod === 'nagad'
+                                ? 'border-orange-500 bg-orange-50 text-orange-900 font-black'
+                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>🍊 নগদ (Nagad)</span>
+                            <span className="text-[10px] text-orange-700 font-normal mt-0.5">Send Money</span>
+                          </button>
+
+                          {/* Rocket */}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('rocket')}
+                            className={`p-2.5 rounded-xl border flex flex-col text-left transition cursor-pointer ${
+                              paymentMethod === 'rocket'
+                                ? 'border-purple-500 bg-purple-50 text-purple-900 font-black'
+                                : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>🚀 রকেট (Rocket)</span>
+                            <span className="text-[10px] text-purple-700 font-normal mt-0.5">Send Money</span>
+                          </button>
+                        </div>
 
                         {/* ================= BANGLA QR STAND-ALONE INTERACTIVE CARD ================= */}
                         {paymentMethod === 'bangla_qr' && (
@@ -1926,96 +1829,8 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                           </div>
                         )}
 
-                        {/* ================= BANK TRANSFER INTERACTIVE CARD ================= */}
-                        {paymentMethod === 'bank' && (
-                          <div className="p-3.5 bg-gradient-to-br from-blue-50/80 via-slate-50 to-white rounded-2xl border-2 border-blue-400 space-y-3 mt-2 shadow-xs">
-                            <div className="flex items-center justify-between pb-2 border-b border-blue-200">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-xl bg-blue-700 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                                  🏛️
-                                </div>
-                                <div>
-                                  <h4 className="text-xs font-black text-blue-950">অফিশিয়াল ব্যাংক একাউন্ট বিবরণী</h4>
-                                  <p className="text-[10px] text-blue-700 font-medium">নিচের যেকোনো ব্যাংক একাউন্টে টাকা ট্রান্সফার বা জমা দিন</p>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="space-y-2">
-                              {paymentSettings.bankTransfer?.accounts?.map((acc, idx) => (
-                                <div key={idx} className="p-3 bg-white rounded-xl border border-blue-200 text-xs space-y-1.5 shadow-2xs">
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-black text-blue-900">{acc.bankName}</span>
-                                    <span className="text-[10px] text-slate-500">{acc.branchName || 'যেকোনো শাখা'}</span>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-700">
-                                    <div>
-                                      <span className="text-slate-400 block text-[10px]">একাউন্ট নাম:</span>
-                                      <span className="font-bold">{acc.accountName}</span>
-                                    </div>
-                                    <div>
-                                      <span className="text-slate-400 block text-[10px]">একাউন্ট নম্বর:</span>
-                                      <div className="flex items-center gap-1 font-mono font-bold text-blue-900">
-                                        <span>{acc.accountNumber}</span>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleCopyNumber(acc.accountNumber)}
-                                          className="text-blue-600 hover:text-blue-800 p-0.5"
-                                          title="কপি করুন"
-                                        >
-                                          <Copy className="w-3 h-3" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                    {acc.routingNumber && (
-                                      <div>
-                                        <span className="text-slate-400 block text-[10px]">রাউটিং নম্বর:</span>
-                                        <span className="font-mono text-slate-600">{acc.routingNumber}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                  {acc.instructions && (
-                                    <p className="text-[10px] text-slate-500 pt-1 border-t border-slate-100">{acc.instructions}</p>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* TrxID / Deposit Slip & Sender Phone */}
-                            <div className="grid grid-cols-2 gap-2 pt-1">
-                              <div>
-                                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">
-                                  ডিপোজিট স্লিপ নং / TrxID *
-                                </label>
-                                <input
-                                  type="text"
-                                  required
-                                  value={customerTrxId}
-                                  onChange={(e) => setCustomerTrxId(e.target.value)}
-                                  placeholder="যেমন: DEP-49102 বা TrxID"
-                                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-hidden font-mono"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="block text-[10px] font-bold text-slate-700 mb-0.5">
-                                  প্রেরক একাউন্ট / মোবাইল নম্বর *
-                                </label>
-                                <input
-                                  type="tel"
-                                  required
-                                  value={customerSenderPhone}
-                                  onChange={(e) => setCustomerSenderPhone(e.target.value)}
-                                  placeholder="01XXXXXXXXX বা ব্যাংক A/C"
-                                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-hidden font-mono"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
                         {/* Interactive MFS Details Box */}
-                        {methodInfo && paymentMethod !== 'cod' && paymentMethod !== 'paymently' && paymentMethod !== 'bangla_qr' && paymentMethod !== 'bank' && (
+                        {methodInfo && paymentMethod !== 'cod' && paymentMethod !== 'paymently' && paymentMethod !== 'bangla_qr' && (
                           <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5 mt-2">
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-bold text-slate-800">{methodInfo.name} নম্বর:</span>
@@ -2154,26 +1969,13 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
       {/* Active Online Gateway Payment Session Modal */}
       <AnimatePresence>
         {activePaymentlySession && (
-          <div
-            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) handleCancelPaymentlySession();
-            }}
-          >
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full text-center space-y-4 shadow-2xl border border-slate-200 relative"
+              className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full text-center space-y-4 shadow-2xl border border-slate-200"
             >
-              <button
-                type="button"
-                onClick={handleCancelPaymentlySession}
-                className="absolute top-4 right-4 p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition cursor-pointer"
-                title="পেমেন্ট বাতিল ও বন্ধ করুন"
-              >
-                <X className="w-4 h-4" />
-              </button>
               <div className="w-14 h-14 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center border border-teal-200 shadow-inner">
                 <CreditCard className="w-7 h-7 animate-pulse text-teal-700" />
               </div>

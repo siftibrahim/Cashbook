@@ -323,8 +323,7 @@ router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
       if (u) currentBalance = u.smsBalance ?? 20;
     }
 
-    const isSuper = isUserSuperAdmin(req.user);
-    if (!isSuper && currentBalance < 1) {
+    if (currentBalance < 1) {
       return res.status(400).json({
         error: 'আপনার এসএমএস ব্যালেন্স শেষ হয়ে গেছে। অনুগ্রহ করে নতুন এসএমএস প্যাকেজ কিনুন।',
         balance: currentBalance,
@@ -334,52 +333,10 @@ router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
     // Dispatch SMS via gateway service
     const smsResult = await sendSmsNotification(customerPhone, message);
 
+    // Deduct 1 SMS from balance
+    const newBalance = Math.max(0, currentBalance - 1);
     const logId = 'sms_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
     const now = Date.now();
-
-    if (!smsResult.success) {
-      // Record failed log without deducting user's balance
-      if (pool) {
-        await pool.query(`
-          INSERT INTO sms_logs (id, user_id, customer_name, customer_phone, message, sms_type, status, cost_sms, created_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        `, [
-          logId,
-          userId,
-          customerName || 'গ্রাহক',
-          customerPhone,
-          message,
-          smsType || 'tagada',
-          'failed',
-          0,
-          now,
-        ]).catch(() => {});
-      } else {
-        if (!inMemoryStore.sms_logs) inMemoryStore.sms_logs = [];
-        inMemoryStore.sms_logs.unshift({
-          id: logId,
-          userId,
-          customerName: customerName || 'গ্রাহক',
-          customerPhone,
-          message,
-          smsType: smsType || 'tagada',
-          status: 'failed',
-          costSms: 0,
-          createdAt: now,
-        });
-        saveInMemoryStoreToDisk();
-      }
-
-      return res.status(200).json({
-        success: false,
-        message: smsResult.message || 'এসএমএস পাঠাতে ব্যর্থ হয়েছে। অনুগ্রহ করে গেটওয়ে সেটিংস বা ব্যালেন্স চেক করুন।',
-        newBalance: currentBalance,
-        smsResult,
-      });
-    }
-
-    // Deduct 1 SMS from balance on successful delivery
-    const newBalance = isSuper ? Math.max(currentBalance, 9999) : Math.max(0, currentBalance - 1);
 
     if (pool) {
       await pool.query('UPDATE users SET sms_balance = $1 WHERE id = $2', [newBalance, userId]);
@@ -393,7 +350,7 @@ router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
         customerPhone,
         message,
         smsType || 'tagada',
-        'sent',
+        smsResult.success ? 'sent' : 'failed',
         1,
         now,
       ]);
@@ -409,7 +366,7 @@ router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
         customerPhone,
         message,
         smsType: smsType || 'tagada',
-        status: 'sent',
+        status: smsResult.success ? 'sent' : 'failed',
         costSms: 1,
         createdAt: now,
       });
@@ -422,27 +379,6 @@ router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
       newBalance,
       smsResult,
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * POST /api/sms/test - Send live test SMS to any mobile number
- */
-router.post('/test', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { phone, message } = req.body;
-    if (!phone) {
-      return res.status(400).json({ error: 'মোবাইল নম্বর প্রদান করুন' });
-    }
-    const cleanPhone = normalizePhone(phone);
-    if (!cleanPhone || cleanPhone.length < 11) {
-      return res.status(400).json({ error: 'সঠিক ১১ ডিজিটের মোবাইল নম্বর প্রদান করুন (যেমন: 01306908115)' });
-    }
-    const testMsg = message?.trim() || `টুইং খাতা: টেস্ট এসএমএস সফল হয়েছে! সময়: ${new Date().toLocaleTimeString('bn-BD')}`;
-    const result = await sendSmsNotification(cleanPhone, testMsg);
-    return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

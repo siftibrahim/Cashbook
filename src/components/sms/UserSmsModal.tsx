@@ -349,7 +349,7 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
                 <label className="text-xs font-bold text-slate-300 block mb-1.5">
                   এসএমএস ক্যাটাগরি:
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -390,21 +390,6 @@ export const UserSmsModal: React.FC<UserSmsModalProps> = ({
                     }`}
                   >
                     কাস্টম বার্তা
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSmsType('custom');
-                      setMessage(`টুইং খাতা: টেস্ট এসএমএস সফল হয়েছে! সময়: ${new Date().toLocaleTimeString('bn-BD')}`);
-                    }}
-                    className={`p-2 rounded-xl border text-xs font-bold transition cursor-pointer text-center ${
-                      message.includes('টেস্ট এসএমএস')
-                        ? 'bg-teal-500/20 text-teal-300 border-teal-500/40'
-                        : 'bg-slate-950/60 text-slate-400 border-slate-800 hover:bg-slate-800'
-                    }`}
-                  >
-                    🧪 টেস্ট মেসেজ
                   </button>
                 </div>
               </div>
