@@ -2502,8 +2502,9 @@ router.post('/impersonate/:userId', async (req: AuthenticatedRequest, res: Respo
     }
 
     // Generate JWT token for target user with impersonation metadata
-    const jwt = await import('jsonwebtoken');
-    const token = jwt.default.sign(
+    const jwtModule = await import('jsonwebtoken');
+    const jwtSign = (jwtModule as any).default?.sign || (jwtModule as any).sign;
+    const token = jwtSign(
       {
         userId: targetUser.id,
         email: targetUser.email,

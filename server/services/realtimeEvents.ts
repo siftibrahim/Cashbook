@@ -47,6 +47,13 @@ class RealtimeEventBus {
   }
 
   /**
+   * Broadcast an event to all connected clients
+   */
+  public broadcast(eventName: string, data: any) {
+    this.broadcastToUser('all', eventName, data);
+  }
+
+  /**
    * Broadcast specifically to Admins
    */
   public broadcastToAdmins(eventName: string, data: any) {
