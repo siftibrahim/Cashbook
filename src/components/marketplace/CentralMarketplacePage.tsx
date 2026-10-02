@@ -551,10 +551,16 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
             setCategories(catRes.categories);
           }
           if (settingsRes?.success && settingsRes.settings) {
-            setMarketplaceSettings((prev: any) => ({ ...prev, ...settingsRes.settings }));
-            if (settingsRes.settings.systemPaymentSettings) {
-              setPaymentSettings(settingsRes.settings.systemPaymentSettings);
-            }
+            const s = settingsRes.settings;
+            setMarketplaceSettings((prev: any) => ({ ...prev, ...s }));
+            setPaymentSettings((prev: any) => ({
+              ...prev,
+              ...(s.systemPaymentSettings || {}),
+              paymently: s.paymently || s.systemPaymentSettings?.paymently || prev.paymently,
+              bkash: s.bkash || s.systemPaymentSettings?.bkash || prev.bkash,
+              rocket: s.rocket || s.systemPaymentSettings?.rocket || prev.rocket,
+              nagad: s.nagad || s.systemPaymentSettings?.nagad || prev.nagad,
+            }));
           }
         }
       } catch (err) {
@@ -927,20 +933,34 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           try {
             const data = JSON.parse(e.data || '{}');
 
-            // 1. Handle Super Admin Payment Settings synchronization in real-time
-            if (data.type === 'payment_settings_updated' || e.type === 'payment_settings_updated') {
+            // 1. Handle Super Admin Payment Settings & Marketplace Settings synchronization in real-time
+            if (
+              data.type === 'payment_settings_updated' ||
+              e.type === 'payment_settings_updated' ||
+              data.type === 'marketplace_settings_updated' ||
+              data.type === 'marketplace_updated'
+            ) {
               if (data.settings) {
-                setPaymentSettings(data.settings);
+                setPaymentSettings((prev: any) => ({ ...prev, ...data.settings }));
+                setMarketplaceSettings((prev: any) => ({ ...prev, ...data.settings }));
               }
               marketplaceApi.getSettings().then((res) => {
                 if (res?.success && res.settings) {
-                  setMarketplaceSettings((prev: any) => ({ ...prev, ...res.settings }));
-                  if (res.settings.systemPaymentSettings) {
-                    setPaymentSettings(res.settings.systemPaymentSettings);
-                  }
+                  const s = res.settings;
+                  setMarketplaceSettings((prev: any) => ({ ...prev, ...s }));
+                  setPaymentSettings((prev: any) => ({
+                    ...prev,
+                    ...(s.systemPaymentSettings || {}),
+                    paymently: s.paymently || s.systemPaymentSettings?.paymently || prev.paymently,
+                    bkash: s.bkash || s.systemPaymentSettings?.bkash || prev.bkash,
+                    rocket: s.rocket || s.systemPaymentSettings?.rocket || prev.rocket,
+                    nagad: s.nagad || s.systemPaymentSettings?.nagad || prev.nagad,
+                  }));
                 }
               }).catch(() => {});
-              return;
+              if (data.type === 'payment_settings_updated' || e.type === 'payment_settings_updated' || data.type === 'marketplace_settings_updated') {
+                return;
+              }
             }
 
             // 2. Handle Live Order Status & Courier Tracking updates

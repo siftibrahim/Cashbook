@@ -3208,6 +3208,11 @@ router.post('/admin/settings', authenticateUser, async (req: AuthenticatedReques
       saveInMemoryStoreToDisk();
     }
 
+    // Broadcast realtime event so Central Marketplace updates immediately
+    realtimeEvents.broadcast('marketplace_updated', { type: 'marketplace_settings_updated', settings });
+    realtimeEvents.broadcast('payment_settings_updated', { settings });
+    realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'marketplace_settings_updated', settings });
+
     return res.json({ success: true, message: 'মার্কেটপ্লেস সেটিংস সফলভাবে সংরক্ষিত হয়েছে' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

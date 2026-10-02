@@ -195,6 +195,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   // Platform & Delivery Settings
   const [settingsForm, setSettingsForm] = useState({
     isMarketplaceActive: true,
+    codEnabled: true,
     commissionPercent: 5,
     platformDeliveryMargin: 10,
     deliveryFeeDhaka: 70,
@@ -239,6 +240,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           setSettingsForm((prev) => ({
             ...prev,
             isMarketplaceActive: res.settings.isMarketplaceActive !== false,
+            codEnabled: res.settings.codEnabled !== false,
             commissionPercent: res.settings.commissionPercent ?? 5,
             platformDeliveryMargin: res.settings.platformDeliveryMargin ?? 10,
             deliveryFeeDhaka: res.settings.deliveryFeeDhaka ?? 70,
@@ -3018,6 +3020,34 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
               onClick={() => setSettingsForm({ ...settingsForm, isMarketplaceActive: !settingsForm.isMarketplaceActive })}
               className={`w-12 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
                 settingsForm.isMarketplaceActive ? 'bg-teal-700 justify-end' : 'bg-slate-300 justify-start'
+              }`}
+            >
+              <div className="bg-white w-4 h-4 rounded-full shadow-md" />
+            </button>
+          </div>
+
+          {/* Cash on Delivery (COD) Toggle */}
+          <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            <div>
+              <p className="font-bold text-slate-900 flex items-center gap-1.5">
+                <span>ক্যাশ অন ডেলিভারি (Cash on Delivery - COD)</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  settingsForm.codEnabled !== false
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-rose-100 text-rose-800'
+                }`}>
+                  {settingsForm.codEnabled !== false ? 'চালু' : 'বন্ধ'}
+                </span>
+              </p>
+              <p className="text-[11px] text-slate-500">
+                গ্রাহকরা পণ্য হাতে পেয়ে মূল্য পরিশোধ করতে পারবেন। বন্ধ রাখলে চেকআউটে শুধু লাইভ পেমেন্ট ও MFS থাকবে।
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSettingsForm({ ...settingsForm, codEnabled: settingsForm.codEnabled === false ? true : false })}
+              className={`w-12 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
+                settingsForm.codEnabled !== false ? 'bg-teal-700 justify-end' : 'bg-slate-300 justify-start'
               }`}
             >
               <div className="bg-white w-4 h-4 rounded-full shadow-md" />
