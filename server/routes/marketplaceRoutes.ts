@@ -1563,6 +1563,35 @@ router.post('/cancel-order', async (req: Request, res: Response) => {
 });
 
 /**
+ * 4.9 GET /api/marketplace/events - Public Real-Time SSE Stream for Marketplace & Order Tracking
+ */
+router.get('/events', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  const clientId = `mkt_track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  realtimeEvents.addClient(clientId, 'all', res, 'marketplace_customer');
+
+  res.write(`event: connected\ndata: ${JSON.stringify({ status: 'connected', time: Date.now() })}\n\n`);
+
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch {
+      clearInterval(keepAlive);
+    }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    realtimeEvents.removeClient(clientId);
+  });
+});
+
+/**
  * 5. GET /api/marketplace/track/:orderNumber - Live Real-Time Order Tracking
  */
 router.get('/track/:orderNumber', async (req: Request, res: Response) => {
@@ -1667,7 +1696,7 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
           ORDER BY o.created_at ASC
         `, [m.id, m.order_number, parsedSubOrderIds]);
 
-        const masterApproved = m.is_admin_approved === true || m.admin_approval_status === 'approved' || m.payment_status === 'paid';
+        const masterApproved = m.is_admin_approved === true || m.admin_approval_status === 'approved' || m.payment_status === 'paid' || m.payment_method === 'cod';
         const masterRejected = m.is_rejected_by_admin === true || m.admin_approval_status === 'rejected';
 
         const subOrders = (subRes.rows || []).map(r => {
@@ -1723,6 +1752,8 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
             isAdminApproved: masterApproved,
             isRejectedByAdmin: masterRejected,
             adminRejectionReason: m.admin_rejection_reason || '',
+            courierName: m.courier_name || '',
+            courierTrackingCode: m.courier_tracking_code || '',
             overallStatus: liveOverallStatus,
             createdAt: Number(m.created_at),
             updatedAt: Number(m.updated_at || m.created_at),
@@ -1732,7 +1763,7 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
       } else if (matchedSubOrder) {
         // Direct sub-order fallback
         const r = matchedSubOrder;
-        const subApproved = r.is_admin_approved === true || r.admin_approval_status === 'approved' || (r.order_source !== 'marketplace' && !r.master_order_id);
+        const subApproved = r.is_admin_approved === true || r.admin_approval_status === 'approved' || (r.order_source !== 'marketplace' && !r.master_order_id) || r.payment_method === 'cod';
         const subOrderObj = {
           id: r.id,
           orderNumber: r.order_number,
@@ -1774,6 +1805,8 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
             adminApprovalStatus: subOrderObj.adminApprovalStatus,
             isAdminApproved: subApproved,
             overallStatus: subApproved ? (r.order_status || 'confirmed') : 'pending_verification',
+            courierName: r.courier_name || '',
+            courierTrackingCode: r.courier_tracking_code || '',
             createdAt: Number(r.created_at),
             updatedAt: Number(r.updated_at || r.created_at),
             subOrders: [subOrderObj],
@@ -1797,7 +1830,7 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
       if (!m) {
         return res.status(404).json({ error: 'অর্ডারের কোনো তথ্য পাওয়া যায়নি।' });
       }
-      const masterApproved = m.isAdminApproved === true || m.adminApprovalStatus === 'approved' || m.paymentStatus === 'paid';
+      const masterApproved = m.isAdminApproved === true || m.adminApprovalStatus === 'approved' || m.paymentStatus === 'paid' || m.paymentMethod === 'cod';
       const masterRejected = m.isRejectedByAdmin === true || m.adminApprovalStatus === 'rejected';
       const masterIds = new Set([m.id, m.orderNumber, ...(Array.isArray(m.subOrderIds) ? m.subOrderIds : [])].filter(Boolean));
       const subs = (inMemoryStore.online_orders || [])
@@ -2128,6 +2161,25 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
     }
 
     realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'order_status', id });
+    realtimeEvents.broadcast('marketplace_order_updated', {
+      masterOrderId: id,
+      orderId: id,
+      overallStatus,
+      paymentStatus,
+      courierName,
+      courierTrackingCode,
+      timestamp: Date.now(),
+    });
+    realtimeEvents.broadcast('order_status_updated', {
+      masterOrderId: id,
+      orderId: id,
+      overallStatus,
+      paymentStatus,
+      courierName,
+      courierTrackingCode,
+      timestamp: Date.now(),
+    });
+    realtimeEvents.broadcast('marketplace_updated', { type: 'order_status', id, masterOrderId: id });
 
     await recordAdminAuditLog({
       adminEmail: req.user?.email || 'super_admin',
@@ -2336,6 +2388,32 @@ router.post('/admin/orders/:id/approve-payment', authenticateUser, async (req: A
     }
 
     realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'approve_payment', orderId: targetOrder.id });
+    realtimeEvents.broadcast('marketplace_order_updated', {
+      masterOrderId: targetOrder.id,
+      masterOrderNumber: targetOrder.order_number || targetOrder.orderNumber,
+      orderId: targetOrder.id,
+      orderNumber: targetOrder.order_number || targetOrder.orderNumber,
+      paymentStatus: 'paid',
+      adminApprovalStatus: 'approved',
+      overallStatus: 'pending',
+      timestamp: now,
+    });
+    realtimeEvents.broadcast('order_status_updated', {
+      masterOrderId: targetOrder.id,
+      masterOrderNumber: targetOrder.order_number || targetOrder.orderNumber,
+      orderId: targetOrder.id,
+      orderNumber: targetOrder.order_number || targetOrder.orderNumber,
+      paymentStatus: 'paid',
+      adminApprovalStatus: 'approved',
+      overallStatus: 'pending',
+      timestamp: now,
+    });
+    realtimeEvents.broadcast('marketplace_updated', {
+      type: 'approve_payment',
+      orderId: targetOrder.id,
+      masterOrderId: targetOrder.id,
+      orderNumber: targetOrder.order_number || targetOrder.orderNumber,
+    });
 
     await recordAdminAuditLog({
       adminEmail: req.user?.email || 'super_admin',
@@ -2581,6 +2659,32 @@ router.post('/admin/orders/:id/reject-payment', authenticateUser, async (req: Au
     }
 
     realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'reject_payment', orderId: targetOrder.id });
+    realtimeEvents.broadcast('marketplace_order_updated', {
+      masterOrderId: targetOrder.id,
+      masterOrderNumber: targetOrder.order_number || targetOrder.orderNumber,
+      orderId: targetOrder.id,
+      orderNumber: targetOrder.order_number || targetOrder.orderNumber,
+      overallStatus: 'cancelled',
+      paymentStatus: 'rejected',
+      adminApprovalStatus: 'rejected',
+      timestamp: now,
+    });
+    realtimeEvents.broadcast('order_status_updated', {
+      masterOrderId: targetOrder.id,
+      masterOrderNumber: targetOrder.order_number || targetOrder.orderNumber,
+      orderId: targetOrder.id,
+      orderNumber: targetOrder.order_number || targetOrder.orderNumber,
+      overallStatus: 'cancelled',
+      paymentStatus: 'rejected',
+      adminApprovalStatus: 'rejected',
+      timestamp: now,
+    });
+    realtimeEvents.broadcast('marketplace_updated', {
+      type: 'reject_payment',
+      orderId: targetOrder.id,
+      masterOrderId: targetOrder.id,
+      orderNumber: targetOrder.order_number || targetOrder.orderNumber,
+    });
 
     await recordAdminAuditLog({
       adminEmail: req.user?.email || 'super_admin',

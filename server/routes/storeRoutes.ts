@@ -2109,11 +2109,15 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
       nextOverall = 'pending';
     }
 
+    let masterOrderNumber: string | undefined;
     if (pool) {
-      await pool.query(
-        'UPDATE marketplace_master_orders SET overall_status = $1, updated_at = $2 WHERE id = $3 OR order_number = $3',
+      const updRes = await pool.query(
+        'UPDATE marketplace_master_orders SET overall_status = $1, updated_at = $2 WHERE id = $3 OR order_number = $3 RETURNING id, order_number',
         [nextOverall, now, masterOrderId]
-      ).catch(() => {});
+      ).catch(() => ({ rows: [] }));
+      if (updRes.rows && updRes.rows[0]) {
+        masterOrderNumber = updRes.rows[0].order_number;
+      }
     }
     if (inMemoryStore.marketplace_master_orders) {
       const m = inMemoryStore.marketplace_master_orders.find(
@@ -2122,17 +2126,32 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
       if (m) {
         m.overallStatus = nextOverall;
         m.updatedAt = now;
+        masterOrderNumber = m.orderNumber || m.id;
       }
     }
     saveInMemoryStoreToDisk();
 
+    realtimeEvents.broadcast('marketplace_order_updated', {
+      masterOrderId,
+      masterOrderNumber,
+      overallStatus: nextOverall,
+      timestamp: now,
+    });
+    realtimeEvents.broadcast('order_status_updated', {
+      masterOrderId,
+      masterOrderNumber,
+      overallStatus: nextOverall,
+      timestamp: now,
+    });
     realtimeEvents.broadcastToAdmins('marketplace_order_updated', {
       masterOrderId,
+      masterOrderNumber,
       overallStatus: nextOverall,
     });
     realtimeEvents.broadcastToAdmins('marketplace_updated', {
       type: 'order_status_sync',
       masterOrderId,
+      masterOrderNumber,
       overallStatus: nextOverall,
     });
   } catch (err) {
@@ -2273,6 +2292,19 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
       // Sync parent Central Marketplace Master Order status in real-time
       await syncMasterOrderOverallStatus(pool, updatedOrder.masterOrderId || result.rows[0].master_order_id);
 
+      // Broadcast sub-order real-time courier & fulfillment update
+      realtimeEvents.broadcast('marketplace_order_updated', {
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        masterOrderId: updatedOrder.masterOrderId,
+        orderStatus: updatedOrder.orderStatus,
+        courierName: updatedOrder.courierName,
+        courierTrackingCode: updatedOrder.courierTrackingCode,
+        deliveryManName: updatedOrder.deliveryManName,
+        deliveryManPhone: updatedOrder.deliveryManPhone,
+        timestamp: now,
+      });
+
       // 🔔 Send Customer Order Status SMS
       sendCustomerOrderStatusSms(
         updatedOrder.customerPhone,
@@ -2311,6 +2343,18 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         order.updatedAt = now;
         await syncMasterOrderOverallStatus(null, order.masterOrderId);
         saveInMemoryStoreToDisk();
+
+        realtimeEvents.broadcast('marketplace_order_updated', {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          masterOrderId: order.masterOrderId,
+          orderStatus: order.orderStatus,
+          courierName: order.courierName,
+          courierTrackingCode: order.courierTrackingCode,
+          deliveryManName: order.deliveryManName,
+          deliveryManPhone: order.deliveryManPhone,
+          timestamp: now,
+        });
 
         sendCustomerOrderStatusSms(
           order.customerPhone,
@@ -2473,6 +2517,29 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
 
       const updatedOrder = mapDbRowToOrder(result.rows[0]);
       await syncMasterOrderOverallStatus(pool, updatedOrder.masterOrderId || result.rows[0].master_order_id);
+
+      realtimeEvents.broadcast('marketplace_order_updated', {
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        masterOrderId: updatedOrder.masterOrderId,
+        orderStatus: updatedOrder.orderStatus,
+        courierName: updatedOrder.courierName,
+        courierTrackingCode: updatedOrder.courierTrackingCode,
+        deliveryManName: updatedOrder.deliveryManName,
+        deliveryManPhone: updatedOrder.deliveryManPhone,
+        timestamp: now,
+      });
+      realtimeEvents.broadcast('order_status_updated', {
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        masterOrderId: updatedOrder.masterOrderId,
+        orderStatus: updatedOrder.orderStatus,
+        courierName: updatedOrder.courierName,
+        courierTrackingCode: updatedOrder.courierTrackingCode,
+        deliveryManName: updatedOrder.deliveryManName,
+        deliveryManPhone: updatedOrder.deliveryManPhone,
+        timestamp: now,
+      });
 
       if (body.sendSmsToCustomer && customerPhone && customerPhone.length >= 11) {
         sendCustomerOrderStatusSms(

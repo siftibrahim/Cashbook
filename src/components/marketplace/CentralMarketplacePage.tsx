@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Store,
   Share2,
+  User,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import {
@@ -358,6 +359,10 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [isTrackingLoading, setIsTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState('');
   const [queriedOrder, setQueriedOrder] = useState<any | null>(null);
+  const queriedOrderRef = useRef<any | null>(null);
+  useEffect(() => {
+    queriedOrderRef.current = queriedOrder;
+  }, [queriedOrder]);
 
   // Cart helper calculations
   const cartItemCount = useMemo(() => {
@@ -810,11 +815,51 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     }
   };
 
-  // Track Order in Central Marketplace
-  const handleTrackSearch = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const clean = trackingSearchQuery.trim();
+  // Silent background refresh helper for real-time live updates without flickering
+  const refreshTrackedOrderSilently = useCallback(async (targetQuery: string) => {
+    const clean = targetQuery.trim();
     if (!clean) return;
+    try {
+      const res = await marketplaceApi.trackOrder(clean);
+      if (res?.success && res.order) {
+        setQueriedOrder(res.order);
+        // Also sync local customerOrders list
+        setCustomerOrders((prevList) => {
+          let hasDiff = false;
+          const next = prevList.map((ord) => {
+            if (ord.id === res.order.id || ord.orderNumber === res.order.orderNumber) {
+              hasDiff = true;
+              return {
+                ...ord,
+                overallStatus: res.order.overallStatus,
+                paymentStatus: res.order.paymentStatus,
+                adminApprovalStatus: res.order.adminApprovalStatus,
+                subOrders: res.order.subOrders || ord.subOrders,
+              };
+            }
+            return ord;
+          });
+          if (hasDiff) {
+            try {
+              localStorage.setItem(MKT_CUSTOMER_ORDERS_KEY, JSON.stringify(next));
+            } catch {}
+          }
+          return next;
+        });
+      }
+    } catch {}
+  }, []);
+
+  // Track Order in Central Marketplace
+  const handleTrackSearch = async (e?: React.FormEvent, customQuery?: string) => {
+    if (e) e.preventDefault();
+    const queryToUse = customQuery !== undefined ? customQuery : trackingSearchQuery;
+    const clean = queryToUse.trim();
+    if (!clean) return;
+
+    if (customQuery !== undefined && customQuery !== trackingSearchQuery) {
+      setTrackingSearchQuery(clean);
+    }
 
     setIsTrackingLoading(true);
     setTrackingError('');
@@ -833,6 +878,114 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       setIsTrackingLoading(false);
     }
   };
+
+  // 🔴 Real-Time Live Order Status Listener & Auto-Refresh for Tracking
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let es: EventSource | null = null;
+    let reconnectTimeout: any = null;
+
+    const connectSSE = () => {
+      try {
+        es = new EventSource('/api/marketplace/events');
+
+        const onLiveUpdate = (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data || '{}');
+            const current = queriedOrderRef.current;
+            if (current) {
+              const activeId = current.id;
+              const activeNum = current.orderNumber;
+              const subOrders = Array.isArray(current.subOrders) ? current.subOrders : [];
+              const isSubMatch = subOrders.some((s: any) =>
+                s.id === data.orderId || s.orderNumber === data.orderNumber ||
+                s.id === data.id || s.orderNumber === data.id ||
+                s.id === data.masterOrderId || s.orderNumber === data.masterOrderId
+              );
+              const isMatch = (!data.masterOrderId && !data.masterOrderNumber && !data.orderId && !data.orderNumber && !data.id) ? true : (
+                data.masterOrderId === activeId ||
+                data.masterOrderId === activeNum ||
+                data.masterOrderNumber === activeId ||
+                data.masterOrderNumber === activeNum ||
+                data.orderId === activeId ||
+                data.orderNumber === activeNum ||
+                data.id === activeId ||
+                data.id === activeNum ||
+                isSubMatch
+              );
+              if (isMatch) {
+                // Instantly re-query latest live order status & courier details from server silently
+                refreshTrackedOrderSilently(activeNum || activeId);
+              }
+            } else {
+              // If customer has recent orders listed, update status of any matched order in customerOrders
+              if (data.masterOrderId || data.masterOrderNumber || data.orderId || data.orderNumber) {
+                setCustomerOrders((prevList) => {
+                  let hasDiff = false;
+                  const next = prevList.map((ord) => {
+                    const match = ord.id === data.masterOrderId || 
+                      ord.orderNumber === data.masterOrderId ||
+                      ord.id === data.masterOrderNumber ||
+                      ord.orderNumber === data.masterOrderNumber ||
+                      ord.id === data.orderId ||
+                      ord.orderNumber === data.orderNumber;
+                    if (match && data.overallStatus && ord.overallStatus !== data.overallStatus) {
+                      hasDiff = true;
+                      return { ...ord, overallStatus: data.overallStatus };
+                    }
+                    return ord;
+                  });
+                  if (hasDiff) {
+                    try {
+                      localStorage.setItem(MKT_CUSTOMER_ORDERS_KEY, JSON.stringify(next));
+                    } catch {}
+                  }
+                  return next;
+                });
+              }
+            }
+          } catch {}
+        };
+
+        es.onmessage = onLiveUpdate;
+        es.addEventListener('marketplace_order_updated', onLiveUpdate);
+        es.addEventListener('order_status_updated', onLiveUpdate);
+        es.addEventListener('marketplace_updated', onLiveUpdate);
+        es.addEventListener('order_updated', onLiveUpdate);
+
+        es.onerror = () => {
+          if (es) {
+            es.close();
+            es = null;
+          }
+          clearTimeout(reconnectTimeout);
+          reconnectTimeout = setTimeout(connectSSE, 4000);
+        };
+      } catch (err) {
+        console.warn('Marketplace SSE connect notice:', err);
+      }
+    };
+
+    connectSSE();
+
+    // Auto-poll fallback every 5 seconds as a guaranteed fallback while user is on orders/tracking screen
+    const livePollInterval = setInterval(() => {
+      if (activeTab === 'orders') {
+        const current = queriedOrderRef.current;
+        if (current) {
+          const targetQ = current.orderNumber || current.id;
+          if (targetQ) refreshTrackedOrderSilently(targetQ);
+        }
+      }
+    }, 5000);
+
+    return () => {
+      if (es) es.close();
+      clearTimeout(reconnectTimeout);
+      clearInterval(livePollInterval);
+    };
+  }, [activeTab, refreshTrackedOrderSilently]);
 
   // Share order summary to WhatsApp
   const sendOrderToWhatsApp = (order: any) => {
