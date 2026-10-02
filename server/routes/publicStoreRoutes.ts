@@ -771,13 +771,6 @@ router.post('/:identifier/orders/batch-track', async (req: Request, res: Respons
     const { orderNumbers, phone } = req.body || {};
     const ctx = await getVerifiedStoreContext(req, identifier);
 
-    if (ctx.error || !ctx.resolved) {
-      return res.status(ctx.status || 404).json({ error: ctx.error || 'স্টোরটি পাওয়া যায়নি।' });
-    }
-
-    const targetUserId = ctx.resolved.userId;
-    const pool = getDbPool();
-
     const cleanNumbers: string[] = Array.isArray(orderNumbers)
       ? orderNumbers.filter((n) => typeof n === 'string' && n.trim().length > 0)
       : [];
@@ -787,12 +780,20 @@ router.post('/:identifier/orders/batch-track', async (req: Request, res: Respons
       return res.json({ orders: [] });
     }
 
+    // If no specific store context resolved, but customer provides exact order numbers, allow tracking
+    if ((ctx.error || !ctx.resolved) && cleanNumbers.length === 0) {
+      return res.status(ctx.status || 404).json({ error: ctx.error || 'স্টোরটি পাওয়া যায়নি।' });
+    }
+
+    const targetUserId = ctx.resolved?.userId || 'default';
+    const pool = getDbPool();
+
     if (pool) {
       await ensureOnlineOrdersSchema(pool);
       let query = `
         SELECT *
         FROM online_orders
-        WHERE (user_id = $1 OR user_id = 'default_vendor' OR user_id IS NULL) AND (
+        WHERE (user_id = $1 OR user_id = 'default_vendor' OR user_id IS NULL OR $1 = 'default' OR $1 = '') AND (
       `;
       const params: any[] = [targetUserId];
       const conditions: string[] = [];
@@ -874,11 +875,7 @@ router.get('/:identifier/orders/track/:orderNumber', async (req: Request, res: R
     const { identifier, orderNumber } = req.params;
     const ctx = await getVerifiedStoreContext(req, identifier);
 
-    if (ctx.error || !ctx.resolved) {
-      return res.status(ctx.status || 404).json({ error: ctx.error || 'স্টোরটি পাওয়া যায়নি।' });
-    }
-
-    const targetUserId = ctx.resolved.userId;
+    const targetUserId = ctx.resolved?.userId || 'default';
     const pool = getDbPool();
 
 

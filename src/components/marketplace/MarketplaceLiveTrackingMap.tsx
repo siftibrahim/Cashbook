@@ -95,6 +95,27 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
+  // Derive courier from master order or any sub-order
+  const activeCourierName = useMemo(() => {
+    return order.courierName || order.subOrders?.find((s) => s.courierName)?.courierName || '';
+  }, [order.courierName, order.subOrders]);
+
+  const activeTrackingCode = useMemo(() => {
+    return order.courierTrackingCode || order.subOrders?.find((s) => s.courierTrackingCode)?.courierTrackingCode || '';
+  }, [order.courierTrackingCode, order.subOrders]);
+
+  const activeDeliveryManName = useMemo(() => {
+    return order.deliveryManName || order.subOrders?.find((s) => s.deliveryManName)?.deliveryManName || '';
+  }, [order.deliveryManName, order.subOrders]);
+
+  const activeDeliveryManPhone = useMemo(() => {
+    return order.deliveryManPhone || order.subOrders?.find((s) => s.deliveryManPhone)?.deliveryManPhone || '';
+  }, [order.deliveryManPhone, order.subOrders]);
+
+  const subStatuses = useMemo(() => {
+    return (order.subOrders || []).map((s) => String(s.status || s.orderStatus || '').toLowerCase());
+  }, [order.subOrders]);
+
   // Determine active step index (0 to 4)
   const normalizedStatus = useMemo(() => {
     return String(order.overallStatus || 'pending').toLowerCase();
@@ -102,13 +123,37 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
 
   const activeStep = useMemo(() => {
     if (normalizedStatus === 'cancelled' || normalizedStatus === 'returned') return -1;
-    if (normalizedStatus === 'delivered') return 4;
-    if (normalizedStatus === 'out_for_delivery') return 3;
-    if (normalizedStatus === 'shipped') return 2;
-    if (normalizedStatus === 'processing' || normalizedStatus === 'confirmed') return 1;
+    if (normalizedStatus === 'delivered' || (subStatuses.length > 0 && subStatuses.every((s) => s === 'delivered'))) return 4;
+    if (normalizedStatus === 'out_for_delivery' || subStatuses.some((s) => s === 'out_for_delivery') || activeDeliveryManPhone || activeDeliveryManName) return 3;
+    if (normalizedStatus === 'shipped' || normalizedStatus === 'in_transit' || subStatuses.some((s) => s === 'shipped' || s === 'in_transit') || (activeTrackingCode && activeCourierName)) return 2;
+    if (normalizedStatus === 'processing' || normalizedStatus === 'confirmed' || normalizedStatus === 'packaging' || subStatuses.some((s) => s === 'processing' || s === 'confirmed' || s === 'packaging')) return 1;
     if (order.isAdminApproved) return 1;
     return 0; // pending_verification / pending
-  }, [normalizedStatus, order.isAdminApproved]);
+  }, [normalizedStatus, order.isAdminApproved, subStatuses, activeCourierName, activeTrackingCode, activeDeliveryManName, activeDeliveryManPhone]);
+
+  const getOverallStatusLabel = (st: string) => {
+    switch (st) {
+      case 'delivered':
+        return 'সফল ডেলিভারি সম্পন্ন';
+      case 'out_for_delivery':
+        return 'ডেলিভারির পথে';
+      case 'shipped':
+      case 'in_transit':
+        return 'কুরিয়ারে শিপড';
+      case 'processing':
+      case 'packaging':
+      case 'packed':
+        return 'প্যাকিং ও প্রস্তুতি চলছে';
+      case 'confirmed':
+        return 'অর্ডার কনফার্মড';
+      case 'cancelled':
+        return 'অর্ডার বাতিল';
+      case 'returned':
+        return 'অর্ডার রিটার্ন';
+      default:
+        return order.isAdminApproved ? 'যাচাইকৃত (প্রস্তুতি চলছে)' : 'পেমেন্ট যাচাই চলছে';
+    }
+  };
 
   const steps = [
     {
@@ -130,8 +175,8 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
     {
       index: 2,
       title: 'কুরিয়ার সেন্ট্রাল হাব ও ট্রানজিট',
-      description: order.courierName
-        ? `${order.courierName} কুরিয়ারে হস্তান্তর ও ট্রানজিটে রয়েছে`
+      description: activeCourierName
+        ? `${activeCourierName} কুরিয়ারে হস্তান্তর ও ট্রানজিটে রয়েছে${activeTrackingCode ? ` (#${activeTrackingCode})` : ''}`
         : 'নির্ধারিত কুরিয়ার পার্টনারে হস্তান্তর করা হচ্ছে',
       icon: Truck,
       color: 'indigo',
@@ -139,8 +184,8 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
     {
       index: 3,
       title: 'ডেলিভারি রাইডার ও লোকাল হাব',
-      description: order.deliveryManName
-        ? `রাইডার ${order.deliveryManName} আপনার ঠিকানায় ডেলিভারির পথে`
+      description: activeDeliveryManName
+        ? `রাইডার ${activeDeliveryManName} আপনার ঠিকানায় ডেলিভারির পথে`
         : 'লোকাল ডেলিভারি হাবে পৌঁছেছে, রাইডার অ্যাসাইন হচ্ছে',
       icon: Navigation,
       color: 'teal',
@@ -178,11 +223,6 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
     return null;
   };
 
-  // Derive courier from master order or first sub-order
-  const activeCourierName = order.courierName || order.subOrders?.find((s) => s.courierName)?.courierName || '';
-  const activeTrackingCode = order.courierTrackingCode || order.subOrders?.find((s) => s.courierTrackingCode)?.courierTrackingCode || '';
-  const activeDeliveryManName = order.deliveryManName || order.subOrders?.find((s) => s.deliveryManName)?.deliveryManName || '';
-  const activeDeliveryManPhone = order.deliveryManPhone || order.subOrders?.find((s) => s.deliveryManPhone)?.deliveryManPhone || '';
   const externalCourierLink = getCourierDirectLink(activeCourierName, activeTrackingCode);
 
   // Map progress percentage for animation (0% to 100%)
@@ -261,6 +301,31 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
 
         {/* Status Badges Row */}
         <div className="pt-3 flex flex-wrap items-center gap-2 text-xs">
+          {/* Real-time Live Order Status Badge */}
+          <span
+            className={`px-3 py-1 rounded-full font-bold flex items-center gap-1.5 border shadow-xs ${
+              normalizedStatus === 'delivered'
+                ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/40'
+                : normalizedStatus === 'out_for_delivery'
+                ? 'bg-teal-500/25 text-teal-300 border-teal-400/40'
+                : normalizedStatus === 'shipped' || normalizedStatus === 'in_transit'
+                ? 'bg-indigo-500/25 text-indigo-200 border-indigo-400/40'
+                : normalizedStatus === 'processing' || normalizedStatus === 'packaging'
+                ? 'bg-purple-500/25 text-purple-200 border-purple-400/40'
+                : normalizedStatus === 'confirmed'
+                ? 'bg-blue-500/25 text-blue-200 border-blue-400/40'
+                : normalizedStatus === 'cancelled' || normalizedStatus === 'returned'
+                ? 'bg-rose-500/25 text-rose-300 border-rose-400/40'
+                : 'bg-amber-500/25 text-amber-300 border-amber-400/40'
+            }`}
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
+            </span>
+            <span>অর্ডার স্ট্যাটাস: {getOverallStatusLabel(normalizedStatus)}</span>
+          </span>
+
           <span className="px-3 py-1 rounded-full bg-white/10 text-white font-bold border border-white/15">
             পেমেন্ট: {order.paymentMethod?.toUpperCase()} (
             {order.paymentStatus === 'paid' ? 'পরিশোধিত' : 'বাকি / ক্যাশ অন ডেলিভারি'})
@@ -269,12 +334,12 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
           {order.isAdminApproved ? (
             <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              <span>পেমেন্ট যাচাইকৃত ও অনুমোদিত</span>
+              <span>পেমেন্ট অনুমোদিত</span>
             </span>
           ) : (
             <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30 flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-amber-400" />
-              <span>সুপার এডমিন পর্যালোচনায় রয়েছে</span>
+              <span>পেমেন্ট যাচাই</span>
             </span>
           )}
 
@@ -629,15 +694,39 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
                     </div>
                   </div>
 
-                  <span className="px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-900 border border-teal-200 font-bold text-[11px]">
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full border font-bold text-[11px] ${
+                      sub.orderStatus === 'delivered'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : sub.orderStatus === 'out_for_delivery'
+                        ? 'bg-teal-50 text-teal-800 border-teal-200'
+                        : sub.orderStatus === 'shipped' || sub.orderStatus === 'in_transit'
+                        ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                        : sub.orderStatus === 'processing' || sub.orderStatus === 'packaging'
+                        ? 'bg-purple-50 text-purple-800 border-purple-200'
+                        : sub.orderStatus === 'confirmed'
+                        ? 'bg-blue-50 text-blue-800 border-blue-200'
+                        : sub.orderStatus === 'cancelled' || sub.orderStatus === 'returned'
+                        ? 'bg-rose-50 text-rose-800 border-rose-200'
+                        : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}
+                  >
                     স্ট্যাটাস:{' '}
                     {sub.orderStatus === 'delivered'
                       ? 'ডেলিভার্ড'
-                      : sub.orderStatus === 'shipped'
+                      : sub.orderStatus === 'out_for_delivery'
+                      ? 'ডেলিভারির পথে'
+                      : sub.orderStatus === 'shipped' || sub.orderStatus === 'in_transit'
                       ? 'শিপড'
-                      : sub.orderStatus === 'processing'
+                      : sub.orderStatus === 'processing' || sub.orderStatus === 'packaging'
                       ? 'প্যাকিং চলছে'
-                      : 'যাচাইকৃত'}
+                      : sub.orderStatus === 'confirmed'
+                      ? 'কনফার্মড'
+                      : sub.orderStatus === 'cancelled'
+                      ? 'বাতিল'
+                      : sub.orderStatus === 'returned'
+                      ? 'রিটার্ন'
+                      : 'অপেক্ষমান'}
                   </span>
                 </div>
 

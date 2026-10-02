@@ -606,7 +606,6 @@ router.post('/send-otp', async (req: Request, res: Response) => {
       success: true,
       message: `আপনার মোবাইল নম্বর (${standardPhone})-এ ৬ ডিজিটের ওটিপি যাচাই কোড পাঠানো হয়েছে।`,
       expiresInSeconds: 300,
-      demoOtp: otpCode, // Provided for instant testing/fallback
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'ওটিপি পাঠাতে সমস্যা হয়েছে' });
@@ -1622,13 +1621,19 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
         return masterSt || 'pending';
       }
       const statuses = subOrderList.map((s) => String(s.status || s.orderStatus || 'pending').toLowerCase());
+      const hasCourierAssigned = subOrderList.some((s) => Boolean(s.courierName || s.courierTrackingCode));
+      const hasRiderAssigned = subOrderList.some((s) => Boolean(s.deliveryManName || s.deliveryManPhone));
+
+      // Always show vendor live fulfillment updates to customer in tracking
       if (statuses.every((s) => s === 'delivered')) return 'delivered';
-      if (statuses.every((s) => s === 'cancelled' || s === 'returned')) return statuses[0];
-      if (statuses.some((s) => s === 'shipped' || s === 'out_for_delivery')) return 'shipped';
-      if (statuses.some((s) => s === 'processing' || s === 'packed')) return 'processing';
+      if (statuses.some((s) => s === 'out_for_delivery') || hasRiderAssigned) return 'out_for_delivery';
+      if (statuses.some((s) => s === 'shipped' || s === 'in_transit') || hasCourierAssigned) return 'shipped';
+      if (statuses.some((s) => s === 'processing' || s === 'packed' || s === 'packaging')) return 'processing';
       if (statuses.some((s) => s === 'confirmed')) return 'confirmed';
+      if (statuses.every((s) => s === 'cancelled' || s === 'returned')) return statuses[0];
+
       if (masterSt && !['pending_verification', 'pending'].includes(masterSt)) return masterSt;
-      if (!isAdminApprovedFlag) return 'pending_verification';
+      if (!isAdminApprovedFlag && masterRow?.payment_method !== 'cod') return 'pending_verification';
       return 'pending';
     };
 
@@ -1752,8 +1757,11 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
             isAdminApproved: masterApproved,
             isRejectedByAdmin: masterRejected,
             adminRejectionReason: m.admin_rejection_reason || '',
-            courierName: m.courier_name || '',
-            courierTrackingCode: m.courier_tracking_code || '',
+            courierName: m.courier_name || subOrders.find(s => s.courierName)?.courierName || '',
+            courierTrackingCode: m.courier_tracking_code || subOrders.find(s => s.courierTrackingCode)?.courierTrackingCode || '',
+            deliveryManName: m.delivery_man_name || subOrders.find(s => s.deliveryManName)?.deliveryManName || '',
+            deliveryManPhone: m.delivery_man_phone || subOrders.find(s => s.deliveryManPhone)?.deliveryManPhone || '',
+            estimatedDeliveryDate: m.estimated_delivery_date || subOrders.find(s => s.estimatedDeliveryDate)?.estimatedDeliveryDate || '',
             overallStatus: liveOverallStatus,
             createdAt: Number(m.created_at),
             updatedAt: Number(m.updated_at || m.created_at),
@@ -1764,13 +1772,16 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
         // Direct sub-order fallback
         const r = matchedSubOrder;
         const subApproved = r.is_admin_approved === true || r.admin_approval_status === 'approved' || (r.order_source !== 'marketplace' && !r.master_order_id) || r.payment_method === 'cod';
+        const rawSt = r.order_status || 'pending';
+        const liveStatus = (rawSt && rawSt !== 'pending') ? rawSt : (subApproved ? (rawSt || 'confirmed') : 'pending_verification');
+
         const subOrderObj = {
           id: r.id,
           orderNumber: r.order_number,
           vendorShopName: 'ভেন্ডর স্টোর',
           vendorPhone: '',
-          status: r.order_status || 'pending',
-          orderStatus: r.order_status || 'pending',
+          status: rawSt,
+          orderStatus: rawSt,
           paymentStatus: r.payment_status || 'unpaid',
           adminApprovalStatus: subApproved ? 'approved' : (r.admin_approval_status || 'pending_approval'),
           isAdminApproved: subApproved,
@@ -1804,9 +1815,14 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
             paymentStatus: r.payment_status,
             adminApprovalStatus: subOrderObj.adminApprovalStatus,
             isAdminApproved: subApproved,
-            overallStatus: subApproved ? (r.order_status || 'confirmed') : 'pending_verification',
+            overallStatus: liveStatus,
             courierName: r.courier_name || '',
             courierTrackingCode: r.courier_tracking_code || '',
+            deliveryManName: r.delivery_man_name || '',
+            deliveryManPhone: r.delivery_man_phone || '',
+            estimatedDeliveryDate: r.estimated_delivery_date || '',
+            deliveryNote: r.delivery_note || '',
+            vendorNote: r.vendor_note || '',
             createdAt: Number(r.created_at),
             updatedAt: Number(r.updated_at || r.created_at),
             subOrders: [subOrderObj],

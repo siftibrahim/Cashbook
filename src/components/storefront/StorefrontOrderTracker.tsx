@@ -71,8 +71,12 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
       case 'confirmed':
         return 2;
       case 'processing':
+      case 'packaging':
+      case 'packed':
         return 2;
       case 'shipped':
+      case 'in_transit':
+      case 'out_for_delivery':
         return 3;
       case 'delivered':
         return 4;
@@ -335,16 +339,22 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
                         <span>অর্ডার কনফার্ম হয়েছে</span>
                       </span>
                     )}
-                    {order.orderStatus === 'processing' && (
+                    {((order.orderStatus as string) === 'processing' || (order.orderStatus as string) === 'packaging' || (order.orderStatus as string) === 'packed') && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-800 border border-purple-200 text-[11px] font-bold">
                         <Box className="w-3 h-3 text-purple-600" />
                         <span>প্যাকেজিং ও প্রস্তুতি চলছে</span>
                       </span>
                     )}
-                    {order.orderStatus === 'shipped' && (
+                    {((order.orderStatus as string) === 'shipped' || (order.orderStatus as string) === 'in_transit') && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200 text-[11px] font-bold">
                         <Truck className="w-3 h-3 text-indigo-600" />
-                        <span>কুরিয়ার / ডেলিভারির পথে</span>
+                        <span>কুরিয়ারে পাঠানো হয়েছে</span>
+                      </span>
+                    )}
+                    {order.orderStatus === 'out_for_delivery' && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-800 border border-teal-200 text-[11px] font-bold">
+                        <Truck className="w-3 h-3 text-teal-600" />
+                        <span>ডেলিভারির পথে (রাইডার অ্যাসাইনড)</span>
                       </span>
                     )}
                     {order.orderStatus === 'delivered' && (

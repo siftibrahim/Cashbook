@@ -267,7 +267,6 @@ export const marketplaceApi = {
     success: boolean;
     message: string;
     expiresInSeconds?: number;
-    demoOtp?: string;
     error?: string;
   }> {
     const res = await fetch('/api/marketplace/send-otp', {

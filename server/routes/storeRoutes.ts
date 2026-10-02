@@ -2073,9 +2073,14 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
   const now = Date.now();
   try {
     let statuses: string[] = [];
+    let latestCourierName = '';
+    let latestCourierCode = '';
+    let latestRiderName = '';
+    let latestRiderPhone = '';
+
     if (pool) {
       const subRes = await pool.query(
-        `SELECT order_status FROM online_orders 
+        `SELECT order_status, courier_name, courier_tracking_code, delivery_man_name, delivery_man_phone FROM online_orders 
          WHERE (master_order_id = $1 
             OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $1 OR order_number = $1)
             OR master_order_id IN (SELECT order_number FROM marketplace_master_orders WHERE id = $1 OR order_number = $1))
@@ -2083,6 +2088,12 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
         [masterOrderId]
       );
       statuses = subRes.rows.map((r: any) => String(r.order_status || 'pending').toLowerCase());
+      for (const r of subRes.rows) {
+        if (r.courier_name && !latestCourierName) latestCourierName = r.courier_name;
+        if (r.courier_tracking_code && !latestCourierCode) latestCourierCode = r.courier_tracking_code;
+        if (r.delivery_man_name && !latestRiderName) latestRiderName = r.delivery_man_name;
+        if (r.delivery_man_phone && !latestRiderPhone) latestRiderPhone = r.delivery_man_phone;
+      }
     } else {
       const master = (inMemoryStore.marketplace_master_orders || []).find((m: any) => m.id === masterOrderId || m.orderNumber === masterOrderId);
       const masterIds = new Set([masterOrderId, master?.id, master?.orderNumber].filter(Boolean));
@@ -2090,6 +2101,12 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
         (o: any) => (masterIds.has(o.masterOrderId) || masterIds.has(o.master_order_id)) && !o.isRejectedByAdmin
       );
       statuses = subs.map((o: any) => String(o.orderStatus || o.order_status || 'pending').toLowerCase());
+      for (const o of subs) {
+        if (o.courierName && !latestCourierName) latestCourierName = o.courierName;
+        if (o.courierTrackingCode && !latestCourierCode) latestCourierCode = o.courierTrackingCode;
+        if (o.deliveryManName && !latestRiderName) latestRiderName = o.deliveryManName;
+        if (o.deliveryManPhone && !latestRiderPhone) latestRiderPhone = o.deliveryManPhone;
+      }
     }
 
     if (statuses.length === 0) return;
@@ -2099,9 +2116,11 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
       nextOverall = 'delivered';
     } else if (statuses.every((s) => s === 'cancelled' || s === 'returned')) {
       nextOverall = statuses[0];
-    } else if (statuses.some((s) => s === 'shipped' || s === 'out_for_delivery')) {
+    } else if (statuses.some((s) => s === 'out_for_delivery') || latestRiderName || latestRiderPhone) {
+      nextOverall = 'out_for_delivery';
+    } else if (statuses.some((s) => s === 'shipped' || s === 'in_transit') || latestCourierName || latestCourierCode) {
       nextOverall = 'shipped';
-    } else if (statuses.some((s) => s === 'processing' || s === 'packed')) {
+    } else if (statuses.some((s) => s === 'processing' || s === 'packed' || s === 'packaging')) {
       nextOverall = 'processing';
     } else if (statuses.some((s) => s === 'confirmed')) {
       nextOverall = 'confirmed';
@@ -2112,8 +2131,18 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
     let masterOrderNumber: string | undefined;
     if (pool) {
       const updRes = await pool.query(
-        'UPDATE marketplace_master_orders SET overall_status = $1, updated_at = $2 WHERE id = $3 OR order_number = $3 RETURNING id, order_number',
-        [nextOverall, now, masterOrderId]
+        `UPDATE marketplace_master_orders 
+         SET overall_status = $1, 
+             courier_name = COALESCE(NULLIF($2, ''), courier_name),
+             courier_tracking_code = COALESCE(NULLIF($3, ''), courier_tracking_code),
+             delivery_man_name = COALESCE(NULLIF($4, ''), delivery_man_name),
+             delivery_man_phone = COALESCE(NULLIF($5, ''), delivery_man_phone),
+             is_admin_approved = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
+             admin_approval_status = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
+             updated_at = $6 
+         WHERE id = $7 OR order_number = $7 
+         RETURNING id, order_number`,
+        [nextOverall, latestCourierName || null, latestCourierCode || null, latestRiderName || null, latestRiderPhone || null, now, masterOrderId]
       ).catch(() => ({ rows: [] }));
       if (updRes.rows && updRes.rows[0]) {
         masterOrderNumber = updRes.rows[0].order_number;
@@ -2125,34 +2154,42 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
       );
       if (m) {
         m.overallStatus = nextOverall;
+        if (['confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'].includes(nextOverall)) {
+          m.isAdminApproved = true;
+          m.adminApprovalStatus = 'approved';
+        }
+        if (latestCourierName && !m.courierName) m.courierName = latestCourierName;
+        if (latestCourierCode && !m.courierTrackingCode) m.courierTrackingCode = latestCourierCode;
+        if (latestRiderName && !m.deliveryManName) m.deliveryManName = latestRiderName;
+        if (latestRiderPhone && !m.deliveryManPhone) m.deliveryManPhone = latestRiderPhone;
         m.updatedAt = now;
         masterOrderNumber = m.orderNumber || m.id;
       }
     }
     saveInMemoryStoreToDisk();
 
-    realtimeEvents.broadcast('marketplace_order_updated', {
+    const broadcastPayload = {
       masterOrderId,
       masterOrderNumber,
+      orderId: masterOrderId,
+      orderNumber: masterOrderNumber,
       overallStatus: nextOverall,
+      status: nextOverall,
+      courierName: latestCourierName || undefined,
+      courierTrackingCode: latestCourierCode || undefined,
+      deliveryManName: latestRiderName || undefined,
+      deliveryManPhone: latestRiderPhone || undefined,
       timestamp: now,
-    });
-    realtimeEvents.broadcast('order_status_updated', {
-      masterOrderId,
-      masterOrderNumber,
-      overallStatus: nextOverall,
-      timestamp: now,
-    });
-    realtimeEvents.broadcastToAdmins('marketplace_order_updated', {
-      masterOrderId,
-      masterOrderNumber,
-      overallStatus: nextOverall,
-    });
+    };
+
+    realtimeEvents.broadcast('marketplace_order_updated', broadcastPayload);
+    realtimeEvents.broadcast('order_status_updated', broadcastPayload);
+    realtimeEvents.broadcast('online_order_updated', broadcastPayload);
+    realtimeEvents.broadcast('twing_order_updated', broadcastPayload);
+    realtimeEvents.broadcastToAdmins('marketplace_order_updated', broadcastPayload);
     realtimeEvents.broadcastToAdmins('marketplace_updated', {
       type: 'order_status_sync',
-      masterOrderId,
-      masterOrderNumber,
-      overallStatus: nextOverall,
+      ...broadcastPayload,
     });
   } catch (err) {
     console.warn('syncMasterOrderOverallStatus warning:', err);
@@ -2209,14 +2246,14 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
 
     const orderOwner = existingOrder.user_id || existingOrder.userId;
     // If user is not the order owner:
-    if (orderOwner && orderOwner !== userId) {
+    if (orderOwner && orderOwner !== userId && !isSuperAdmin) {
       return res.status(403).json({
         error: 'ভেন্ডরের অর্ডার শুধুমাত্র সংশ্লিষ্ট ভেন্ডর নিজে ডেলিভারি, প্যাকেজিং ও কুরিয়ার আপডেট করতে পারবেন। অন্য কেউ এটি আপডেট করতে পারবেন না।',
       });
     }
 
     const isMktOrder = existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId));
-    if (isMktOrder) {
+    if (isMktOrder && !isSuperAdmin) {
       const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved';
       if (!isApproved) {
         return res.status(403).json({
@@ -2241,9 +2278,11 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
              due_amount = CASE WHEN $9 = true AND (order_source IS NULL OR order_source != 'marketplace') THEN 0 ELSE due_amount END,
              cod_collected_amount = CASE WHEN $9 = true THEN total_amount ELSE cod_collected_amount END,
              collected_at = CASE WHEN $9 = true THEN $10 ELSE collected_at END,
+             is_admin_approved = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
+             admin_approval_status = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
              updated_at = $10 
-         WHERE (id = $11 OR order_number = $11 OR id = $14 OR order_number = $14) 
-           AND user_id = $12 
+         WHERE (id = $11 OR order_number = $11 OR id = $12 OR order_number = $12) 
+           AND (user_id = $13 OR $14 = true OR user_id = 'default_vendor' OR user_id IS NULL OR $13 = 'default_vendor') 
          RETURNING *`,
         [
           orderStatus || null,
@@ -2257,9 +2296,9 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           Boolean(markCodPaid),
           now,
           orderId,
-          userId,
-          isSuperAdmin,
           cleanOrderId,
+          userId,
+          Boolean(isSuperAdmin),
         ]
       );
 
@@ -2268,15 +2307,49 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           (o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId
         );
         if (order) {
-          if (order.userId !== userId) {
+          if (order.userId !== userId && !isSuperAdmin && order.userId && order.userId !== 'default_vendor') {
             return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: ভেন্ডরের অর্ডার শুধুমাত্র সংশ্লিষ্ট ভেন্ডর নিজে ডেলিভারি ও কুরিয়ার আপডেট করতে পারবেন। অন্য কেউ এটি আপডেট করতে পারবেন না।' });
           }
-          if (orderStatus) order.orderStatus = orderStatus;
+          if (orderStatus) {
+            order.orderStatus = orderStatus;
+            if (['confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'].includes(orderStatus)) {
+              order.isAdminApproved = true;
+              order.adminApprovalStatus = 'approved';
+            }
+          }
           if (courierName !== undefined) order.courierName = courierName;
           if (courierTrackingCode !== undefined) order.courierTrackingCode = courierTrackingCode;
+          if (deliveryManName !== undefined) order.deliveryManName = deliveryManName;
+          if (deliveryManPhone !== undefined) order.deliveryManPhone = deliveryManPhone;
+          if (estimatedDeliveryDate !== undefined) order.estimatedDeliveryDate = estimatedDeliveryDate;
+          if (deliveryNote !== undefined) order.deliveryNote = deliveryNote;
+          if (vendorNote !== undefined) order.vendorNote = vendorNote;
           order.updatedAt = now;
           await syncMasterOrderOverallStatus(pool, order.masterOrderId);
           saveInMemoryStoreToDisk();
+
+          const eventPayload = {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            masterOrderId: order.masterOrderId,
+            orderStatus: order.orderStatus,
+            status: order.orderStatus,
+            overallStatus: order.orderStatus,
+            courierName: order.courierName,
+            courierTrackingCode: order.courierTrackingCode,
+            deliveryManName: order.deliveryManName,
+            deliveryManPhone: order.deliveryManPhone,
+            estimatedDeliveryDate: order.estimatedDeliveryDate,
+            deliveryNote: order.deliveryNote,
+            vendorNote: order.vendorNote,
+            updatedAt: now,
+            timestamp: now,
+          };
+          realtimeEvents.broadcast('marketplace_order_updated', eventPayload);
+          realtimeEvents.broadcast('order_status_updated', eventPayload);
+          realtimeEvents.broadcast('online_order_updated', eventPayload);
+          realtimeEvents.broadcast('twing_order_updated', eventPayload);
+
           return res.json({ order, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
         }
         return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
@@ -2292,18 +2365,29 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
       // Sync parent Central Marketplace Master Order status in real-time
       await syncMasterOrderOverallStatus(pool, updatedOrder.masterOrderId || result.rows[0].master_order_id);
 
-      // Broadcast sub-order real-time courier & fulfillment update
-      realtimeEvents.broadcast('marketplace_order_updated', {
+      // Broadcast real-time courier & fulfillment update across all channels
+      const eventPayload = {
         orderId: updatedOrder.id,
         orderNumber: updatedOrder.orderNumber,
         masterOrderId: updatedOrder.masterOrderId,
         orderStatus: updatedOrder.orderStatus,
+        status: updatedOrder.orderStatus,
+        overallStatus: updatedOrder.orderStatus,
         courierName: updatedOrder.courierName,
         courierTrackingCode: updatedOrder.courierTrackingCode,
         deliveryManName: updatedOrder.deliveryManName,
         deliveryManPhone: updatedOrder.deliveryManPhone,
+        estimatedDeliveryDate: updatedOrder.estimatedDeliveryDate,
+        deliveryNote: updatedOrder.deliveryNote,
+        vendorNote: updatedOrder.vendorNote,
+        updatedAt: now,
         timestamp: now,
-      });
+      };
+
+      realtimeEvents.broadcast('marketplace_order_updated', eventPayload);
+      realtimeEvents.broadcast('order_status_updated', eventPayload);
+      realtimeEvents.broadcast('online_order_updated', eventPayload);
+      realtimeEvents.broadcast('twing_order_updated', eventPayload);
 
       // 🔔 Send Customer Order Status SMS
       sendCustomerOrderStatusSms(

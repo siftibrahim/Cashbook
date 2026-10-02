@@ -10,7 +10,6 @@ import {
   Building2,
   Smartphone,
   RefreshCw,
-  Sparkles,
 } from 'lucide-react';
 import { formatMoney } from '../../utils/storage';
 
@@ -47,7 +46,6 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
   const [accountNumber, setAccountNumber] = useState(customerPhone || '');
   const [otpCode, setOtpCode] = useState('');
   const [pinCode, setPinCode] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState('589412');
 
   // Card fields
   const [cardNumber, setCardNumber] = useState('');
@@ -89,9 +87,7 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
       return;
     }
     setErrorMessage('');
-    const randomOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    setGeneratedOtp(randomOtp);
-    setOtpCode(randomOtp); // Pre-fill for seamless checkout convenience
+    setOtpCode(''); // No default OTP
     setCountdown(60);
     setStep('input_otp');
   };
@@ -99,7 +95,8 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
   // Handle OTP verification -> goes to PIN
   const handleProceedToPin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (otpCode.length < 4) {
+    const cleanOtp = otpCode.trim();
+    if (cleanOtp.length < 4) {
       setErrorMessage('অনুগ্রহ করে ওটিপি (OTP) ভেরিফিকেশন কোড দিন');
       return;
     }
@@ -352,10 +349,6 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
                 <p className="text-[11px] text-teal-800">
                   নম্বর <strong>{accountNumber}</strong>-এ প্রেরিত ৬-সংখ্যার কোডটি প্রদান করুন।
                 </p>
-                <div className="pt-1 flex items-center gap-1.5 text-[10px] text-teal-700 font-semibold">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  <span>ডেমো অটো-কোড: <strong className="font-mono text-xs">{generatedOtp}</strong></span>
-                </div>
               </div>
 
               <div>
@@ -368,7 +361,7 @@ export const AutomatedPaymentGatewayModal: React.FC<AutomatedPaymentGatewayModal
                   maxLength={6}
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value)}
-                  placeholder="যেমন: 589412"
+                  placeholder="৬-সংখ্যার ওটিপি লিখুন"
                   className="w-full text-center py-2.5 bg-white border border-slate-300 rounded-xl text-lg font-mono font-black tracking-widest focus:ring-2 focus:ring-teal-700/30 focus:outline-none"
                 />
               </div>

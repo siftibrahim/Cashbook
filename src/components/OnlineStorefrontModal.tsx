@@ -242,7 +242,6 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   const [otpSent, setOtpSent] = useState(false);
   const [otpInput, setOtpInput] = useState('');
   const [otpCountdown, setOtpCountdown] = useState(0);
-  const [otpHint, setOtpHint] = useState<string | null>(null);
 
   // OTP Countdown timer
   useEffect(() => {
@@ -277,7 +276,6 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
       return;
     }
     setIsSendingOtp(true);
-    setOtpHint(null);
     try {
       const devRecord = getDevicePhoneVerification();
       const res = await marketplaceApi.sendOtp(standardPhone);
@@ -290,9 +288,6 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
         }
         setOtpSent(true);
         setOtpCountdown(60);
-        if (res.demoOtp) {
-          setOtpHint(`কোড: ${res.demoOtp}`);
-        }
       } else {
         alert('❌ ওটিপি পাঠানো যায়নি: ' + (res.error || 'সমস্যা হয়েছে'));
       }
@@ -316,7 +311,6 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
         setDeviceVerificationVersion((v) => v + 1);
         setOtpSent(false);
         setOtpInput('');
-        setOtpHint(null);
       } else {
         alert('❌ ' + (res.error || 'ভুল ওটিপি কোড!'));
       }
@@ -434,15 +428,91 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     }
   }, [config.storeSlug, config.customDomain, config.vendorId, customerPhone]);
 
-  // Real-time polling & global events listener
+  // Real-time SSE live updates & polling listener
   useEffect(() => {
     // Initial silent refresh
     refreshCustomerOrders(false);
 
-    // Calm 15s background polling without flickering
+    // Calm 15s background polling fallback
     const interval = setInterval(() => {
       refreshCustomerOrders(false);
     }, 15000);
+
+    let es: EventSource | null = null;
+    let reconnectTimer: any = null;
+
+    const connectSSE = () => {
+      try {
+        es = new EventSource('/api/marketplace/events');
+
+        const onLiveOrderUpdate = (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data || '{}');
+            const targetId = data.orderId || data.id || data.masterOrderId;
+            const targetNum = data.orderNumber || data.masterOrderNumber;
+            const nextStatus = data.orderStatus || data.overallStatus || data.status;
+
+            if (targetId || targetNum) {
+              setCustomerOrders((prev) => {
+                let hasChange = false;
+                const next = prev.map((ord) => {
+                  const isMatch =
+                    ord.id === targetId ||
+                    ord.orderNumber === targetNum ||
+                    ord.orderNumber === targetId ||
+                    ord.id === targetNum;
+
+                  if (isMatch) {
+                    hasChange = true;
+                    return {
+                      ...ord,
+                      orderStatus: nextStatus || ord.orderStatus,
+                      courierName: data.courierName !== undefined ? data.courierName : ord.courierName,
+                      courierTrackingCode: data.courierTrackingCode !== undefined ? data.courierTrackingCode : ord.courierTrackingCode,
+                      deliveryManName: data.deliveryManName !== undefined ? data.deliveryManName : ord.deliveryManName,
+                      deliveryManPhone: data.deliveryManPhone !== undefined ? data.deliveryManPhone : ord.deliveryManPhone,
+                      estimatedDeliveryDate: data.estimatedDeliveryDate !== undefined ? data.estimatedDeliveryDate : ord.estimatedDeliveryDate,
+                      deliveryNote: data.deliveryNote !== undefined ? data.deliveryNote : ord.deliveryNote,
+                      vendorNote: data.vendorNote !== undefined ? data.vendorNote : ord.vendorNote,
+                      updatedAt: data.updatedAt || Date.now(),
+                    };
+                  }
+                  return ord;
+                });
+
+                if (hasChange) {
+                  try {
+                    localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(next));
+                  } catch {}
+                  return next;
+                }
+                return prev;
+              });
+
+              // Silent batch refresh to ensure all details match database
+              refreshCustomerOrders(false);
+            }
+          } catch {}
+        };
+
+        es.onmessage = onLiveOrderUpdate;
+        es.addEventListener('marketplace_order_updated', onLiveOrderUpdate);
+        es.addEventListener('order_status_updated', onLiveOrderUpdate);
+        es.addEventListener('online_order_updated', onLiveOrderUpdate);
+        es.addEventListener('twing_order_updated', onLiveOrderUpdate);
+
+        es.onerror = () => {
+          if (es) {
+            es.close();
+            es = null;
+          }
+          clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(connectSSE, 5000);
+        };
+      } catch {}
+    };
+
+    connectSSE();
 
     const handleOrderEvent = (e: any) => {
       // Immediate local state update if event has order details
@@ -488,6 +558,11 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
 
     return () => {
       clearInterval(interval);
+      clearTimeout(reconnectTimer);
+      if (es) {
+        es.close();
+        es = null;
+      }
       window.removeEventListener('twing_order_updated', handleOrderEvent);
       window.removeEventListener('storage', handleStorageEvent);
     };
@@ -1405,22 +1480,9 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                               <div className="space-y-2 pt-1 border-t border-amber-200/70">
                                 <div className="flex items-center justify-between text-[11px] text-slate-600">
                                   <span className="font-medium">
-                                    <strong className="text-slate-800 font-mono">{standardPhone}</strong> নম্বরে ওটিপি পাঠানো হয়েছে
+                                    <strong className="text-slate-800 font-mono">{standardPhone}</strong> নম্বরে SMS এ ওটিপি পাঠানো হয়েছে
                                   </span>
-                                  {otpHint && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const code = otpHint.replace(/[^0-9]/g, '');
-                                        if (code) setOtpInput(code);
-                                      }}
-                                      className="text-[10px] font-bold bg-teal-100 text-teal-800 hover:bg-teal-200 px-2 py-0.5 rounded cursor-pointer transition flex items-center gap-1"
-                                      title="ক্লিক করে কোড বসিয়ে দিন"
-                                    >
-                                      <span>{otpHint}</span>
-                                      <span className="underline">বসিয়ে দিন</span>
-                                    </button>
-                                  )}
+                                  <span className="text-[10px] text-slate-400 font-medium">মোবাইল ইনবক্স চেক করুন</span>
                                 </div>
 
                                 <div className="flex items-center gap-2">
@@ -1469,7 +1531,6 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                                     onClick={() => {
                                       setOtpSent(false);
                                       setOtpInput('');
-                                      setOtpHint(null);
                                     }}
                                     className="text-slate-500 hover:text-slate-800 underline cursor-pointer"
                                   >

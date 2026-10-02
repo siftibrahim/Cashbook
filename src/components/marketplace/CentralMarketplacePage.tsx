@@ -206,7 +206,6 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [otpSent, setOtpSent] = useState(false);
   const [otpInput, setOtpInput] = useState('');
   const [otpCountdown, setOtpCountdown] = useState(0);
-  const [otpHint, setOtpHint] = useState<string | null>(null);
 
   // OTP Countdown timer
   useEffect(() => {
@@ -242,7 +241,6 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       return;
     }
     setIsSendingOtp(true);
-    setOtpHint(null);
     try {
       const devRecord = getDevicePhoneVerification();
       const res = await marketplaceApi.sendOtp(standardPhone);
@@ -256,10 +254,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         }
         setOtpSent(true);
         setOtpCountdown(60);
-        if (res.demoOtp) {
-          setOtpHint(`কোড: ${res.demoOtp}`);
-        }
-        showToast('📲 আপনার মোবাইলে OTP কোড পাঠানো হয়েছে!');
+        showToast('📲 আপনার মোবাইলে SMS এ OTP কোড পাঠানো হয়েছে!');
       } else {
         showToast('❌ ' + (res.error || 'ওটিপি পাঠানো যায়নি'));
       }
@@ -284,7 +279,6 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         setDeviceVerificationVersion((v) => v + 1);
         setOtpSent(false);
         setOtpInput('');
-        setOtpHint(null);
         showToast('🎉 মোবাইল নম্বর সফলভাবে ভেরিফাই হয়েছে!');
       } else {
         showToast('❌ ' + (res.error || 'ভুল ওটিপি কোড!'));
@@ -918,6 +912,18 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     }
   };
 
+  // Auto-track the latest order when user visits 'orders' tab if not already tracking
+  useEffect(() => {
+    if (activeTab === 'orders' && !queriedOrder && customerOrders.length > 0) {
+      const latestOrd = customerOrders[0];
+      const target = latestOrd?.orderNumber || latestOrd?.id;
+      if (target) {
+        setTrackingSearchQuery(target);
+        handleTrackSearch(undefined, target);
+      }
+    }
+  }, [activeTab, customerOrders, queriedOrder]);
+
   // 🔴 Real-Time Live Order Status Listener & Auto-Refresh for Tracking
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1405,8 +1411,9 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                     key={ord.id}
                     className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs flex items-center justify-between gap-3 hover:border-teal-500/40 transition cursor-pointer"
                     onClick={() => {
-                      setTrackingSearchQuery(ord.orderNumber || ord.id);
-                      handleTrackSearch();
+                      const targetQ = ord.orderNumber || ord.id;
+                      setTrackingSearchQuery(targetQ);
+                      handleTrackSearch(undefined, targetQ);
                     }}
                   >
                     <div>
@@ -1419,8 +1426,36 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-1 rounded-full bg-teal-50 text-teal-800 text-[10px] font-bold border border-teal-200">
-                        {ord.overallStatus === 'delivered' ? 'ডেলিভার্ড' : 'গৃহীত'}
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                          ord.overallStatus === 'delivered'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : ord.overallStatus === 'out_for_delivery'
+                            ? 'bg-teal-50 text-teal-800 border-teal-200'
+                            : ord.overallStatus === 'shipped' || ord.overallStatus === 'in_transit'
+                            ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                            : ord.overallStatus === 'processing' || ord.overallStatus === 'packaging'
+                            ? 'bg-purple-50 text-purple-800 border-purple-200'
+                            : ord.overallStatus === 'confirmed'
+                            ? 'bg-blue-50 text-blue-800 border-blue-200'
+                            : ord.overallStatus === 'cancelled' || ord.overallStatus === 'returned'
+                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                            : 'bg-amber-50 text-amber-800 border-amber-200'
+                        }`}
+                      >
+                        {ord.overallStatus === 'delivered'
+                          ? 'ডেলিভার্ড'
+                          : ord.overallStatus === 'out_for_delivery'
+                          ? 'ডেলিভারির পথে'
+                          : ord.overallStatus === 'shipped' || ord.overallStatus === 'in_transit'
+                          ? 'শিপড'
+                          : ord.overallStatus === 'processing' || ord.overallStatus === 'packaging'
+                          ? 'প্যাকিং চলছে'
+                          : ord.overallStatus === 'confirmed'
+                          ? 'কনফার্মড'
+                          : ord.overallStatus === 'cancelled' || ord.overallStatus === 'returned'
+                          ? 'বাতিল'
+                          : 'গৃহীত'}
                       </span>
                       <ChevronRight className="w-4 h-4 text-slate-400" />
                     </div>
@@ -1818,22 +1853,9 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                               <div className="space-y-2 pt-1 border-t border-amber-200/70">
                                 <div className="flex items-center justify-between text-[11px] text-slate-600">
                                   <span className="font-medium">
-                                    <strong className="text-slate-800 font-mono">{standardPhone}</strong> নম্বরে ওটিপি পাঠানো হয়েছে
+                                    <strong className="text-slate-800 font-mono">{standardPhone}</strong> নম্বরে SMS এ ওটিপি পাঠানো হয়েছে
                                   </span>
-                                  {otpHint && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const code = otpHint.replace(/[^0-9]/g, '');
-                                        if (code) setOtpInput(code);
-                                      }}
-                                      className="text-[10px] font-bold bg-teal-100 text-teal-800 hover:bg-teal-200 px-2 py-0.5 rounded cursor-pointer transition flex items-center gap-1"
-                                      title="ক্লিক করে কোড বসিয়ে দিন"
-                                    >
-                                      <span>{otpHint}</span>
-                                      <span className="underline">বসিয়ে দিন</span>
-                                    </button>
-                                  )}
+                                  <span className="text-[10px] text-slate-400 font-medium">মোবাইল ইনবক্স চেক করুন</span>
                                 </div>
 
                                 <div className="flex items-center gap-2">
@@ -1882,7 +1904,6 @@ _ধন্যবাদ! অনুগ্রহ করে সেন্ট্রা
                                     onClick={() => {
                                       setOtpSent(false);
                                       setOtpInput('');
-                                      setOtpHint(null);
                                     }}
                                     className="text-slate-500 hover:text-slate-800 underline cursor-pointer"
                                   >
