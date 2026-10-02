@@ -286,7 +286,7 @@ Sitemap: ${baseUrl}/sitemap.xml
   }
 
   // Start listening immediately on all interfaces (dual-stack IPv4 & IPv6)
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
     // Initialize DB schema & seeds in background without blocking server startup
     initializeDatabaseSchema()

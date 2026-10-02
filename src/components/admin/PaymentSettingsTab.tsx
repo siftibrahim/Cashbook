@@ -665,28 +665,6 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
 
         <button
           type="button"
-          onClick={() => setActiveSubTab('bangla_qr')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
-            activeSubTab === 'bangla_qr'
-              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/30'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-          }`}
-        >
-          <QrCode className="w-4 h-4 text-emerald-400" />
-          <span>🇧🇩 বাংলা কিউআর (Bangla QR)</span>
-          <span
-            className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-              formData.banglaQr?.isEnabled !== false
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-            }`}
-          >
-            {formData.banglaQr?.isEnabled !== false ? 'সক্রিয়' : 'বন্ধ'}
-          </span>
-        </button>
-
-        <button
-          type="button"
           onClick={() => setActiveSubTab('bank')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
             activeSubTab === 'bank'
@@ -703,12 +681,21 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
           onClick={() => setActiveSubTab('gateway')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
             activeSubTab === 'gateway'
-              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-600/30 font-black'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
           }`}
         >
-          <Globe2 className="w-4 h-4" />
-          <span>অটোমেটেড গেটওয়ে ({formData.gateways?.length || 0})</span>
+          <Zap className="w-4 h-4 text-teal-400" />
+          <span>⚡ লাইভ পেমেন্ট গেটওয়ে (Paymently)</span>
+          <span
+            className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+              formData.paymently?.isEnabled !== false
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+            }`}
+          >
+            {formData.paymently?.isEnabled !== false ? 'সক্রিয়' : 'বন্ধ'}
+          </span>
         </button>
       </div>
 
@@ -2044,7 +2031,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                 <div>
                   <div className="flex items-center gap-2.5 flex-wrap">
                     <h3 className="text-base font-black text-white">
-                      UddoktaPay / Paymently Gateway (অফিসিয়াল অনলাইন পেমেন্ট গেটওয়ে)
+                      সরকারি লাইসেন্সপ্রাপ্ত অটোমেটিক লাইভ পেমেন্ট গেটওয়ে (Paymently Live Gateway)
                     </h3>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-teal-500 text-slate-950">
                       Primary Gateway
@@ -2357,7 +2344,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                   type="text"
                   value={newGatewayName}
                   onChange={(e) => setNewGatewayName(e.target.value)}
-                  placeholder="যেমন: UddoktaPay, Aamarpay, My Custom Gateway"
+                  placeholder="যেমন: Paymently, SSLCommerz, Shurjopay (লাইসেন্সপ্রাপ্ত গেটওয়ে)"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-teal-500"
                 />
               </div>
@@ -2368,7 +2355,7 @@ export const PaymentSettingsTab: React.FC<PaymentSettingsTabProps> = ({
                   type="text"
                   value={newGatewayId}
                   onChange={(e) => setNewGatewayId(e.target.value)}
-                  placeholder="uddoktapay_direct"
+                  placeholder="live_gateway_01"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-teal-500 font-mono"
                 />
               </div>

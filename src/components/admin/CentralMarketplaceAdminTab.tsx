@@ -3003,7 +3003,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
               <span>একীভূত প্ল্যাটফর্ম পেমেন্ট সিস্টেম (Unified System Payment Gateway)</span>
             </div>
             <p className="text-[11px] text-slate-600 leading-relaxed">
-              সেন্ট্রাল মার্কেটপ্লেসের জন্য আলাদা কোনো পেমেন্ট গেটওয়ে রাখা হয়নি। সাবস্ক্রিপশন ও সেন্ট্রাল মার্কেটপ্লেস উভয়ই সুপার অ্যাডমিন প্যানেলের প্রধান <strong className="text-slate-800">"পেমেন্ট সেটিংস"</strong> (System Payment Settings) এর অন্তর্ভুক্ত অনলাইন গেটওয়ে (UddoktaPay/Paymently), বিকাশ, নগদ, রকেট, ব্যাংক ট্রান্সফার ও বাংলা কিউআর স্বয়ংক্রিয়ভাবে ব্যবহার করে।
+              সেন্ট্রাল মার্কেটপ্লেসের জন্য আলাদা কোনো পেমেন্ট গেটওয়ে রাখা হয়নি। সাবস্ক্রিপশন ও সেন্ট্রাল মার্কেটপ্লেস উভয়ই সুপার অ্যাডমিন প্যানেলের প্রধান <strong className="text-slate-800">"পেমেন্ট সেটিংস"</strong> (System Payment Settings) এর অন্তর্ভুক্ত বাংলাদেশ ব্যাংক অনুমোদিত সরকারি লাইসেন্সপ্রাপ্ত অটোমেটিক পেমেন্ট গেটওয়ে (Paymently / Live Gateway), ক্যাশ অন ডেলিভারি, বিকাশ ও রকেট পেমেন্ট মেথড সরাসরি ও স্বয়ংক্রিয়ভাবে রিয়েল-টাইমে ব্যবহার করে।
             </p>
           </div>
 

@@ -33,7 +33,7 @@ export const DEFAULT_PAYMENTLY_CONFIG = {
 };
 
 /**
- * Normalizes Paymently / UddoktaPay API keys and corrects common OCR / font confusions
+ * Normalizes Paymently / Government-licensed API keys and corrects common OCR / font confusions
  * (such as capital 'I' vs lowercase 'l', or 'DIC' vs '0iC')
  */
 export function normalizePaymentlyKey(key?: string): string {
@@ -60,7 +60,7 @@ export function normalizePaymentlyKey(key?: string): string {
 export class PaymentlyService {
   /**
    * Fetch current Gateway configuration from DB settings or environment variables.
-   * Pluggable: First checks if any active custom gateway (e.g. UddoktaPay) is enabled in `gateways[]`,
+   * Pluggable: First checks if any active custom gateway (e.g. Paymently / Live Gateway) is enabled in `gateways[]`,
    * or falls back to `paymently` configuration.
    */
   public static async getConfig(gatewayId?: string): Promise<PaymentlyConfig> {
@@ -91,7 +91,7 @@ export class PaymentlyService {
       }
     }
 
-    // 1. If a specific gateway was requested or if an enabled custom gateway exists (e.g. UddoktaPay)
+    // 1. If a specific gateway was requested or if an enabled custom gateway exists (e.g. Paymently / Live Gateway)
     let selectedCustom = null;
     if (gatewayId) {
       selectedCustom = customGateways.find((g) => g.gatewayId === gatewayId && g.isEnabled);
@@ -109,13 +109,13 @@ export class PaymentlyService {
         apiKey: aKey,
         isEnabled: selectedCustom.isEnabled !== false,
         isSandbox: !selectedCustom.isLive,
-        gatewayName: selectedCustom.name || 'UddoktaPay / Custom Gateway',
+        gatewayName: selectedCustom.name || 'Paymently / Live Automated Gateway',
       };
     }
 
-    // 2. Default to Paymently / UddoktaPay primary configuration
-    const envBaseUrl = process.env.PAYMENTLY_BASE_URL || process.env.UDDOKTAPAY_BASE_URL || DEFAULT_PAYMENTLY_CONFIG.baseUrl;
-    const envApiKey = process.env.PAYMENTLY_API_KEY || process.env.UDDOKTAPAY_API_KEY || process.env.PAYMENTLY_KEY || '';
+    // 2. Default to Paymently primary configuration
+    const envBaseUrl = process.env.PAYMENTLY_BASE_URL || DEFAULT_PAYMENTLY_CONFIG.baseUrl;
+    const envApiKey = process.env.PAYMENTLY_API_KEY || process.env.PAYMENTLY_KEY || '';
 
     const baseUrl = (dbPaymently?.baseUrl || envBaseUrl).replace(/\/+$/, '');
     const rawApiKey = dbPaymently?.apiKey || envApiKey || DEFAULT_PAYMENTLY_CONFIG.apiKey;
@@ -128,7 +128,7 @@ export class PaymentlyService {
       apiKey,
       isEnabled,
       isSandbox,
-      gatewayName: 'Paymently / UddoktaPay',
+      gatewayName: 'Paymently Live Gateway',
     };
   }
 
@@ -225,7 +225,7 @@ export class PaymentlyService {
           'Content-Type': 'application/json',
           Accept: 'application/json',
           Authorization: `Bearer ${cleanKey}`,
-          'RT-UDDOKTAPAY-API-KEY': cleanKey,
+          'X-PAYMENT-API-KEY': cleanKey,
           'X-API-KEY': cleanKey,
         };
 
@@ -412,7 +412,7 @@ export class PaymentlyService {
           'Content-Type': 'application/json',
           Accept: 'application/json',
           Authorization: `Bearer ${cleanKey}`,
-          'RT-UDDOKTAPAY-API-KEY': cleanKey,
+          'X-PAYMENT-API-KEY': cleanKey,
           'X-API-KEY': cleanKey,
         };
 
@@ -611,7 +611,7 @@ export class PaymentlyService {
         'Content-Type': 'application/json',
         Accept: 'application/json',
         Authorization: `Bearer ${cleanKey}`,
-        'RT-UDDOKTAPAY-API-KEY': cleanKey,
+        'X-PAYMENT-API-KEY': cleanKey,
         'X-API-KEY': cleanKey,
       };
 
@@ -785,7 +785,7 @@ export class PaymentlyService {
           'Content-Type': 'application/json',
           Accept: 'application/json',
           Authorization: `Bearer ${cleanKey}`,
-          'RT-UDDOKTAPAY-API-KEY': cleanKey,
+          'X-PAYMENT-API-KEY': cleanKey,
           'X-API-KEY': cleanKey,
         },
         body: JSON.stringify({
@@ -1289,7 +1289,7 @@ export class PaymentlyService {
           'Content-Type': 'application/json',
           Accept: 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'RT-UDDOKTAPAY-API-KEY': apiKey,
+          'X-PAYMENT-API-KEY': apiKey,
           'X-API-KEY': apiKey,
         },
         body: JSON.stringify({

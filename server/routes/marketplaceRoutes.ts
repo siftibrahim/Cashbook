@@ -1315,7 +1315,7 @@ router.post('/checkout', async (req: Request, res: Response) => {
 });
 
 /**
- * 4.1 POST /api/marketplace/paymently/checkout - Initiate / Retry UddoktaPay Session
+ * 4.1 POST /api/marketplace/paymently/checkout - Initiate / Retry Paymently Live Session
  */
 router.post('/paymently/checkout', async (req: Request, res: Response) => {
   try {
@@ -1612,13 +1612,14 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
       isRejectedFlag: boolean
     ): string => {
       if (isRejectedFlag) return 'cancelled';
-      if (!isAdminApprovedFlag) {
-        const st = String(masterRow?.overall_status || masterRow?.overallStatus || '').toLowerCase();
-        return st === 'cancelled' ? 'cancelled' : 'pending_verification';
-      }
+      const masterSt = String(masterRow?.overall_status || masterRow?.overallStatus || '').toLowerCase();
+      if (masterSt && ['cancelled', 'returned'].includes(masterSt)) return masterSt;
+
       if (!subOrderList || subOrderList.length === 0) {
-        const st = String(masterRow?.overall_status || masterRow?.overallStatus || 'pending').toLowerCase();
-        return st === 'pending_verification' ? 'pending' : st;
+        if (!isAdminApprovedFlag && masterSt !== 'confirmed' && masterSt !== 'processing' && masterSt !== 'shipped' && masterSt !== 'delivered') {
+          return 'pending_verification';
+        }
+        return masterSt || 'pending';
       }
       const statuses = subOrderList.map((s) => String(s.status || s.orderStatus || 'pending').toLowerCase());
       if (statuses.every((s) => s === 'delivered')) return 'delivered';
@@ -1626,9 +1627,8 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
       if (statuses.some((s) => s === 'shipped' || s === 'out_for_delivery')) return 'shipped';
       if (statuses.some((s) => s === 'processing' || s === 'packed')) return 'processing';
       if (statuses.some((s) => s === 'confirmed')) return 'confirmed';
-      if (statuses.every((s) => s === 'pending')) return 'pending';
-      const masterSt = String(masterRow?.overall_status || masterRow?.overallStatus || '').toLowerCase();
-      if (['processing', 'shipped', 'delivered', 'cancelled', 'confirmed'].includes(masterSt)) return masterSt;
+      if (masterSt && !['pending_verification', 'pending'].includes(masterSt)) return masterSt;
+      if (!isAdminApprovedFlag) return 'pending_verification';
       return 'pending';
     };
 
@@ -2073,16 +2073,22 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
     const { id } = req.params;
     const { overallStatus, paymentStatus, courierName, courierTrackingCode, returnReason, refundAmount } = req.body;
     const pool = getDbPool();
+    const now = Date.now();
 
-    // 🔒 Rule: Vendor orders MUST be delivered, packaged, and updated exclusively by the Vendor!
-    // Super Admin cannot manually force delivery status (confirmed, processing, packed, shipped, delivered) on vendor orders!
-    if (overallStatus && ['confirmed', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered'].includes(overallStatus)) {
-      return res.status(400).json({
-        error: 'ভেন্ডরের অর্ডার শুধুমাত্র সংশ্লিষ্ট ভেন্ডর নিজে প্যাকেজিং, কুরিয়ার ও ডেলিভারি আপডেট করতে পারবেন। সুপার এডমিন ডেলিভারি স্ট্যাটাস পরিবর্তন করতে পারবেন না।'
-      });
-    }
+    let targetId = id;
+    let targetNumber = id;
+    const isApprovedStatus = overallStatus && !['pending_verification', 'cancelled', 'returned'].includes(overallStatus);
 
     if (pool) {
+      const existing = await pool.query(
+        'SELECT id, order_number FROM marketplace_master_orders WHERE id = $1 OR order_number = $1 LIMIT 1',
+        [id]
+      ).catch(() => ({ rows: [] }));
+      if (existing.rows && existing.rows[0]) {
+        targetId = existing.rows[0].id;
+        targetNumber = existing.rows[0].order_number;
+      }
+
       await pool.query(`
         UPDATE marketplace_master_orders 
         SET overall_status = COALESCE($1, overall_status),
@@ -2091,8 +2097,10 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
             courier_tracking_code = COALESCE($4, courier_tracking_code),
             return_reason = COALESCE($5, return_reason),
             refund_amount = COALESCE($6, refund_amount),
-            updated_at = $7
-        WHERE id = $8 OR order_number = $8
+            is_admin_approved = CASE WHEN $7 = true THEN TRUE ELSE is_admin_approved END,
+            admin_approval_status = CASE WHEN $7 = true THEN 'approved' ELSE admin_approval_status END,
+            updated_at = $8
+        WHERE id = $9 OR order_number = $9
       `, [
         overallStatus || null,
         paymentStatus || null,
@@ -2100,35 +2108,42 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
         courierTrackingCode !== undefined ? courierTrackingCode : null,
         returnReason !== undefined ? returnReason : null,
         refundAmount !== undefined ? refundAmount : null,
-        Date.now(),
+        isApprovedStatus,
+        now,
         id
       ]);
 
-      // Only synchronize payment_status or return/cancellation to suborders, NEVER overwrite delivery/fulfillment status!
-      if (paymentStatus || overallStatus === 'cancelled' || overallStatus === 'returned') {
+      // Synchronize status and courier info to associated online sub-orders
+      if (paymentStatus || overallStatus || courierName || courierTrackingCode) {
         await pool.query(`
           UPDATE online_orders 
           SET payment_status = COALESCE($1, payment_status),
-              order_status = CASE 
-                WHEN $2 IN ('cancelled', 'returned') THEN $2 
-                ELSE order_status 
-              END,
-              updated_at = $3
-          WHERE master_order_id = $4 
-             OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $4 OR order_number = $4)
-             OR id = $4 
-             OR order_number = $4
+              order_status = COALESCE($2, order_status),
+              courier_name = COALESCE($3, courier_name),
+              courier_tracking_code = COALESCE($4, courier_tracking_code),
+              is_admin_approved = CASE WHEN $5 = true THEN TRUE ELSE is_admin_approved END,
+              admin_approval_status = CASE WHEN $5 = true THEN 'approved' ELSE admin_approval_status END,
+              updated_at = $6
+          WHERE master_order_id = $7 
+             OR master_order_id = $8
+             OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $7 OR order_number = $7)
+             OR id = $7 
+             OR order_number = $7
         `, [
           paymentStatus || null,
           overallStatus || null,
-          Date.now(),
-          id
+          courierName !== undefined ? courierName : null,
+          courierTrackingCode !== undefined ? courierTrackingCode : null,
+          isApprovedStatus,
+          now,
+          id,
+          targetNumber
         ]).catch(() => {});
       }
     } else {
       const ord = (inMemoryStore.marketplace_master_orders || []).find(o => o.id === id || o.orderNumber === id);
-      const targetId = ord?.id || id;
-      const targetNumber = ord?.orderNumber || id;
+      targetId = ord?.id || id;
+      targetNumber = ord?.orderNumber || id;
       if (ord) {
         if (overallStatus) ord.overallStatus = overallStatus;
         if (paymentStatus) ord.paymentStatus = paymentStatus;
@@ -2136,10 +2151,13 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
         if (courierTrackingCode !== undefined) ord.courierTrackingCode = courierTrackingCode;
         if (returnReason !== undefined) ord.returnReason = returnReason;
         if (refundAmount !== undefined) ord.refundAmount = refundAmount;
-        ord.updatedAt = Date.now();
+        if (isApprovedStatus) {
+          ord.isAdminApproved = true;
+          ord.adminApprovalStatus = 'approved';
+        }
+        ord.updatedAt = now;
       }
-      // Only synchronize payment_status or cancellation/return in-memory, NEVER vendor delivery status
-      if (paymentStatus || overallStatus === 'cancelled' || overallStatus === 'returned') {
+      if (paymentStatus || overallStatus || courierName || courierTrackingCode) {
         (inMemoryStore.online_orders || [])
           .filter((sub: any) =>
             sub.masterOrderId === targetId ||
@@ -2151,35 +2169,43 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
           )
           .forEach((sub: any) => {
             if (paymentStatus) sub.paymentStatus = paymentStatus;
-            if (overallStatus === 'cancelled' || overallStatus === 'returned') {
-              sub.orderStatus = overallStatus;
+            if (overallStatus) sub.orderStatus = overallStatus;
+            if (courierName !== undefined) sub.courierName = courierName;
+            if (courierTrackingCode !== undefined) sub.courierTrackingCode = courierTrackingCode;
+            if (isApprovedStatus) {
+              sub.isAdminApproved = true;
+              sub.adminApprovalStatus = 'approved';
             }
-            sub.updatedAt = Date.now();
+            sub.updatedAt = now;
           });
       }
       saveInMemoryStoreToDisk();
     }
 
-    realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'order_status', id });
+    realtimeEvents.broadcastToAdmins('marketplace_updated', { type: 'order_status', id: targetId, masterOrderId: targetId, masterOrderNumber: targetNumber });
     realtimeEvents.broadcast('marketplace_order_updated', {
-      masterOrderId: id,
-      orderId: id,
+      masterOrderId: targetId,
+      masterOrderNumber: targetNumber,
+      orderId: targetId,
+      orderNumber: targetNumber,
       overallStatus,
       paymentStatus,
       courierName,
       courierTrackingCode,
-      timestamp: Date.now(),
+      timestamp: now,
     });
     realtimeEvents.broadcast('order_status_updated', {
-      masterOrderId: id,
-      orderId: id,
+      masterOrderId: targetId,
+      masterOrderNumber: targetNumber,
+      orderId: targetId,
+      orderNumber: targetNumber,
       overallStatus,
       paymentStatus,
       courierName,
       courierTrackingCode,
-      timestamp: Date.now(),
+      timestamp: now,
     });
-    realtimeEvents.broadcast('marketplace_updated', { type: 'order_status', id, masterOrderId: id });
+    realtimeEvents.broadcast('marketplace_updated', { type: 'order_status', id: targetId, masterOrderId: targetId, masterOrderNumber: targetNumber });
 
     await recordAdminAuditLog({
       adminEmail: req.user?.email || 'super_admin',

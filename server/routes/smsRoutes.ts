@@ -491,7 +491,7 @@ router.post('/tagada-templates', async (req: AuthenticatedRequest, res: Response
 
 /**
  * POST /api/sms/checkout
- * Initiates automated payment gateway checkout (UddoktaPay / Paymently) for chosen SMS package
+ * Initiates automated payment gateway checkout (Paymently / Live Gateway) for chosen SMS package
  */
 router.post('/checkout', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {

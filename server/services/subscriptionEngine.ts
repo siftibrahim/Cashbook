@@ -373,7 +373,7 @@ export class SubscriptionEngine {
 
     if (pool) {
       // Check for pending manual payments strictly for this user (Super Admin verification queue)
-      // NOTE: Automated gateway checkouts (Paymently/UddoktaPay) are verified automatically via API/Webhook.
+      // NOTE: Automated gateway checkouts (Paymently / Live Gateway) are verified automatically via API/Webhook.
       // Uncompleted or initiated automated sessions must NEVER be displayed as pending manual submissions.
       const pRes = await pool.query(
         `SELECT * FROM payments 

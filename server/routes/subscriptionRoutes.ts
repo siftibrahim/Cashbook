@@ -789,7 +789,7 @@ router.get('/paymently/sandbox-checkout', async (req, res) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>UddoktaPay পেমেন্ট গেটওয়ে - Bangla QR</title>
+      <title>সরকারি লাইসেন্সপ্রাপ্ত অটোমেটিক পেমেন্ট গেটওয়ে - Paymently Live</title>
       <style>
         body { font-family: system-ui, -apple-system, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
         .card { background: #131d38; border: 1px solid #1e293b; border-radius: 24px; padding: 28px; max-width: 460px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6); text-align: center; }
@@ -813,16 +813,16 @@ router.get('/paymently/sandbox-checkout', async (req, res) => {
     </head>
     <body>
       <div class="card">
-        <span class="badge">⚡ UddoktaPay অটোমেটিক পেমেন্ট গেটওয়ে</span>
+        <span class="badge">⚡ বাংলাদেশ ব্যাংক অনুমোদিত অটোমেটিক পেমেন্ট গেটওয়ে</span>
         ${
           hasKeyWarning
             ? `<div class="warn-banner">
-                ⚠️ <strong>দৃষ্টি আকর্ষণ:</strong> লাইভ UddoktaPay API Key অনুপস্থিত বা টেস্ট মোডে রয়েছে। ইউজার ফ্লো সচল রাখতে এটি টেস্ট স্যান্ডবক্সে ওপেন হয়েছে।
+                ⚠️ <strong>দৃষ্টি আকর্ষণ:</strong> লাইভ পেমেন্ট গেটওয়ে API Key অনুপস্থিত বা টেস্ট মোডে রয়েছে। ইউজার ফ্লো সচল রাখতে এটি টেস্ট স্যান্ডবক্সে ওপেন হয়েছে।
                </div>`
             : ''
         }
         <h2>পেমেন্ট মাধ্যম নির্বাচন করুন</h2>
-        <p class="sub">উদ্যোক্তা পেমেন্ট গেটওয়েতে <strong>বাংলা কিউআর (Bangla QR)</strong>, বিকাশ, নগদ ও রকেট সমর্থিত</p>
+        <p class="sub">লাইসেন্সপ্রাপ্ত অটোমেটিক গেটওয়েতে <strong>বিকাশ, নগদ, রকেট ও ব্যাংক কার্ড</strong> সমর্থিত</p>
 
         <div class="tabs">
           <button class="tab-btn active" onclick="setTab('bqr')">🇧🇩 বাংলা QR</button>

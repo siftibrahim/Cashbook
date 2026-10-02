@@ -350,7 +350,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
         try {
           const opened = window.open(res.paymentUrl, '_blank', 'noopener,noreferrer');
           if (opened) {
-            onShowToast('🚀 নতুন উইন্ডোতে UddoktaPay পেমেন্ট পেজ খোলা হয়েছে...');
+            onShowToast('🚀 নতুন উইন্ডোতে অটোমেটিক পেমেন্ট পেজ খোলা হয়েছে...');
           } else {
             onShowToast('👉 পেমেন্ট উইন্ডো প্রস্তুত। নিচে "পেমেন্ট পেজে যান" বাটনে ট্যাপ করুন।');
           }
@@ -928,7 +928,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
                                 <Zap className="w-5 h-5" />
                               </div>
                               <div>
-                                <h5 className="text-sm font-black text-white">UddoktaPay নিরাপদ পেমেন্ট সেশন সক্রিয়</h5>
+                                <h5 className="text-sm font-black text-white">লাইভ নিরাপদ পেমেন্ট সেশন সক্রিয়</h5>
                                 <p className="text-[11px] text-teal-300">প্যাকেজ: {activePaymentlySession.planName} (৳{formatMoney(activePaymentlySession.amount)})</p>
                               </div>
                             </div>
@@ -956,7 +956,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
                               href={activePaymentlySession.paymentUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              onClick={() => onShowToast('🚀 নতুন উইন্ডোতে UddoktaPay পেমেন্ট পেজ খোলা হচ্ছে...')}
+                              onClick={() => onShowToast('🚀 নতুন উইন্ডোতে নিরাপদ পেমেন্ট পেজ খোলা হচ্ছে...')}
                               className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-teal-400 via-teal-500 to-emerald-400 hover:from-teal-300 hover:to-emerald-300 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-teal-500/25 flex items-center justify-center gap-2 cursor-pointer transition transform active:scale-98"
                             >
                               <ExternalLink className="w-4 h-4 shrink-0" />
@@ -1017,7 +1017,7 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
                               </div>
                               <div>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <h5 className="text-sm font-black text-white">UddoktaPay / Paymently অনলাইন গেটওয়ে</h5>
+                                  <h5 className="text-sm font-black text-white">লাইভ স্বয়ংক্রিয় অনলাইন পেমেন্ট গেটওয়ে (Paymently)</h5>
                                   <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-teal-500 text-slate-950">
                                     তাৎক্ষণিক সক্রিয় (Instant)
                                   </span>
