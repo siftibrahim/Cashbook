@@ -625,6 +625,34 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  // Listen for global SMS recharge request and balance update events
+  useEffect(() => {
+    const handleRechargeEvent = (e: any) => {
+      const tab = e?.detail?.tab || 'packages';
+      handleOpenSms({ tab });
+    };
+
+    const handleBalanceRefresh = () => {
+      userSmsApi.getBalance().then((smsData) => {
+        if (smsData) {
+          setUserSmsBalance(smsData.balance || 0);
+          setPendingSmsPurchaseInfo({
+            hasPending: Boolean(smsData.hasPendingPurchase),
+            record: smsData.pendingPurchase || null,
+            latestConfirmed: smsData.latestConfirmed || null,
+          });
+        }
+      }).catch(() => {});
+    };
+
+    window.addEventListener('twing_open_sms_recharge', handleRechargeEvent);
+    window.addEventListener('twing_sms_balance_updated', handleBalanceRefresh);
+    return () => {
+      window.removeEventListener('twing_open_sms_recharge', handleRechargeEvent);
+      window.removeEventListener('twing_sms_balance_updated', handleBalanceRefresh);
+    };
+  }, []);
+
   // Save to LocalStorage as instant local cache
   useEffect(() => {
     saveCustomers(customers);

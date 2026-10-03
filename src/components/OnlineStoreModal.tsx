@@ -1033,8 +1033,19 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
           );
           onUpdateOrders(finalOrders);
         }
-      } catch (serverErr) {
-        console.warn('Server status update warning (local update preserved):', serverErr);
+      } catch (serverErr: any) {
+        console.warn('Server status update warning:', serverErr);
+        if (serverErr?.data?.needsSmsRecharge || serverErr?.message?.includes('ব্যালেন্স') || serverErr?.message?.includes('sms')) {
+          // Revert local optimistic update
+          onUpdateOrders(orders);
+          if (onShowToast) {
+            onShowToast(`⚠️ ${serverErr?.message || 'আপনার অ্যাকাউন্টে কোনো এসএমএস ব্যালেন্স নেই! ট্র্যাকিং আপডেট পাঠাতে মেসেজ রিচার্জ করুন।'}`);
+          }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('twing_open_sms_recharge', { detail: { tab: 'packages' } }));
+          }
+          return;
+        }
       }
 
       setStatusUpdateSuccessId(orderId);

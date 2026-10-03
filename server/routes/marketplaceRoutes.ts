@@ -1251,7 +1251,7 @@ router.post('/checkout', async (req: Request, res: Response) => {
       }
     }
 
-    // 🔔 SEND CUSTOMER ORDER CONFIRMATION SMS
+    // 🔔 SEND CUSTOMER ORDER CONFIRMATION SMS IMMEDIATELY UPON ORDER PLACEMENT
     if (cleanPhone && cleanPhone.length >= 11 && createdSubOrders.length > 0) {
       if (isCod) {
         // Model 1: For COD orders, confirm immediately with total package count & amount!
@@ -1260,11 +1260,15 @@ router.post('/checkout', async (req: Request, res: Response) => {
           console.warn('Marketplace customer COD SMS notice error:', err?.message || err);
         });
       } else {
-        // Online payments: Wait for Super Admin payment verification before SMS confirmation
+        // Online payments: Confirm order placement immediately, then upon payment approval send confirmed dispatch notification!
+        const onlineSms = `অভিনন্দন ${cleanName}! সেন্ট্রাল মার্কেটপ্লেসে আপনার অর্ডার #${masterOrderNumber} (মোট বিল: ৳${grandTotal}) সফলভাবে গৃহীত হয়েছে। পেমেন্ট যাচাই সম্পন্ন হলে ভেন্ডররা পণ্য প্রস্তুত করে কুরিয়ারে পাঠাবেন।`;
+        sendSmsNotification(cleanPhone, onlineSms).catch((err) => {
+          console.warn('Marketplace customer Online order placement SMS error:', err?.message || err);
+        });
         for (const sub of createdSubOrders) {
           const vId = sub.vendorId || sub.userId;
           const subOrderNum = sub.orderNumber || sub.order_number;
-          console.log(`ℹ️ [Order Created] Central Marketplace order #${subOrderNum} created for vendor '${vId}'. Waiting for Super Admin payment verification before SMS confirmation.`);
+          console.log(`ℹ️ [Order Created] Central Marketplace order #${subOrderNum} created for vendor '${vId}'. Customer confirmation SMS dispatched.`);
         }
       }
     }

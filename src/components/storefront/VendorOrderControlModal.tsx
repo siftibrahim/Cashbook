@@ -183,6 +183,11 @@ export const VendorOrderControlModal: React.FC<VendorOrderControlModalProps> = (
         onOrderUpdated(res.order, res.message || '✅ অর্ডারের সকল তথ্য সফলভাবে সংরক্ষিত হয়েছে!');
       }
     } catch (err: any) {
+      if (err?.data?.needsSmsRecharge || err?.message?.includes('ব্যালেন্স') || err?.message?.includes('sms')) {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('twing_open_sms_recharge', { detail: { tab: 'packages' } }));
+        }
+      }
       onOrderUpdated(order, `❌ ত্রুটি: ${err?.message || 'অর্ডার আপডেট ব্যর্থ হয়েছে'}`);
     } finally {
       setSaving(false);

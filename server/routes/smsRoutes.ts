@@ -514,14 +514,9 @@ router.post('/checkout', authenticateUser, async (req: AuthenticatedRequest, res
         });
       }
 
-      // 2. Check balance exclusivity rule
+      // 2. Allow top-up and recharge so vendors can maintain sufficient balance
       const uBalRes = await pool.query('SELECT sms_balance FROM users WHERE id = $1', [userId]);
       const curBal = uBalRes.rows.length > 0 ? (uBalRes.rows[0].sms_balance ?? 0) : 0;
-      if (curBal > 0) {
-        return res.status(400).json({
-          error: `আপনার বর্তমান প্যাকেজে এখনও ${curBal}টি SMS অবশিষ্ট রয়েছে। ব্যালেন্স শূন্য (০) হওয়ার পর নতুন প্যাকেজ কেনা যাবে।`,
-        });
-      }
     }
 
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
@@ -579,14 +574,9 @@ router.post('/purchase', async (req: AuthenticatedRequest, res: Response) => {
         });
       }
 
-      // 2. Check exclusivity: User cannot purchase a new SMS package until current SMS balance is finished (0)
+      // 2. Allow balance top-up
       const uBalRes = await pool.query('SELECT sms_balance FROM users WHERE id = $1', [userId]);
       const curBal = uBalRes.rows.length > 0 ? (uBalRes.rows[0].sms_balance ?? 0) : 0;
-      if (curBal > 0) {
-        return res.status(400).json({
-          error: `আপনার বর্তমান প্যাকেজে এখনও ${curBal}টি SMS অবশিষ্ট রয়েছে। নিয়ম অনুযায়ী বর্তমান প্যাকেজের সকল SMS শেষ (০ টি) হওয়ার পরই কেবল নতুন প্যাকেজ কেনা যাবে।`,
-        });
-      }
     } else {
       const userPurchases = (inMemoryStore.sms_purchases || []).filter(x => x.userId === userId);
       const pend = userPurchases.find(x => x.status === 'pending');
@@ -598,11 +588,6 @@ router.post('/purchase', async (req: AuthenticatedRequest, res: Response) => {
 
       const u = inMemoryStore.users.find(x => x.id === userId);
       const curBal = u ? (u.smsBalance ?? 0) : 0;
-      if (curBal > 0) {
-        return res.status(400).json({
-          error: `আপনার বর্তমান প্যাকেজে এখনও ${curBal}টি SMS অবশিষ্ট রয়েছে। নিয়ম অনুযায়ী বর্তমান প্যাকেজের সকল SMS শেষ (০ টি) হওয়ার পরই কেবল নতুন প্যাকেজ কেনা যাবে।`,
-        });
-      }
     }
 
     const purchaseId = 'smspay_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);

@@ -545,6 +545,7 @@ export interface DeductSmsOptions {
   smsType?: string; // 'marketplace_order' | 'order_confirm' | 'order_status' | 'shipping'
   orderNumber?: string;
   vendorShopName?: string;
+  fallbackToSystemIfNoBalance?: boolean;
 }
 
 export interface DeductSmsResult {
@@ -638,11 +639,60 @@ export async function deductVendorSmsAndSend(
 
   // 2. Enforce vendor balance check: must have at least 1 SMS
   if (currentBalance < 1) {
-    console.warn(`⚠️ [Vendor SMS Skipped] ভেন্ডর '${matchedUserId}' (${vendorName}) এর পর্যাপ্ত এসএমএস ব্যালেন্স নেই (${currentBalance} টি)। কাস্টমার ${cleanPhone} কে এসএমএস পাঠানো যায়নি।`);
+    console.warn(`⚠️ [Vendor SMS Low/Empty] ভেন্ডর '${matchedUserId}' (${vendorName}) এর পর্যাপ্ত এসএমএস ব্যালেন্স নেই (${currentBalance} টি)।`);
 
-    // Notify vendor in-app about insufficient balance
+    const isMarketplaceOrderConfirm = Boolean(
+      options.fallbackToSystemIfNoBalance ||
+      options.smsType === 'marketplace_order' ||
+      options.smsType === 'marketplace_payment_approved' ||
+      options.smsType === 'marketplace_cod_confirmed' ||
+      (options.smsType && options.smsType.startsWith('marketplace_'))
+    );
+
+    // If it's a Central Marketplace customer order confirmation:
+    // Send via platform system gateway so customer ALWAYS receives their order confirmation!
+    if (isMarketplaceOrderConfirm) {
+      console.log(`ℹ️ [Central Marketplace SMS Fallback] ভেন্ডর '${matchedUserId}' এর এসএমএস ব্যালেন্স নেই। সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${options.orderNumber || ''} এর কাস্টমার (${cleanPhone})-কে প্ল্যাটফর্ম গেটওয়ে দিয়ে কনফার্মেশন পাঠানো হচ্ছে।`);
+      const fallbackResult = await sendSmsNotification(cleanPhone, messageText);
+
+      // Notify vendor in-app that they have 0 balance and CANNOT send tracking updates until recharged
+      const notifId = `notif_low_sms_${now}_${Math.random().toString(36).substring(2, 6)}`;
+      const notifMsg = `⚠️ আপনার এসএমএস ব্যালেন্স শেষ (০ টি)! সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${options.orderNumber || ''} এর কনফার্মেশন কাস্টমারকে পাঠানো হলেও, নতুন কোনো প্রোডাক্ট ট্র্যাকিং বা কুরিয়ার আপডেট দিতে অবিলম্বে মেসেজ রিচার্জ করুন।`;
+
+      if (pool && matchedUserId) {
+        await pool.query(`
+          INSERT INTO notifications (id, title, message, type, target, target_user_id, priority, is_read, created_at)
+          VALUES ($1, '⚠️ এসএমএস ব্যালেন্স শেষ! ট্র্যাকিং আপডেট বন্ধ', $2, 'sms', 'user', $3, 'high', FALSE, $4)
+        `, [notifId, notifMsg, matchedUserId, now]).catch(() => {});
+      } else if (matchedUserId) {
+        if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
+        inMemoryStore.notifications.unshift({
+          id: notifId,
+          title: '⚠️ এসএমএস ব্যালেন্স শেষ! ট্র্যাকিং আপডেট বন্ধ',
+          message: notifMsg,
+          type: 'sms',
+          target: 'user',
+          target_user_id: matchedUserId,
+          priority: 'high',
+          isRead: false,
+          createdAt: now,
+        });
+        saveInMemoryStoreToDisk();
+      }
+
+      return {
+        success: fallbackResult.success,
+        deducted: false,
+        message: 'সেন্ট্রাল প্ল্যাটফর্ম ব্যাকআপ দিয়ে কাস্টমারকে কনফার্মেশন পাঠানো হয়েছে (ভেন্ডর ব্যালেন্স শূন্য)',
+        costSms: 0,
+        remainingBalance: 0,
+        gatewayResponse: fallbackResult.gatewayResponse,
+      };
+    }
+
+    // Otherwise (e.g. personal store orders): notify vendor and skip sending
     const notifId = `notif_low_sms_${now}_${Math.random().toString(36).substring(2, 6)}`;
-    const notifMsg = `আপনার এসএমএস ব্যালেন্স শেষ (${currentBalance} টি)! সেন্ট্রাল মার্কেটপ্লেস অর্ডার #${options.orderNumber || ''} এর কাস্টমার (${cleanPhone})-কে স্বয়ংক্রিয় এসএমএস পাঠানো যায়নি। গ্রাহকদের নিয়মিত এসএমএস আপডেট পাঠাতে অনুগ্রহ করে ড্যাশবোর্ড থেকে এসএমএস প্যাকেজ রিচার্জ করুন।`;
+    const notifMsg = `আপনার এসএমএস ব্যালেন্স শেষ (${currentBalance} টি)! অর্ডার #${options.orderNumber || ''} এর কাস্টমার (${cleanPhone})-কে স্বয়ংক্রিয় এসএমএস পাঠানো যায়নি। অনুগ্রহ করে ড্যাশবোর্ড থেকে এসএমএস প্যাকেজ রিচার্জ করুন।`;
 
     if (pool && matchedUserId) {
       await pool.query(`

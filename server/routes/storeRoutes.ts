@@ -2313,6 +2313,41 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
       }
     }
 
+    // 🔒 BUSINESS RULE ENFORCEMENT:
+    // If a vendor does not have SMS balance (balance < 1), they CANNOT submit any product tracking / courier / status update!
+    if (!isSuperAdmin) {
+      const isTrackingOrStatusUpdate = Boolean(
+        (orderStatus && ['confirmed', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered'].includes(orderStatus)) ||
+        (courierName && courierName.trim()) ||
+        (courierTrackingCode && courierTrackingCode.trim()) ||
+        (deliveryManName && deliveryManName.trim()) ||
+        (deliveryManPhone && deliveryManPhone.trim())
+      );
+
+      if (isTrackingOrStatusUpdate) {
+        let vendorSmsBal = 0;
+        if (pool) {
+          const balRes = await pool.query('SELECT sms_balance FROM users WHERE id = $1', [userId]);
+          vendorSmsBal = balRes.rows.length > 0 && balRes.rows[0].sms_balance !== null
+            ? Number(balRes.rows[0].sms_balance)
+            : 0;
+        } else {
+          const u = (inMemoryStore.users || []).find((x: any) => x.id === userId);
+          vendorSmsBal = u && u.smsBalance !== null && u.smsBalance !== undefined
+            ? Number(u.smsBalance)
+            : 0;
+        }
+
+        if (vendorSmsBal < 1) {
+          return res.status(403).json({
+            error: '⚠️ আপনার অ্যাকাউন্টে কোনো এসএমএস ব্যালেন্স নেই (০ টি)! কাস্টমারকে ট্র্যাকিং ও ডেলিভারি আপডেট পাঠাতে অন্তত ১টি এসএমএস ব্যালেন্স থাকা আবশ্যক। অনুগ্রহ করে মেসেজ রিচার্জ করুন।',
+            needsSmsRecharge: true,
+            smsBalance: vendorSmsBal,
+          });
+        }
+      }
+    }
+
     // Handle Master Order update branch
     if (isMasterOrder) {
       const targetMasterId = existingOrder.id || orderId;
@@ -2693,6 +2728,41 @@ router.put('/orders/:orderId/full-update', authenticateUser, async (req: Authent
         return res.status(403).json({
           error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডার সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।',
         });
+      }
+    }
+
+    // 🔒 BUSINESS RULE ENFORCEMENT:
+    // If a vendor does not have SMS balance (balance < 1), they CANNOT submit any product tracking / courier / status update!
+    if (!isSuperAdmin) {
+      const isTrackingOrStatusUpdate = Boolean(
+        (body.orderStatus && body.orderStatus !== existingOrder.order_status) ||
+        (body.courierName && body.courierName !== existingOrder.courier_name) ||
+        (body.courierTrackingCode && body.courierTrackingCode !== existingOrder.courier_tracking_code) ||
+        (body.deliveryManName && body.deliveryManName !== existingOrder.delivery_man_name) ||
+        (body.deliveryManPhone && body.deliveryManPhone !== existingOrder.delivery_man_phone)
+      );
+
+      if (isTrackingOrStatusUpdate) {
+        let vendorSmsBal = 0;
+        if (pool) {
+          const balRes = await pool.query('SELECT sms_balance FROM users WHERE id = $1', [userId]);
+          vendorSmsBal = balRes.rows.length > 0 && balRes.rows[0].sms_balance !== null
+            ? Number(balRes.rows[0].sms_balance)
+            : 0;
+        } else {
+          const u = (inMemoryStore.users || []).find((x: any) => x.id === userId);
+          vendorSmsBal = u && u.smsBalance !== null && u.smsBalance !== undefined
+            ? Number(u.smsBalance)
+            : 0;
+        }
+
+        if (vendorSmsBal < 1) {
+          return res.status(403).json({
+            error: '⚠️ আপনার অ্যাকাউন্টে কোনো এসএমএস ব্যালেন্স নেই (০ টি)! কাস্টমারকে ট্র্যাকিং ও ডেলিভারি আপডেট পাঠাতে অন্তত ১টি এসএমএস ব্যালেন্স থাকা আবশ্যক। অনুগ্রহ করে মেসেজ রিচার্জ করুন।',
+            needsSmsRecharge: true,
+            smsBalance: vendorSmsBal,
+          });
+        }
       }
     }
 

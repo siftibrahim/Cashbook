@@ -38,10 +38,12 @@ import {
   Phone,
   MapPin,
   Calendar,
+  AlertTriangle,
+  Zap,
 } from 'lucide-react';
 import { Product, OnlineOrder, StoreProfile, VendorPayoutRequest, VendorWalletSummary } from '../../types';
 import { marketplaceApi } from '../../services/marketplaceService';
-import { storeApi } from '../../services/apiService';
+import { storeApi, userSmsApi } from '../../services/apiService';
 import { MarketplaceOrderInvoiceModal } from './MarketplaceOrderInvoiceModal';
 import { MarketplaceCourierModal } from './MarketplaceCourierModal';
 import { MarketplaceSmsModal } from './MarketplaceSmsModal';
@@ -88,6 +90,34 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
 
+  // SMS Balance & Recharge State
+  const [vendorSmsBalance, setVendorSmsBalance] = useState<number>(0);
+  const [isLoadingSmsBal, setIsLoadingSmsBal] = useState<boolean>(true);
+
+  const loadSmsBalance = () => {
+    setIsLoadingSmsBal(true);
+    userSmsApi
+      .getBalance()
+      .then((res) => {
+        setVendorSmsBalance(res?.balance ?? 0);
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingSmsBal(false));
+  };
+
+  useEffect(() => {
+    loadSmsBalance();
+    const handleSmsRefresh = () => loadSmsBalance();
+    window.addEventListener('twing_sms_balance_updated', handleSmsRefresh);
+    return () => window.removeEventListener('twing_sms_balance_updated', handleSmsRefresh);
+  }, []);
+
+  const handleOpenRecharge = () => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_open_sms_recharge', { detail: { tab: 'packages' } }));
+    }
+  };
+
   // Commerce Modals
   const [viewingDetailOrder, setViewingDetailOrder] = useState<OnlineOrder | null>(null);
   const [printingInvoiceOrder, setPrintingInvoiceOrder] = useState<any | null>(null);
@@ -102,6 +132,16 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
     autoShip?: boolean;
   }) => {
     if (!courierManagingOrder) return;
+
+    // Strict rule: If SMS balance is 0, block updating courier tracking and prompt to recharge!
+    if (vendorSmsBalance < 1) {
+      if (onShowToast) {
+        onShowToast('⚠️ আপনার অ্যাকাউন্টে কোনো এসএমএস ব্যালেন্স নেই (০ টি)! কাস্টমারকে ট্র্যাকিং আপডেট পাঠাতে অনুগ্রহ করে মেসেজ রিচার্জ করুন।');
+      }
+      handleOpenRecharge();
+      return;
+    }
+
     const targetStatus = data.autoShip ? 'shipped' : (courierManagingOrder.orderStatus || 'processing');
     try {
       await storeApi.updateOrderStatus(courierManagingOrder.id, targetStatus, {
@@ -152,12 +192,21 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
         );
       }
 
+      // Deduct local SMS balance representation
+      setVendorSmsBalance((prev) => Math.max(0, prev - 1));
+      loadSmsBalance();
+
       if (onShowToast) {
         onShowToast(`✅ কুরিয়ার ট্র্যাকিং #${data.courierTrackingCode || ''} সফলভাবে সংরক্ষিত হয়েছে!`);
       }
       loadWalletData();
     } catch (err: any) {
-      if (onShowToast) {
+      if (err?.data?.needsSmsRecharge || err?.message?.includes('ব্যালেন্স') || err?.message?.includes('sms')) {
+        if (onShowToast) {
+          onShowToast(`⚠️ ${err?.message || 'অপর্যাপ্ত এসএমএস ব্যালেন্স! অনুগ্রহ করে রিচার্জ করুন।'}`);
+        }
+        handleOpenRecharge();
+      } else if (onShowToast) {
         onShowToast(`❌ কুরিয়ার আপডেট ব্যর্থ হয়েছে: ${err?.message || 'ত্রুটি'}`);
       }
     }
@@ -421,9 +470,65 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                 <ExternalLink className="w-3.5 h-3.5" />
               </button>
             )}
+
+            {/* SMS Balance & Quick Recharge Button */}
+            <div className={`px-3.5 py-2.5 rounded-2xl flex items-center gap-2.5 border transition ${
+              vendorSmsBalance > 0
+                ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
+                : 'bg-rose-950/80 border-rose-500/60 text-rose-200 animate-pulse'
+            }`}>
+              <div className="flex flex-col">
+                <span className="text-[9px] uppercase font-bold text-slate-300">এসএমএস ব্যালেন্স</span>
+                <span className="font-mono font-black text-xs text-white">
+                  {isLoadingSmsBal ? 'লোড হচ্ছে...' : `${vendorSmsBalance} টি SMS`}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenRecharge}
+                className="px-3 py-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1 shadow-sm transition cursor-pointer"
+              >
+                <Zap className="w-3.5 h-3.5 fill-slate-950" />
+                <span>রিচার্জ করুন</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* ⚠️ INSUFFICIENT SMS WARNING BANNER */}
+      {!isLoadingSmsBal && vendorSmsBalance < 1 && (
+        <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-rose-50 border-2 border-amber-400 rounded-3xl p-4 sm:p-5 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                <AlertTriangle className="w-5 h-5 text-white" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-black text-amber-950 text-sm sm:text-base">
+                    ⚠️ আপনার অ্যাকাউন্টে এসএমএস ব্যালেন্স নেই (০ টি)
+                  </h4>
+                  <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white font-black text-[10px] uppercase tracking-wide">
+                    ট্র্যাকিং আপডেট সাময়িকভাবে বন্ধ
+                  </span>
+                </div>
+                <p className="text-xs text-amber-900 leading-relaxed font-medium max-w-3xl">
+                  সেন্ট্রাল মার্কেটপ্লেস নিয়মানুযায়ী, ভেন্ডর অ্যাকাউন্টে এসএমএস ব্যালেন্স না থাকলে কোনো প্রকার পণ্য ট্র্যাকিং বা কুরিয়ার কোড আপডেট দেওয়া যাবে না। কাস্টমারকে স্বয়ংক্রিয় ট্র্যাকিং মেসেজ পাঠাতে এখনই মেসেজ রিচার্জ করুন।
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenRecharge}
+              className="px-5 py-2.5 bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-700 hover:to-orange-700 text-white font-black rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition shrink-0 cursor-pointer"
+            >
+              <Zap className="w-4 h-4 fill-current" />
+              <span>মেসেজ রিচার্জ করুন (Recharge)</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 3-Step Visual Quick Process Strip */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs">
@@ -1083,6 +1188,14 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                             disabled={updatingOrderId === ord.id}
                             onChange={async (e) => {
                               const nextSt = e.target.value as OnlineOrder['orderStatus'];
+                              if (vendorSmsBalance < 1) {
+                                if (onShowToast) {
+                                  onShowToast('⚠️ আপনার অ্যাকাউন্টে কোনো এসএমএস ব্যালেন্স নেই (০ টি)! কোনো ট্র্যাকিং বা ডেলিভারি স্ট্যাটাস আপডেট দিতে অনুগ্রহ করে মেসেজ রিচার্জ করুন।');
+                                }
+                                handleOpenRecharge();
+                                return;
+                              }
+
                               setUpdatingOrderId(ord.id);
                               try {
                                 const res = await storeApi.updateOrderStatus(ord.id, nextSt);
@@ -1120,12 +1233,20 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                                     })
                                   );
                                 }
+                                setVendorSmsBalance((prev) => Math.max(0, prev - 1));
+                                loadSmsBalance();
+
                                 if (onShowToast) {
                                   onShowToast(`✅ অর্ডার #${ord.orderNumber} এর স্ট্যাটাস "${statusLabelMap[nextSt] || nextSt}" এ আপডেট হয়েছে!`);
                                 }
                                 loadWalletData();
                               } catch (err: any) {
-                                if (onShowToast) {
+                                if (err?.data?.needsSmsRecharge || err?.message?.includes('ব্যালেন্স') || err?.message?.includes('sms')) {
+                                  if (onShowToast) {
+                                    onShowToast(`⚠️ ${err?.message || 'অপর্যাপ্ত এসএমএস ব্যালেন্স! অনুগ্রহ করে রিচার্জ করুন।'}`);
+                                  }
+                                  handleOpenRecharge();
+                                } else if (onShowToast) {
                                   onShowToast(`❌ ${err?.message || 'স্ট্যাটাস আপডেট ব্যর্থ হয়েছে'}`);
                                 }
                               } finally {
@@ -1154,7 +1275,16 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
 
                           <button
                             type="button"
-                            onClick={() => setCourierManagingOrder(ord)}
+                            onClick={() => {
+                              if (vendorSmsBalance < 1) {
+                                if (onShowToast) {
+                                  onShowToast('⚠️ কুরিয়ার ট্র্যাকিং যুক্ত করতে অন্তত ১টি এসএমএস ব্যালেন্স প্রয়োজন। অনুগ্রহ করে মেসেজ রিচার্জ করুন।');
+                                }
+                                handleOpenRecharge();
+                                return;
+                              }
+                              setCourierManagingOrder(ord);
+                            }}
                             className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
                             title="কুরিয়ার পার্টনার ও ট্র্যাকিং কোড এসাইন"
                           >
@@ -1836,6 +1966,14 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                       disabled={isLocked || updatingOrderId === ord.id}
                       onChange={async (e) => {
                         const nextSt = e.target.value as OnlineOrder['orderStatus'];
+                        if (vendorSmsBalance < 1) {
+                          if (onShowToast) {
+                            onShowToast('⚠️ আপনার অ্যাকাউন্টে কোনো এসএমএস ব্যালেন্স নেই (০ টি)! কোনো ট্র্যাকিং বা স্ট্যাটাস আপডেট দিতে অনুগ্রহ করে মেসেজ রিচার্জ করুন।');
+                          }
+                          handleOpenRecharge();
+                          return;
+                        }
+
                         setUpdatingOrderId(ord.id);
                         try {
                           await storeApi.updateOrderStatus(ord.id, nextSt);
@@ -1873,13 +2011,22 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                               })
                             );
                           }
+                          setVendorSmsBalance((prev) => Math.max(0, prev - 1));
+                          loadSmsBalance();
 
                           if (onShowToast) {
                             onShowToast(`✅ অর্ডার #${ord.orderNumber} এর স্ট্যাটাস "${statusLabelMap[nextSt] || nextSt}" এ আপডেট হয়েছে!`);
                           }
                           loadWalletData();
                         } catch (err: any) {
-                          if (onShowToast) onShowToast(`❌ ${err?.message || 'আপডেট ব্যর্থ'}`);
+                          if (err?.data?.needsSmsRecharge || err?.message?.includes('ব্যালেন্স') || err?.message?.includes('sms')) {
+                            if (onShowToast) {
+                              onShowToast(`⚠️ ${err?.message || 'অপর্যাপ্ত এসএমএস ব্যালেন্স! অনুগ্রহ করে রিচার্জ করুন।'}`);
+                            }
+                            handleOpenRecharge();
+                          } else if (onShowToast) {
+                            onShowToast(`❌ ${err?.message || 'আপডেট ব্যর্থ'}`);
+                          }
                         } finally {
                           setUpdatingOrderId(null);
                         }
@@ -1897,6 +2044,13 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                     <button
                       type="button"
                       onClick={() => {
+                        if (vendorSmsBalance < 1) {
+                          if (onShowToast) {
+                            onShowToast('⚠️ কুরিয়ার ট্র্যাকিং যুক্ত করতে অন্তত ১টি এসএমএস ব্যালেন্স প্রয়োজন। অনুগ্রহ করে মেসেজ রিচার্জ করুন।');
+                          }
+                          handleOpenRecharge();
+                          return;
+                        }
                         setCourierManagingOrder(ord);
                         setViewingDetailOrder(null);
                       }}
@@ -1951,6 +2105,7 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
       {courierManagingOrder && (
         <MarketplaceCourierModal
           order={courierManagingOrder}
+          smsBalance={vendorSmsBalance}
           onClose={() => setCourierManagingOrder(null)}
           onSaveCourier={handleSaveCourierForVendorOrder}
         />

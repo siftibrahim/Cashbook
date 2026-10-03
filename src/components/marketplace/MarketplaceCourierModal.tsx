@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Truck,
   X,
@@ -10,10 +10,14 @@ import {
   User,
   Phone,
   Barcode,
+  AlertTriangle,
+  Zap,
 } from 'lucide-react';
+import { userSmsApi } from '../../services/apiService';
 
 interface MarketplaceCourierModalProps {
   order: any;
+  smsBalance?: number;
   onClose: () => void;
   onSaveCourier: (data: {
     courierName: string;
@@ -26,6 +30,7 @@ interface MarketplaceCourierModalProps {
 
 export const MarketplaceCourierModal: React.FC<MarketplaceCourierModalProps> = ({
   order,
+  smsBalance,
   onClose,
   onSaveCourier,
 }) => {
@@ -36,6 +41,23 @@ export const MarketplaceCourierModal: React.FC<MarketplaceCourierModalProps> = (
   const [autoShip, setAutoShip] = useState<boolean>(order.overallStatus !== 'shipped' && order.overallStatus !== 'delivered');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [currentSmsBal, setCurrentSmsBal] = useState<number>(smsBalance !== undefined ? smsBalance : 0);
+
+  useEffect(() => {
+    if (smsBalance === undefined) {
+      userSmsApi.getBalance().then((res) => {
+        setCurrentSmsBal(res?.balance ?? 0);
+      }).catch(() => {});
+    } else {
+      setCurrentSmsBal(smsBalance);
+    }
+  }, [smsBalance]);
+
+  const handleOpenRecharge = () => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_open_sms_recharge', { detail: { tab: 'packages' } }));
+    }
+  };
 
   const couriers = [
     { name: 'Steadfast Courier', label: 'স্টিডফাস্ট কুরিয়ার (Steadfast)', trackUrl: 'https://steadfast.com.bd/t/' },
@@ -55,6 +77,11 @@ export const MarketplaceCourierModal: React.FC<MarketplaceCourierModalProps> = (
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!courierName.trim()) return;
+
+    if (currentSmsBal < 1) {
+      handleOpenRecharge();
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -89,7 +116,16 @@ export const MarketplaceCourierModal: React.FC<MarketplaceCourierModalProps> = (
               <Truck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-black text-sm">কুরিয়ার ও ট্র্যাকিং ব্যবস্থাপনা</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-black text-sm">কুরিয়ার ও ট্র্যাকিং ব্যবস্থাপনা</h3>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                  currentSmsBal > 0
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
+                }`}>
+                  SMS: {currentSmsBal} টি
+                </span>
+              </div>
               <p className="text-[11px] text-teal-200">অর্ডার #{order.orderNumber || order.id}</p>
             </div>
           </div>
@@ -104,6 +140,38 @@ export const MarketplaceCourierModal: React.FC<MarketplaceCourierModalProps> = (
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 text-xs">
+
+          {/* Insufficient SMS Balance Warning Banner */}
+          {currentSmsBal < 1 && (
+            <div className="p-3.5 bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl shadow-xs">
+              <div className="flex items-start gap-2.5">
+                <div className="p-1.5 bg-amber-100 rounded-xl text-amber-700 shrink-0 mt-0.5">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-black text-amber-950 text-xs sm:text-sm">
+                    ⚠️ এসএমএস ব্যালেন্স নেই (০ টি)!
+                  </h4>
+                  <p className="text-[11px] text-amber-900 mt-1 leading-relaxed font-medium">
+                    গ্রাহককে কুরিয়ার ট্র্যাকিং কোড ও ডেলিভারি আপডেট এসএমএস পাঠাতে অন্তত ১টি এসএমএস ব্যালেন্স থাকা বাধ্যতামূলক। ব্যালেন্স শূন্য অবস্থায় কোনো ট্র্যাকিং আপডেট সেভ করা যাবে না।
+                  </p>
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleOpenRecharge}
+                      className="px-3 py-1.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-black rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                    >
+                      <Zap className="w-3.5 h-3.5 fill-current" />
+                      <span>মেসেজ রিচার্জ করুন</span>
+                    </button>
+                    <span className="text-[10px] text-amber-700 font-bold">
+                      (৫০টি SMS মাত্র ২৫৳ থেকে শুরু)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           
           {/* Customer mini info */}
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
@@ -257,14 +325,25 @@ export const MarketplaceCourierModal: React.FC<MarketplaceCourierModalProps> = (
             >
               বাতিল
             </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="px-5 py-2 bg-teal-800 hover:bg-teal-900 text-white font-black rounded-xl shadow-md transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{isSubmitting ? 'সংরক্ষণ হচ্ছে...' : 'কুরিয়ার তথ্য সংরক্ষণ করুন'}</span>
-            </button>
+            {currentSmsBal < 1 ? (
+              <button
+                type="button"
+                onClick={handleOpenRecharge}
+                className="px-5 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-black rounded-xl shadow-md transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Zap className="w-4 h-4 fill-current" />
+                <span>মেসেজ রিচার্জ করুন</span>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-5 py-2 bg-teal-800 hover:bg-teal-900 text-white font-black rounded-xl shadow-md transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{isSubmitting ? 'সংরক্ষণ হচ্ছে...' : 'কুরিয়ার তথ্য সংরক্ষণ করুন'}</span>
+              </button>
+            )}
           </div>
         </form>
 
