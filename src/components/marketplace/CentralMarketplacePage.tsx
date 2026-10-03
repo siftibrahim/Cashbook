@@ -1056,6 +1056,15 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
     connectSSE();
 
+    const handleLocalOrderUpdate = (e: any) => {
+      const current = queriedOrderRef.current;
+      if (current) {
+        const targetQ = current.orderNumber || current.id;
+        if (targetQ) refreshTrackedOrderSilently(targetQ);
+      }
+    };
+    window.addEventListener('twing_order_updated', handleLocalOrderUpdate);
+
     // Auto-poll fallback every 5 seconds as a guaranteed fallback while user is on orders/tracking screen
     const livePollInterval = setInterval(() => {
       if (activeTab === 'orders') {
@@ -1065,10 +1074,11 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           if (targetQ) refreshTrackedOrderSilently(targetQ);
         }
       }
-    }, 5000);
+    }, 4000);
 
     return () => {
       if (es) es.close();
+      window.removeEventListener('twing_order_updated', handleLocalOrderUpdate);
       clearTimeout(reconnectTimeout);
       clearInterval(livePollInterval);
     };

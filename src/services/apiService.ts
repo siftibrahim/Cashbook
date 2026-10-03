@@ -921,7 +921,7 @@ export const storeApi = {
       return res?.order || null;
     } catch (err) {
       console.error('API updateOrderStatus error:', err);
-      return null;
+      throw err;
     }
   },
 

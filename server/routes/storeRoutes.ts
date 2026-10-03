@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStoreToDisk, ensureOnlineOrdersSchema } from '../db';
-import { AuthenticatedRequest, authenticateUser, optionalAuth } from '../authMiddleware';
+import { AuthenticatedRequest, authenticateUser, optionalAuth, isUserSuperAdmin } from '../authMiddleware';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
 import { validateStoreSlug, cleanDomainString } from '../utils/domainResolver';
 import { realtimeEvents } from '../services/realtimeEvents';
@@ -2087,8 +2087,13 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
            AND is_rejected_by_admin IS NOT TRUE`,
         [masterOrderId]
       );
-      statuses = subRes.rows.map((r: any) => String(r.order_status || 'pending').toLowerCase());
-      for (const r of subRes.rows) {
+      const activeRows = subRes.rows.filter((r: any) => {
+        const st = String(r.order_status || '').toLowerCase();
+        return st !== 'cancelled' && st !== 'returned';
+      });
+      const targetRows = activeRows.length > 0 ? activeRows : subRes.rows;
+      statuses = targetRows.map((r: any) => String(r.order_status || 'pending').toLowerCase());
+      for (const r of targetRows) {
         if (r.courier_name && !latestCourierName) latestCourierName = r.courier_name;
         if (r.courier_tracking_code && !latestCourierCode) latestCourierCode = r.courier_tracking_code;
         if (r.delivery_man_name && !latestRiderName) latestRiderName = r.delivery_man_name;
@@ -2100,8 +2105,13 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
       const subs = (inMemoryStore.online_orders || []).filter(
         (o: any) => (masterIds.has(o.masterOrderId) || masterIds.has(o.master_order_id)) && !o.isRejectedByAdmin
       );
-      statuses = subs.map((o: any) => String(o.orderStatus || o.order_status || 'pending').toLowerCase());
-      for (const o of subs) {
+      const activeSubs = subs.filter((o: any) => {
+        const st = String(o.orderStatus || o.order_status || '').toLowerCase();
+        return st !== 'cancelled' && st !== 'returned';
+      });
+      const targetSubs = activeSubs.length > 0 ? activeSubs : subs;
+      statuses = targetSubs.map((o: any) => String(o.orderStatus || o.order_status || 'pending').toLowerCase());
+      for (const o of targetSubs) {
         if (o.courierName && !latestCourierName) latestCourierName = o.courierName;
         if (o.courierTrackingCode && !latestCourierCode) latestCourierCode = o.courierTrackingCode;
         if (o.deliveryManName && !latestRiderName) latestRiderName = o.deliveryManName;
@@ -2112,17 +2122,29 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
     if (statuses.length === 0) return;
 
     let nextOverall = 'pending';
-    if (statuses.every((s) => s === 'delivered')) {
+    const allDelivered = statuses.length > 0 && statuses.every((s) => s === 'delivered');
+    const anyDelivered = statuses.some((s) => s === 'delivered');
+    const anyOutForDelivery = statuses.some((s) => s === 'out_for_delivery');
+    const anyShipped = statuses.some((s) => s === 'shipped' || s === 'in_transit');
+    const anyProcessing = statuses.some((s) => s === 'processing' || s === 'packed' || s === 'packaging');
+    const anyConfirmed = statuses.some((s) => s === 'confirmed');
+    const allCancelledOrReturned = statuses.length > 0 && statuses.every((s) => s === 'cancelled' || s === 'returned');
+
+    if (allDelivered) {
       nextOverall = 'delivered';
-    } else if (statuses.every((s) => s === 'cancelled' || s === 'returned')) {
+    } else if (allCancelledOrReturned) {
       nextOverall = statuses[0];
-    } else if (statuses.some((s) => s === 'out_for_delivery') || latestRiderName || latestRiderPhone) {
+    } else if (anyOutForDelivery) {
       nextOverall = 'out_for_delivery';
-    } else if (statuses.some((s) => s === 'shipped' || s === 'in_transit') || latestCourierName || latestCourierCode) {
+    } else if (anyShipped || latestCourierName || latestCourierCode) {
       nextOverall = 'shipped';
-    } else if (statuses.some((s) => s === 'processing' || s === 'packed' || s === 'packaging')) {
+    } else if (anyDelivered) {
+      nextOverall = 'out_for_delivery';
+    } else if (latestRiderName || latestRiderPhone) {
+      nextOverall = 'out_for_delivery';
+    } else if (anyProcessing) {
       nextOverall = 'processing';
-    } else if (statuses.some((s) => s === 'confirmed')) {
+    } else if (anyConfirmed) {
       nextOverall = 'confirmed';
     } else {
       nextOverall = 'pending';
@@ -2137,13 +2159,17 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
              courier_tracking_code = COALESCE(NULLIF($3, ''), courier_tracking_code),
              delivery_man_name = COALESCE(NULLIF($4, ''), delivery_man_name),
              delivery_man_phone = COALESCE(NULLIF($5, ''), delivery_man_phone),
-             is_admin_approved = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
-             admin_approval_status = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
+             payment_status = CASE WHEN $1::text = 'delivered' THEN 'paid' ELSE payment_status END,
+             is_admin_approved = CASE WHEN $1::text IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
+             admin_approval_status = CASE WHEN $1::text IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
              updated_at = $6 
          WHERE id = $7 OR order_number = $7 
          RETURNING id, order_number`,
         [nextOverall, latestCourierName || null, latestCourierCode || null, latestRiderName || null, latestRiderPhone || null, now, masterOrderId]
-      ).catch(() => ({ rows: [] }));
+      ).catch((e) => {
+        console.warn('syncMasterOrderOverallStatus SQL error:', e);
+        return { rows: [] };
+      });
       if (updRes.rows && updRes.rows[0]) {
         masterOrderNumber = updRes.rows[0].order_number;
       }
@@ -2154,6 +2180,9 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
       );
       if (m) {
         m.overallStatus = nextOverall;
+        if (nextOverall === 'delivered') {
+          m.paymentStatus = 'paid';
+        }
         if (['confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'].includes(nextOverall)) {
           m.isAdminApproved = true;
           m.adminApprovalStatus = 'approved';
@@ -2175,6 +2204,7 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
       orderNumber: masterOrderNumber,
       overallStatus: nextOverall,
       status: nextOverall,
+      orderStatus: nextOverall,
       courierName: latestCourierName || undefined,
       courierTrackingCode: latestCourierCode || undefined,
       deliveryManName: latestRiderName || undefined,
@@ -2197,7 +2227,7 @@ async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | 
 }
 
 /**
- * PUT /api/store/orders/:orderId/status - Vendor updates order status, courier & delivery details
+ * PUT /api/store/orders/:orderId/status - Vendor/Admin updates order status, courier & delivery details
  */
 router.put('/orders/:orderId/status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -2218,26 +2248,47 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
     const pool = getDbPool();
     const now = Date.now();
 
-    const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com');
+    const isSuperAdmin = Boolean(
+      isUserSuperAdmin(req.user) ||
+      req.user?.role === 'super_admin' ||
+      req.user?.role === 'admin' ||
+      req.user?.role === 'staff' ||
+      userId === 'usr_super_admin'
+    );
 
-    // 🔒 Enforce Central Marketplace Escrow Lock:
-    // Vendor cannot change status, prepare, or deliver a Central Marketplace order until Super Admin verifies & accepts payment!
-    // Personal E-Commerce Store orders are NEVER locked by Admin and are 100% controlled by the Vendor!
     if (pool) {
       await ensureOnlineOrdersSchema(pool);
     }
 
-    // 🔒 Strictly enforce: Vendor orders MUST be delivered, packaged, and updated by the vendor owner!
-    // No one else (including Super Admin) can deliver or update a vendor's order status.
     let existingOrder: any = null;
+    let isMasterOrder = false;
+
     if (pool) {
       const chk = await pool.query(
-        'SELECT user_id, order_source, master_order_id, is_admin_approved, admin_approval_status, is_rejected_by_admin FROM online_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
+        'SELECT user_id, order_source, master_order_id, is_admin_approved, admin_approval_status, is_rejected_by_admin, order_status, payment_method, total_amount FROM online_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
         [orderId, cleanOrderId]
       );
-      if (chk.rows.length > 0) existingOrder = chk.rows[0];
+      if (chk.rows.length > 0) {
+        existingOrder = chk.rows[0];
+      } else {
+        const mChk = await pool.query(
+          'SELECT id, order_number, overall_status, is_admin_approved, admin_approval_status, is_rejected_by_admin, payment_status, payment_method, grand_total as total_amount FROM marketplace_master_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
+          [orderId, cleanOrderId]
+        );
+        if (mChk.rows.length > 0) {
+          existingOrder = mChk.rows[0];
+          isMasterOrder = true;
+        }
+      }
     } else {
       existingOrder = (inMemoryStore.online_orders || []).find((o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId);
+      if (!existingOrder) {
+        const m = (inMemoryStore.marketplace_master_orders || []).find((x: any) => x.id === orderId || x.orderNumber === orderId || x.id === cleanOrderId || x.orderNumber === cleanOrderId);
+        if (m) {
+          existingOrder = m;
+          isMasterOrder = true;
+        }
+      }
     }
 
     if (!existingOrder) {
@@ -2245,23 +2296,142 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
     }
 
     const orderOwner = existingOrder.user_id || existingOrder.userId;
-    // If user is not the order owner:
-    if (orderOwner && orderOwner !== userId && !isSuperAdmin) {
+    if (orderOwner && orderOwner !== userId && !isSuperAdmin && !isMasterOrder) {
       return res.status(403).json({
-        error: 'ভেন্ডরের অর্ডার শুধুমাত্র সংশ্লিষ্ট ভেন্ডর নিজে ডেলিভারি, প্যাকেজিং ও কুরিয়ার আপডেট করতে পারবেন। অন্য কেউ এটি আপডেট করতে পারবেন না।',
+        error: 'ভেন্ডরের অর্ডার শুধুমাত্র সংশ্লিষ্ট ভেন্ডর নিজে ডেলিভারি, প্যাকেজিং ও কুরিয়ার আপডেট করতে পারবেন।',
       });
     }
 
-    const isMktOrder = existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId));
+    const isMktOrder = isMasterOrder || (existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId)));
     if (isMktOrder && !isSuperAdmin) {
-      const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved';
-      if (!isApproved) {
+      const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved' || existingOrder.payment_method === 'cod' || existingOrder.paymentMethod === 'cod';
+      // Vendors are always allowed to fulfill, ship, and mark delivered their orders
+      if (!isApproved && !['shipped', 'delivered', 'processing', 'confirmed', 'out_for_delivery'].includes(orderStatus || '')) {
         return res.status(403).json({
           error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডার সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।',
         });
       }
     }
 
+    // Handle Master Order update branch
+    if (isMasterOrder) {
+      const targetMasterId = existingOrder.id || orderId;
+      const targetMasterNumber = existingOrder.order_number || cleanOrderId;
+      const isDelivered = orderStatus === 'delivered';
+
+      if (pool) {
+        await pool.query(`
+          UPDATE marketplace_master_orders 
+          SET overall_status = COALESCE($1, overall_status),
+              courier_name = COALESCE($2, courier_name),
+              courier_tracking_code = COALESCE($3, courier_tracking_code),
+              delivery_man_name = COALESCE($4, delivery_man_name),
+              delivery_man_phone = COALESCE($5, delivery_man_phone),
+              payment_status = CASE WHEN $1 = 'delivered' OR $6 = true THEN 'paid' ELSE payment_status END,
+              is_admin_approved = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
+              admin_approval_status = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
+              updated_at = $7
+          WHERE id = $8 OR order_number = $8
+        `, [
+          orderStatus || null,
+          courierName !== undefined ? courierName : null,
+          courierTrackingCode !== undefined ? courierTrackingCode : null,
+          deliveryManName !== undefined ? deliveryManName : null,
+          deliveryManPhone !== undefined ? deliveryManPhone : null,
+          Boolean(markCodPaid),
+          now,
+          targetMasterId
+        ]);
+
+        // Sync to child online_orders
+        await pool.query(`
+          UPDATE online_orders 
+          SET order_status = COALESCE($1, order_status),
+              courier_name = COALESCE($2, courier_name),
+              courier_tracking_code = COALESCE($3, courier_tracking_code),
+              delivery_man_name = COALESCE($4, delivery_man_name),
+              delivery_man_phone = COALESCE($5, delivery_man_phone),
+              payment_status = CASE WHEN $1 = 'delivered' OR $6 = true THEN 'paid' ELSE payment_status END,
+              paid_amount = CASE WHEN $1 = 'delivered' OR $6 = true THEN total_amount ELSE paid_amount END,
+              due_amount = CASE WHEN $1 = 'delivered' OR $6 = true THEN 0 ELSE due_amount END,
+              cod_collected_amount = CASE WHEN $1 = 'delivered' OR $6 = true THEN total_amount ELSE cod_collected_amount END,
+              vendor_payout_status = CASE WHEN $1 = 'delivered' AND vendor_payout_status = 'unsettled' THEN 'eligible' ELSE vendor_payout_status END,
+              collected_at = CASE WHEN $1 = 'delivered' OR $6 = true THEN $7 ELSE collected_at END,
+              is_admin_approved = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
+              admin_approval_status = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
+              updated_at = $7
+          WHERE master_order_id = $8 OR master_order_id = $9
+        `, [
+          orderStatus || null,
+          courierName !== undefined ? courierName : null,
+          courierTrackingCode !== undefined ? courierTrackingCode : null,
+          deliveryManName !== undefined ? deliveryManName : null,
+          deliveryManPhone !== undefined ? deliveryManPhone : null,
+          Boolean(markCodPaid),
+          now,
+          targetMasterId,
+          targetMasterNumber
+        ]);
+      } else {
+        const m = (inMemoryStore.marketplace_master_orders || []).find((x: any) => x.id === targetMasterId || x.orderNumber === targetMasterNumber);
+        if (m) {
+          if (orderStatus) m.overallStatus = orderStatus;
+          if (courierName !== undefined) m.courierName = courierName;
+          if (courierTrackingCode !== undefined) m.courierTrackingCode = courierTrackingCode;
+          if (deliveryManName !== undefined) m.deliveryManName = deliveryManName;
+          if (deliveryManPhone !== undefined) m.deliveryManPhone = deliveryManPhone;
+          if (isDelivered || markCodPaid) m.paymentStatus = 'paid';
+          m.updatedAt = now;
+        }
+        (inMemoryStore.online_orders || [])
+          .filter((sub: any) => sub.masterOrderId === targetMasterId || sub.masterOrderId === targetMasterNumber)
+          .forEach((sub: any) => {
+            if (orderStatus) sub.orderStatus = orderStatus;
+            if (courierName !== undefined) sub.courierName = courierName;
+            if (courierTrackingCode !== undefined) sub.courierTrackingCode = courierTrackingCode;
+            if (deliveryManName !== undefined) sub.deliveryManName = deliveryManName;
+            if (deliveryManPhone !== undefined) sub.deliveryManPhone = deliveryManPhone;
+            if (isDelivered || markCodPaid) {
+              sub.paymentStatus = 'paid';
+              sub.paidAmount = sub.totalAmount;
+              sub.dueAmount = 0;
+              sub.codCollectedAmount = sub.totalAmount;
+              sub.vendorPayoutStatus = 'eligible';
+            }
+            sub.updatedAt = now;
+          });
+        saveInMemoryStoreToDisk();
+      }
+
+      const masterEvent = {
+        orderId: targetMasterId,
+        orderNumber: targetMasterNumber,
+        masterOrderId: targetMasterId,
+        masterOrderNumber: targetMasterNumber,
+        orderStatus: orderStatus || existingOrder.overall_status,
+        overallStatus: orderStatus || existingOrder.overall_status,
+        status: orderStatus || existingOrder.overall_status,
+        courierName: courierName !== undefined ? courierName : existingOrder.courier_name,
+        courierTrackingCode: courierTrackingCode !== undefined ? courierTrackingCode : existingOrder.courier_tracking_code,
+        deliveryManName: deliveryManName !== undefined ? deliveryManName : existingOrder.delivery_man_name,
+        deliveryManPhone: deliveryManPhone !== undefined ? deliveryManPhone : existingOrder.delivery_man_phone,
+        updatedAt: now,
+        timestamp: now,
+      };
+
+      realtimeEvents.broadcast('marketplace_order_updated', masterEvent);
+      realtimeEvents.broadcast('order_status_updated', masterEvent);
+      realtimeEvents.broadcast('online_order_updated', masterEvent);
+      realtimeEvents.broadcast('twing_order_updated', masterEvent);
+
+      return res.json({
+        success: true,
+        order: { ...existingOrder, overallStatus: orderStatus, orderStatus },
+        message: '✅ সেন্ট্রাল অর্ডার স্ট্যাটাস ও কুরিয়ার তথ্য সফলভাবে আপডেট হয়েছে!',
+      });
+    }
+
+    // Handle online_orders update
     if (pool) {
       let result = await pool.query(
         `UPDATE online_orders 
@@ -2273,11 +2443,30 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
              estimated_delivery_date = COALESCE($6, estimated_delivery_date),
              delivery_note = COALESCE($7, delivery_note),
              vendor_note = COALESCE($8, vendor_note),
-             payment_status = CASE WHEN $9 = true AND (order_source IS NULL OR order_source != 'marketplace') THEN 'paid' ELSE payment_status END,
-             paid_amount = CASE WHEN $9 = true AND (order_source IS NULL OR order_source != 'marketplace') THEN total_amount ELSE paid_amount END,
-             due_amount = CASE WHEN $9 = true AND (order_source IS NULL OR order_source != 'marketplace') THEN 0 ELSE due_amount END,
-             cod_collected_amount = CASE WHEN $9 = true THEN total_amount ELSE cod_collected_amount END,
-             collected_at = CASE WHEN $9 = true THEN $10 ELSE collected_at END,
+             payment_status = CASE 
+               WHEN ($9 = true OR $1 = 'delivered') AND (order_source IS NULL OR order_source != 'marketplace' OR payment_method = 'cod' OR $1 = 'delivered') THEN 'paid' 
+               ELSE payment_status 
+             END,
+             paid_amount = CASE 
+               WHEN ($9 = true OR $1 = 'delivered') AND (order_source IS NULL OR order_source != 'marketplace' OR payment_method = 'cod' OR $1 = 'delivered') THEN total_amount 
+               ELSE paid_amount 
+             END,
+             due_amount = CASE 
+               WHEN ($9 = true OR $1 = 'delivered') AND (order_source IS NULL OR order_source != 'marketplace' OR payment_method = 'cod' OR $1 = 'delivered') THEN 0 
+               ELSE due_amount 
+             END,
+             cod_collected_amount = CASE 
+               WHEN ($9 = true OR $1 = 'delivered') THEN total_amount 
+               ELSE cod_collected_amount 
+             END,
+             collected_at = CASE 
+               WHEN ($9 = true OR $1 = 'delivered') THEN $10 
+               ELSE collected_at 
+             END,
+             vendor_payout_status = CASE 
+               WHEN $1 = 'delivered' AND vendor_payout_status = 'unsettled' THEN 'eligible' 
+               ELSE vendor_payout_status 
+             END,
              is_admin_approved = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
              admin_approval_status = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
              updated_at = $10 
@@ -2417,12 +2606,15 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         if (estimatedDeliveryDate !== undefined) order.estimatedDeliveryDate = estimatedDeliveryDate;
         if (deliveryNote !== undefined) order.deliveryNote = deliveryNote;
         if (vendorNote !== undefined) order.vendorNote = vendorNote;
-        if (markCodPaid && order.orderSource !== 'marketplace') {
+        if (orderStatus === 'delivered' || (markCodPaid && order.orderSource !== 'marketplace')) {
           order.paymentStatus = 'paid';
           order.paidAmount = order.totalAmount;
           order.dueAmount = 0;
           order.codCollectedAmount = order.totalAmount;
           order.collectedAt = now;
+          if (orderStatus === 'delivered') {
+            order.vendorPayoutStatus = 'eligible';
+          }
         }
         order.updatedAt = now;
         await syncMasterOrderOverallStatus(null, order.masterOrderId);

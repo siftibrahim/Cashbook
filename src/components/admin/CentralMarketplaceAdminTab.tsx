@@ -464,7 +464,14 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     orderId: string,
     overallStatus: string,
     paymentStatus?: string,
-    extra?: { courierName?: string; courierTrackingCode?: string; returnReason?: string; refundAmount?: number }
+    extra?: {
+      courierName?: string;
+      courierTrackingCode?: string;
+      deliveryManName?: string;
+      deliveryManPhone?: string;
+      returnReason?: string;
+      refundAmount?: number;
+    }
   ) => {
     try {
       await marketplaceAdminApi.updateOrderStatus(orderId, { overallStatus, paymentStatus, ...extra });
@@ -496,6 +503,8 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     await handleUpdateOrderStatus(orderId, targetStatus, undefined, {
       courierName: data.courierName,
       courierTrackingCode: data.courierTrackingCode,
+      deliveryManName: data.deliveryManName,
+      deliveryManPhone: data.deliveryManPhone,
     });
     showToast(`✅ কুরিয়ার ট্র্যাকিং #${data.courierTrackingCode || ''} সফলভাবে সংরক্ষিত হয়েছে`);
   };

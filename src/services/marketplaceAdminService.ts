@@ -33,6 +33,8 @@ export const marketplaceAdminApi = {
     paymentStatus?: string;
     courierName?: string;
     courierTrackingCode?: string;
+    deliveryManName?: string;
+    deliveryManPhone?: string;
     returnReason?: string;
     refundAmount?: number;
   }): Promise<any> {

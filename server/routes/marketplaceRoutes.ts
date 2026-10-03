@@ -1620,17 +1620,43 @@ router.get('/track/:orderNumber', async (req: Request, res: Response) => {
         }
         return masterSt || 'pending';
       }
-      const statuses = subOrderList.map((s) => String(s.status || s.orderStatus || 'pending').toLowerCase());
-      const hasCourierAssigned = subOrderList.some((s) => Boolean(s.courierName || s.courierTrackingCode));
-      const hasRiderAssigned = subOrderList.some((s) => Boolean(s.deliveryManName || s.deliveryManPhone));
 
-      // Always show vendor live fulfillment updates to customer in tracking
-      if (statuses.every((s) => s === 'delivered')) return 'delivered';
-      if (statuses.some((s) => s === 'out_for_delivery') || hasRiderAssigned) return 'out_for_delivery';
-      if (statuses.some((s) => s === 'shipped' || s === 'in_transit') || hasCourierAssigned) return 'shipped';
-      if (statuses.some((s) => s === 'processing' || s === 'packed' || s === 'packaging')) return 'processing';
-      if (statuses.some((s) => s === 'confirmed')) return 'confirmed';
-      if (statuses.every((s) => s === 'cancelled' || s === 'returned')) return statuses[0];
+      // Filter active sub-orders (exclude cancelled / returned)
+      const activeSubs = subOrderList.filter((s) => {
+        const st = String(s.status || s.orderStatus || '').toLowerCase();
+        return st !== 'cancelled' && st !== 'returned';
+      });
+      const targetSubs = activeSubs.length > 0 ? activeSubs : subOrderList;
+      const statuses = targetSubs.map((s) => String(s.status || s.orderStatus || 'pending').toLowerCase());
+      const hasCourierAssigned = targetSubs.some((s) => Boolean(s.courierName || s.courierTrackingCode));
+      const hasRiderAssigned = targetSubs.some((s) => Boolean((s.deliveryManName || s.deliveryManPhone) && s.courierName === 'Own Rider'));
+
+      // 1. If all active items are delivered or master order is delivered, show delivered!
+      if (masterSt === 'delivered' || (statuses.length > 0 && statuses.every((s) => s === 'delivered'))) {
+        return 'delivered';
+      }
+
+      // 2. If any item is out for delivery or local rider is out
+      if (masterSt === 'out_for_delivery' || statuses.some((s) => s === 'out_for_delivery') || hasRiderAssigned) {
+        return 'out_for_delivery';
+      }
+
+      // 3. If any item is shipped to courier or courier assigned
+      if (masterSt === 'shipped' || masterSt === 'in_transit' || statuses.some((s) => s === 'shipped' || s === 'in_transit') || hasCourierAssigned) {
+        return 'shipped';
+      }
+
+      // 4. Processing / packing
+      if (masterSt === 'processing' || statuses.some((s) => s === 'processing' || s === 'packed' || s === 'packaging')) {
+        return 'processing';
+      }
+
+      // 5. Confirmed
+      if (masterSt === 'confirmed' || statuses.some((s) => s === 'confirmed')) {
+        return 'confirmed';
+      }
+
+      if (statuses.length > 0 && statuses.every((s) => s === 'cancelled' || s === 'returned')) return statuses[0];
 
       if (masterSt && !['pending_verification', 'pending'].includes(masterSt)) return masterSt;
       if (!isAdminApprovedFlag && masterRow?.payment_method !== 'cod') return 'pending_verification';
@@ -2087,13 +2113,15 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
     if (!isSuperAdmin) return res.status(403).json({ error: 'শুধুমাত্র সুপার অ্যাডমিনের অনুমতি রয়েছে' });
 
     const { id } = req.params;
-    const { overallStatus, paymentStatus, courierName, courierTrackingCode, returnReason, refundAmount } = req.body;
+    const { overallStatus, paymentStatus, courierName, courierTrackingCode, deliveryManName, deliveryManPhone, returnReason, refundAmount } = req.body;
     const pool = getDbPool();
     const now = Date.now();
 
     let targetId = id;
     let targetNumber = id;
     const isApprovedStatus = overallStatus && !['pending_verification', 'cancelled', 'returned'].includes(overallStatus);
+    const isDelivered = overallStatus === 'delivered';
+    const computedPaymentStatus = isDelivered ? 'paid' : (paymentStatus || null);
 
     if (pool) {
       const existing = await pool.query(
@@ -2111,17 +2139,21 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
             payment_status = COALESCE($2, payment_status),
             courier_name = COALESCE($3, courier_name),
             courier_tracking_code = COALESCE($4, courier_tracking_code),
-            return_reason = COALESCE($5, return_reason),
-            refund_amount = COALESCE($6, refund_amount),
-            is_admin_approved = CASE WHEN $7 = true THEN TRUE ELSE is_admin_approved END,
-            admin_approval_status = CASE WHEN $7 = true THEN 'approved' ELSE admin_approval_status END,
-            updated_at = $8
-        WHERE id = $9 OR order_number = $9
+            delivery_man_name = COALESCE($5, delivery_man_name),
+            delivery_man_phone = COALESCE($6, delivery_man_phone),
+            return_reason = COALESCE($7, return_reason),
+            refund_amount = COALESCE($8, refund_amount),
+            is_admin_approved = CASE WHEN $9 = true THEN TRUE ELSE is_admin_approved END,
+            admin_approval_status = CASE WHEN $9 = true THEN 'approved' ELSE admin_approval_status END,
+            updated_at = $10
+        WHERE id = $11 OR order_number = $11
       `, [
         overallStatus || null,
-        paymentStatus || null,
+        computedPaymentStatus,
         courierName !== undefined ? courierName : null,
         courierTrackingCode !== undefined ? courierTrackingCode : null,
+        deliveryManName !== undefined ? deliveryManName : null,
+        deliveryManPhone !== undefined ? deliveryManPhone : null,
         returnReason !== undefined ? returnReason : null,
         refundAmount !== undefined ? refundAmount : null,
         isApprovedStatus,
@@ -2130,26 +2162,34 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
       ]);
 
       // Synchronize status and courier info to associated online sub-orders
-      if (paymentStatus || overallStatus || courierName || courierTrackingCode) {
+      if (computedPaymentStatus || overallStatus || courierName || courierTrackingCode || deliveryManName || deliveryManPhone) {
         await pool.query(`
           UPDATE online_orders 
           SET payment_status = COALESCE($1, payment_status),
+              paid_amount = CASE WHEN $2 = 'delivered' OR $1 = 'paid' THEN total_amount ELSE paid_amount END,
+              due_amount = CASE WHEN $2 = 'delivered' OR $1 = 'paid' THEN 0 ELSE due_amount END,
+              cod_collected_amount = CASE WHEN $2 = 'delivered' OR $1 = 'paid' THEN total_amount ELSE cod_collected_amount END,
               order_status = COALESCE($2, order_status),
               courier_name = COALESCE($3, courier_name),
               courier_tracking_code = COALESCE($4, courier_tracking_code),
-              is_admin_approved = CASE WHEN $5 = true THEN TRUE ELSE is_admin_approved END,
-              admin_approval_status = CASE WHEN $5 = true THEN 'approved' ELSE admin_approval_status END,
-              updated_at = $6
-          WHERE master_order_id = $7 
-             OR master_order_id = $8
-             OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $7 OR order_number = $7)
-             OR id = $7 
-             OR order_number = $7
+              delivery_man_name = COALESCE($5, delivery_man_name),
+              delivery_man_phone = COALESCE($6, delivery_man_phone),
+              vendor_payout_status = CASE WHEN $2 = 'delivered' AND vendor_payout_status = 'unsettled' THEN 'eligible' ELSE vendor_payout_status END,
+              is_admin_approved = CASE WHEN $7 = true THEN TRUE ELSE is_admin_approved END,
+              admin_approval_status = CASE WHEN $7 = true THEN 'approved' ELSE admin_approval_status END,
+              updated_at = $8
+          WHERE master_order_id = $9 
+             OR master_order_id = $10
+             OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $9 OR order_number = $9)
+             OR id = $9 
+             OR order_number = $9
         `, [
-          paymentStatus || null,
+          computedPaymentStatus,
           overallStatus || null,
           courierName !== undefined ? courierName : null,
           courierTrackingCode !== undefined ? courierTrackingCode : null,
+          deliveryManName !== undefined ? deliveryManName : null,
+          deliveryManPhone !== undefined ? deliveryManPhone : null,
           isApprovedStatus,
           now,
           id,
@@ -2162,9 +2202,11 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
       targetNumber = ord?.orderNumber || id;
       if (ord) {
         if (overallStatus) ord.overallStatus = overallStatus;
-        if (paymentStatus) ord.paymentStatus = paymentStatus;
+        if (computedPaymentStatus) ord.paymentStatus = computedPaymentStatus;
         if (courierName !== undefined) ord.courierName = courierName;
         if (courierTrackingCode !== undefined) ord.courierTrackingCode = courierTrackingCode;
+        if (deliveryManName !== undefined) ord.deliveryManName = deliveryManName;
+        if (deliveryManPhone !== undefined) ord.deliveryManPhone = deliveryManPhone;
         if (returnReason !== undefined) ord.returnReason = returnReason;
         if (refundAmount !== undefined) ord.refundAmount = refundAmount;
         if (isApprovedStatus) {
@@ -2173,7 +2215,7 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
         }
         ord.updatedAt = now;
       }
-      if (paymentStatus || overallStatus || courierName || courierTrackingCode) {
+      if (computedPaymentStatus || overallStatus || courierName || courierTrackingCode || deliveryManName || deliveryManPhone) {
         (inMemoryStore.online_orders || [])
           .filter((sub: any) =>
             sub.masterOrderId === targetId ||
@@ -2184,10 +2226,18 @@ router.post('/admin/orders/:id/status', authenticateUser, async (req: Authentica
             (sub.orderNumber && targetNumber && sub.orderNumber.startsWith(targetNumber))
           )
           .forEach((sub: any) => {
-            if (paymentStatus) sub.paymentStatus = paymentStatus;
+            if (computedPaymentStatus) sub.paymentStatus = computedPaymentStatus;
             if (overallStatus) sub.orderStatus = overallStatus;
             if (courierName !== undefined) sub.courierName = courierName;
             if (courierTrackingCode !== undefined) sub.courierTrackingCode = courierTrackingCode;
+            if (deliveryManName !== undefined) sub.deliveryManName = deliveryManName;
+            if (deliveryManPhone !== undefined) sub.deliveryManPhone = deliveryManPhone;
+            if (isDelivered || computedPaymentStatus === 'paid') {
+              sub.paidAmount = sub.totalAmount;
+              sub.dueAmount = 0;
+              sub.codCollectedAmount = sub.totalAmount;
+              sub.vendorPayoutStatus = 'eligible';
+            }
             if (isApprovedStatus) {
               sub.isAdminApproved = true;
               sub.adminApprovalStatus = 'approved';

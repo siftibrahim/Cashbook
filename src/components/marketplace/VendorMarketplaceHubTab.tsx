@@ -53,6 +53,7 @@ interface VendorMarketplaceHubTabProps {
   onOpenMarketplace?: () => void;
   onShowToast?: (msg: string) => void;
   onUpdateProducts?: () => void;
+  onUpdateOrders?: (orders: OnlineOrder[]) => void;
   onConvertOrderToSale?: (order: OnlineOrder) => void;
 }
 
@@ -63,6 +64,7 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
   onOpenMarketplace,
   onShowToast,
   onUpdateProducts,
+  onUpdateOrders,
   onConvertOrderToSale,
 }) => {
   // Navigation / View sub-sections
@@ -110,15 +112,53 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
       });
       courierManagingOrder.courierName = data.courierName;
       courierManagingOrder.courierTrackingCode = data.courierTrackingCode;
+      courierManagingOrder.deliveryManName = data.deliveryManName;
+      courierManagingOrder.deliveryManPhone = data.deliveryManPhone;
       courierManagingOrder.orderStatus = targetStatus;
+      courierManagingOrder.updatedAt = Date.now();
       setLocalOrderStatuses((prev) => ({ ...prev, [courierManagingOrder.id]: targetStatus }));
+
+      const nextOrders = orders.map((o) =>
+        o.id === courierManagingOrder.id || o.orderNumber === courierManagingOrder.orderNumber
+          ? {
+              ...o,
+              orderStatus: targetStatus,
+              courierName: data.courierName,
+              courierTrackingCode: data.courierTrackingCode,
+              deliveryManName: data.deliveryManName,
+              deliveryManPhone: data.deliveryManPhone,
+              updatedAt: Date.now(),
+            }
+          : o
+      );
+      if (onUpdateOrders) {
+        onUpdateOrders(nextOrders);
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('twing_order_updated', {
+            detail: {
+              orderId: courierManagingOrder.id,
+              orderNumber: courierManagingOrder.orderNumber,
+              orderStatus: targetStatus,
+              courierName: data.courierName,
+              courierTrackingCode: data.courierTrackingCode,
+              deliveryManName: data.deliveryManName,
+              deliveryManPhone: data.deliveryManPhone,
+              updatedAt: Date.now(),
+            },
+          })
+        );
+      }
+
       if (onShowToast) {
         onShowToast(`✅ কুরিয়ার ট্র্যাকিং #${data.courierTrackingCode || ''} সফলভাবে সংরক্ষিত হয়েছে!`);
       }
       loadWalletData();
     } catch (err: any) {
       if (onShowToast) {
-        onShowToast(`❌ কুরিয়ার আপডেট ব্যর্থ হয়েছে: ${err.message}`);
+        onShowToast(`❌ কুরিয়ার আপডেট ব্যর্থ হয়েছে: ${err?.message || 'ত্রুটি'}`);
       }
     }
   };
@@ -1047,7 +1087,26 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                               try {
                                 const res = await storeApi.updateOrderStatus(ord.id, nextSt);
                                 ord.orderStatus = nextSt;
+                                if (nextSt === 'delivered') {
+                                  ord.paymentStatus = 'paid';
+                                }
+                                ord.updatedAt = Date.now();
                                 setLocalOrderStatuses((prev) => ({ ...prev, [ord.id]: nextSt }));
+
+                                const nextOrders = orders.map((o) =>
+                                  o.id === ord.id || o.orderNumber === ord.orderNumber
+                                    ? {
+                                        ...o,
+                                        orderStatus: nextSt,
+                                        paymentStatus: nextSt === 'delivered' ? 'paid' : o.paymentStatus,
+                                        updatedAt: Date.now(),
+                                      }
+                                    : o
+                                );
+                                if (onUpdateOrders) {
+                                  onUpdateOrders(nextOrders);
+                                }
+
                                 if (typeof window !== 'undefined') {
                                   window.dispatchEvent(
                                     new CustomEvent('twing_order_updated', {
@@ -1055,6 +1114,7 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                                         orderId: ord.id,
                                         orderNumber: ord.orderNumber,
                                         orderStatus: nextSt,
+                                        paymentStatus: nextSt === 'delivered' ? 'paid' : ord.paymentStatus,
                                         updatedAt: Date.now(),
                                       },
                                     })
@@ -1780,7 +1840,40 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                         try {
                           await storeApi.updateOrderStatus(ord.id, nextSt);
                           ord.orderStatus = nextSt;
+                          if (nextSt === 'delivered') {
+                            ord.paymentStatus = 'paid';
+                          }
+                          ord.updatedAt = Date.now();
                           setLocalOrderStatuses((prev) => ({ ...prev, [ord.id]: nextSt }));
+
+                          const nextOrders = orders.map((o) =>
+                            o.id === ord.id || o.orderNumber === ord.orderNumber
+                              ? {
+                                  ...o,
+                                  orderStatus: nextSt,
+                                  paymentStatus: nextSt === 'delivered' ? 'paid' : o.paymentStatus,
+                                  updatedAt: Date.now(),
+                                }
+                              : o
+                          );
+                          if (onUpdateOrders) {
+                            onUpdateOrders(nextOrders);
+                          }
+
+                          if (typeof window !== 'undefined') {
+                            window.dispatchEvent(
+                              new CustomEvent('twing_order_updated', {
+                                detail: {
+                                  orderId: ord.id,
+                                  orderNumber: ord.orderNumber,
+                                  orderStatus: nextSt,
+                                  paymentStatus: nextSt === 'delivered' ? 'paid' : ord.paymentStatus,
+                                  updatedAt: Date.now(),
+                                },
+                              })
+                            );
+                          }
+
                           if (onShowToast) {
                             onShowToast(`✅ অর্ডার #${ord.orderNumber} এর স্ট্যাটাস "${statusLabelMap[nextSt] || nextSt}" এ আপডেট হয়েছে!`);
                           }

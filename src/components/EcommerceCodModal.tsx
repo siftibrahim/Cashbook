@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { OnlineOrder, StoreProfile, Product } from '../types';
 import { formatMoney } from '../utils/storage';
+import { storeApi } from '../services/apiService';
 import {
   ShoppingBag,
   Truck,
@@ -110,13 +111,15 @@ export const EcommerceCodModal: React.FC<EcommerceCodModalProps> = ({
 
   // Order status updater
   const handleUpdateStatus = (orderId: string, newStatus: OnlineOrder['orderStatus']) => {
+    const isNowDelivered = newStatus === 'delivered';
     const updated = orders.map((o) => {
       if (o.id === orderId) {
-        const isNowDelivered = newStatus === 'delivered';
         return {
           ...o,
           orderStatus: newStatus,
           paymentStatus: isNowDelivered ? ('paid' as const) : o.paymentStatus,
+          paidAmount: isNowDelivered ? o.totalAmount : o.paidAmount,
+          dueAmount: isNowDelivered ? 0 : o.dueAmount,
           codCollectedAmount: isNowDelivered && o.paymentMethod === 'cod' ? o.totalAmount : o.codCollectedAmount,
           collectedAt: isNowDelivered ? Date.now() : o.collectedAt,
           updatedAt: Date.now(),
@@ -125,6 +128,9 @@ export const EcommerceCodModal: React.FC<EcommerceCodModalProps> = ({
       return o;
     });
     onUpdateOrders(updated);
+    storeApi.updateOrderStatus(orderId, newStatus, {
+      markCodPaid: isNowDelivered,
+    }).catch((e) => console.warn('EcommerceCodModal update error:', e));
     onShowToast(`অর্ডারের স্ট্যাটাস '${newStatus}' আপডেট হয়েছে`);
   };
 
@@ -135,6 +141,8 @@ export const EcommerceCodModal: React.FC<EcommerceCodModalProps> = ({
         return {
           ...o,
           paymentStatus: 'paid' as const,
+          paidAmount: o.totalAmount,
+          dueAmount: 0,
           codCollectedAmount: o.totalAmount,
           collectedAt: Date.now(),
           orderStatus: o.orderStatus === 'pending' || o.orderStatus === 'processing' ? 'delivered' : o.orderStatus,
@@ -144,24 +152,38 @@ export const EcommerceCodModal: React.FC<EcommerceCodModalProps> = ({
       return o;
     });
     onUpdateOrders(updated);
-    onShowToast('✅ ক্যাশ অন ডেলিভারির টাকা আদায় সম্পন্ন হিসেবে রেকর্ড হয়েছে!');
+    storeApi.updateOrderStatus(orderId, 'delivered', {
+      markCodPaid: true,
+    }).catch((e) => console.warn('EcommerceCodModal markCodPaid error:', e));
+    onShowToast('✅ ক্যাশ অন ডেলিভারির টাকা আদায় ও ডেলিভারি সম্পন্ন রেকর্ড হয়েছে!');
   };
 
   // Save courier info
   const handleSaveCourier = (orderId: string) => {
+    const cName = courierNameInput.trim();
+    const cCode = trackingCodeInput.trim();
+    const targetOrder = orders.find((o) => o.id === orderId);
+    const targetStatus = targetOrder?.orderStatus === 'pending' || targetOrder?.orderStatus === 'confirmed' || targetOrder?.orderStatus === 'processing'
+      ? 'shipped'
+      : (targetOrder?.orderStatus || 'shipped');
+
     const updated = orders.map((o) => {
       if (o.id === orderId) {
         return {
           ...o,
-          courierName: courierNameInput.trim() || undefined,
-          courierTrackingCode: trackingCodeInput.trim() || undefined,
-          orderStatus: o.orderStatus === 'pending' ? 'shipped' : o.orderStatus,
+          courierName: cName || undefined,
+          courierTrackingCode: cCode || undefined,
+          orderStatus: targetStatus,
           updatedAt: Date.now(),
         };
       }
       return o;
     });
     onUpdateOrders(updated);
+    storeApi.updateOrderStatus(orderId, targetStatus, {
+      courierName: cName || undefined,
+      courierTrackingCode: cCode || undefined,
+    }).catch((e) => console.warn('EcommerceCodModal courier update error:', e));
     setEditingCourierOrderId(null);
     onShowToast('🚚 কুরিয়ার ট্র্যাকিং তথ্য সংরক্ষিত হয়েছে');
   };

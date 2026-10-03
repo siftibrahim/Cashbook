@@ -116,20 +116,70 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
     return (order.subOrders || []).map((s) => String(s.status || s.orderStatus || '').toLowerCase());
   }, [order.subOrders]);
 
+  const getOrderStatus = (ord: any): string => {
+    return String(
+      ord?.overallStatus ||
+      ord?.overall_status ||
+      ord?.orderStatus ||
+      ord?.order_status ||
+      ord?.status ||
+      'pending'
+    ).toLowerCase();
+  };
+
   // Determine active step index (0 to 4)
   const normalizedStatus = useMemo(() => {
-    return String(order.overallStatus || 'pending').toLowerCase();
-  }, [order.overallStatus]);
+    return getOrderStatus(order);
+  }, [order]);
 
   const activeStep = useMemo(() => {
     if (normalizedStatus === 'cancelled' || normalizedStatus === 'returned') return -1;
-    if (normalizedStatus === 'delivered' || (subStatuses.length > 0 && subStatuses.every((s) => s === 'delivered'))) return 4;
-    if (normalizedStatus === 'out_for_delivery' || subStatuses.some((s) => s === 'out_for_delivery') || activeDeliveryManPhone || activeDeliveryManName) return 3;
-    if (normalizedStatus === 'shipped' || normalizedStatus === 'in_transit' || subStatuses.some((s) => s === 'shipped' || s === 'in_transit') || (activeTrackingCode && activeCourierName)) return 2;
-    if (normalizedStatus === 'processing' || normalizedStatus === 'confirmed' || normalizedStatus === 'packaging' || subStatuses.some((s) => s === 'processing' || s === 'confirmed' || s === 'packaging')) return 1;
+
+    const activeSubs = (order.subOrders || []).filter((s: any) => {
+      const st = String(s.status || s.orderStatus || '').toLowerCase();
+      return st !== 'cancelled' && st !== 'returned';
+    });
+    const targetSubs = activeSubs.length > 0 ? activeSubs : (order.subOrders || []);
+    const subStatuses = targetSubs.map((s: any) => String(s.status || s.orderStatus || '').toLowerCase());
+
+    const isAllDelivered =
+      normalizedStatus === 'delivered' ||
+      (subStatuses.length > 0 && subStatuses.every((s: string) => s === 'delivered'));
+
+    if (isAllDelivered) return 4;
+
+    const isOutForDelivery =
+      normalizedStatus === 'out_for_delivery' ||
+      subStatuses.some((s: string) => s === 'out_for_delivery');
+
+    if (isOutForDelivery) return 3;
+
+    const isShipped =
+      normalizedStatus === 'shipped' ||
+      normalizedStatus === 'in_transit' ||
+      subStatuses.some((s: string) => s === 'shipped' || s === 'in_transit') ||
+      Boolean(activeTrackingCode && activeCourierName);
+
+    if (isShipped) {
+      return 2;
+    }
+
+    if ((activeDeliveryManPhone || activeDeliveryManName) && activeCourierName === 'Own Rider') {
+      return 3;
+    }
+
+    if (
+      normalizedStatus === 'processing' ||
+      normalizedStatus === 'confirmed' ||
+      normalizedStatus === 'packaging' ||
+      subStatuses.some((s: string) => s === 'processing' || s === 'confirmed' || s === 'packaging')
+    ) {
+      return 1;
+    }
+
     if (order.isAdminApproved) return 1;
     return 0; // pending_verification / pending
-  }, [normalizedStatus, order.isAdminApproved, subStatuses, activeCourierName, activeTrackingCode, activeDeliveryManName, activeDeliveryManPhone]);
+  }, [normalizedStatus, order.isAdminApproved, order.subOrders, activeCourierName, activeTrackingCode, activeDeliveryManName, activeDeliveryManPhone]);
 
   const getOverallStatusLabel = (st: string) => {
     switch (st) {
@@ -621,14 +671,17 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
         <div className="space-y-3 relative pl-4 border-l-2 border-slate-200">
           {steps.map((st) => {
             const isCompleted = activeStep >= st.index;
-            const isCurrent = activeStep === st.index;
+            const isCurrent = activeStep === st.index && activeStep !== 4;
+            const isDeliveredStep = st.index === 4 && activeStep === 4;
             const Icon = st.icon;
 
             return (
               <div key={st.index} className="relative flex items-start gap-3">
                 <div
                   className={`absolute -left-[25px] top-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                    isCurrent
+                    isDeliveredStep
+                      ? 'bg-emerald-600 text-white ring-4 ring-emerald-100 scale-110 shadow-xs'
+                      : isCurrent
                       ? 'bg-teal-700 text-white ring-4 ring-teal-100 scale-110 shadow-xs'
                       : isCompleted
                       ? 'bg-teal-600 text-white'
@@ -640,7 +693,9 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
 
                 <div
                   className={`p-3 rounded-2xl border flex-1 transition ${
-                    isCurrent
+                    isDeliveredStep
+                      ? 'bg-emerald-50/80 border-emerald-300 shadow-2xs'
+                      : isCurrent
                       ? 'bg-teal-50/70 border-teal-300 shadow-2xs'
                       : isCompleted
                       ? 'bg-slate-50 border-slate-200/80'
@@ -649,15 +704,20 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-black text-xs text-slate-900 flex items-center gap-1.5">
-                      <Icon className="w-3.5 h-3.5 text-teal-700" />
+                      <Icon className={`w-3.5 h-3.5 ${isDeliveredStep ? 'text-emerald-700' : 'text-teal-700'}`} />
                       <span>{st.title}</span>
                     </span>
 
-                    {isCurrent && (
+                    {isDeliveredStep ? (
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-700 text-white flex items-center gap-1">
+                        <Check className="w-2.5 h-2.5" />
+                        <span>ডেলিভারি সম্পন্ন</span>
+                      </span>
+                    ) : isCurrent ? (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-700 text-white">
                         চলমান
                       </span>
-                    )}
+                    ) : null}
                   </div>
                   <p className="text-[11px] text-slate-600 mt-0.5">{st.description}</p>
                 </div>

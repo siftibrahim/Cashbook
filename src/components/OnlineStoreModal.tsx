@@ -962,12 +962,18 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
     setUpdatingOrderId(orderId);
     const now = Date.now();
+    const isDelivered = newStatus === 'delivered';
     try {
       const updatedOrders = orders.map((o) =>
-        o.id === orderId
+        o.id === orderId || o.orderNumber === ord.orderNumber || o.orderNumber === orderId
           ? {
               ...o,
               orderStatus: newStatus,
+              paymentStatus: isDelivered ? ('paid' as const) : o.paymentStatus,
+              paidAmount: isDelivered ? o.totalAmount : o.paidAmount,
+              dueAmount: isDelivered ? 0 : o.dueAmount,
+              codCollectedAmount: isDelivered ? o.totalAmount : o.codCollectedAmount,
+              collectedAt: isDelivered ? now : o.collectedAt,
               courierName: courierName || undefined,
               courierTrackingCode: courierTrackingCode || undefined,
               updatedAt: now,
@@ -1023,7 +1029,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
         if (serverRes) {
           const finalOrders = updatedOrders.map((o) =>
-            o.id === orderId ? { ...o, ...serverRes } : o
+            o.id === orderId || o.orderNumber === ord.orderNumber || o.orderNumber === orderId ? { ...o, ...serverRes } : o
           );
           onUpdateOrders(finalOrders);
         }
@@ -5739,6 +5745,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               onOpenMarketplace={onOpenMarketplace}
               onShowToast={onShowToast}
               onConvertOrderToSale={onConvertOrderToSale}
+              onUpdateOrders={onUpdateOrders}
               onUpdateProducts={() => {
                 if (onUpdateOrders) onUpdateOrders([...orders]);
               }}
