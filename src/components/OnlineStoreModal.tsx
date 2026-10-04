@@ -50,7 +50,6 @@ import {
 import { VendorChatInboxTab } from './vendor/VendorChatInboxTab';
 import { VendorMarketplaceHubTab } from './marketplace/VendorMarketplaceHubTab';
 import { VendorOrderControlModal } from './storefront/VendorOrderControlModal';
-import { MarketplaceCourierModal } from './marketplace/MarketplaceCourierModal';
 import { getTotalUnreadVendorMessages, CHAT_SYNC_EVENT } from '../utils/storeChatStorage';
 import { storeApi } from '../services/apiService';
 import { STOREFRONT_BEST_OFFERS, STOREFRONT_RECENT_PRODUCTS } from '../data/storefrontDemoCatalog';
@@ -4673,34 +4672,108 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
                   </div>
                 )}
 
-                {/* 1-CLICK COURIER DISPATCH MODAL (STEADFAST & PATHAO API) */}
+                {/* COURIER DISPATCH POPUP MODAL */}
                 {courierModalOrder && (
-                  <MarketplaceCourierModal
-                    order={courierModalOrder}
-                    onClose={() => setCourierModalOrder(null)}
-                    onSaveCourier={async ({ courierName, courierTrackingCode, autoShip }) => {
-                      const ord = courierModalOrder;
-                      setCourierModalOrder(null);
-                      if (ord) {
-                        setOrderCourierDrafts((prev) => ({
-                          ...prev,
-                          [ord.id]: { courierName, courierTrackingCode },
-                        }));
-                        if (autoShip) {
-                          setOrderStatusDrafts((prev) => ({ ...prev, [ord.id]: 'shipped' }));
-                          await handleSubmitOrderStatus(ord.id, 'shipped', {
-                            courierName,
-                            courierTrackingCode,
-                          });
-                        } else {
-                          await handleSubmitOrderStatus(ord.id, ord.orderStatus, {
-                            courierName,
-                            courierTrackingCode,
-                          });
-                        }
-                      }
-                    }}
-                  />
+                  <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center">
+                            <Truck className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="font-black text-slate-900 text-sm sm:text-base">কুরিয়ারে পার্সেল পাঠান</h4>
+                            <p className="text-xs text-slate-500">অর্ডার #{courierModalOrder.orderNumber}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCourierModalOrder(null)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-3 text-xs">
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1.5">কুরিয়ার নির্বাচন করুন:</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            {['Steadfast Courier', 'Pathao Courier', 'RedX', 'সুন্দরবন কুরিয়ার'].map((cName) => (
+                              <button
+                                key={cName}
+                                type="button"
+                                onClick={() => setCourierInputName(cName)}
+                                className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition cursor-pointer text-center ${
+                                  courierInputName === cName
+                                    ? 'bg-purple-100 text-purple-900 border-purple-400 font-black'
+                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                {cName}
+                              </button>
+                            ))}
+                          </div>
+                          <input
+                            type="text"
+                            value={courierInputName}
+                            onChange={(e) => setCourierInputName(e.target.value)}
+                            placeholder="অন্য কুরিয়ারের নাম লিখুন"
+                            className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-purple-600"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1">
+                            ট্র্যাকিং কোড বা কনসাইনমেন্ট আইডি (ঐচ্ছিক):
+                          </label>
+                          <input
+                            type="text"
+                            value={courierInputCode}
+                            onChange={(e) => setCourierInputCode(e.target.value)}
+                            placeholder="যেমন: CID-48924 বা ইনভয়েস নং"
+                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 font-mono focus:outline-hidden focus:ring-1 focus:ring-purple-600"
+                          />
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            💡 সাবমিট করার সাথে সাথে কাস্টমারের মোবাইলে কুরিয়ার ও ট্র্যাকিং কোড সহ এসএমএস চলে যাবে।
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => setCourierModalOrder(null)}
+                          className="px-4 py-2 text-slate-600 hover:text-slate-800 font-bold text-xs cursor-pointer"
+                        >
+                          বাতিল
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const ord = courierModalOrder;
+                            const finalCourierName = (courierInputName || '').trim() || 'Steadfast Courier';
+                            const finalTrackingCode = (courierInputCode || '').trim();
+                            setCourierModalOrder(null);
+                            if (ord) {
+                              setOrderCourierDrafts((prev) => ({
+                                ...prev,
+                                [ord.id]: { courierName: finalCourierName, courierTrackingCode: finalTrackingCode },
+                              }));
+                              setOrderStatusDrafts((prev) => ({ ...prev, [ord.id]: 'shipped' }));
+                              await handleSubmitOrderStatus(ord.id, 'shipped', {
+                                courierName: finalCourierName,
+                                courierTrackingCode: finalTrackingCode,
+                              });
+                            }
+                          }}
+                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black shadow-xs cursor-pointer transition"
+                        >
+                          কুরিয়ারে হস্তান্তর নিশ্চিত করুন
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             );

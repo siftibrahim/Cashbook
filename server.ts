@@ -19,7 +19,6 @@ import productRoutes from './server/routes/productRoutes';
 import publicStoreRoutes from './server/routes/publicStoreRoutes';
 import mediaRoutes from './server/routes/mediaRoutes';
 import marketplaceRoutes from './server/routes/marketplaceRoutes';
-import courierRoutes from './server/routes/courierRoutes';
 import { migrateDataToPostgres } from './server/migration';
 import { requireSuperAdmin } from './server/authMiddleware';
 import { SubscriptionEngine } from './server/services/subscriptionEngine';
@@ -110,7 +109,6 @@ async function startServer() {
   app.use('/api/products', productRoutes);
   app.use('/api/public/store', publicStoreRoutes);
   app.use('/api/marketplace', marketplaceRoutes);
-  app.use('/api/courier', courierRoutes);
   app.use('/api/media', mediaRoutes);
 
   // Manual / Batch Migration Trigger
