@@ -49,6 +49,7 @@ import {
 import { DashboardBannerSettings, DashboardBannerItem } from '../types/adminTypes';
 import { subscribeToDashboardBanners, INITIAL_DASHBOARD_BANNER_SETTINGS } from '../services/adminService';
 import { BANNER_GRADIENTS } from './admin/DashboardBannersTab';
+import { SmartTagadaDashboardSection } from './dashboard/SmartTagadaDashboardSection';
 
 
 interface DashboardViewProps {
@@ -77,6 +78,8 @@ interface DashboardViewProps {
   pendingPaymentInfo?: { hasPending: boolean; record?: any };
   onRefreshSubscriptionStatus?: () => void | Promise<any>;
   onSelectCustomer: (customerId: string) => void;
+  onOpenTagadaModal?: (customer: Customer) => void;
+  onShowToast?: (msg: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -96,6 +99,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onlineStoreConfig,
   onOpenSms,
   onOpenSubscription,
+  onSelectCustomer,
+  onOpenTagadaModal,
+  onShowToast,
 }) => {
   const isOnlineStoreAllowed = onlineStoreConfig?.isStoreAllowedByAdmin === true && onlineStoreConfig?.adminStoreStatus === 'active';
   const isOnlineStorePending = onlineStoreConfig?.adminStoreStatus === 'requested';
@@ -892,6 +898,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           )}
         </div>
       </section>
+
+      {/* 3.5. স্মার্ট তাগাদা ও অনলাইন কালেকশন (হোমস্ক্রিন হোয়াটসঅ্যাপ ও পেমেন্ট লিংক তাগাদা) */}
+      <SmartTagadaDashboardSection
+        customers={safeCustomers}
+        transactions={safeTransactions}
+        store={store}
+        onOpenTagadaModal={(customer) => {
+          if (onOpenTagadaModal) {
+            onOpenTagadaModal(customer);
+          }
+        }}
+        onSelectCustomer={onSelectCustomer}
+        onNavigateToCustomers={() => onNavigateToTab('customers')}
+        onOpenSettings={onOpenSettings}
+        onShowToast={onShowToast}
+      />
 
       {/* 4. তারিখ অনুযায়ী হিসাব (Interactive Range Calculator & Reporter) */}
       <section

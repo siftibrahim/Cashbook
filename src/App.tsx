@@ -1989,6 +1989,11 @@ export const App: React.FC = () => {
                           pendingPaymentInfo={pendingPaymentInfo}
                           onRefreshSubscriptionStatus={handleRefreshSubscriptionStatus}
                           onSelectCustomer={(id) => setActiveCustomerId(id)}
+                          onOpenTagadaModal={(customer) => {
+                            setTagadaCustomer(customer);
+                            setIsTagadaModalOpen(true);
+                          }}
+                          onShowToast={(msg) => showToast(msg)}
                         />
                       )}
 
