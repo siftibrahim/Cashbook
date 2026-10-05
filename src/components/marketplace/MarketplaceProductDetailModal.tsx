@@ -26,6 +26,7 @@ import { formatMoney } from '../../utils/storage';
 import { enhanceProductPhoto } from '../../utils/productStudioEnhancer';
 import { marketplaceApi } from '../../services/marketplaceService';
 import { triggerConfettiCelebration } from '../../utils/audio';
+import { ProductStudioModal } from '../studio/ProductStudioModal';
 
 interface MarketplaceProductDetailModalProps {
   product: MarketplaceProduct | null;
@@ -56,7 +57,7 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
   const [activeTab, setActiveTab] = useState<'desc' | 'specs' | 'reviews'>('desc');
   const [isCopied, setIsCopied] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState(() => product?.imageUrl || '');
-  const [isEnhancingModal, setIsEnhancingModal] = useState(false);
+  const [isStudioEditorOpen, setIsStudioEditorOpen] = useState(false);
 
   React.useEffect(() => {
     if (product) {
@@ -65,22 +66,6 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
   }, [product?.id, product?.imageUrl]);
 
   if (!isOpen || !product) return null;
-
-  const handleEnhanceModalImage = async () => {
-    if (!product || !currentImageUrl) return;
-    setIsEnhancingModal(true);
-    try {
-      const res = await enhanceProductPhoto(currentImageUrl, { style: 'clean_white' });
-      setCurrentImageUrl(res.enhancedImageUrl);
-      product.imageUrl = res.enhancedImageUrl;
-      await marketplaceApi.updateProductImage(product.id, res.enhancedImageUrl).catch(() => {});
-      triggerConfettiCelebration();
-    } catch (err) {
-      console.warn('Enhance modal image error:', err);
-    } finally {
-      setIsEnhancingModal(false);
-    }
-  };
 
   const discount = product.discountPercent || (product.originalPrice && product.originalPrice > product.salePrice
     ? Math.round(((product.originalPrice - product.salePrice) / product.originalPrice) * 100)
@@ -173,22 +158,12 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
                   {currentImageUrl && (
                     <button
                       type="button"
-                      disabled={isEnhancingModal}
-                      onClick={handleEnhanceModalImage}
-                      className="absolute top-3 right-3 bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-black px-2.5 py-1 rounded-xl shadow-md flex items-center gap-1 backdrop-blur-xs transition cursor-pointer"
+                      onClick={() => setIsStudioEditorOpen(true)}
+                      className="absolute top-3 right-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 text-[10px] font-black px-2.5 py-1.5 rounded-xl shadow-md flex items-center gap-1.5 backdrop-blur-xs transition cursor-pointer"
                       title="এআই দিয়ে এই পণ্যের ছবির ব্যাকগ্রাউন্ড মুছে সুন্দর স্টুডিও লুক দিন"
                     >
-                      {isEnhancingModal ? (
-                        <>
-                          <RefreshCw className="w-3 h-3 animate-spin text-slate-950" />
-                          <span>এআই এডিট হচ্ছে...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-3 h-3 text-slate-950" />
-                          <span>✨ এআই স্টুডিও এডিট</span>
-                        </>
-                      )}
+                      <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                      <span>✨ এআই স্টুডিও এডিট</span>
                     </button>
                   )}
                   {discount > 0 && (
@@ -483,6 +458,23 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
           </div>
         </motion.div>
       </div>
+
+      {isStudioEditorOpen && product && (
+        <ProductStudioModal
+          isOpen={isStudioEditorOpen}
+          onClose={() => setIsStudioEditorOpen(false)}
+          product={{
+            id: product.id,
+            name: product.name,
+            imageUrl: currentImageUrl,
+            category: product.category,
+          }}
+          onSuccess={(updatedImg) => {
+            setCurrentImageUrl(updatedImg);
+            product.imageUrl = updatedImg;
+          }}
+        />
+      )}
     </AnimatePresence>
   );
 };

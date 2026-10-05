@@ -11,6 +11,7 @@ import {
   enhanceProductPhoto,
   StudioBackdropStyle,
 } from '../utils/productStudioEnhancer';
+import { ProductStudioModal } from './studio/ProductStudioModal';
 import {
   Package,
   Search,
@@ -85,6 +86,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [isAutoEnhancing, setIsAutoEnhancing] = useState(false);
   const [studioStyle, setStudioStyle] = useState<StudioBackdropStyle>('clean_white');
   const [enhancingCardId, setEnhancingCardId] = useState<string | null>(null);
+  const [editingStudioProduct, setEditingStudioProduct] = useState<{ id: string; name: string; imageUrl?: string; category?: string } | null>(null);
   const [description, setDescription] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
@@ -268,22 +270,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     }
   };
 
-  const handleEnhanceExistingProduct = async (p: Product) => {
-    if (!p.imageUrl) return;
-    setEnhancingCardId(p.id);
-    onShowToast(`🔄 "${p.name}" এর ছবিতে এআই দিয়ে ব্যাকগ্রাউন্ড রিমুভ ও স্টুডিও লুক প্রসেস হচ্ছে...`);
-    try {
-      const res = await enhanceProductPhoto(p.imageUrl, { style: 'clean_white' });
-      const updatedProduct = { ...p, imageUrl: res.enhancedImageUrl, updatedAt: Date.now() };
-      onUpdateProduct(updatedProduct);
-      marketplaceApi.updateProductImage(p.id, res.enhancedImageUrl).catch(() => {});
-      onShowToast(`✨ "${p.name}" এর ছবি সফলভাবে এআই স্টুডিও ব্যাকগ্রাউন্ডে রূপান্তর হয়েছে!`);
-    } catch (err) {
-      console.warn('Enhance existing product error:', err);
-      onShowToast('ছবি এডিট করতে সমস্যা হয়েছে');
-    } finally {
-      setEnhancingCardId(null);
+  const handleEnhanceExistingProduct = (p: Product) => {
+    if (!p.imageUrl) {
+      onShowToast('এই পণ্যে কোনো ছবি নেই');
+      return;
     }
+    setEditingStudioProduct(p);
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -877,6 +869,23 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                               <span>অটো ব্যাকগ্রাউন্ড দিন</span>
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingStudioProduct({
+                                id: editingProduct?.id || 'temp',
+                                name: name || 'পণ্য',
+                                imageUrl: originalUploadedImage || imageUrl,
+                                category: category || 'সাধারণ',
+                              });
+                            }}
+                            className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer transition shadow-xs"
+                            title="পেছনের বক্স মুছে শুধু মূল পণ্য সিলেক্ট করুন ও বড় করুন"
+                          >
+                            <Sparkles className="w-3 h-3 text-slate-950" />
+                            <span>ক্রপ ও ফোকাস এডিট</span>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -910,16 +919,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl, 'studio_podium')}
+                          onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl, 'studio_soft')}
                           disabled={isAutoEnhancing}
                           className={`py-1.5 px-2 rounded-lg text-[10px] font-bold text-center border transition cursor-pointer flex items-center justify-center gap-1 ${
-                            studioStyle === 'studio_podium' && isEnhanced
+                            studioStyle === 'studio_soft' && isEnhanced
                               ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
                               : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
                           }`}
                         >
-                          <span>🏛️</span>
-                          <span className="truncate">পোডিয়াম</span>
+                          <span>🩶</span>
+                          <span className="truncate">সফট স্টুডিও</span>
                         </button>
 
                         <button
@@ -1181,6 +1190,30 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* AI PRODUCT STUDIO MODAL */}
+      {editingStudioProduct && (
+        <ProductStudioModal
+          isOpen={Boolean(editingStudioProduct)}
+          onClose={() => setEditingStudioProduct(null)}
+          product={editingStudioProduct}
+          onSuccess={(updatedUrl) => {
+            if (editingStudioProduct.id === 'temp' || isModalOpen) {
+              setImageUrl(updatedUrl);
+              setIsEnhanced(true);
+            } else {
+              const original = products.find((p) => p.id === editingStudioProduct.id);
+              if (original) {
+                const updated = { ...original, imageUrl: updatedUrl, updatedAt: Date.now() };
+                onUpdateProduct(updated);
+              }
+              marketplaceApi.updateProductImage(editingStudioProduct.id, updatedUrl).catch(() => {});
+            }
+            onShowToast(`✨ '${editingStudioProduct.name}'-এর স্টুডিও ছবি প্রস্তুত হয়েছে!`);
+          }}
+          onShowToast={onShowToast}
+        />
       )}
     </div>
   );

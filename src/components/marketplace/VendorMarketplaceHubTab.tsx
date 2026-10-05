@@ -48,6 +48,7 @@ import { MarketplaceOrderInvoiceModal } from './MarketplaceOrderInvoiceModal';
 import { MarketplaceCourierModal } from './MarketplaceCourierModal';
 import { MarketplaceSmsModal } from './MarketplaceSmsModal';
 import { enhanceProductPhoto } from '../../utils/productStudioEnhancer';
+import { ProductStudioModal } from '../studio/ProductStudioModal';
 
 interface VendorMarketplaceHubTabProps {
   products: Product[];
@@ -80,6 +81,7 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
   const [enhancingId, setEnhancingId] = useState<string | null>(null);
   const [isBulkEnhancing, setIsBulkEnhancing] = useState(false);
+  const [editingStudioProduct, setEditingStudioProduct] = useState<Product | null>(null);
 
   // Wallet & Payout State
   const [wallet, setWallet] = useState<VendorWalletSummary | null>(null);
@@ -332,25 +334,12 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
   };
 
   // AI Single Product Image Background Removal & Studio Enhancement
-  const handleEnhanceSingleProduct = async (product: Product) => {
+  const handleEnhanceSingleProduct = (product: Product) => {
     if (!product.imageUrl) {
       if (onShowToast) onShowToast('এই পণ্যে কোনো ছবি নেই');
       return;
     }
-    setEnhancingId(product.id);
-    try {
-      if (onShowToast) onShowToast(`🔄 "${product.name}" এর ছবিতে এআই ব্যাকগ্রাউন্ড রিমুভ ও স্টুডিও লুক প্রসেস হচ্ছে...`);
-      const res = await enhanceProductPhoto(product.imageUrl, { style: 'clean_white' });
-      product.imageUrl = res.enhancedImageUrl;
-      await marketplaceApi.updateProductImage(product.id, res.enhancedImageUrl);
-      if (onShowToast) onShowToast(`✨ "${product.name}" এর ছবি এআই স্টুডিও ব্যাকগ্রাউন্ডে সফলভাবে রূপান্তর হয়েছে!`);
-      if (onUpdateProducts) onUpdateProducts();
-    } catch (err: any) {
-      console.warn('Enhance error:', err);
-      if (onShowToast) onShowToast('ছবি রূপান্তর করতে সমস্যা হয়েছে');
-    } finally {
-      setEnhancingId(null);
-    }
+    setEditingStudioProduct(product);
   };
 
   // Bulk AI Studio Background Removal for all products
@@ -2212,6 +2201,20 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
           order={smsNotifyingOrder}
           onClose={() => setSmsNotifyingOrder(null)}
           storeName={store?.name || 'ভেন্ডর শপ'}
+        />
+      )}
+
+      {/* AI PRODUCT STUDIO MODAL */}
+      {editingStudioProduct && (
+        <ProductStudioModal
+          isOpen={Boolean(editingStudioProduct)}
+          onClose={() => setEditingStudioProduct(null)}
+          product={editingStudioProduct}
+          onSuccess={(updatedUrl) => {
+            editingStudioProduct.imageUrl = updatedUrl;
+            if (onUpdateProducts) onUpdateProducts();
+          }}
+          onShowToast={onShowToast}
         />
       )}
     </div>
