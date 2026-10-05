@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Product, StoreProfile } from '../types';
 import { formatMoney } from '../utils/storage';
+import { marketplaceApi } from '../services/marketplaceService';
 import {
   PRODUCT_IMAGE_PRESETS,
   compressProductImage,
@@ -83,6 +84,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [isEnhanced, setIsEnhanced] = useState(false);
   const [isAutoEnhancing, setIsAutoEnhancing] = useState(false);
   const [studioStyle, setStudioStyle] = useState<StudioBackdropStyle>('clean_white');
+  const [enhancingCardId, setEnhancingCardId] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
@@ -263,6 +265,24 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     } finally {
       setIsUploading(false);
       if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleEnhanceExistingProduct = async (p: Product) => {
+    if (!p.imageUrl) return;
+    setEnhancingCardId(p.id);
+    onShowToast(`🔄 "${p.name}" এর ছবিতে এআই দিয়ে ব্যাকগ্রাউন্ড রিমুভ ও স্টুডিও লুক প্রসেস হচ্ছে...`);
+    try {
+      const res = await enhanceProductPhoto(p.imageUrl, { style: 'clean_white' });
+      const updatedProduct = { ...p, imageUrl: res.enhancedImageUrl, updatedAt: Date.now() };
+      onUpdateProduct(updatedProduct);
+      marketplaceApi.updateProductImage(p.id, res.enhancedImageUrl).catch(() => {});
+      onShowToast(`✨ "${p.name}" এর ছবি সফলভাবে এআই স্টুডিও ব্যাকগ্রাউন্ডে রূপান্তর হয়েছে!`);
+    } catch (err) {
+      console.warn('Enhance existing product error:', err);
+      onShowToast('ছবি এডিট করতে সমস্যা হয়েছে');
+    } finally {
+      setEnhancingCardId(null);
     }
   };
 
@@ -575,6 +595,21 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1">
+                    {p.imageUrl && (
+                      <button
+                        type="button"
+                        disabled={enhancingCardId === p.id}
+                        onClick={() => handleEnhanceExistingProduct(p)}
+                        className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                        title="এআই দিয়ে ছবির ব্যাকগ্রাউন্ড মুছে প্রফেশনাল স্টুডিও লুক দিন"
+                      >
+                        {enhancingCardId === p.id ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-700" />
+                        ) : (
+                          <Sparkles className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    )}
                     {onOpenProductQr && (
                       <button
                         type="button"

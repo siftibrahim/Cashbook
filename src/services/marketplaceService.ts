@@ -288,6 +288,19 @@ export const marketplaceApi = {
     return await res.json();
   },
 
+  async updateProductImage(productId: string, imageUrl: string): Promise<any> {
+    const token = getVendorAuthToken();
+    const res = await fetch('/api/marketplace/update-product-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+      body: JSON.stringify({ productId, imageUrl }),
+    });
+    return await res.json();
+  },
+
   async getVendorWallet(): Promise<{
     success: boolean;
     totalSales: number;

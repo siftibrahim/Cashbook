@@ -839,6 +839,52 @@ router.post('/toggle-product', authenticateUser, async (req: AuthenticatedReques
   }
 });
 
+/**
+ * 3.5.1 POST /api/marketplace/update-product-image - Vendor updates product image with AI studio enhanced photo
+ */
+router.post('/update-product-image', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'লগইন করুন' });
+
+    const { productId, imageUrl } = req.body;
+    if (!productId || !imageUrl) {
+      return res.status(400).json({ error: 'পণ্যের আইডি এবং ছবি আবশ্যক' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      const checkRes = await pool.query('SELECT user_id FROM products WHERE id = $1', [productId]);
+      if (checkRes.rows.length === 0) {
+        return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি' });
+      }
+      const prod = checkRes.rows[0];
+      const isSuperAdmin = checkIsSuperAdminOrStaff(req);
+      if (prod.user_id !== userId && !isSuperAdmin) {
+        return res.status(403).json({ error: 'এই পণ্যটি পরিবর্তনের অনুমতি নেই' });
+      }
+
+      await pool.query('UPDATE products SET image_url = $1, updated_at = $2 WHERE id = $3', [imageUrl, now, productId]);
+    } else {
+      const p = (inMemoryStore.products || []).find(x => x.id === productId);
+      if (!p) return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি' });
+      const isSuperAdmin = checkIsSuperAdminOrStaff(req);
+      if (p.userId !== userId && !isSuperAdmin) {
+        return res.status(403).json({ error: 'এই পণ্যটি পরিবর্তনের অনুমতি নেই' });
+      }
+      p.imageUrl = imageUrl;
+      p.updatedAt = now;
+      saveInMemoryStoreToDisk();
+    }
+
+    return res.json({ success: true, productId, imageUrl, message: 'পণ্যের ছবি সফলভাবে আপডেট হয়েছে!' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'ছবি আপডেট করতে সমস্যা হয়েছে' });
+  }
+});
+
 // In-memory checkout deduplication cache (60 seconds window to prevent double order submissions)
 const recentCheckoutCache = new Map<string, { timestamp: number; responseData: any }>();
 const inFlightCheckoutKeys = new Set<string>();

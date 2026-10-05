@@ -18,9 +18,14 @@ import {
   Phone,
   MapPin,
   Package,
+  Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import { MarketplaceProduct } from '../../types';
 import { formatMoney } from '../../utils/storage';
+import { enhanceProductPhoto } from '../../utils/productStudioEnhancer';
+import { marketplaceApi } from '../../services/marketplaceService';
+import { triggerConfettiCelebration } from '../../utils/audio';
 
 interface MarketplaceProductDetailModalProps {
   product: MarketplaceProduct | null;
@@ -50,8 +55,32 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
   const [quantity, setQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState<'desc' | 'specs' | 'reviews'>('desc');
   const [isCopied, setIsCopied] = useState(false);
+  const [currentImageUrl, setCurrentImageUrl] = useState(() => product?.imageUrl || '');
+  const [isEnhancingModal, setIsEnhancingModal] = useState(false);
+
+  React.useEffect(() => {
+    if (product) {
+      setCurrentImageUrl(product.imageUrl || '');
+    }
+  }, [product?.id, product?.imageUrl]);
 
   if (!isOpen || !product) return null;
+
+  const handleEnhanceModalImage = async () => {
+    if (!product || !currentImageUrl) return;
+    setIsEnhancingModal(true);
+    try {
+      const res = await enhanceProductPhoto(currentImageUrl, { style: 'clean_white' });
+      setCurrentImageUrl(res.enhancedImageUrl);
+      product.imageUrl = res.enhancedImageUrl;
+      await marketplaceApi.updateProductImage(product.id, res.enhancedImageUrl).catch(() => {});
+      triggerConfettiCelebration();
+    } catch (err) {
+      console.warn('Enhance modal image error:', err);
+    } finally {
+      setIsEnhancingModal(false);
+    }
+  };
 
   const discount = product.discountPercent || (product.originalPrice && product.originalPrice > product.salePrice
     ? Math.round(((product.originalPrice - product.salePrice) / product.originalPrice) * 100)
@@ -136,11 +165,32 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
               <div className="flex flex-col gap-3">
                 <div className="relative aspect-square w-full rounded-2xl bg-white border border-slate-200 overflow-hidden flex items-center justify-center p-3 shadow-2xs">
                   <img
-                    src={product.imageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80'}
+                    src={currentImageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80'}
                     alt={product.name}
                     className="w-full h-full object-contain hover:scale-105 transition-transform duration-300"
                     loading="lazy"
                   />
+                  {currentImageUrl && (
+                    <button
+                      type="button"
+                      disabled={isEnhancingModal}
+                      onClick={handleEnhanceModalImage}
+                      className="absolute top-3 right-3 bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-black px-2.5 py-1 rounded-xl shadow-md flex items-center gap-1 backdrop-blur-xs transition cursor-pointer"
+                      title="এআই দিয়ে এই পণ্যের ছবির ব্যাকগ্রাউন্ড মুছে সুন্দর স্টুডিও লুক দিন"
+                    >
+                      {isEnhancingModal ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 animate-spin text-slate-950" />
+                          <span>এআই এডিট হচ্ছে...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3 h-3 text-slate-950" />
+                          <span>✨ এআই স্টুডিও এডিট</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                   {discount > 0 && (
                     <div className="absolute top-3 left-3 bg-rose-500 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-md">
                       -{discount}% ছাড়

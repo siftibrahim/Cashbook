@@ -1,17 +1,15 @@
 /**
  * TwingHisabi Smart Studio Product Image Engine
- * 100% Free, Zero-API-Cost Client & Server Auto-Enhancement
+ * Genuine Deep Neural Network AI Background Removal & Studio Compositing
  * 
- * Features:
- * 1. Automatic background separation & noise clearing
- * 2. Professional studio lighting, contrast, and color vibrancy boost
- * 3. Realistic 3D drop shadow & contact shadow under product base
- * 4. Safe e-commerce 85% centering on e-commerce backdrops:
- *    - clean_white (Standard Amazon / Daraz Clean E-commerce)
- *    - studio_podium (Luxury Podium with Ambient Light)
- *    - wooden_table (Natural Warm Wood Table)
- *    - minimalist_gradient (Sleek Soft Slate Studio)
+ * 1. AI Cutout: Uses @imgly/background-removal deep neural network (U2Net/isNet)
+ *    to remove messy room clutter, hands, floors, and backgrounds.
+ * 2. Fallback heuristic: Multi-point chroma & luminance edge filter if offline.
+ * 3. Studio Stage: Composites product onto professional e-commerce backdrops
+ *    with realistic multi-layer contact drop shadow & ambient lighting.
  */
+
+import { removeBackground } from '@imgly/background-removal';
 
 export type StudioBackdropStyle = 'clean_white' | 'studio_podium' | 'wooden_table' | 'minimalist_gradient';
 
@@ -22,11 +20,12 @@ export interface StudioEnhanceOptions {
   saturate?: number; // default 1.12
   shadowOpacity?: number; // default 0.28
   paddingPercent?: number; // default 0.12 (12% padding)
+  onProgress?: (percent: number, stepText: string) => void;
 }
 
 /**
  * Automatically creates a professional e-commerce product image
- * with background isolation, studio backdrop, and realistic contact shadow.
+ * with deep AI background isolation, studio backdrop, and realistic contact shadow.
  */
 export async function enhanceProductPhoto(
   imageSource: string | File,
@@ -35,6 +34,7 @@ export async function enhanceProductPhoto(
   enhancedImageUrl: string;
   originalImageUrl: string;
   style: StudioBackdropStyle;
+  cutoutDataUrl?: string;
 }> {
   const {
     style = 'clean_white',
@@ -43,6 +43,7 @@ export async function enhanceProductPhoto(
     saturate = 1.12,
     shadowOpacity = 0.28,
     paddingPercent = 0.12,
+    onProgress,
   } = options;
 
   let originalDataUrl: string;
@@ -53,33 +54,167 @@ export async function enhanceProductPhoto(
     originalDataUrl = imageSource;
   }
 
-  const img = await loadImage(originalDataUrl);
+  onProgress?.(15, 'এআই মডেল দিয়ে ব্যাকগ্রাউন্ড আলাদা করা হচ্ছে...');
+
+  let cutoutImg: HTMLImageElement;
+  let cutoutDataUrl = '';
+
+  // 1. Try Deep Learning AI Background Removal
+  try {
+    const blob = await removeBackground(originalDataUrl, {
+      model: 'isnet_quint8', // fast quantized neural network, optimal for mobile & browser
+      output: {
+        format: 'image/png',
+        quality: 0.95,
+      },
+      progress: (key, current, total) => {
+        if (total > 0) {
+          const pct = Math.min(80, Math.round(15 + (current / total) * 65));
+          onProgress?.(pct, 'এআই কাটআউট তৈরি হচ্ছে...');
+        }
+      },
+    });
+
+    cutoutDataUrl = await blobToDataUrl(blob);
+    cutoutImg = await loadImage(cutoutDataUrl);
+  } catch (aiErr) {
+    console.warn('AI neural background removal fallback to canvas heuristic:', aiErr);
+    onProgress?.(50, 'স্মার্ট স্টুডিও কাটআউট প্রসেস হচ্ছে...');
+    // Fallback to client-side smart canvas edge & chroma isolation
+    cutoutDataUrl = await fallbackCanvasCutout(originalDataUrl);
+    cutoutImg = await loadImage(cutoutDataUrl);
+  }
+
+  onProgress?.(85, 'স্টুডিও লাইটিং ও শ্যাডো যুক্ত করা হচ্ছে...');
 
   const targetWidth = 800;
   const targetHeight = 800;
 
-  // 1. Offscreen canvas to extract and process original image
-  const rawCanvas = document.createElement('canvas');
-  rawCanvas.width = img.width;
-  rawCanvas.height = img.height;
-  const rawCtx = rawCanvas.getContext('2d', { willReadFrequently: true });
-  if (!rawCtx) {
-    throw new Error('Canvas 2D context not available');
+  // 2. Scan cutout pixels to find exact product bounding box
+  const scanCanvas = document.createElement('canvas');
+  scanCanvas.width = cutoutImg.width;
+  scanCanvas.height = cutoutImg.height;
+  const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+  if (!scanCtx) {
+    return {
+      enhancedImageUrl: originalDataUrl,
+      originalImageUrl: originalDataUrl,
+      style,
+    };
   }
 
-  rawCtx.drawImage(img, 0, 0);
-  const rawImgData = rawCtx.getImageData(0, 0, img.width, img.height);
-  const data = rawImgData.data;
+  scanCtx.drawImage(cutoutImg, 0, 0);
+  const imgData = scanCtx.getImageData(0, 0, cutoutImg.width, cutoutImg.height);
+  const pixels = imgData.data;
 
-  // 2. Sample corner colors to determine dominant background color
+  let minX = cutoutImg.width, minY = cutoutImg.height, maxX = 0, maxY = 0;
+  let nonTransparentCount = 0;
+
+  for (let y = 0; y < cutoutImg.height; y++) {
+    for (let x = 0; x < cutoutImg.width; x++) {
+      const alpha = pixels[(y * cutoutImg.width + x) * 4 + 3];
+      if (alpha > 25) { // Visible pixel
+        nonTransparentCount++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  // If cutout is somehow empty, use full dimensions
+  if (nonTransparentCount < 50 || maxX <= minX || maxY <= minY) {
+    minX = 0;
+    minY = 0;
+    maxX = cutoutImg.width;
+    maxY = cutoutImg.height;
+  }
+
+  const subjectW = maxX - minX;
+  const subjectH = maxY - minY;
+
+  // 3. Create Studio Composite Canvas (800x800 square e-commerce ratio)
+  const studioCanvas = document.createElement('canvas');
+  studioCanvas.width = targetWidth;
+  studioCanvas.height = targetHeight;
+  const studioCtx = studioCanvas.getContext('2d');
+  if (!studioCtx) {
+    return {
+      enhancedImageUrl: originalDataUrl,
+      originalImageUrl: originalDataUrl,
+      style,
+    };
+  }
+
+  // Draw Selected Professional Studio Backdrop
+  drawStudioBackdrop(studioCtx, targetWidth, targetHeight, style);
+
+  // Calculate scaled product positioning
+  const maxBoxW = targetWidth * (1 - paddingPercent * 2);
+  const maxBoxH = targetHeight * (1 - paddingPercent * 2) - 40; // reserve space for base contact shadow
+
+  const scale = Math.min(maxBoxW / subjectW, maxBoxH / subjectH);
+  const drawW = subjectW * scale;
+  const drawH = subjectH * scale;
+
+  // Center horizontally, position near base for realistic grounded look
+  const posX = (targetWidth - drawW) / 2;
+  const posY = targetHeight - drawH - (targetHeight * 0.12);
+
+  // 4. Draw Realistic Contact Shadow beneath product
+  drawContactShadow(studioCtx, posX, posY, drawW, drawH, shadowOpacity);
+
+  // 5. Draw Product with Studio Lighting filter (vibrancy + contrast)
+  studioCtx.save();
+  studioCtx.filter = `contrast(${contrast}) saturate(${saturate}) brightness(${brightness})`;
+  studioCtx.drawImage(
+    cutoutImg,
+    minX, minY, subjectW, subjectH,
+    posX, posY, drawW, drawH
+  );
+  studioCtx.restore();
+
+  // 6. Subtle top highlight vignette for depth
+  drawStudioVignette(studioCtx, targetWidth, targetHeight);
+
+  onProgress?.(100, 'সম্পন্ন হয়েছে!');
+
+  // Output as optimized, crisp JPEG
+  const enhancedImageUrl = studioCanvas.toDataURL('image/jpeg', 0.90);
+
+  return {
+    enhancedImageUrl,
+    originalImageUrl: originalDataUrl,
+    style,
+    cutoutDataUrl,
+  };
+}
+
+/**
+ * Fallback client-side smart canvas edge & chroma isolation
+ */
+async function fallbackCanvasCutout(originalDataUrl: string): Promise<string> {
+  const img = await loadImage(originalDataUrl);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return originalDataUrl;
+
+  ctx.drawImage(img, 0, 0);
+  const imgData = ctx.getImageData(0, 0, img.width, img.height);
+  const data = imgData.data;
+
+  // Sample perimeter colors (corners + edges)
   const samplePoints = [
-    { x: 5, y: 5 },
-    { x: img.width - 6, y: 5 },
-    { x: 5, y: img.height - 6 },
-    { x: img.width - 6, y: img.height - 6 },
-    { x: Math.floor(img.width / 2), y: 5 },
-    { x: 5, y: Math.floor(img.height / 2) },
-    { x: img.width - 6, y: Math.floor(img.height / 2) },
+    { x: 4, y: 4 },
+    { x: img.width - 5, y: 4 },
+    { x: 4, y: img.height - 5 },
+    { x: img.width - 5, y: img.height - 5 },
+    { x: Math.floor(img.width / 2), y: 4 },
+    { x: 4, y: Math.floor(img.height / 2) },
+    { x: img.width - 5, y: Math.floor(img.height / 2) },
   ];
 
   let totalR = 0, totalG = 0, totalB = 0;
@@ -93,9 +228,7 @@ export async function enhanceProductPhoto(
   const bgG = totalG / samplePoints.length;
   const bgB = totalB / samplePoints.length;
 
-  // 3. Find subject bounding box & isolate foreground
-  let minX = img.width, minY = img.height, maxX = 0, maxY = 0;
-  const tolerance = 48; // Sensitivity for background removal
+  const tolerance = 46;
 
   for (let y = 0; y < img.height; y++) {
     for (let x = 0; x < img.width; x++) {
@@ -103,101 +236,19 @@ export async function enhanceProductPhoto(
       const r = data[idx];
       const g = data[idx + 1];
       const b = data[idx + 2];
-      const a = data[idx + 3];
 
-      if (a < 20) continue;
-
-      // Color distance from background
-      const dist = Math.sqrt(
-        (r - bgR) ** 2 +
-        (g - bgG) ** 2 +
-        (b - bgB) ** 2
-      );
-
-      // If significantly different from background sample or near center
-      const isForeground = dist > tolerance;
-
-      if (isForeground) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      } else {
-        // Softly fade near-background border pixels
-        if (dist < tolerance * 0.8) {
-          data[idx + 3] = 0; // Transparent
-        } else {
-          const alphaFade = Math.min(255, Math.floor(((dist - tolerance * 0.8) / (tolerance * 0.2)) * 255));
-          data[idx + 3] = alphaFade;
-        }
+      const dist = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
+      if (dist < tolerance) {
+        data[idx + 3] = 0; // Make background transparent
+      } else if (dist < tolerance * 1.25) {
+        // Soft edge feathering
+        data[idx + 3] = Math.min(255, Math.floor(((dist - tolerance) / (tolerance * 0.25)) * 255));
       }
     }
   }
 
-  // Fallback if cutout is too small or uniform
-  if (maxX <= minX || maxY <= minY || (maxX - minX < 40) || (maxY - minY < 40)) {
-    minX = 0;
-    minY = 0;
-    maxX = img.width;
-    maxY = img.height;
-  }
-
-  rawCtx.putImageData(rawImgData, 0, 0);
-
-  // 4. Create Final Studio Canvas (800x800 square, standard e-commerce ratio)
-  const studioCanvas = document.createElement('canvas');
-  studioCanvas.width = targetWidth;
-  studioCanvas.height = targetHeight;
-  const studioCtx = studioCanvas.getContext('2d');
-  if (!studioCtx) {
-    return {
-      enhancedImageUrl: originalDataUrl,
-      originalImageUrl: originalDataUrl,
-      style,
-    };
-  }
-
-  // Draw Selected Professional Backdrop
-  drawStudioBackdrop(studioCtx, targetWidth, targetHeight, style);
-
-  // Calculate scaled product positioning
-  const subjectW = maxX - minX;
-  const subjectH = maxY - minY;
-  const maxBoxW = targetWidth * (1 - paddingPercent * 2);
-  const maxBoxH = targetHeight * (1 - paddingPercent * 2) - 40; // reserve space for base shadow
-
-  const scale = Math.min(maxBoxW / subjectW, maxBoxH / subjectH);
-  const drawW = subjectW * scale;
-  const drawH = subjectH * scale;
-
-  // Center horizontally, position near base for realistic grounded look
-  const posX = (targetWidth - drawW) / 2;
-  const posY = targetHeight - drawH - (targetHeight * 0.12);
-
-  // 5. Draw Realistic Contact Shadow beneath product
-  drawContactShadow(studioCtx, posX, posY, drawW, drawH, shadowOpacity);
-
-  // 6. Draw Product with Studio Lighting filter (vibrancy + contrast)
-  studioCtx.save();
-  studioCtx.filter = `contrast(${contrast}) saturate(${saturate}) brightness(${brightness})`;
-  studioCtx.drawImage(
-    rawCanvas,
-    minX, minY, subjectW, subjectH,
-    posX, posY, drawW, drawH
-  );
-  studioCtx.restore();
-
-  // 7. Subtle top highlight vignette for depth
-  drawStudioVignette(studioCtx, targetWidth, targetHeight);
-
-  // Output as optimized, crisp JPEG
-  const enhancedImageUrl = studioCanvas.toDataURL('image/jpeg', 0.90);
-
-  return {
-    enhancedImageUrl,
-    originalImageUrl: originalDataUrl,
-    style,
-  };
+  ctx.putImageData(imgData, 0, 0);
+  return canvas.toDataURL('image/png');
 }
 
 /**
@@ -216,7 +267,7 @@ function drawStudioBackdrop(
       width / 2, height * 0.5, width * 0.75
     );
     radGrad.addColorStop(0, '#ffffff');
-    radGrad.addColorStop(0.7, '#ffffff');
+    radGrad.addColorStop(0.75, '#ffffff');
     radGrad.addColorStop(1, '#f8fafc');
     ctx.fillStyle = radGrad;
     ctx.fillRect(0, 0, width, height);
@@ -406,5 +457,14 @@ function fileToDataUrl(file: File): Promise<string> {
     reader.onload = (e) => resolve(e.target?.result as string);
     reader.onerror = (e) => reject(e);
     reader.readAsDataURL(file);
+  });
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target?.result as string);
+    reader.onerror = (e) => reject(e);
+    reader.readAsDataURL(blob);
   });
 }
