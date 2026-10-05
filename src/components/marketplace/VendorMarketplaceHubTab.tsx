@@ -49,6 +49,7 @@ import { MarketplaceCourierModal } from './MarketplaceCourierModal';
 import { MarketplaceSmsModal } from './MarketplaceSmsModal';
 import { enhanceProductPhoto } from '../../utils/productStudioEnhancer';
 import { ProductStudioModal } from '../studio/ProductStudioModal';
+import { ProfilePictureUploader } from '../profile/ProfilePictureUploader';
 
 interface VendorMarketplaceHubTabProps {
   products: Product[];
@@ -536,6 +537,22 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
             </div>
           </div>
         </div>
+      </div>
+
+      {/* 👤 VENDOR PROFILE CARD & PHOTO UPLOADER */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-sm">
+        <ProfilePictureUploader
+          currentPhotoUrl={store?.logoUrl}
+          vendorName={store?.owner}
+          shopName={store?.name}
+          onPhotoUpdated={(newUrl) => {
+            if (store) {
+              store.logoUrl = newUrl;
+            }
+            if (onShowToast) onShowToast('✅ ভেন্ডার প্রোফাইল ছবি সফলভাবে আপডেট হয়েছে!');
+          }}
+          onShowToast={onShowToast}
+        />
       </div>
 
       {/* ⚠️ INSUFFICIENT SMS WARNING BANNER */}

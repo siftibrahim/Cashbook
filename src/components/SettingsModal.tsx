@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { playPaymentChime } from '../utils/audio';
 import { SUPPORT_CONTACT } from '../types/adminTypes';
+import { ProfilePictureUploader } from './profile/ProfilePictureUploader';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -97,6 +98,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showQrOnInvoice, setShowQrOnInvoice] = useState<boolean>(
     store.showQrOnInvoice !== false
   );
+  const [logoUrl, setLogoUrl] = useState(store.logoUrl || '');
 
   const [saving, setSaving] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
@@ -126,6 +128,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setEnableSoundEffects(store.enableSoundEffects !== false);
       setPrintPaperSize(store.printPaperSize || 'thermal_80');
       setShowQrOnInvoice(store.showQrOnInvoice !== false);
+      setLogoUrl(store.logoUrl || '');
     }
   }, [isOpen, store]);
 
@@ -157,6 +160,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         enableSoundEffects,
         printPaperSize,
         showQrOnInvoice,
+        logoUrl: logoUrl.trim() || undefined,
       };
 
       await onSaveStore(updated);
@@ -454,6 +458,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="p-3 bg-teal-50/70 rounded-2xl border border-teal-100 text-xs text-teal-800 flex items-center gap-2">
                 <Store className="w-4 h-4 text-teal-700 shrink-0" />
                 <span>এখানে প্রদত্ত তথ্য সকল রসিদ, হেডার ও তাগাদা মেসেজে প্রদর্শিত হবে।</span>
+              </div>
+
+              {/* Vendor & Store Profile Picture Uploader */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  দোকান লোগো ও ভেন্ডার প্রোফাইল ছবি
+                </label>
+                <ProfilePictureUploader
+                  currentPhotoUrl={logoUrl}
+                  vendorName={owner || name}
+                  shopName={name}
+                  onPhotoUpdated={(newUrl) => {
+                    setLogoUrl(newUrl);
+                    if (onSaveStore) {
+                      const updated: StoreProfile = {
+                        ...store,
+                        name: name.trim() || store.name,
+                        owner: owner.trim() || store.owner,
+                        logoUrl: newUrl || undefined,
+                      };
+                      onSaveStore(updated);
+                    }
+                  }}
+                  onShowToast={onShowToast}
+                />
               </div>
 
               <div>

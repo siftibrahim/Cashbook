@@ -103,11 +103,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={onOpenSettings}
-            title="দোকান সেটিংস খুলুন"
+            title="দোকান প্রোফাইল ও সেটিংস খুলুন"
             className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden shrink-0 border border-emerald-400/40 shadow-xs cursor-pointer active:scale-95 transition bg-[#002B23]"
           >
             <img
-              src="/icon-192.png"
+              src={store.logoUrl || '/icon-192.png'}
               alt={store.name || 'TWING Hisabi'}
               className="w-full h-full object-cover"
             />

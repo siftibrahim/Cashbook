@@ -650,9 +650,12 @@ export async function initializeDatabaseSchema() {
         print_paper_size VARCHAR(50) DEFAULT 'thermal_80',
         show_qr_on_invoice BOOLEAN DEFAULT TRUE,
         default_credit_limit NUMERIC(12, 2) DEFAULT 10000,
+        logo_url TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
+      ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS logo_url TEXT;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
       CREATE INDEX IF NOT EXISTS idx_store_profiles_user_id ON store_profiles(user_id);
     `);
 

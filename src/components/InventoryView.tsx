@@ -9,6 +9,7 @@ import {
 } from '../utils/productImages';
 import {
   enhanceProductPhoto,
+  autoGenerateStudioProductImage,
   StudioBackdropStyle,
 } from '../utils/productStudioEnhancer';
 import { ProductStudioModal } from './studio/ProductStudioModal';
@@ -227,7 +228,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     if (!sourceImage) return;
     setIsAutoEnhancing(true);
     try {
-      const res = await enhanceProductPhoto(sourceImage, { style });
+      const res = await enhanceProductPhoto(sourceImage, {
+        style,
+        productName: name,
+        category,
+      });
       setImageUrl(res.enhancedImageUrl);
       setIsEnhanced(true);
       setStudioStyle(style);
@@ -248,13 +253,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       const compressed = await compressProductImage(file);
       setOriginalUploadedImage(compressed);
 
-      // Auto-run Smart Studio enhancement on upload (zero-cost automatic background & lighting)
+      // AUTOMATIC AI STUDIO GENERATION ON UPLOAD
       setIsAutoEnhancing(true);
+      onShowToast('🤖 এআই স্বয়ংক্রিয়ভাবে আকর্ষণীয় স্টুডিও ছবি তৈরি করছে...');
       try {
-        const res = await enhanceProductPhoto(compressed, { style: studioStyle });
+        const res = await autoGenerateStudioProductImage(compressed, name, category);
         setImageUrl(res.enhancedImageUrl);
         setIsEnhanced(true);
-        onShowToast('✨ অটোমেটিক স্টুডিও ব্যাকগ্রাউন্ড তৈরি হয়েছে!');
+        onShowToast('✨ এআই স্বয়ংক্রিয়ভাবে আকর্ষণীয় স্টুডিও ছবি তৈরি করেছে!');
       } catch (e) {
         setImageUrl(compressed);
         setIsEnhanced(false);

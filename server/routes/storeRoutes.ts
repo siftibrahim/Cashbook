@@ -80,6 +80,7 @@ router.get('/profile', authenticateUser, async (req: AuthenticatedRequest, res: 
               printPaperSize: profileRow?.print_paper_size || 'thermal_80',
               showQrOnInvoice: profileRow ? (profileRow.show_qr_on_invoice !== false) : true,
               defaultCreditLimit: profileRow ? (parseFloat(profileRow.default_credit_limit) || 10000) : 10000,
+              logoUrl: profileRow?.logo_url || '',
               subscriptionExpiresAt: subExpiresAt,
               subscriptionPlan: subPlan,
               subscriptionStatus: subStatus,
@@ -107,6 +108,7 @@ router.get('/profile', authenticateUser, async (req: AuthenticatedRequest, res: 
             printPaperSize: profileRow.print_paper_size || 'thermal_80',
             showQrOnInvoice: profileRow.show_qr_on_invoice !== false,
             defaultCreditLimit: parseFloat(profileRow.default_credit_limit) || 10000,
+            logoUrl: profileRow.logo_url || '',
             subscriptionExpiresAt: subExpiresAt,
             subscriptionPlan: subPlan,
             subscriptionStatus: subStatus,
@@ -191,6 +193,7 @@ router.put('/profile', authenticateUser, async (req: AuthenticatedRequest, res: 
       printPaperSize,
       showQrOnInvoice,
       defaultCreditLimit,
+      logoUrl,
     } = req.body;
 
     const pool = getDbPool();
@@ -203,9 +206,9 @@ router.put('/profile', authenticateUser, async (req: AuthenticatedRequest, res: 
           id, user_id, name, owner, phone, address, footer_note, currency_symbol,
           high_due_limit, tagada_template, bkash_number, nagad_number, rocket_number,
           theme_color, enable_sound_effects, print_paper_size, show_qr_on_invoice, default_credit_limit,
-          updated_at
+          logo_url, updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW()
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW()
         )
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
@@ -224,18 +227,23 @@ router.put('/profile', authenticateUser, async (req: AuthenticatedRequest, res: 
           print_paper_size = EXCLUDED.print_paper_size,
           show_qr_on_invoice = EXCLUDED.show_qr_on_invoice,
           default_credit_limit = EXCLUDED.default_credit_limit,
+          logo_url = COALESCE(EXCLUDED.logo_url, store_profiles.logo_url),
           updated_at = NOW()
       `, [
         storeId, validUserId, name, owner || name, phone, address || '', footerNote || '',
         currencySymbol || '৳', highDueLimit || 5000, tagadaTemplate || '',
         bkashNumber || '', nagadNumber || '', rocketNumber || '', themeColor || 'teal',
         enableSoundEffects !== false, printPaperSize || 'thermal_80',
-        showQrOnInvoice !== false, defaultCreditLimit || 10000
+        showQrOnInvoice !== false, defaultCreditLimit || 10000,
+        logoUrl || null
       ]);
 
-      // Update shop_name on users table too
+      // Update shop_name & avatar on users table too
       if (name) {
         await pool.query('UPDATE users SET shop_name = $1 WHERE id = $2', [name, validUserId]);
+      }
+      if (logoUrl) {
+        await pool.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [logoUrl, validUserId]).catch(() => {});
       }
     } else {
       const idx = inMemoryStore.stores.findIndex(s => s.userId === validUserId || s.id === storeId);
@@ -258,12 +266,65 @@ router.put('/profile', authenticateUser, async (req: AuthenticatedRequest, res: 
         printPaperSize,
         showQrOnInvoice,
         defaultCreditLimit,
+        logoUrl: logoUrl || (inMemoryStore.stores[idx]?.logoUrl || ''),
       };
       if (idx >= 0) inMemoryStore.stores[idx] = profileData;
       else inMemoryStore.stores.push(profileData);
     }
 
-    return res.json({ message: '✅ দোকান প্রোফাইল সফলভাবে আপডেট হয়েছে' });
+    return res.json({ message: '✅ দোকান প্রোফাইল সফলভাবে আপডেট হয়েছে', logoUrl });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/profile-picture - Dedicated instant vendor profile photo upload
+ */
+router.post('/profile-picture', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { photoUrl } = req.body;
+    if (!photoUrl) {
+      return res.status(400).json({ error: 'ছবির ডাটা প্রদান করুন' });
+    }
+
+    const pool = getDbPool();
+    const validUserId = pool ? await ensureUserExistsInPostgres(pool, userId, req.user) : userId;
+    const storeId = 'store_' + validUserId;
+
+    if (pool) {
+      await pool.query(`
+        INSERT INTO store_profiles (id, user_id, name, owner, phone, logo_url, updated_at)
+        VALUES ($1, $2, 'আমার দোকান', 'মালিক', '০১XXXXXXXXX', $3, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          logo_url = EXCLUDED.logo_url,
+          updated_at = NOW()
+      `, [storeId, validUserId, photoUrl]);
+
+      await pool.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [photoUrl, validUserId]).catch(() => {});
+    } else {
+      const idx = inMemoryStore.stores.findIndex(s => s.userId === validUserId || s.id === storeId);
+      if (idx >= 0) {
+        inMemoryStore.stores[idx].logoUrl = photoUrl;
+      } else {
+        inMemoryStore.stores.push({
+          id: storeId,
+          userId: validUserId,
+          name: 'আমার দোকান',
+          owner: 'মালিক',
+          phone: '০১XXXXXXXXX',
+          logoUrl: photoUrl,
+        } as any);
+      }
+      saveInMemoryStoreToDisk();
+    }
+
+    return res.json({
+      success: true,
+      message: '✅ ভেন্ডার প্রোফাইল ছবি সফলভাবে আপডেট হয়েছে',
+      photoUrl,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

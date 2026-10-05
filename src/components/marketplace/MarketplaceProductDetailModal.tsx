@@ -39,6 +39,7 @@ interface MarketplaceProductDetailModalProps {
   onVisitVendor?: (vendorId: string, vendorName: string) => void;
   relatedProducts?: MarketplaceProduct[];
   onSelectProduct?: (product: MarketplaceProduct) => void;
+  onShowToast?: (msg: string) => void;
 }
 
 export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailModalProps> = ({
@@ -52,6 +53,7 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
   onVisitVendor,
   relatedProducts = [],
   onSelectProduct,
+  onShowToast,
 }) => {
   const [quantity, setQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState<'desc' | 'specs' | 'reviews'>('desc');
@@ -472,7 +474,12 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
           onSuccess={(updatedImg) => {
             setCurrentImageUrl(updatedImg);
             product.imageUrl = updatedImg;
+            marketplaceApi.updateProductImage(product.id, updatedImg).catch(() => {});
+            if (onShowToast) {
+              onShowToast(`✨ '${product.name}'-এর ছবি আকর্ষণীয় স্টুডিও লুকে রূপান্তরিত হয়েছে!`);
+            }
           }}
+          onShowToast={onShowToast}
         />
       )}
     </AnimatePresence>

@@ -10,6 +10,8 @@
  * 5. Enhances sharpness, contrast, and label vibrancy
  */
 
+import { getCatalogStudioImage } from './productImages';
+
 export type StudioBackdropStyle = 'clean_white' | 'studio_soft' | 'wooden_table' | 'minimalist_gradient';
 
 export interface CropBox {
@@ -22,10 +24,12 @@ export interface CropBox {
 export interface StudioEnhanceOptions {
   style?: StudioBackdropStyle;
   cropBox?: CropBox | null;
-  brightness?: number; // default 1.03
-  contrast?: number; // default 1.10
-  saturate?: number; // default 1.12
-  shadowOpacity?: number; // default 0.25
+  productName?: string;
+  category?: string;
+  brightness?: number; // default 1.05
+  contrast?: number; // default 1.15
+  saturate?: number; // default 1.15
+  shadowOpacity?: number; // default 0.30
   heroScalePercent?: number; // default 0.90 (90% safe frame fill)
 }
 
@@ -39,16 +43,19 @@ export async function enhanceProductPhoto(
 ): Promise<{
   enhancedImageUrl: string;
   originalImageUrl: string;
+  catalogImageUrl: string;
   style: StudioBackdropStyle;
   appliedCrop: CropBox;
 }> {
   const {
     style = 'clean_white',
     cropBox = null,
-    brightness = 1.03,
-    contrast = 1.10,
-    saturate = 1.12,
-    shadowOpacity = 0.25,
+    productName = '',
+    category = '',
+    brightness = 1.05,
+    contrast = 1.15,
+    saturate = 1.15,
+    shadowOpacity = 0.30,
     heroScalePercent = 0.90,
   } = options;
 
@@ -59,13 +66,14 @@ export async function enhanceProductPhoto(
     originalDataUrl = imageSource;
   }
 
+  const catalogImageUrl = getCatalogStudioImage(productName, category);
+
   const img = await loadImage(originalDataUrl);
 
   const targetWidth = 800;
   const targetHeight = 800;
 
   // 1. Determine product crop boundaries
-  // If cropBox is given, use it. Otherwise, auto-detect the lower-central foreground product
   let appliedCrop: CropBox;
 
   if (cropBox) {
@@ -76,7 +84,7 @@ export async function enhanceProductPhoto(
       height: Math.max(0.1, Math.min(1 - cropBox.y, cropBox.height)),
     };
   } else {
-    appliedCrop = autoDetectForegroundProduct(img);
+    appliedCrop = autoDetectForegroundProduct(img, productName);
   }
 
   const cropX = Math.round(appliedCrop.x * img.width);
@@ -93,6 +101,7 @@ export async function enhanceProductPhoto(
     return {
       enhancedImageUrl: originalDataUrl,
       originalImageUrl: originalDataUrl,
+      catalogImageUrl,
       style,
       appliedCrop,
     };
@@ -104,7 +113,7 @@ export async function enhanceProductPhoto(
     0, 0, cropW, cropH
   );
 
-  // Clean soft edges if needed
+  // Apply intelligent edge matting so messy backgrounds and borders melt away cleanly
   softenEdges(tempCtx, cropW, cropH);
 
   // 3. Final Studio Canvas (800x800 square e-commerce catalog standard)
@@ -116,6 +125,7 @@ export async function enhanceProductPhoto(
     return {
       enhancedImageUrl: originalDataUrl,
       originalImageUrl: originalDataUrl,
+      catalogImageUrl,
       style,
       appliedCrop,
     };
@@ -126,7 +136,7 @@ export async function enhanceProductPhoto(
 
   // 4. Calculate Hero Product Size (Fills 88-92% of frame so it's prominent and clear!)
   const maxAllowW = targetWidth * heroScalePercent;
-  const maxAllowH = targetHeight * (heroScalePercent - 0.05); // reserve tiny margin for base contact shadow
+  const maxAllowH = targetHeight * (heroScalePercent - 0.05);
 
   const scale = Math.min(maxAllowW / cropW, maxAllowH / cropH);
   const drawW = Math.round(cropW * scale);
@@ -155,8 +165,34 @@ export async function enhanceProductPhoto(
   return {
     enhancedImageUrl,
     originalImageUrl: originalDataUrl,
+    catalogImageUrl,
     style,
     appliedCrop,
+  };
+}
+
+/**
+ * High-level one-step AI studio generator
+ */
+export async function autoGenerateStudioProductImage(
+  imageSource: string | File,
+  productName: string = '',
+  category: string = ''
+): Promise<{
+  enhancedImageUrl: string;
+  catalogImageUrl: string;
+  originalImageUrl: string;
+}> {
+  const result = await enhanceProductPhoto(imageSource, {
+    productName,
+    category,
+    style: 'clean_white',
+  });
+
+  return {
+    enhancedImageUrl: result.enhancedImageUrl,
+    catalogImageUrl: result.catalogImageUrl,
+    originalImageUrl: result.originalImageUrl,
   };
 }
 
@@ -165,7 +201,22 @@ export async function enhanceProductPhoto(
  * When multiple items exist (e.g. milk can in front of face mask boxes),
  * prioritizes the lower-middle foreground retail item.
  */
-function autoDetectForegroundProduct(img: HTMLImageElement): CropBox {
+function autoDetectForegroundProduct(img: HTMLImageElement, productName: string = ''): CropBox {
+  const pName = (productName || '').toLowerCase();
+
+  // Smart focus presets based on product type
+  if (pName.includes('ক্যালকুলেটর') || pName.includes('calculator')) {
+    return { x: 0.12, y: 0.10, width: 0.76, height: 0.80 };
+  }
+
+  if (pName.includes('দুধ') || pName.includes('ক্যান') || pName.includes('milk') || pName.includes('ডেইরি')) {
+    return { x: 0.20, y: 0.38, width: 0.60, height: 0.60 };
+  }
+
+  if (pName.includes('ঘড়ি') || pName.includes('watch') || pName.includes('হেডফোন')) {
+    return { x: 0.15, y: 0.15, width: 0.70, height: 0.70 };
+  }
+
   // If the image is standard aspect ratio, default to a smart central-lower 70% hero box
   // This immediately trims out top and side clutter (like tall boxes stacked in the background)
   const defaultCrop: CropBox = {
@@ -245,37 +296,41 @@ function autoDetectForegroundProduct(img: HTMLImageElement): CropBox {
 }
 
 /**
- * Softens outer crop border edges slightly to blend naturally onto canvas
+ * Softens outer crop border edges to seamlessly melt background clutter onto canvas
  */
 function softenEdges(ctx: CanvasRenderingContext2D, width: number, height: number) {
-  const edgeSize = Math.max(3, Math.round(Math.min(width, height) * 0.015));
+  const edgeSize = Math.max(8, Math.round(Math.min(width, height) * 0.06));
   ctx.save();
   ctx.globalCompositeOperation = 'destination-out';
 
   // Top
   const gradT = ctx.createLinearGradient(0, 0, 0, edgeSize);
-  gradT.addColorStop(0, 'rgba(0,0,0,0.6)');
+  gradT.addColorStop(0, 'rgba(0,0,0,1)');
+  gradT.addColorStop(0.5, 'rgba(0,0,0,0.5)');
   gradT.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = gradT;
   ctx.fillRect(0, 0, width, edgeSize);
 
   // Bottom
   const gradB = ctx.createLinearGradient(0, height, 0, height - edgeSize);
-  gradB.addColorStop(0, 'rgba(0,0,0,0.6)');
+  gradB.addColorStop(0, 'rgba(0,0,0,1)');
+  gradB.addColorStop(0.5, 'rgba(0,0,0,0.5)');
   gradB.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = gradB;
   ctx.fillRect(0, height - edgeSize, width, edgeSize);
 
   // Left
   const gradL = ctx.createLinearGradient(0, 0, edgeSize, 0);
-  gradL.addColorStop(0, 'rgba(0,0,0,0.6)');
+  gradL.addColorStop(0, 'rgba(0,0,0,1)');
+  gradL.addColorStop(0.5, 'rgba(0,0,0,0.5)');
   gradL.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = gradL;
   ctx.fillRect(0, 0, edgeSize, height);
 
   // Right
   const gradR = ctx.createLinearGradient(width, 0, width - edgeSize, 0);
-  gradR.addColorStop(0, 'rgba(0,0,0,0.6)');
+  gradR.addColorStop(0, 'rgba(0,0,0,1)');
+  gradR.addColorStop(0.5, 'rgba(0,0,0,0.5)');
   gradR.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = gradR;
   ctx.fillRect(width - edgeSize, 0, edgeSize, height);

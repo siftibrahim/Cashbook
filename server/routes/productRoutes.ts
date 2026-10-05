@@ -422,29 +422,39 @@ router.post('/ai-enhance', async (req: AuthenticatedRequest, res: Response) => {
         // Strip data:image/...;base64, prefix
         const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z0-9+.-]+;base64,/, '');
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: [
-            {
-              inlineData: {
-                data: cleanBase64,
-                mimeType: 'image/jpeg',
-              },
-            },
-            {
-              text: `Analyze this retail shop photo. The merchant sells: "${productName || 'single product'}".
-Identify ONLY the single primary commercial product in the front (e.g. condensed milk can or bottle), strictly ignoring any secondary background packaging, boxes behind it (e.g. face mask boxes), hands, or counter clutter.
+        let response: any = null;
+        const candidateModels = ['gemini-flash-latest', 'gemini-3.8-flash'];
+        for (const modelName of candidateModels) {
+          try {
+            response = await ai.models.generateContent({
+              model: modelName,
+              contents: [
+                {
+                  inlineData: {
+                    data: cleanBase64,
+                    mimeType: 'image/jpeg',
+                  },
+                },
+                {
+                  text: `Analyze this retail shop photo. The merchant sells: "${productName || 'single product'}".
+Identify ONLY the single primary commercial product in the front (e.g. calculator, milk can, phone, or package), strictly ignoring any secondary background packaging, boxes behind it (e.g. face mask boxes), shelves, hands, or counter clutter.
 Return JSON:
 {
   "detectedProduct": "string",
+  "category": "string",
   "box_2d": [ymin, xmin, ymax, xmax] // normalized 0 to 1000
 }`,
-            },
-          ],
-          config: {
-            responseMimeType: 'application/json',
-          },
-        });
+                },
+              ],
+              config: {
+                responseMimeType: 'application/json',
+              },
+            });
+            if (response?.text) break;
+          } catch (mErr) {
+            // try next candidate
+          }
+        }
 
         if (response.text) {
           const parsed = JSON.parse(response.text);

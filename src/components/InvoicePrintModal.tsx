@@ -194,6 +194,15 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
           >
             {/* Store Branding Header */}
             <div className="text-center pb-3 border-b-2 border-dashed border-slate-800">
+              {store.logoUrl && (
+                <div className="flex justify-center mb-1.5">
+                  <img
+                    src={store.logoUrl}
+                    alt={store.name}
+                    className="w-12 h-12 rounded-xl object-cover border border-slate-300 shadow-2xs"
+                  />
+                </div>
+              )}
               <h2 className="text-lg sm:text-xl font-black tracking-tight text-slate-900">
                 {store.name}
               </h2>

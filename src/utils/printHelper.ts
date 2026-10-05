@@ -186,6 +186,7 @@ export function generateInvoiceHTML(data: InvoicePrintData): string {
 <body>
   <div class="receipt-container">
     <div class="header">
+      ${store.logoUrl ? `<div style="text-align: center; margin-bottom: 6px;"><img src="${store.logoUrl}" style="max-height: 48px; max-width: 120px; border-radius: 8px; object-fit: contain;" /></div>` : ''}
       <div class="store-name">${store.name}</div>
       <div class="store-sub">${store.address}</div>
       <div class="store-sub">📞 ${store.phone}</div>

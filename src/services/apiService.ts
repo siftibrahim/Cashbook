@@ -814,6 +814,25 @@ export const storeApi = {
     saveStoreProfile(profile);
   },
 
+  async updateProfilePicture(photoUrl: string): Promise<string> {
+    try {
+      const res = await apiRequest<{ success: boolean; photoUrl: string }>('/store/profile-picture', {
+        method: 'POST',
+        body: JSON.stringify({ photoUrl }),
+      });
+      const current = loadStoreProfile();
+      current.logoUrl = res.photoUrl || photoUrl;
+      saveStoreProfile(current);
+      return res.photoUrl || photoUrl;
+    } catch (err) {
+      console.warn('API updateProfilePicture fallback to local storage:', err);
+      const current = loadStoreProfile();
+      current.logoUrl = photoUrl;
+      saveStoreProfile(current);
+      return photoUrl;
+    }
+  },
+
   async syncAll(
     store: StoreProfile,
     customers: Customer[],

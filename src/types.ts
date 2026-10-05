@@ -80,6 +80,7 @@ export interface StoreProfile {
   email?: string;
   phone: string;
   address: string;
+  logoUrl?: string;
   footerNote?: string;
   currencySymbol?: string;
   highDueLimit?: number;

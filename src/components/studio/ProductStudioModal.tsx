@@ -5,22 +5,23 @@ import {
   Sparkles,
   Check,
   RefreshCw,
-  Maximize2,
-  Minimize2,
-  Sliders,
   Crop,
   Layers,
-  ArrowRight,
   ZoomIn,
+  Sliders,
+  Image as ImageIcon,
+  CheckCircle2,
+  Package,
 } from 'lucide-react';
-import { Product } from '../../types';
 import {
   enhanceProductPhoto,
+  autoGenerateStudioProductImage,
   CropBox,
   StudioBackdropStyle,
 } from '../../utils/productStudioEnhancer';
+import { getCatalogStudioImage } from '../../utils/productImages';
 import { marketplaceApi } from '../../services/marketplaceService';
-import { triggerConfettiCelebration } from '../../utils/audio';
+import { triggerConfettiCelebration, playSaleTone } from '../../utils/audio';
 
 interface ProductStudioModalProps {
   isOpen: boolean;
@@ -38,126 +39,105 @@ export const ProductStudioModal: React.FC<ProductStudioModalProps> = ({
   onShowToast,
 }) => {
   const [selectedStyle, setSelectedStyle] = useState<StudioBackdropStyle>('clean_white');
-  const [heroScale, setHeroScale] = useState<number>(0.92); // 92% hero presence
+  const [heroScale, setHeroScale] = useState<number>(0.92);
   const [cropBox, setCropBox] = useState<CropBox>({
-    x: 0.15,
-    y: 0.28,
-    width: 0.70,
-    height: 0.65,
+    x: 0.12,
+    y: 0.12,
+    width: 0.76,
+    height: 0.76,
   });
-  const [previewUrl, setPreviewUrl] = useState<string>('');
+
+  const [visualMode, setVisualMode] = useState<'ai_studio' | 'catalog' | 'original'>('ai_studio');
+  const [aiStudioUrl, setAiStudioUrl] = useState<string>('');
+  const [catalogUrl, setCatalogUrl] = useState<string>('');
+  const [activePreviewUrl, setActivePreviewUrl] = useState<string>('');
+
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isAiDetecting, setIsAiDetecting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'crop' | 'preview'>('preview');
+  const [activeTab, setActiveTab] = useState<'options' | 'crop'>('options');
 
   const rawImage = product.imageUrl || '';
 
-  // Generate initial preview on modal open
+  // AUTOMATIC EXECUTION on modal opening
   useEffect(() => {
     if (isOpen && rawImage) {
-      // Smart detection for products like condensed milk / can
-      const isCanOrBottle = product.name.includes('দুধ') || product.name.includes('ক্যান') || product.name.includes('মিল্ক');
-      const initialCrop: CropBox = isCanOrBottle
-        ? { x: 0.20, y: 0.40, width: 0.60, height: 0.58 } // Focus directly on the can in the lower portion!
-        : { x: 0.12, y: 0.15, width: 0.76, height: 0.72 };
-
-      setCropBox(initialCrop);
-      generatePreview(initialCrop, selectedStyle, heroScale);
+      runAutoStudioGeneration();
     }
   }, [isOpen, rawImage, product.name]);
 
-  const generatePreview = async (
-    box: CropBox,
-    style: StudioBackdropStyle = selectedStyle,
-    scale: number = heroScale
-  ) => {
-    if (!rawImage) return;
+  const runAutoStudioGeneration = async () => {
     setIsProcessing(true);
     try {
-      const res = await enhanceProductPhoto(rawImage, {
-        cropBox: box,
-        style,
-        heroScalePercent: scale,
-      });
-      setPreviewUrl(res.enhancedImageUrl);
+      // 1. Get official catalog packshot
+      const catalog = getCatalogStudioImage(product.name, product.category);
+      setCatalogUrl(catalog);
+
+      // 2. Generate AI Studio photo with smart background matting and central hero scaling
+      const res = await autoGenerateStudioProductImage(rawImage, product.name, product.category);
+      setAiStudioUrl(res.enhancedImageUrl);
+      setActivePreviewUrl(res.enhancedImageUrl);
+      setVisualMode('ai_studio');
+
+      if (onShowToast) {
+        onShowToast('✨ এআই স্বয়ংক্রিয়ভাবে আকর্ষণীয় স্টুডিও ছবি তৈরি করেছে!');
+      }
     } catch (err) {
-      console.warn('Preview error:', err);
+      console.warn('Auto generation warning:', err);
+      // Fallback
+      setActivePreviewUrl(rawImage);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // Call Gemini AI on backend to detect exact bounding box
-  const handleGeminiDetect = async () => {
+  const handleManualRegenerate = async (box: CropBox, style: StudioBackdropStyle = selectedStyle) => {
     if (!rawImage) return;
-    setIsAiDetecting(true);
-    if (onShowToast) onShowToast('🤖 জেমিনি এআই দিয়ে মূল পণ্য খোঁজা হচ্ছে...');
-
+    setIsProcessing(true);
     try {
-      const res = await fetch('/api/products/ai-enhance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: rawImage,
-          productName: product.name,
-        }),
+      const res = await enhanceProductPhoto(rawImage, {
+        cropBox: box,
+        productName: product.name,
+        category: product.category,
+        style,
+        heroScalePercent: heroScale,
       });
-
-      const data = await res.json();
-      if (data.detectedBox) {
-        const { xmin, ymin, xmax, ymax } = data.detectedBox;
-        const newBox: CropBox = {
-          x: Math.max(0, xmin - 0.03),
-          y: Math.max(0, ymin - 0.03),
-          width: Math.min(1 - xmin, (xmax - xmin) + 0.06),
-          height: Math.min(1 - ymin, (ymax - ymin) + 0.06),
-        };
-        setCropBox(newBox);
-        await generatePreview(newBox);
-        if (onShowToast) onShowToast(data.message || '✨ এআই মূল পণ্য শনাক্ত করেছে!');
-      } else {
-        // Smart fallback
-        handlePresetMilkCan();
-      }
+      setAiStudioUrl(res.enhancedImageUrl);
+      setActivePreviewUrl(res.enhancedImageUrl);
+      setVisualMode('ai_studio');
     } catch (err) {
-      handlePresetMilkCan();
+      console.warn('Regenerate error:', err);
     } finally {
-      setIsAiDetecting(false);
+      setIsProcessing(false);
     }
   };
 
-  // Preset: Focus on lower-middle product (e.g. Milk Can in front of boxes)
-  const handlePresetMilkCan = () => {
-    const box: CropBox = { x: 0.22, y: 0.42, width: 0.56, height: 0.56 };
-    setCropBox(box);
-    generatePreview(box);
-    if (onShowToast) onShowToast('🥛 মূল ক্যানে ফোকাস করা হয়েছে (পেছনের বক্স বাদ)');
+  const selectMode = (mode: 'ai_studio' | 'catalog' | 'original') => {
+    setVisualMode(mode);
+    if (mode === 'ai_studio') {
+      setActivePreviewUrl(aiStudioUrl || rawImage);
+    } else if (mode === 'catalog') {
+      setActivePreviewUrl(catalogUrl || rawImage);
+    } else {
+      setActivePreviewUrl(rawImage);
+    }
   };
 
-  // Preset: Standard Center Hero
-  const handlePresetCenter = () => {
-    const box: CropBox = { x: 0.10, y: 0.15, width: 0.80, height: 0.72 };
-    setCropBox(box);
-    generatePreview(box);
-  };
-
-  // Preset: Full Image
-  const handlePresetFull = () => {
-    const box: CropBox = { x: 0.02, y: 0.02, width: 0.96, height: 0.96 };
-    setCropBox(box);
-    generatePreview(box);
-  };
-
-  // Save the studio image
+  // Save the selected studio image
   const handleSave = async () => {
-    if (!previewUrl) return;
+    const finalUrl = activePreviewUrl || aiStudioUrl || rawImage;
+    if (!finalUrl) return;
+
     setIsSaving(true);
     try {
-      await marketplaceApi.updateProductImage(product.id, previewUrl);
+      if (product.id && product.id !== 'temp') {
+        await marketplaceApi.updateProductImage(product.id, finalUrl);
+      }
+      playSaleTone();
       triggerConfettiCelebration();
-      if (onShowToast) onShowToast('🎉 এআই স্টুডিও ছবি সফলভাবে সেভ ও লাইভ হয়েছে!');
-      onSuccess?.(previewUrl);
+      if (onShowToast) {
+        onShowToast('🎉 আকর্ষণীয় স্টুডিও ছবি সফলভাবে সেভ ও লাইভ হয়েছে!');
+      }
+      onSuccess?.(finalUrl);
       onClose();
     } catch (err: any) {
       if (onShowToast) onShowToast('ছবি সেভ করতে সমস্যা হয়েছে');
@@ -170,7 +150,7 @@ export const ProductStudioModal: React.FC<ProductStudioModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -178,17 +158,22 @@ export const ProductStudioModal: React.FC<ProductStudioModalProps> = ({
           className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-auto max-h-[95vh] flex flex-col"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
-                <Sparkles className="w-4 h-4" />
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-slate-100 bg-gradient-to-r from-teal-50/80 via-white to-amber-50/60">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shadow-xs shrink-0">
+                <Sparkles className="w-5 h-5 fill-slate-950" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-sm font-black text-slate-900 truncate">
-                  স্মার্ট এআই স্টুডিও এডিটর
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 truncate">
+                    স্বয়ংক্রিয় এআই স্টুডিও ফটো জেনারেটর
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">
+                    অটোমেটিক
+                  </span>
+                </div>
                 <p className="text-[11px] text-slate-500 truncate">
-                  {product.name} • পেছনের অপ্রয়োজনীয় বক্স মুছে মানসম্মত বড় ছবি তৈরি করুন
+                  {product.name} • পেছনের বক্স ও দাগ মুছে দারাজ/অ্যামাজন স্ট্যান্ডার্ড ছবি
                 </p>
               </div>
             </div>
@@ -196,305 +181,235 @@ export const ProductStudioModal: React.FC<ProductStudioModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-xl transition cursor-pointer"
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
             >
-              <X className="w-4 h-4" />
+              <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Modal Body */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-            {/* Quick Action Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-gradient-to-r from-amber-50 via-teal-50 to-emerald-50 rounded-2xl border border-amber-200/60">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <button
-                  type="button"
-                  onClick={handleGeminiDetect}
-                  disabled={isAiDetecting}
-                  className="px-3 py-1.5 bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer disabled:opacity-50"
-                >
-                  {isAiDetecting ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  )}
-                  <span>জেমিনি এআই ফোকাস</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handlePresetMilkCan}
-                  className="px-2.5 py-1.5 bg-white hover:bg-amber-100/60 text-slate-800 border border-amber-300 rounded-xl text-xs font-bold flex items-center gap-1 transition cursor-pointer"
-                  title="পেছনের মাস্কের বক্স বাদ দিয়ে শুধু সামনের দুধের ক্যান ফোকাস করুন"
-                >
-                  <span>🥛 মূল ক্যান ফোকাস</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handlePresetCenter}
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
-                >
-                  🎯 সেন্টার
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handlePresetFull}
-                  className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
-                >
-                  📐 সম্পূর্ণ
-                </button>
-              </div>
-
-              {/* View Switcher */}
-              <div className="flex items-center bg-slate-200/80 p-0.5 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('preview')}
-                  className={`px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
-                    activeTab === 'preview'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  স্টুডিও আউটপুট
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('crop')}
-                  className={`px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
-                    activeTab === 'crop'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  ক্রপ বক্স অ্যাডজাস্ট
-                </button>
-              </div>
-            </div>
-
-            {/* Main Stage Display */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
-              {/* Box 1: Interactive Crop Selection / Original */}
-              <div className="flex flex-col gap-2">
-                <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                  <Crop className="w-3.5 h-3.5 text-slate-500" />
-                  <span>মূল ছবি ও ফোকাস বক্স:</span>
+            {/* 3 Visual Options Selector (One-Tap Switching) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 px-0.5">
+                <span>পছন্দের স্টুডিও ছবি নির্বাচন করুন:</span>
+                <span className="text-[11px] text-teal-700 font-semibold">
+                  (যেটিতে ট্যাপ করবেন সেটিই সেভ হবে)
                 </span>
-                <div className="relative aspect-square w-full rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center p-2">
-                  <img
-                    src={rawImage}
-                    alt="Original"
-                    className="w-full h-full object-contain select-none"
-                  />
-                  {/* Visual Highlight Overlay for Crop Area */}
-                  <div
-                    className="absolute border-2 border-amber-400 bg-amber-400/20 rounded-xl shadow-lg pointer-events-none transition-all duration-200 flex flex-col justify-between p-1"
-                    style={{
-                      left: `${cropBox.x * 100}%`,
-                      top: `${cropBox.y * 100}%`,
-                      width: `${cropBox.width * 100}%`,
-                      height: `${cropBox.height * 100}%`,
-                    }}
-                  >
-                    <span className="bg-amber-500 text-slate-950 font-black text-[9px] px-1.5 py-0.5 rounded shadow-xs w-max">
-                      মূল পণ্য ফোকাস
-                    </span>
-                    <span className="self-end bg-slate-900/80 text-white font-mono text-[8px] px-1 rounded">
-                      {Math.round(cropBox.width * 100)}% × {Math.round(cropBox.height * 100)}%
-                    </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                {/* Option 1: AI Enhanced Studio */}
+                <button
+                  type="button"
+                  onClick={() => selectMode('ai_studio')}
+                  className={`p-2 rounded-2xl border-2 transition text-left relative flex flex-col items-center cursor-pointer ${
+                    visualMode === 'ai_studio'
+                      ? 'border-teal-600 bg-teal-50/70 shadow-sm'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="w-full aspect-square rounded-xl bg-white border border-slate-100 overflow-hidden flex items-center justify-center p-1.5 relative mb-1.5">
+                    {aiStudioUrl ? (
+                      <img
+                        src={aiStudioUrl}
+                        alt="AI Studio"
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <RefreshCw className="w-5 h-5 animate-spin text-teal-600" />
+                    )}
+                    {visualMode === 'ai_studio' && (
+                      <div className="absolute top-1.5 right-1.5 bg-teal-600 text-white rounded-full p-0.5">
+                        <Check className="w-3 h-3" />
+                      </div>
+                    )}
                   </div>
-                </div>
-              </div>
-
-              {/* Box 2: Enhanced Studio Hero Output */}
-              <div className="flex flex-col gap-2">
-                <span className="text-[11px] font-bold text-emerald-700 flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>ই-কমার্স মানসম্মত হিরো লুক (৯২% সাইজ):</span>
+                  <span className="text-[11px] font-black text-slate-900 text-center leading-tight">
+                    ✨ এআই স্টুডিও
                   </span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded-full font-bold">
-                    বড় ও ক্লিয়ার
-                  </span>
-                </span>
+                  <span className="text-[10px] text-teal-800 font-bold">ব্যাকগ্রাউন্ড রিমুভড</span>
+                </button>
 
-                <div className="relative aspect-square w-full rounded-2xl bg-white border border-slate-200 overflow-hidden flex items-center justify-center p-2 shadow-sm">
-                  {previewUrl ? (
+                {/* Option 2: Official Catalog Studio */}
+                <button
+                  type="button"
+                  onClick={() => selectMode('catalog')}
+                  className={`p-2 rounded-2xl border-2 transition text-left relative flex flex-col items-center cursor-pointer ${
+                    visualMode === 'catalog'
+                      ? 'border-teal-600 bg-teal-50/70 shadow-sm'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="w-full aspect-square rounded-xl bg-white border border-slate-100 overflow-hidden flex items-center justify-center p-1.5 relative mb-1.5">
+                    {catalogUrl ? (
+                      <img
+                        src={catalogUrl}
+                        alt="Catalog"
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <ImageIcon className="w-5 h-5 text-slate-400" />
+                    )}
+                    {visualMode === 'catalog' && (
+                      <div className="absolute top-1.5 right-1.5 bg-teal-600 text-white rounded-full p-0.5">
+                        <Check className="w-3 h-3" />
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[11px] font-black text-slate-900 text-center leading-tight">
+                    🌟 অফিসিয়াল ক্যাটালগ
+                  </span>
+                  <span className="text-[10px] text-amber-700 font-bold">পিওর হোয়াইট 4K</span>
+                </button>
+
+                {/* Option 3: Original Uploaded Photo */}
+                <button
+                  type="button"
+                  onClick={() => selectMode('original')}
+                  className={`p-2 rounded-2xl border-2 transition text-left relative flex flex-col items-center cursor-pointer ${
+                    visualMode === 'original'
+                      ? 'border-teal-600 bg-teal-50/70 shadow-sm'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="w-full aspect-square rounded-xl bg-white border border-slate-100 overflow-hidden flex items-center justify-center p-1.5 relative mb-1.5 opacity-80">
                     <img
-                      src={previewUrl}
-                      alt="Studio Output"
-                      className="w-full h-full object-contain"
+                      src={rawImage}
+                      alt="Original"
+                      className="w-full h-full object-cover"
                     />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-slate-400 gap-1 text-xs">
-                      <RefreshCw className="w-5 h-5 animate-spin" />
-                      <span>তৈরি হচ্ছে...</span>
-                    </div>
-                  )}
+                    {visualMode === 'original' && (
+                      <div className="absolute top-1.5 right-1.5 bg-teal-600 text-white rounded-full p-0.5">
+                        <Check className="w-3 h-3" />
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[11px] font-black text-slate-700 text-center leading-tight">
+                    📷 আসল কাঁচা ছবি
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-medium">আনএডিটেড</span>
+                </button>
+              </div>
+            </div>
 
-                  {isProcessing && (
-                    <div className="absolute inset-0 bg-white/70 backdrop-blur-2xs flex flex-col items-center justify-center text-slate-800 text-xs font-bold">
-                      <RefreshCw className="w-5 h-5 animate-spin text-teal-700 mb-1" />
-                      <span>স্টুডিও প্রস্তুত হচ্ছে...</span>
-                    </div>
-                  )}
+            {/* Main Stage: Large Live Preview */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-black text-slate-800">
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>লাইভ আউটপুট প্রিভিউ:</span>
+                </span>
+                <span className="text-[11px] text-slate-500 font-medium">
+                  ৮০০ × ৮০০ পিক্সেল • দারাজ/অ্যামাজন রেডি
+                </span>
+              </div>
+
+              <div className="relative aspect-square w-full max-w-[420px] mx-auto rounded-3xl bg-white border-2 border-slate-200/80 overflow-hidden flex items-center justify-center p-4 shadow-md group">
+                {activePreviewUrl ? (
+                  <img
+                    src={activePreviewUrl}
+                    alt={product.name}
+                    className="w-full h-full object-contain transition-transform duration-300 hover:scale-105"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-slate-400">
+                    <RefreshCw className="w-8 h-8 animate-spin text-teal-600 mb-2" />
+                    <span className="text-xs font-bold text-slate-600">এআই ছবি প্রস্তুত করছে...</span>
+                  </div>
+                )}
+
+                {isProcessing && (
+                  <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center text-white p-4">
+                    <RefreshCw className="w-8 h-8 animate-spin text-amber-300 mb-2" />
+                    <span className="text-xs font-bold">এআই স্টুডিও প্রসেসিং চলছে...</span>
+                    <span className="text-[10px] text-slate-300 mt-0.5">পেছনের বক্স মুছে ফেলা হচ্ছে</span>
+                  </div>
+                )}
+
+                {/* Badge Overlay */}
+                <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-xl border border-slate-200 text-[10px] font-bold text-slate-800 shadow-xs flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-teal-600" />
+                  <span>
+                    {visualMode === 'ai_studio'
+                      ? 'এআই স্টুডিও এনহ্যান্সড'
+                      : visualMode === 'catalog'
+                      ? 'অফিসিয়াল ক্যাটালগ কোয়ালিটি'
+                      : 'আসল ছবি'}
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* Fine Tuning Controls */}
-            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <span className="text-xs font-bold text-slate-800">
-                  স্টুডিও ব্যাকগ্রাউন্ড ও লাইটিং:
-                </span>
-                <div className="grid grid-cols-4 gap-1.5 w-full sm:w-auto">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedStyle('clean_white');
-                      generatePreview(cropBox, 'clean_white');
-                    }}
-                    className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border transition cursor-pointer flex items-center justify-center gap-1 ${
-                      selectedStyle === 'clean_white'
-                        ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
-                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    <span>⚪</span>
-                    <span>হোয়াইট</span>
-                  </button>
+            {/* Quick Actions & Framing Adjustment */}
+            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => runAutoStudioGeneration()}
+                  disabled={isProcessing}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? 'animate-spin' : ''}`} />
+                  <span>পুনরায় এআই জেনারেট</span>
+                </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedStyle('studio_soft');
-                      generatePreview(cropBox, 'studio_soft');
-                    }}
-                    className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border transition cursor-pointer flex items-center justify-center gap-1 ${
-                      selectedStyle === 'studio_soft'
-                        ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
-                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    <span>🩶</span>
-                    <span>সফট গ্রে</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedStyle('wooden_table');
-                      generatePreview(cropBox, 'wooden_table');
-                    }}
-                    className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border transition cursor-pointer flex items-center justify-center gap-1 ${
-                      selectedStyle === 'wooden_table'
-                        ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
-                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    <span>🪵</span>
-                    <span>উডেন</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedStyle('minimalist_gradient');
-                      generatePreview(cropBox, 'minimalist_gradient');
-                    }}
-                    className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border transition cursor-pointer flex items-center justify-center gap-1 ${
-                      selectedStyle === 'minimalist_gradient'
-                        ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
-                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    <span>✨</span>
-                    <span>মিনিমাল</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Product Size Scale Slider */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-slate-700">
-                    পণ্যের আকার (Hero Scale):
-                  </span>
-                  <span className="font-mono font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded">
-                    {Math.round(heroScale * 100)}% (বড় ও আকর্ষণীয়)
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0.75"
-                  max="0.96"
-                  step="0.02"
-                  value={heroScale}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setHeroScale(val);
-                    generatePreview(cropBox, selectedStyle, val);
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Center hero box
+                    const centerBox: CropBox = { x: 0.12, y: 0.10, width: 0.76, height: 0.80 };
+                    setCropBox(centerBox);
+                    handleManualRegenerate(centerBox);
                   }}
-                  className="w-full accent-teal-700 cursor-pointer"
-                />
+                  disabled={isProcessing}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                >
+                  <Crop className="w-3.5 h-3.5 text-teal-600" />
+                  <span>🎯 মূল পণ্যে অটো ফোকাস</span>
+                </button>
               </div>
 
-              {/* Manual Crop Adjustment Handles (if in crop tab) */}
-              {activeTab === 'crop' && (
-                <div className="pt-2 border-t border-slate-200/80 space-y-2">
-                  <span className="text-[11px] font-bold text-slate-700">
-                    ক্রপ এরিয়া অ্যাডজাস্ট করুন:
-                  </span>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <label className="text-[10px] text-slate-500 block mb-0.5">টপ পজিশন (Y)</label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="0.6"
-                        step="0.02"
-                        value={cropBox.y}
-                        onChange={(e) => {
-                          const newY = parseFloat(e.target.value);
-                          const newBox = { ...cropBox, y: newY };
-                          setCropBox(newBox);
-                          generatePreview(newBox);
-                        }}
-                        className="w-full accent-amber-600"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-slate-500 block mb-0.5">উচ্চতা (Height)</label>
-                      <input
-                        type="range"
-                        min="0.3"
-                        max="0.9"
-                        step="0.02"
-                        value={cropBox.height}
-                        onChange={(e) => {
-                          const newH = parseFloat(e.target.value);
-                          const newBox = { ...cropBox, height: newH };
-                          setCropBox(newBox);
-                          generatePreview(newBox);
-                        }}
-                        className="w-full accent-amber-600"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Backdrop style options */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedStyle('clean_white');
+                    handleManualRegenerate(cropBox, 'clean_white');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black border transition cursor-pointer ${
+                    selectedStyle === 'clean_white'
+                      ? 'bg-teal-700 text-white border-teal-800'
+                      : 'bg-white text-slate-700 border-slate-200'
+                  }`}
+                >
+                  ⚪ পিওর হোয়াইট
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedStyle('studio_soft');
+                    handleManualRegenerate(cropBox, 'studio_soft');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black border transition cursor-pointer ${
+                    selectedStyle === 'studio_soft'
+                      ? 'bg-teal-700 text-white border-teal-800'
+                      : 'bg-white text-slate-700 border-slate-200'
+                  }`}
+                >
+                  🩶 সফট স্টুডিও
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Footer Action Bar */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-100 bg-slate-50/60">
+          {/* Sticky Bottom Actions */}
+          <div className="p-3 sm:p-4 bg-white border-t border-slate-100 flex items-center gap-2.5 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+              className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-2xl transition cursor-pointer"
             >
               বাতিল
             </button>
@@ -502,18 +417,18 @@ export const ProductStudioModal: React.FC<ProductStudioModalProps> = ({
             <button
               type="button"
               onClick={handleSave}
-              disabled={isSaving || !previewUrl}
-              className="px-5 py-2 bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-md cursor-pointer disabled:opacity-50"
+              disabled={isSaving || isProcessing}
+              className="flex-1 py-3 bg-gradient-to-r from-emerald-600 via-teal-700 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 text-white text-xs sm:text-sm font-black rounded-2xl shadow-md transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {isSaving ? (
                 <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>সেভ হচ্ছে...</span>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>ছবি সেভ হচ্ছে...</span>
                 </>
               ) : (
                 <>
-                  <Check className="w-3.5 h-3.5" />
-                  <span>স্টুডিও ছবি সেভ করুন</span>
+                  <Check className="w-4 h-4 text-emerald-200" />
+                  <span>✅ এই আকর্ষণীয় ছবিটি সেভ করুন</span>
                 </>
               )}
             </button>
