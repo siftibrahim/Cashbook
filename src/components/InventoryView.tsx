@@ -7,6 +7,10 @@ import {
   getFallbackProductImage,
 } from '../utils/productImages';
 import {
+  enhanceProductPhoto,
+  StudioBackdropStyle,
+} from '../utils/productStudioEnhancer';
+import {
   Package,
   Search,
   Plus,
@@ -75,6 +79,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [stock, setStock] = useState('');
   const [minAlert, setMinAlert] = useState('10');
   const [imageUrl, setImageUrl] = useState('');
+  const [originalUploadedImage, setOriginalUploadedImage] = useState<string>('');
+  const [isEnhanced, setIsEnhanced] = useState(false);
+  const [isAutoEnhancing, setIsAutoEnhancing] = useState(false);
+  const [studioStyle, setStudioStyle] = useState<StudioBackdropStyle>('clean_white');
   const [description, setDescription] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
@@ -182,6 +190,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setStock('50');
     setMinAlert('10');
     setImageUrl('');
+    setOriginalUploadedImage('');
+    setIsEnhanced(false);
     setDescription('');
     setIsListedOnMarketplace(true);
     setShowPresetPicker(false);
@@ -200,11 +210,30 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setStock(p.stock.toString());
     setMinAlert((p.minStockAlert || 10).toString());
     setImageUrl(p.imageUrl || '');
+    setOriginalUploadedImage(p.imageUrl || '');
+    setIsEnhanced(false);
     setDescription(p.description || '');
     setIsListedOnMarketplace(p.isListedOnMarketplace !== false);
     setShowPresetPicker(false);
     setShowUrlInput(false);
     setIsModalOpen(true);
+  };
+
+  const applyStudioEnhance = async (sourceImage: string, style: StudioBackdropStyle = studioStyle) => {
+    if (!sourceImage) return;
+    setIsAutoEnhancing(true);
+    try {
+      const res = await enhanceProductPhoto(sourceImage, { style });
+      setImageUrl(res.enhancedImageUrl);
+      setIsEnhanced(true);
+      setStudioStyle(style);
+      onShowToast('✨ অটো-স্টুডিও ব্যাকগ্রাউন্ড ও লাইটিং তৈরি হয়েছে!');
+    } catch (err) {
+      console.warn('Auto enhance notice:', err);
+      onShowToast('স্টুডিও ব্যাকগ্রাউন্ড প্রসেসিংয়ে সমস্যা হয়েছে');
+    } finally {
+      setIsAutoEnhancing(false);
+    }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -213,8 +242,22 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     try {
       setIsUploading(true);
       const compressed = await compressProductImage(file);
-      setImageUrl(compressed);
-      onShowToast('📸 পণ্যের ছবি সফলভাবে যুক্ত হয়েছে!');
+      setOriginalUploadedImage(compressed);
+
+      // Auto-run Smart Studio enhancement on upload (zero-cost automatic background & lighting)
+      setIsAutoEnhancing(true);
+      try {
+        const res = await enhanceProductPhoto(compressed, { style: studioStyle });
+        setImageUrl(res.enhancedImageUrl);
+        setIsEnhanced(true);
+        onShowToast('✨ অটোমেটিক স্টুডিও ব্যাকগ্রাউন্ড তৈরি হয়েছে!');
+      } catch (e) {
+        setImageUrl(compressed);
+        setIsEnhanced(false);
+        onShowToast('📸 পণ্যের ছবি যুক্ত হয়েছে!');
+      } finally {
+        setIsAutoEnhancing(false);
+      }
     } catch (err) {
       onShowToast('ছবি প্রসেসিংয়ে সমস্যা হয়েছে। অন্য ছবি চেষ্টা করুন।');
     } finally {
@@ -722,40 +765,154 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 />
 
                 {imageUrl ? (
-                  /* Active Image Preview */
-                  <div className="flex items-center gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
-                    <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center">
-                      <img
-                        src={imageUrl}
-                        alt="Product"
-                        className="w-full h-full object-contain"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).src = getFallbackProductImage(name, category);
-                        }}
-                      />
+                  /* Active Image Preview & Smart Studio Controls */
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-3 bg-white p-2.5 rounded-xl border border-slate-200">
+                      <div className="w-20 h-20 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center relative shadow-2xs">
+                        <img
+                          src={imageUrl}
+                          alt="Product"
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = getFallbackProductImage(name, category);
+                          }}
+                        />
+                        {isAutoEnhancing && (
+                          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs flex flex-col items-center justify-center text-white text-[9px] font-bold p-1 text-center">
+                            <RefreshCw className="w-4 h-4 animate-spin mb-1 text-teal-300" />
+                            <span>প্রসেসিং...</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[11px] font-extrabold text-emerald-700 flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>{isEnhanced ? '✨ স্মার্ট স্টুডিও অটো-এনহান্সড' : 'ছবি যুক্ত রয়েছে'}</span>
+                          </p>
+                          {isEnhanced && (
+                            <span className="text-[9px] bg-teal-100 text-teal-900 font-black px-2 py-0.5 rounded-full">
+                              ১০০% ফ্রি
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isUploading || isAutoEnhancing}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
+                          >
+                            <Upload className="w-3 h-3" />
+                            <span>{isUploading ? 'প্রসেসিং...' : 'অন্য ছবি'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowPresetPicker(!showPresetPicker)}
+                            className="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>রেডিমেড ছবি</span>
+                          </button>
+
+                          {originalUploadedImage && originalUploadedImage !== imageUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setImageUrl(originalUploadedImage);
+                                setIsEnhanced(false);
+                              }}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[10px] font-bold cursor-pointer transition"
+                            >
+                              📷 আসল ছবি
+                            </button>
+                          )}
+
+                          {(!isEnhanced || originalUploadedImage === imageUrl) && (
+                            <button
+                              type="button"
+                              onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl)}
+                              disabled={isAutoEnhancing}
+                              className="px-2.5 py-1 bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 text-white rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer transition shadow-xs"
+                            >
+                              <Sparkles className="w-3 h-3 text-amber-300" />
+                              <span>অটো ব্যাকগ্রাউন্ড দিন</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <p className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
-                        <Check className="w-3 h-3 text-emerald-600" />
-                        <span>ছবি যুক্ত রয়েছে</span>
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
+
+                    {/* Smart Studio Backdrop Styles Bar */}
+                    <div className="p-2.5 bg-gradient-to-r from-slate-100 via-teal-50/60 to-emerald-50/50 rounded-xl border border-teal-200/60 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-extrabold text-slate-800 flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-teal-700" />
+                          <span>স্টুডিও ব্যাকগ্রাউন্ড স্টাইল:</span>
+                        </span>
+                        <span className="text-[10px] text-teal-800 font-semibold">
+                          (স্বয়ংক্রিয় প্রফেশনাল লাইটিং ও শ্যাডো)
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-1.5">
                         <button
                           type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={isUploading}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
+                          onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl, 'clean_white')}
+                          disabled={isAutoEnhancing}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold text-center border transition cursor-pointer flex items-center justify-center gap-1 ${
+                            studioStyle === 'clean_white' && isEnhanced
+                              ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
+                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                          }`}
                         >
-                          <Upload className="w-3 h-3" />
-                          <span>{isUploading ? 'প্রসেসিং...' : 'অন্য ছবি দিন'}</span>
+                          <span>⚪</span>
+                          <span className="truncate">হোয়াইট</span>
                         </button>
+
                         <button
                           type="button"
-                          onClick={() => setShowPresetPicker(!showPresetPicker)}
-                          className="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
+                          onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl, 'studio_podium')}
+                          disabled={isAutoEnhancing}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold text-center border transition cursor-pointer flex items-center justify-center gap-1 ${
+                            studioStyle === 'studio_podium' && isEnhanced
+                              ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
+                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                          }`}
                         >
-                          <Sparkles className="w-3 h-3" />
-                          <span>রেডিমেড ছবি</span>
+                          <span>🏛️</span>
+                          <span className="truncate">পোডিয়াম</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl, 'wooden_table')}
+                          disabled={isAutoEnhancing}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold text-center border transition cursor-pointer flex items-center justify-center gap-1 ${
+                            studioStyle === 'wooden_table' && isEnhanced
+                              ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
+                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          <span>🪵</span>
+                          <span className="truncate">উডেন</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl, 'minimalist_gradient')}
+                          disabled={isAutoEnhancing}
+                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold text-center border transition cursor-pointer flex items-center justify-center gap-1 ${
+                            studioStyle === 'minimalist_gradient' && isEnhanced
+                              ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
+                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          <span>🩶</span>
+                          <span className="truncate">মিনিমাল</span>
                         </button>
                       </div>
                     </div>
