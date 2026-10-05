@@ -61,7 +61,7 @@ import { SystemPaymentSettings } from '../../types/adminTypes';
 import { MarketplaceProductDetailModal } from './MarketplaceProductDetailModal';
 import { MarketplaceVendorStoreModal } from './MarketplaceVendorStoreModal';
 import { MarketplaceCartCheckoutDrawer } from './MarketplaceCartCheckoutDrawer';
-import { CustomerAccountView, getStoredCustomer } from './CustomerAccountView';
+import { CustomerAccountView, getStoredCustomer, getCustomerOrdersStorageKey } from './CustomerAccountView';
 import { MarketplaceLiveTrackingMap } from './MarketplaceLiveTrackingMap';
 import { StorefrontSupportDrawer } from '../storefront/StorefrontSupportDrawer';
 import { StorefrontNotificationDrawer } from '../storefront/StorefrontNotificationDrawer';
@@ -333,15 +333,35 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     }
   });
 
-  // Customer Orders state
+  // Customer Orders state - strictly isolated by customer phone
   const [customerOrders, setCustomerOrders] = useState<MarketplaceMasterOrder[]>(() => {
     try {
-      const saved = localStorage.getItem(MKT_CUSTOMER_ORDERS_KEY);
+      const cust = getStoredCustomer();
+      if (!cust || !cust.phone) return [];
+      const saved = localStorage.getItem(getCustomerOrdersStorageKey(cust.phone));
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
   });
+
+  // Sync customer orders when verifiedCustomer changes (login, logout, switch number)
+  useEffect(() => {
+    if (!verifiedCustomer || !verifiedCustomer.phone) {
+      setCustomerOrders([]);
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(getCustomerOrdersStorageKey(verifiedCustomer.phone));
+      if (saved) {
+        setCustomerOrders(JSON.parse(saved));
+      } else {
+        setCustomerOrders([]);
+      }
+    } catch {
+      setCustomerOrders([]);
+    }
+  }, [verifiedCustomer?.phone]);
 
   // Tracking query state
   const [trackingSearchQuery, setTrackingSearchQuery] = useState('');
@@ -2139,7 +2159,24 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         onRemoveFromCart={removeFromCart}
         onClearCart={() => setCart([])}
         onOrderSuccess={(ord) => {
-          setCustomerOrders((prev) => [ord, ...prev]);
+          if (ord && ord.customerPhone) {
+            try {
+              const key = getCustomerOrdersStorageKey(ord.customerPhone);
+              const raw = localStorage.getItem(key);
+              const existing = raw ? JSON.parse(raw) : [];
+              const updated = [ord, ...existing.filter((x: any) => x.id !== ord.id && x.orderNumber !== ord.orderNumber)];
+              localStorage.setItem(key, JSON.stringify(updated));
+              localStorage.removeItem(MKT_CUSTOMER_ORDERS_KEY);
+              localStorage.removeItem('twing_mkt_customer_orders_v1');
+            } catch {}
+          }
+          setCustomerOrders((prev) => {
+            const currentCust = getStoredCustomer();
+            if (!currentCust?.phone) return [ord, ...prev];
+            const custDigits = currentCust.phone.replace(/[^\d]/g, '').slice(-10);
+            const ordDigits = (ord.customerPhone || '').replace(/[^\d]/g, '').slice(-10);
+            return custDigits === ordDigits ? [ord, ...prev] : prev;
+          });
         }}
         onOpenTracking={(ordNum) => {
           setNavTab('orders');
@@ -2154,7 +2191,18 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         isOpen={isCustomerAccountOpen}
         onClose={() => {
           setIsCustomerAccountOpen(false);
-          setVerifiedCustomer(getStoredCustomer());
+          const updatedCust = getStoredCustomer();
+          setVerifiedCustomer(updatedCust);
+          if (updatedCust && updatedCust.phone) {
+            try {
+              const raw = localStorage.getItem(getCustomerOrdersStorageKey(updatedCust.phone));
+              setCustomerOrders(raw ? JSON.parse(raw) : []);
+            } catch {
+              setCustomerOrders([]);
+            }
+          } else {
+            setCustomerOrders([]);
+          }
         }}
         onOpenTracking={(ordNum) => {
           setNavTab('orders');

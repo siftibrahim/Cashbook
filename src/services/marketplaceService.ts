@@ -128,9 +128,10 @@ export const marketplaceApi = {
     return data;
   },
 
-  async getCustomerOrders(phone: string): Promise<{ success: boolean; orders: any[]; error?: string }> {
+  async getCustomerOrders(phone: string, deviceToken?: string): Promise<{ success: boolean; orders: any[]; error?: string }> {
     try {
-      const res = await fetch(`/api/marketplace/customer/orders?phone=${encodeURIComponent(phone.trim())}`);
+      const url = `/api/marketplace/customer/orders?phone=${encodeURIComponent(phone.trim())}${deviceToken ? `&deviceToken=${encodeURIComponent(deviceToken.trim())}` : ''}`;
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'অর্ডার লোড করা যায়নি');
       return data;
@@ -139,7 +140,7 @@ export const marketplaceApi = {
     }
   },
 
-  async sendOtp(phone: string, deviceToken?: string): Promise<{
+  async sendOtp(phone: string, deviceToken?: string, options?: { forceOtp?: boolean; isLogin?: boolean }): Promise<{
     success: boolean;
     alreadyVerified?: boolean;
     verified?: boolean;
@@ -150,7 +151,7 @@ export const marketplaceApi = {
     const res = await fetch('/api/marketplace/send-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, deviceToken }),
+      body: JSON.stringify({ phone, deviceToken, forceOtp: options?.forceOtp, isLogin: options?.isLogin }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'ওটিপি পাঠাতে সমস্যা হয়েছে');

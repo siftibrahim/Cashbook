@@ -40,6 +40,18 @@ export interface VerifiedCustomer {
 const CUSTOMER_STORAGE_KEY = 'twing_verified_customer_profile';
 const MKT_CUSTOMER_ORDERS_KEY = 'twing_marketplace_customer_orders_v1';
 
+export function getCustomerOrdersStorageKey(phone?: string): string {
+  if (!phone) return 'twing_mkt_orders_guest';
+  const digits = phone.replace(/[^\d]/g, '').slice(-10);
+  return digits ? `twing_mkt_orders_${digits}` : 'twing_mkt_orders_guest';
+}
+
+export function getCustomerDeviceTokenKey(phone?: string): string {
+  if (!phone) return 'twing_customer_device_token';
+  const digits = phone.replace(/[^\d]/g, '').slice(-10);
+  return digits ? `twing_device_token_${digits}` : 'twing_customer_device_token';
+}
+
 export function getStoredCustomer(): VerifiedCustomer | null {
   try {
     const raw = localStorage.getItem(CUSTOMER_STORAGE_KEY);
@@ -68,10 +80,23 @@ export function getStoredCustomer(): VerifiedCustomer | null {
 
 export function saveStoredCustomer(customer: VerifiedCustomer): void {
   try {
+    const prev = getStoredCustomer();
+    const prevDigits = (prev?.phone || '').replace(/[^\d]/g, '').slice(-10);
+    const newDigits = (customer?.phone || '').replace(/[^\d]/g, '').slice(-10);
+    // If logging in as a different customer phone, clean up old customer's legacy keys
+    if (prevDigits && newDigits && prevDigits !== newDigits) {
+      localStorage.removeItem(MKT_CUSTOMER_ORDERS_KEY);
+      localStorage.removeItem('twing_mkt_customer_orders_v1');
+    }
+
     localStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(customer));
     localStorage.setItem('twing_mkt_cust_name', customer.name);
     localStorage.setItem('twing_mkt_cust_phone', customer.phone);
     localStorage.setItem('twing_mkt_cust_address', customer.address);
+    if (customer.deviceToken && newDigits) {
+      localStorage.setItem(getCustomerDeviceTokenKey(customer.phone), customer.deviceToken);
+      localStorage.setItem('twing_customer_device_token', customer.deviceToken);
+    }
   } catch (e) {
     console.warn('Error saving stored customer:', e);
   }
@@ -79,10 +104,19 @@ export function saveStoredCustomer(customer: VerifiedCustomer): void {
 
 export function clearStoredCustomer(): void {
   try {
+    const current = getStoredCustomer();
+    if (current?.phone) {
+      const digits = current.phone.replace(/[^\d]/g, '').slice(-10);
+      localStorage.removeItem(`twing_mkt_orders_${digits}`);
+      localStorage.removeItem(`twing_device_token_${digits}`);
+    }
     localStorage.removeItem(CUSTOMER_STORAGE_KEY);
     localStorage.removeItem('twing_mkt_cust_name');
     localStorage.removeItem('twing_mkt_cust_phone');
     localStorage.removeItem('twing_mkt_cust_address');
+    localStorage.removeItem('twing_customer_device_token');
+    localStorage.removeItem(MKT_CUSTOMER_ORDERS_KEY);
+    localStorage.removeItem('twing_mkt_customer_orders_v1');
   } catch (e) {
     console.warn('Error clearing stored customer:', e);
   }
@@ -133,7 +167,7 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
 
     const cust = getStoredCustomer();
     setCustomer(cust);
-    if (cust) {
+    if (cust && cust.phone) {
       setName(cust.name || '');
       setPhone(cust.phone || '');
       setAddress(cust.address || '');
@@ -144,10 +178,11 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
       setVerifyAddress(cust.address || '');
       setVerifyCity((cust.city as 'dhaka' | 'outside') || 'dhaka');
 
-      // Fetch customer orders from backend
+      // Fetch customer orders strictly for this verified customer
       fetchOrders(cust.phone);
     } else {
-      // Open directly in verification tab if no verified customer
+      // Clear orders state immediately if no verified customer is logged in
+      setOrders([]);
       setActiveTab('verification');
     }
   }, [isOpen]);
@@ -162,23 +197,62 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
   }, [countdown]);
 
   const fetchOrders = async (custPhone: string) => {
+    if (!custPhone || !custPhone.trim()) {
+      setOrders([]);
+      return;
+    }
+    const cleanPhoneDigits = custPhone.replace(/[^\d]/g, '').slice(-10);
+    if (!cleanPhoneDigits) {
+      setOrders([]);
+      return;
+    }
+
     setIsLoadingOrders(true);
     try {
-      // 1. Try local storage first
-      const savedOrders = localStorage.getItem(MKT_CUSTOMER_ORDERS_KEY);
+      // 1. Load ONLY this specific customer's isolated cached orders
+      const userOrdersKey = getCustomerOrdersStorageKey(custPhone);
+      const savedOrders = localStorage.getItem(userOrdersKey);
       if (savedOrders) {
-        setOrders(JSON.parse(savedOrders));
+        try {
+          const parsed = JSON.parse(savedOrders);
+          if (Array.isArray(parsed)) {
+            const filtered = parsed.filter((o: any) => {
+              const oPhone = String(o.customerPhone || o.customer_phone || '').replace(/[^\d]/g, '');
+              return oPhone.endsWith(cleanPhoneDigits);
+            });
+            setOrders(filtered);
+          } else {
+            setOrders([]);
+          }
+        } catch {
+          setOrders([]);
+        }
+      } else {
+        // Absolutely DO NOT show previous customer's orders!
+        setOrders([]);
       }
 
-      // 2. Fetch live from server
-      if (custPhone) {
-        const res = await marketplaceApi.getCustomerOrders(custPhone);
-        if (res.success && Array.isArray(res.orders) && res.orders.length > 0) {
-          setOrders(res.orders);
-        }
+      // 2. Fetch live from server strictly for this customer's phone
+      const devToken = localStorage.getItem(getCustomerDeviceTokenKey(custPhone)) || 
+                       localStorage.getItem('twing_customer_device_token') || undefined;
+      const res = await marketplaceApi.getCustomerOrders(custPhone, devToken);
+      if (res.success && Array.isArray(res.orders)) {
+        // Strictly filter to ensure every order belongs to THIS customer
+        const verifiedList = res.orders.filter((ord: any) => {
+          const ordPhone = String(ord.customerPhone || ord.customer_phone || '').replace(/[^\d]/g, '');
+          return ordPhone.endsWith(cleanPhoneDigits);
+        });
+        setOrders(verifiedList);
+        localStorage.setItem(userOrdersKey, JSON.stringify(verifiedList));
+      } else if (!savedOrders) {
+        setOrders([]);
       }
     } catch (e) {
       console.debug('Error loading orders:', e);
+      const userOrdersKey = getCustomerOrdersStorageKey(custPhone);
+      if (!localStorage.getItem(userOrdersKey)) {
+        setOrders([]);
+      }
     } finally {
       setIsLoadingOrders(false);
     }
@@ -207,31 +281,39 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
       return;
     }
 
+    // Immediately clear orders state when initiating verification for a new/different number
+    setOrders([]);
+
     setIsSendingOtp(true);
     try {
-      const deviceToken = localStorage.getItem('twing_customer_device_token') || 'dev_' + Date.now().toString(36);
-      localStorage.setItem('twing_customer_device_token', deviceToken);
-
-      const res = await marketplaceApi.sendOtp(standardPhone, deviceToken);
+      const phoneDigits = standardPhone.slice(-10);
+      const existingToken = localStorage.getItem(getCustomerDeviceTokenKey(standardPhone));
+      // Only pass deviceToken if this device already had a verified token for THIS EXACT phone number
+      const res = await marketplaceApi.sendOtp(standardPhone, existingToken || undefined, { isLogin: true });
 
       if (res.alreadyVerified || res.verified) {
-        // Device already verified in backend
+        // Device already verified for this exact phone
         const verifiedCustomer: VerifiedCustomer = {
           id: 'cust_' + standardPhone,
           name: verifyName.trim(),
           phone: standardPhone,
           address: verifyAddress.trim(),
           city: verifyCity,
-          deviceToken,
+          deviceToken: existingToken || 'dev_' + standardPhone + '_' + Date.now().toString(36),
           isVerified: true,
           verifiedAt: new Date().toISOString(),
         };
         saveStoredCustomer(verifiedCustomer);
         setCustomer(verifiedCustomer);
+        setName(verifiedCustomer.name);
+        setPhone(verifiedCustomer.phone);
+        setAddress(verifiedCustomer.address);
+        setCity((verifiedCustomer.city as 'dhaka' | 'outside') || 'dhaka');
         setActiveTab('profile');
         setSaveSuccess(true);
         playPaymentChime();
         triggerConfettiCelebration();
+        fetchOrders(standardPhone);
         setTimeout(() => setSaveSuccess(false), 3000);
         return;
       }
@@ -265,17 +347,23 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
 
     setIsVerifyingOtp(true);
     try {
-      const deviceToken = localStorage.getItem('twing_customer_device_token') || 'dev_' + Date.now().toString(36);
-      const res = await marketplaceApi.verifyOtp(standardPhone, otpCode.trim(), deviceToken);
+      const phoneDigits = standardPhone.slice(-10);
+      const existingToken = localStorage.getItem(getCustomerDeviceTokenKey(standardPhone));
+      const generatedToken = existingToken || `dev_tok_${standardPhone}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const res = await marketplaceApi.verifyOtp(standardPhone, otpCode.trim(), generatedToken);
 
       if (res.success && res.verified) {
+        // Clear any old orders state before setting up new customer
+        setOrders([]);
+
         const verifiedCustomer: VerifiedCustomer = {
           id: 'cust_' + standardPhone,
           name: verifyName.trim(),
           phone: standardPhone,
           address: verifyAddress.trim(),
           city: verifyCity,
-          deviceToken: res.deviceToken || deviceToken,
+          deviceToken: res.deviceToken || generatedToken,
           isVerified: true,
           verifiedAt: new Date().toISOString(),
         };
@@ -294,6 +382,8 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
 
         playPaymentChime();
         triggerConfettiCelebration();
+
+        // Fetch fresh orders strictly for this newly verified customer
         fetchOrders(standardPhone);
 
         setTimeout(() => setSaveSuccess(false), 3500);
@@ -317,7 +407,7 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
       phone: phone.trim(),
       address: address.trim(),
       city,
-      deviceToken: customer?.deviceToken || localStorage.getItem('twing_customer_device_token') || undefined,
+      deviceToken: customer?.deviceToken || localStorage.getItem(getCustomerDeviceTokenKey(phone.trim())) || undefined,
       isVerified: customer?.isVerified ?? true,
       verifiedAt: customer?.verifiedAt || new Date().toISOString(),
     };
@@ -330,7 +420,10 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
   };
 
   const handleLogout = () => {
-    clearStoredCustomer();
+    // 1. Immediately wipe orders from state
+    setOrders([]);
+
+    // 2. Clear customer profile from state
     setCustomer(null);
     setName('');
     setPhone('');
@@ -340,6 +433,11 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
     setVerifyAddress('');
     setOtpSent(false);
     setOtpCode('');
+
+    // 3. Clear all stored customer credentials & orders
+    clearStoredCustomer();
+
+    // 4. Switch to verification tab
     setActiveTab('verification');
   };
 
@@ -472,11 +570,14 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          setVerifyPhone(customer.phone);
-                          setVerifyName(customer.name);
-                          setVerifyAddress(customer.address);
+                          setOrders([]);
+                          setVerifyPhone('');
+                          setVerifyName('');
+                          setVerifyAddress('');
                           setOtpSent(false);
+                          setOtpCode('');
                           setCustomer(null);
+                          clearStoredCustomer();
                         }}
                         className="text-xs font-bold text-emerald-800 hover:text-emerald-950 underline cursor-pointer"
                       >

@@ -553,17 +553,24 @@ export function isPhoneOrDeviceVerified(phone: string, deviceToken?: string): bo
   const standardPhone = cleanPhone.startsWith('+88') ? cleanPhone.slice(3) : (cleanPhone.startsWith('88') ? cleanPhone.slice(2) : cleanPhone);
   if (standardPhone.length !== 11 || !standardPhone.startsWith('01')) return false;
 
-  // 1. Check active in-memory OTP verification
+  // 1. Check active in-memory OTP verification (freshly verified within last 1 hour)
   const otpRecord = customerPhoneOtpStore.get(standardPhone);
-  if (otpRecord?.verified === true) return true;
+  if (otpRecord && otpRecord.verified === true) {
+    const verifiedTime = (otpRecord as any).verifiedAt || (otpRecord.expiresAt - 300000);
+    if (Date.now() - verifiedTime < 3600000) {
+      return true;
+    }
+  }
 
-  // 2. Check persistent verified device/phone records
-  const store = getVerifiedDevicesStore();
-  if (store[standardPhone]) return true;
-
-  // 3. Check if deviceToken embeds this phone
-  if (deviceToken && typeof deviceToken === 'string' && deviceToken.includes(standardPhone)) {
-    return true;
+  // 2. Check persistent verified device/phone records:
+  // MUST provide deviceToken AND it MUST strictly match the recorded device token for this exact phone
+  if (deviceToken && typeof deviceToken === 'string' && deviceToken.trim().length >= 8) {
+    const cleanToken = deviceToken.trim();
+    const store = getVerifiedDevicesStore();
+    const recorded = store[standardPhone];
+    if (recorded && recorded.deviceToken && recorded.deviceToken === cleanToken) {
+      return true;
+    }
   }
 
   return false;
@@ -573,9 +580,9 @@ export function markPhoneAsDeviceVerified(phone: string, deviceToken?: string): 
   const cleanPhone = phone.replace(/[^\d+]/g, '').trim();
   const standardPhone = cleanPhone.startsWith('+88') ? cleanPhone.slice(3) : (cleanPhone.startsWith('88') ? cleanPhone.slice(2) : cleanPhone);
 
-  const token = deviceToken && deviceToken.length > 5
-    ? deviceToken
-    : `dev_tok_${standardPhone}_${Date.now().toString(36)}`;
+  const token = deviceToken && deviceToken.trim().length >= 8
+    ? deviceToken.trim()
+    : `dev_tok_${standardPhone}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
   const store = getVerifiedDevicesStore();
   store[standardPhone] = {
@@ -644,7 +651,7 @@ export async function saveVendorPayoutHolds(holds: Record<string, { isHeld: bool
  */
 router.post('/send-otp', async (req: Request, res: Response) => {
   try {
-    const { phone, deviceToken } = req.body;
+    const { phone, deviceToken, forceOtp, isLogin } = req.body;
     if (!phone || typeof phone !== 'string') {
       return res.status(400).json({ error: 'সঠিক মোবাইল নম্বর প্রদান করুন' });
     }
@@ -656,8 +663,8 @@ router.post('/send-otp', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'অনুগ্রহ করে সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 01XXXXXXXXX)' });
     }
 
-    // If already verified on this device, no need to send OTP again!
-    if (isPhoneOrDeviceVerified(standardPhone, deviceToken)) {
+    // Only skip OTP if NOT explicitly requesting new login/OTP, AND deviceToken is valid & matches
+    if (!forceOtp && !isLogin && deviceToken && isPhoneOrDeviceVerified(standardPhone, deviceToken)) {
       return res.json({
         success: true,
         alreadyVerified: true,
@@ -1722,7 +1729,7 @@ router.get('/events', (req: Request, res: Response) => {
 });
 
 /**
- * 4.9 GET /api/marketplace/customer/orders - Get all orders by customer phone number
+ * 4.9 GET /api/marketplace/customer/orders - Get all orders strictly by customer phone number
  */
 router.get('/customer/orders', async (req: Request, res: Response) => {
   try {
@@ -1741,9 +1748,9 @@ router.get('/customer/orders', async (req: Request, res: Response) => {
       await ensureOnlineOrdersSchema(pool);
       const result = await pool.query(
         `SELECT * FROM marketplace_master_orders 
-         WHERE REPLACE(REPLACE(customer_phone, ' ', ''), '-', '') LIKE $1
+         WHERE RIGHT(REGEXP_REPLACE(customer_phone, '[^0-9]', '', 'g'), 10) = $1
          ORDER BY created_at DESC`,
-        [`%${phoneSuffix}`]
+        [phoneSuffix]
       );
       const orders = await Promise.all(
         result.rows.map(async (row) => {
@@ -1785,13 +1792,18 @@ router.get('/customer/orders', async (req: Request, res: Response) => {
           };
         })
       );
-      return res.json({ success: true, orders });
+      // Double check customer_phone suffix filter to strictly isolate orders
+      const strictlyFiltered = orders.filter((o) => {
+        const oDigits = String(o.customerPhone || '').replace(/[^\d]/g, '');
+        return oDigits.length >= 10 && oDigits.slice(-10) === phoneSuffix;
+      });
+      return res.json({ success: true, orders: strictlyFiltered });
     } else {
       const allMaster = inMemoryStore.marketplace_master_orders || [];
       const matched = allMaster
         .filter((m) => {
           const mPhone = (m.customerPhone || '').replace(/[^\d]/g, '');
-          return mPhone.endsWith(phoneSuffix);
+          return mPhone.length >= 10 && mPhone.slice(-10) === phoneSuffix;
         })
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 

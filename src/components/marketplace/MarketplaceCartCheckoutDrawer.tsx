@@ -24,7 +24,7 @@ import {
 import { MarketplaceCartItem, MarketplaceProduct, MarketplaceMasterOrder } from '../../types';
 import { formatMoney } from '../../utils/storage';
 import { marketplaceApi } from '../../services/marketplaceService';
-import { getStoredCustomer, saveStoredCustomer, VerifiedCustomer } from './CustomerAccountView';
+import { getStoredCustomer, saveStoredCustomer, getCustomerDeviceTokenKey, getCustomerOrdersStorageKey, VerifiedCustomer } from './CustomerAccountView';
 
 interface MarketplaceCartCheckoutDrawerProps {
   isOpen: boolean;
