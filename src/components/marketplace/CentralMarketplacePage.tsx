@@ -64,6 +64,7 @@ import { MarketplaceCartCheckoutDrawer } from './MarketplaceCartCheckoutDrawer';
 import { MarketplaceLiveTrackingMap } from './MarketplaceLiveTrackingMap';
 import { StorefrontSupportDrawer } from '../storefront/StorefrontSupportDrawer';
 import { StorefrontNotificationDrawer } from '../storefront/StorefrontNotificationDrawer';
+import { MarketplaceFooter } from './MarketplaceFooter';
 
 // Storage keys
 const MKT_WISHLIST_KEY = 'twing_marketplace_wishlist';
@@ -100,439 +101,7 @@ const CIRCULAR_CATEGORIES = [
   { id: 'circ_others', nameBn: 'অন্যান্য', icon: '🔲', match: 'অন্যান্য পণ্য', bg: 'bg-slate-100 border border-slate-200 text-slate-600 shadow-2xs', text: 'text-[#6b7280]' },
 ];
 
-// Exact Popular Vendors
-const POPULAR_VENDORS_EXACT = [
-  {
-    id: 'usr_galaxy_store',
-    name: 'Galaxy Store',
-    category: 'মোবাইল ও এক্সেসরিজ',
-    rating: 4.8,
-    reviews: '১.২k',
-    productCount: '১৪+ পণ্য',
-    verified: true,
-    logoLetter: 'G',
-    bg: 'bg-white border border-[#0052cc] text-[#0052cc]',
-    iconType: 'letter',
-  },
-  {
-    id: 'usr_tech_world',
-    name: 'Tech World',
-    category: 'কম্পিউটার ও গ্যাজেট',
-    rating: 4.7,
-    reviews: '৮৪৭',
-    productCount: '১৮+ পণ্য',
-    verified: true,
-    icon: '💻',
-    bg: 'bg-white border border-slate-200 shadow-2xs',
-    iconType: 'icon',
-  },
-  {
-    id: 'usr_style_zone',
-    name: 'Style Zone',
-    category: 'ফ্যাশন ও পোশাক',
-    rating: 4.6,
-    reviews: '৭৯৭',
-    productCount: '২৫+ পণ্য',
-    verified: true,
-    icon: '👗',
-    bg: 'bg-white border border-slate-200 shadow-2xs',
-    iconType: 'icon',
-  },
-  {
-    id: 'usr_home_appliance',
-    name: 'Home Appliance BD',
-    category: 'গৃহস্থালী পণ্য',
-    rating: 4.5,
-    reviews: '৬৪২',
-    productCount: '১৯+ পণ্য',
-    verified: true,
-    icon: '🏠',
-    bg: 'bg-white border border-slate-200 shadow-2xs',
-    iconType: 'icon',
-  },
-  {
-    id: 'usr_beauty_care',
-    name: 'Beauty Care',
-    category: 'বিউটি ও পার্সোনাল কেয়ার',
-    rating: 4.6,
-    reviews: '৫২০',
-    productCount: '১১+ পণ্য',
-    verified: true,
-    icon: '🪷',
-    bg: 'bg-white border border-slate-200 shadow-2xs',
-    iconType: 'icon',
-  },
-  {
-    id: 'usr_organic_food',
-    name: 'Organic Food BD',
-    category: 'স্বাস্থ্য ও খাদ্য',
-    rating: 4.9,
-    reviews: '৯৩০',
-    productCount: '১৬+ পণ্য',
-    verified: true,
-    icon: '🍃',
-    bg: 'bg-white border border-slate-200 shadow-2xs',
-    iconType: 'icon',
-  },
-  {
-    id: 'usr_kids_wonder',
-    name: 'Kids Wonder World',
-    category: 'খেলনা ও বেবি প্রোডাক্ট',
-    rating: 4.7,
-    reviews: '৪১০',
-    productCount: '১২+ পণ্য',
-    verified: true,
-    icon: '🧸',
-    bg: 'bg-white border border-slate-200 shadow-2xs',
-    iconType: 'icon',
-  },
-];
 
-// Rich Showcase Products Catalogue (Includes Exact Arogga Screenshot Products)
-const EXACT_SHOWCASE_PRODUCTS: MarketplaceProduct[] = [
-  {
-    id: 'prod_vaseline_blueseal',
-    name: 'Vaseline Blueseal Pure Petroleum Jelly Original (100ml)',
-    category: 'বিউটি ও পার্সোনাল কেয়ার',
-    unit: 'জার',
-    buyPrice: 380,
-    salePrice: 670,
-    originalPrice: 1500,
-    discountPercent: 55,
-    rating: 0,
-    reviewCount: 0,
-    stock: 50,
-    imageUrl: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=500&auto=format&fit=crop&q=80',
-    vendorId: 'usr_beauty_care',
-    vendorShopName: 'Arogga Health & Beauty',
-    vendorAddress: 'গুলশান, ঢাকা',
-    vendorSlug: 'arogga-health-beauty',
-    updatedAt: Date.now(),
-  },
-  {
-    id: 'prod_sheglam_blush',
-    name: 'SHEGLAM Color Bloom Liquid Blush Matte Finish',
-    category: 'বিউটি ও পার্সোনাল কেয়ার',
-    unit: 'পিস',
-    buyPrice: 500,
-    salePrice: 880,
-    originalPrice: 1260,
-    discountPercent: 30,
-    rating: 0,
-    reviewCount: 0,
-    stock: 35,
-    imageUrl: 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=500&auto=format&fit=crop&q=80',
-    vendorId: 'usr_beauty_care',
-    vendorShopName: 'Glamour Point',
-    vendorAddress: 'ধানমন্ডি, ঢাকা',
-    vendorSlug: 'glamour-point',
-    updatedAt: Date.now() - 500,
-  },
-  {
-    id: 'prod_neutrogena_sunscreen',
-    name: 'Neutrogena Ultra Sheer Dry-Touch Sunscreen SPF 45',
-    category: 'বিউটি ও পার্সোনাল কেয়ার',
-    unit: 'টিউব',
-    buyPrice: 1100,
-    salePrice: 1600,
-    originalPrice: 2000,
-    discountPercent: 20,
-    rating: 4.8,
-    reviewCount: 34,
-    stock: 28,
-    imageUrl: 'https://images.unsplash.com/photo-1556228722-d9b3be6477e0?w=500&auto=format&fit=crop&q=80',
-    vendorId: 'usr_beauty_care',
-    vendorShopName: 'Skin Care Official',
-    vendorAddress: 'বনানী, ঢাকা',
-    vendorSlug: 'skin-care-official',
-    updatedAt: Date.now() - 800,
-  },
-  {
-    id: 'prod_haisenpet_catfood',
-    name: 'Haisenpet Premium Cat Food Chicken, Tuna (1.2KG)',
-    category: 'পোষা প্রাণী ও পেট কেয়ার',
-    unit: 'প্যাকেট',
-    buyPrice: 550,
-    salePrice: 750,
-    originalPrice: 900,
-    discountPercent: 17,
-    rating: 0,
-    reviewCount: 0,
-    stock: 40,
-    imageUrl: 'https://images.unsplash.com/photo-1589924691995-400dc9ecc119?w=500&auto=format&fit=crop&q=80',
-    vendorId: 'usr_organic_food',
-    vendorShopName: 'Paws & Claws BD',
-    vendorAddress: 'উত্তরা, ঢাকা',
-    vendorSlug: 'paws-claws-bd',
-    updatedAt: Date.now() - 1000,
-  },
-  {
-    id: 'prod_jungle_catfood',
-    name: 'Jungle Adult Cat Food Chicken & Fish 500g',
-    category: 'পোষা প্রাণী ও পেট কেয়ার',
-    unit: 'প্যাকেট',
-    buyPrice: 380,
-    salePrice: 520,
-    originalPrice: 680,
-    discountPercent: 23,
-    rating: 0,
-    reviewCount: 0,
-    stock: 45,
-    imageUrl: 'https://images.unsplash.com/photo-1548767797-d8c844163c4c?w=500&auto=format&fit=crop&q=80',
-    vendorId: 'usr_organic_food',
-    vendorShopName: 'Paws & Claws BD',
-    vendorAddress: 'উত্তরা, ঢাকা',
-    vendorSlug: 'paws-claws-bd',
-    updatedAt: Date.now() - 1200,
-  },
-  {
-    id: 'prod_bengal_shampoo',
-    name: 'Bengal Antiseptic Antifungal Medicated Shampoo for Pets',
-    category: 'পোষা প্রাণী ও পেট কেয়ার',
-    unit: 'বোতল',
-    buyPrice: 320,
-    salePrice: 450,
-    originalPrice: 495,
-    discountPercent: 9,
-    rating: 0,
-    reviewCount: 0,
-    stock: 30,
-    imageUrl: 'https://images.unsplash.com/photo-1608248597359-54877dc8d93e?w=500&auto=format&fit=crop&q=80',
-    vendorId: 'usr_organic_food',
-    vendorShopName: 'Paws & Claws BD',
-    vendorAddress: 'উত্তরা, ঢাকা',
-    vendorSlug: 'paws-claws-bd',
-    updatedAt: Date.now() - 1500,
-  },
-  {
-    id: 'prod_galaxy_a15',
-    name: 'Samsung Galaxy A15 (6GB+128GB)',
-    category: 'মোবাইল ও এক্সেসরিজ',
-    unit: 'পিস',
-    buyPrice: 15000,
-    salePrice: 16990,
-    originalPrice: 19990,
-    discountPercent: 15,
-    rating: 4.8,
-    reviewCount: 89,
-    stock: 25,
-    imageUrl: '/src/assets/images/mkt_samsung_galaxy_a15_1791136754600.jpg',
-    vendorId: 'usr_galaxy_store',
-    vendorShopName: 'Galaxy Store',
-    vendorAddress: 'মিরপুর-১০, ঢাকা',
-    vendorSlug: 'galaxy-store',
-    updatedAt: Date.now(),
-  },
-  {
-    id: 'prod_tws_earbuds',
-    name: 'TWS Bluetooth Earbuds (Noise Cancellation)',
-    category: 'কম্পিউটার ও গ্যাজেট',
-    unit: 'পিস',
-    buyPrice: 1100,
-    salePrice: 1590,
-    originalPrice: 1990,
-    discountPercent: 20,
-    rating: 4.6,
-    reviewCount: 45,
-    stock: 38,
-    imageUrl: '/src/assets/images/mkt_tws_earbuds_1791136771381.jpg',
-    vendorId: 'usr_tech_world',
-    vendorShopName: 'Tech World',
-    vendorAddress: 'আইডিবি ভবন, ঢাকা',
-    vendorSlug: 'tech-world',
-    updatedAt: Date.now() - 1000,
-  },
-  {
-    id: 'prod_mens_casual_shirt',
-    name: "Men's Casual Shirt (Cotton)",
-    category: 'ফ্যাশন ও পোশাক',
-    unit: 'পিস',
-    buyPrice: 280,
-    salePrice: 449,
-    originalPrice: 599,
-    discountPercent: 25,
-    rating: 4.5,
-    reviewCount: 42,
-    stock: 50,
-    imageUrl: '/src/assets/images/mkt_casual_shirt_1791136785929.jpg',
-    vendorId: 'usr_style_zone',
-    vendorShopName: 'Style Zone',
-    vendorAddress: 'উত্তরা, ঢাকা',
-    vendorSlug: 'style-zone',
-    updatedAt: Date.now() - 2000,
-  },
-  {
-    id: 'prod_miyako_rice_cooker',
-    name: 'Miyako Rice Cooker (1.8L)',
-    category: 'গৃহস্থালী পণ্য',
-    unit: 'পিস',
-    buyPrice: 2800,
-    salePrice: 3450,
-    originalPrice: 4200,
-    discountPercent: 18,
-    rating: 4.7,
-    reviewCount: 44,
-    stock: 18,
-    imageUrl: '/src/assets/images/mkt_rice_cooker_1791136800299.jpg',
-    vendorId: 'usr_home_appliance',
-    vendorShopName: 'Home Appliance BD',
-    vendorAddress: 'নিউ মার্কেট, ঢাকা',
-    vendorSlug: 'home-appliance-bd',
-    updatedAt: Date.now() - 3000,
-  },
-  {
-    id: 'prod_ladies_handbag',
-    name: 'Ladies Handbag (Imported)',
-    category: 'ফ্যাশন ও পোশাক',
-    unit: 'পিস',
-    buyPrice: 900,
-    salePrice: 1290,
-    originalPrice: 1650,
-    discountPercent: 22,
-    rating: 4.8,
-    reviewCount: 47,
-    stock: 22,
-    imageUrl: '/src/assets/images/mkt_ladies_handbag_1791136814680.jpg',
-    vendorId: 'usr_beauty_care',
-    vendorShopName: 'Fashion House',
-    vendorAddress: 'ধানমন্ডি, ঢাকা',
-    vendorSlug: 'fashion-house',
-    updatedAt: Date.now() - 4000,
-  },
-  {
-    id: 'prod_smart_watch',
-    name: 'Smart Fitness Watch (Waterproof)',
-    category: 'কম্পিউটার ও গ্যাজেট',
-    unit: 'পিস',
-    buyPrice: 1600,
-    salePrice: 2150,
-    originalPrice: 2790,
-    discountPercent: 23,
-    rating: 4.7,
-    reviewCount: 65,
-    stock: 30,
-    imageUrl: 'https://images.unsplash.com/photo-1579586337278-3befd40fd17a?w=600&auto=format&fit=crop&q=80',
-    vendorId: 'usr_tech_world',
-    vendorShopName: 'Tech World',
-    vendorAddress: 'আইডিবি ভবন, ঢাকা',
-    vendorSlug: 'tech-world',
-    updatedAt: Date.now() - 5000,
-  },
-  {
-    id: 'prod_artisan_ghee',
-    name: 'Artisan Pure Cow Ghee (গাওয়া ঘি ৫০০ গ্রাম)',
-    category: 'গৃহস্থালী পণ্য',
-    unit: 'জার',
-    buyPrice: 750,
-    salePrice: 950,
-    originalPrice: 1150,
-    discountPercent: 17,
-    rating: 4.9,
-    reviewCount: 92,
-    stock: 40,
-    imageUrl: 'https://images.unsplash.com/photo-1628088062854-d1870b4553da?w=600&auto=format&fit=crop&q=80',
-    vendorId: 'usr_home_appliance',
-    vendorShopName: 'Home Appliance BD',
-    vendorAddress: 'নিউ মার্কেট, ঢাকা',
-    vendorSlug: 'home-appliance-bd',
-    updatedAt: Date.now() - 6000,
-  },
-  {
-    id: 'prod_sundarban_honey',
-    name: 'Natural Sundarban Honey (সুন্দরবনের প্রাকৃতিক মধু ৫০০ গ্রাম)',
-    category: 'স্বাস্থ্য ও ফার্মেসি',
-    unit: 'বোতল',
-    buyPrice: 480,
-    salePrice: 650,
-    originalPrice: 800,
-    discountPercent: 18,
-    rating: 4.9,
-    reviewCount: 78,
-    stock: 35,
-    imageUrl: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=600&auto=format&fit=crop&q=80',
-    vendorId: 'usr_galaxy_store',
-    vendorShopName: 'Galaxy Store',
-    vendorAddress: 'মিরপুর-১০, ঢাকা',
-    vendorSlug: 'galaxy-store',
-    updatedAt: Date.now() - 7000,
-  },
-  {
-    id: 'prod_aloe_vera_gel',
-    name: 'Organic Aloe Vera Soothing Gel (৩০০ মিলি)',
-    category: 'বিউটি ও পার্সোনাল কেয়ার',
-    unit: 'জার',
-    buyPrice: 220,
-    salePrice: 380,
-    originalPrice: 500,
-    discountPercent: 24,
-    rating: 4.8,
-    reviewCount: 54,
-    stock: 45,
-    imageUrl: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&auto=format&fit=crop&q=80',
-    vendorId: 'usr_beauty_care',
-    vendorShopName: 'Beauty Care',
-    vendorAddress: 'ধানমন্ডি, ঢাকা',
-    vendorSlug: 'beauty-care',
-    updatedAt: Date.now() - 8000,
-  },
-  {
-    id: 'prod_anker_charger',
-    name: 'Anker 20W Fast Charger USB-C (PowerPort III)',
-    category: 'মোবাইল ও এক্সেসরিজ',
-    unit: 'পিস',
-    buyPrice: 850,
-    salePrice: 1190,
-    originalPrice: 1450,
-    discountPercent: 18,
-    rating: 4.9,
-    reviewCount: 112,
-    stock: 60,
-    imageUrl: 'https://images.unsplash.com/photo-1622445262464-84b1456045b6?w=600&auto=format&fit=crop&q=80',
-    vendorId: 'usr_galaxy_store',
-    vendorShopName: 'Galaxy Store',
-    vendorAddress: 'মিরপুর-১০, ঢাকা',
-    vendorSlug: 'galaxy-store',
-    updatedAt: Date.now() - 9000,
-  },
-  {
-    id: 'prod_denim_jeans',
-    name: 'Slim-Fit Stretch Denim Jeans for Men',
-    category: 'ফ্যাশন ও পোশাক',
-    unit: 'পিস',
-    buyPrice: 620,
-    salePrice: 990,
-    originalPrice: 1350,
-    discountPercent: 27,
-    rating: 4.7,
-    reviewCount: 88,
-    stock: 32,
-    imageUrl: 'https://images.unsplash.com/photo-1542272604-780c96856592?w=600&auto=format&fit=crop&q=80',
-    vendorId: 'usr_style_zone',
-    vendorShopName: 'Style Zone',
-    vendorAddress: 'উত্তরা, ঢাকা',
-    vendorSlug: 'style-zone',
-    updatedAt: Date.now() - 10000,
-  },
-  {
-    id: 'prod_steel_blender',
-    name: '3-in-1 Stainless Steel Blender & Grinder',
-    category: 'কিচেন ও ডাইনিং',
-    unit: 'সেট',
-    buyPrice: 1800,
-    salePrice: 2350,
-    originalPrice: 2950,
-    discountPercent: 20,
-    rating: 4.6,
-    reviewCount: 39,
-    stock: 15,
-    imageUrl: 'https://images.unsplash.com/photo-1570222094114-d054a817e56b?w=600&auto=format&fit=crop&q=80',
-    vendorId: 'usr_home_appliance',
-    vendorShopName: 'Home Appliance BD',
-    vendorAddress: 'নিউ মার্কেট, ঢাকা',
-    vendorSlug: 'home-appliance-bd',
-    updatedAt: Date.now() - 11000,
-  },
-];
 
 // Reusable High-Fidelity Product Card Component matching exact Arogga/Marketplace layout
 interface MarketplaceProductCardProps {
@@ -630,6 +199,12 @@ const MarketplaceProductCard: React.FC<MarketplaceProductCardProps> = ({
           {product.name}
         </h3>
 
+        {/* Twing Hisabi Verified Vendor Badge */}
+        <div className="flex items-center gap-1 text-[10px] text-emerald-700 font-semibold truncate pt-0.5">
+          <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+          <span className="truncate">টুইং ভেরিফাইড: {product.vendorShopName || 'ভেরিফাইড মার্চেন্ট'}</span>
+        </div>
+
         {/* Rating Stars & Count (e.g. ★ ★ ★ ★ ★ (0)) */}
         <div className="flex items-center gap-1 text-[11px] pt-1">
           <div className="flex items-center gap-0.5">
@@ -722,8 +297,9 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
 
-  // Products
-  const [products, setProducts] = useState<MarketplaceProduct[]>(EXACT_SHOWCASE_PRODUCTS);
+  // Products & Vendors (strictly real verified Twing Hisabi merchants)
+  const [products, setProducts] = useState<MarketplaceProduct[]>([]);
+  const [vendors, setVendors] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   // Modals & Drawers state
@@ -733,20 +309,14 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
 
-  // Cart state - initialized with 2 demo items so header badge displays "2" exactly matching screenshot
+  // Cart state - strictly user's real saved cart
   const [cart, setCart] = useState<MarketplaceCartItem[]>(() => {
     try {
       const saved = localStorage.getItem(MKT_CART_KEY);
       if (saved) return JSON.parse(saved);
-      return [
-        { product: EXACT_SHOWCASE_PRODUCTS[0], quantity: 1 },
-        { product: EXACT_SHOWCASE_PRODUCTS[1], quantity: 1 },
-      ];
+      return [];
     } catch {
-      return [
-        { product: EXACT_SHOWCASE_PRODUCTS[0], quantity: 1 },
-        { product: EXACT_SHOWCASE_PRODUCTS[1], quantity: 1 },
-      ];
+      return [];
     }
   });
 
@@ -808,22 +378,23 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     } catch {}
   }, [wishlistIds]);
 
-  // Load feed from server with fallback to exact showcase catalog
+  // Load products feed strictly from real verified Twing Hisabi vendors
   useEffect(() => {
     let isMounted = true;
     async function loadFeed() {
+      setIsLoading(true);
       try {
         const res = await marketplaceApi.getFeed({
           search: searchQuery,
           category: selectedCategory !== 'all' ? selectedCategory : undefined,
         });
-        if (isMounted && res?.success && Array.isArray(res.products) && res.products.length > 0) {
+        if (isMounted && res?.success && Array.isArray(res.products)) {
           setProducts(res.products);
-        } else if (isMounted && !searchQuery.trim() && selectedCategory === 'all') {
-          setProducts(EXACT_SHOWCASE_PRODUCTS);
         }
       } catch (e) {
-        if (isMounted) setProducts(EXACT_SHOWCASE_PRODUCTS);
+        if (isMounted) setProducts([]);
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
     }
     loadFeed();
@@ -831,6 +402,25 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       isMounted = false;
     };
   }, [searchQuery, selectedCategory]);
+
+  // Load verified Twing Hisabi vendors strictly from database
+  useEffect(() => {
+    let isMounted = true;
+    async function loadVendors() {
+      try {
+        const res = await marketplaceApi.getVendors();
+        if (isMounted && res?.success && Array.isArray(res.vendors)) {
+          setVendors(res.vendors);
+        }
+      } catch (e) {
+        if (isMounted) setVendors([]);
+      }
+    }
+    loadVendors();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Subscribe to Unified Payment Settings
   useEffect(() => {
@@ -1257,7 +847,80 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       {/* 3. MAIN CONTENT: 3-COLUMN LAYOUT EXACT MATCH */}
       {/* ========================================================================= */}
       <main className="flex-1 max-w-[1400px] mx-auto w-full px-3 sm:px-4 lg:px-8 py-4 sm:py-5 space-y-6">
-        {navTab === 'orders' ? (
+        {navTab === 'vendors' ? (
+          /* All Verified Twing Hisabi Vendors View */
+          <div className="max-w-6xl mx-auto w-full space-y-5">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-6 h-6 text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-slate-900">
+                    TWING হিসাবি ভেরিফাইড ভেন্ডরসমূহ
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    সরাসরি টুইংহিসাবি দ্বারা অনুমোদিত ও যাচাইকৃত ভেরিফাইড মার্চেন্টদের তালিকা
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              {vendors.map((vendor) => (
+                <div
+                  key={vendor.id}
+                  className="bg-white rounded-2xl border border-slate-200/90 p-4 text-center flex flex-col items-center justify-between hover:shadow-md hover:border-emerald-500/50 transition shadow-2xs group"
+                >
+                  <div className="relative mb-2.5">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-700 text-white flex items-center justify-center text-xl font-black shadow-xs">
+                      {vendor.name ? vendor.name.charAt(0) : 'T'}
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 w-full">
+                    <div className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full">
+                      <ShieldCheck className="w-2.5 h-2.5" />
+                      <span>টুইং ভেরিফাইড</span>
+                    </div>
+                    <h4 className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                      {vendor.name}
+                    </h4>
+                    <p className="text-[10px] text-slate-500 truncate">{vendor.category}</p>
+                    <div className="text-[10px] text-slate-400 truncate flex items-center justify-center gap-1">
+                      <MapPin className="w-2.5 h-2.5" />
+                      <span>{vendor.address}</span>
+                    </div>
+
+                    <div className="flex items-center justify-center gap-1 text-[10px] text-amber-500 pt-0.5">
+                      <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                      <span className="font-bold text-slate-700">{vendor.rating || 4.8}</span>
+                      <span className="text-slate-400">({vendor.reviews || '৫০+'})</span>
+                    </div>
+
+                    <div className="pt-1">
+                      <span className="inline-block text-[10px] font-bold text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-full shadow-2xs">
+                        📦 {vendor.productCount}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVendorStore({ id: vendor.id, name: vendor.name })}
+                    className="mt-3 w-full py-1.5 bg-[#009b77] hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer flex items-center justify-center gap-1"
+                  >
+                    <span>শপ দেখুন</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : navTab === 'orders' ? (
           /* Order Tracking View */
           <div className="max-w-4xl mx-auto w-full space-y-5">
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
@@ -1811,31 +1474,27 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                 ref={vendorScrollRef}
                 className="flex gap-3 sm:gap-4 overflow-x-auto no-scrollbar pb-2 pt-0.5 scroll-smooth"
               >
-                {POPULAR_VENDORS_EXACT.map((vendor) => (
+                {vendors.map((vendor) => (
                   <div
                     key={vendor.id}
-                    className="w-44 sm:w-52 shrink-0 bg-white rounded-2xl border border-slate-200/90 p-4 text-center flex flex-col items-center justify-between hover:shadow-md hover:border-blue-400 transition shadow-2xs group"
+                    className="w-44 sm:w-52 shrink-0 bg-white rounded-2xl border border-slate-200/90 p-4 text-center flex flex-col items-center justify-between hover:shadow-md hover:border-emerald-500/50 transition shadow-2xs group"
                   >
                     {/* Logo with verified badge */}
                     <div className="relative mb-2.5">
-                      {vendor.iconType === 'letter' ? (
-                        <div className="w-14 h-14 rounded-full bg-[#0052cc] text-white flex items-center justify-center text-xl font-black shadow-xs">
-                          {vendor.logoLetter}
-                        </div>
-                      ) : (
-                        <div
-                          className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-2xs ${vendor.bg}`}
-                        >
-                          {vendor.icon}
-                        </div>
-                      )}
-                      <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-700 text-white flex items-center justify-center text-xl font-black shadow-xs">
+                        {vendor.name ? vendor.name.charAt(0) : 'T'}
+                      </div>
+                      <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xs" title="টুইংহিসাবি ভেরিফাইড ভেন্ডর">
                         <CheckCircle2 className="w-3.5 h-3.5" />
                       </div>
                     </div>
 
                     {/* Shop Info */}
                     <div className="space-y-1 w-full">
+                      <div className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full">
+                        <ShieldCheck className="w-2.5 h-2.5" />
+                        <span>টুইং ভেরিফাইড</span>
+                      </div>
                       <h4 className="text-xs sm:text-sm font-black text-slate-900 truncate">
                         {vendor.name}
                       </h4>
@@ -1843,8 +1502,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
                       <div className="flex items-center justify-center gap-1 text-[10px] text-amber-500 pt-0.5">
                         <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                        <span className="font-bold text-slate-700">{vendor.rating}</span>
-                        <span className="text-slate-400">({vendor.reviews})</span>
+                        <span className="font-bold text-slate-700">{vendor.rating || 4.8}</span>
+                        <span className="text-slate-400">({vendor.reviews || '৫০+'})</span>
                       </div>
 
                       {/* Product count */}
@@ -1861,7 +1520,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                       onClick={() =>
                         setSelectedVendorStore({ id: vendor.id, name: vendor.name })
                       }
-                      className="mt-3 w-full py-1.5 bg-[#0052cc] hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer flex items-center justify-center gap-1 group-hover:bg-blue-700"
+                      className="mt-3 w-full py-1.5 bg-[#009b77] hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer flex items-center justify-center gap-1"
                     >
                       <span>শপ দেখুন</span>
                       <ArrowRight className="w-3 h-3" />
@@ -2314,104 +1973,31 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       </main>
 
       {/* ========================================================================= */}
-      {/* 6. PROFESSIONAL WHITE FOOTER */}
+      {/* 6. PROFESSIONAL WHITE & CLEAN RESPONSIVE FOOTER */}
       {/* ========================================================================= */}
-      <footer className="bg-white text-slate-700 pt-10 pb-20 sm:pb-6 border-t border-slate-200 text-xs mt-8 shadow-2xs">
-        <div className="max-w-[1400px] mx-auto px-4 lg:px-8 space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-6 sm:gap-8">
-            {/* Col 1: Brand */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-white border border-slate-200 text-[#0052cc] flex items-center justify-center font-black shadow-2xs">
-                  <ShoppingBag className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-base font-black text-[#0052cc]">TWING</div>
-                  <div className="text-[10px] font-black text-orange-600 -mt-1">Marketplace</div>
-                </div>
-              </div>
-              <p className="text-slate-500 text-xs">সবাইয়ের জন্য, সবার পছন্দ</p>
-            </div>
+      <MarketplaceFooter
+        onNavigateHome={() => {
+          setNavTab('home');
+          setSelectedCategory('all');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onNavigateVendors={() => {
+          setNavTab('vendors');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onNavigateOrders={() => {
+          setNavTab('orders');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        onOpenSupport={() => setIsSupportOpen(true)}
+        onMerchantLogin={onMerchantLogin || onBackToDashboard}
+        showToast={showToast}
+        onScrollToSection={(sectionId) => {
+          const el = document.getElementById(sectionId);
+          if (el) el.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
 
-            {/* Col 2: দ্রুত লিংক */}
-            <div className="space-y-2">
-              <h4 className="text-slate-900 font-bold text-xs">দ্রুত লিংক</h4>
-              <ul className="space-y-1.5 text-slate-600 text-xs">
-                <li className="hover:text-[#0052cc] cursor-pointer" onClick={() => setNavTab('home')}>হোম</li>
-                <li className="hover:text-[#0052cc] cursor-pointer" onClick={() => setNavTab('vendors')}>সকল ভেন্ডর</li>
-                <li className="hover:text-[#0052cc] cursor-pointer" onClick={() => setNavTab('orders')}>আমার অর্ডার</li>
-                <li className="hover:text-[#0052cc] cursor-pointer" onClick={() => setIsSupportOpen(true)}>সাহায্য কেন্দ্র</li>
-              </ul>
-            </div>
-
-            {/* Col 3: কাস্টমার সাপোর্ট */}
-            <div className="space-y-2">
-              <h4 className="text-slate-900 font-bold text-xs">কাস্টমার সাপোর্ট</h4>
-              <ul className="space-y-1.5 text-slate-600 text-xs">
-                <li className="hover:text-[#0052cc] cursor-pointer" onClick={() => setIsSupportOpen(true)}>যোগাযোগ</li>
-                <li className="hover:text-[#0052cc] cursor-pointer">রিটার্ন পলিসি</li>
-                <li className="hover:text-[#0052cc] cursor-pointer">প্রাইভেসি পলিসি</li>
-                <li className="hover:text-[#0052cc] cursor-pointer">ব্যবহার শর্তাবলী</li>
-              </ul>
-            </div>
-
-            {/* Col 4: আমাদের সম্পর্কে */}
-            <div className="space-y-2">
-              <h4 className="text-slate-900 font-bold text-xs">আমাদের সম্পর্কে</h4>
-              <ul className="space-y-1.5 text-slate-600 text-xs">
-                <li className="hover:text-[#0052cc] cursor-pointer">আমাদের সম্পর্কে</li>
-                <li className="hover:text-[#0052cc] cursor-pointer">ক্যারিয়ার</li>
-                <li className="hover:text-[#0052cc] cursor-pointer">ব্লগ</li>
-                <li className="hover:text-[#0052cc] cursor-pointer">যোগাযোগ</li>
-              </ul>
-            </div>
-
-            {/* Col 5: সোশ্যাল মিডিয়া ও নিউজলেটার */}
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <h4 className="text-slate-900 font-bold text-xs">সোশ্যাল মিডিয়া</h4>
-                <div className="flex items-center gap-2">
-                  <a href="https://facebook.com" target="_blank" rel="noreferrer" className="w-7 h-7 rounded-full bg-[#1877f2] text-white flex items-center justify-center font-bold text-xs">
-                    f
-                  </a>
-                  <a href="https://youtube.com" target="_blank" rel="noreferrer" className="w-7 h-7 rounded-full bg-[#ff0000] text-white flex items-center justify-center font-bold text-xs">
-                    ▶
-                  </a>
-                  <a href="https://tiktok.com" target="_blank" rel="noreferrer" className="w-7 h-7 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs">
-                    d
-                  </a>
-                  <a href="https://instagram.com" target="_blank" rel="noreferrer" className="w-7 h-7 rounded-full bg-[#e1306c] text-white flex items-center justify-center font-bold text-xs">
-                    📷
-                  </a>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-slate-600 font-medium">নিউজলেটার সাবস্ক্রাইব</label>
-                <div className="flex gap-1">
-                  <input
-                    type="email"
-                    placeholder="আপনার ইমেইল লিখুন"
-                    className="w-full px-2.5 py-1.5 bg-white text-slate-800 border border-slate-200 rounded-lg text-xs placeholder:text-slate-400 focus:outline-hidden focus:border-[#0052cc]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => showToast('ধন্যবাদ! নিউজলেটার সাবস্ক্রিপশন সম্পন্ন হয়েছে।')}
-                    className="px-3 py-1.5 bg-[#0052cc] hover:bg-blue-700 text-white rounded-lg font-bold cursor-pointer"
-                  >
-                    ➤
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-slate-500 text-[11px]">
-            <div>© ২০২৫ TWING Marketplace. সর্বস্বত্ব সংরক্ষিত।</div>
-            <div>Made with ❤️ in Bangladesh 🇧🇩</div>
-          </div>
-        </div>
-      </footer>
 
       {/* ========================================================================= */}
       {/* 7. FIXED MOBILE BOTTOM NAVIGATION */}
@@ -2499,7 +2085,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           setSelectedProduct(null);
           setSelectedVendorStore({ id: vId, name: vName });
         }}
-        relatedProducts={EXACT_SHOWCASE_PRODUCTS.filter((p) => p.id !== selectedProduct?.id)}
+        relatedProducts={products.filter((p) => p.id !== selectedProduct?.id)}
         onSelectProduct={(p) => setSelectedProduct(p)}
       />
 
@@ -2509,7 +2095,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         vendorName={selectedVendorStore?.name || ''}
         isOpen={Boolean(selectedVendorStore)}
         onClose={() => setSelectedVendorStore(null)}
-        products={EXACT_SHOWCASE_PRODUCTS}
+        products={products}
         onAddToCart={addToCart}
         onViewProduct={(p) => setSelectedProduct(p)}
         wishlistIds={wishlistIds}

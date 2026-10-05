@@ -73,6 +73,17 @@ export const marketplaceApi = {
     }
   },
 
+  async getVendors(): Promise<{ success: boolean; vendors: any[] }> {
+    try {
+      const res = await fetch('/api/marketplace/vendors');
+      if (!res.ok) throw new Error('ভেন্ডর তালিকা লোড করা যায়নি');
+      return await res.json();
+    } catch (err: any) {
+      console.warn('Marketplace vendors fetch fallback:', err.message);
+      return { success: false, vendors: [] };
+    }
+  },
+
   async getFeatured(): Promise<any> {
     try {
       const res = await fetch('/api/marketplace/featured');
@@ -115,6 +126,68 @@ export const marketplaceApi = {
       throw new Error(data.error || 'অর্ডার পাওয়া যায়নি');
     }
     return data;
+  },
+
+  async getCustomerOrders(phone: string): Promise<{ success: boolean; orders: any[]; error?: string }> {
+    try {
+      const res = await fetch(`/api/marketplace/customer/orders?phone=${encodeURIComponent(phone.trim())}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'অর্ডার লোড করা যায়নি');
+      return data;
+    } catch (err: any) {
+      return { success: false, orders: [], error: err.message };
+    }
+  },
+
+  async sendOtp(phone: string, deviceToken?: string): Promise<{
+    success: boolean;
+    alreadyVerified?: boolean;
+    verified?: boolean;
+    phone?: string;
+    message?: string;
+    error?: string;
+  }> {
+    const res = await fetch('/api/marketplace/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, deviceToken }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ওটিপি পাঠাতে সমস্যা হয়েছে');
+    return data;
+  },
+
+  async verifyOtp(phone: string, otp: string, deviceToken?: string): Promise<{
+    success: boolean;
+    verified: boolean;
+    phone: string;
+    deviceToken?: string;
+    message?: string;
+    error?: string;
+  }> {
+    const res = await fetch('/api/marketplace/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, otp, deviceToken }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'ভুল ওটিপি কোড');
+    return data;
+  },
+
+  async checkPhoneVerified(phone: string, deviceToken?: string): Promise<{
+    success: boolean;
+    verified: boolean;
+    phone?: string;
+  }> {
+    try {
+      const url = `/api/marketplace/check-phone-verified?phone=${encodeURIComponent(phone.trim())}${deviceToken ? `&deviceToken=${encodeURIComponent(deviceToken)}` : ''}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      return data;
+    } catch {
+      return { success: false, verified: false };
+    }
   },
 
   async cancelOrder(orderId: string, reason?: string): Promise<{ success: boolean; message: string; cancelledOrder?: any }> {
@@ -261,56 +334,6 @@ export const marketplaceApi = {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'উইথড্র আবেদন ব্যর্থ হয়েছে');
     return data;
-  },
-
-  async sendOtp(phone: string): Promise<{
-    success: boolean;
-    message: string;
-    expiresInSeconds?: number;
-    error?: string;
-  }> {
-    const res = await fetch('/api/marketplace/send-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'ওটিপি পাঠাতে সমস্যা হয়েছে');
-    return data;
-  },
-
-  async verifyOtp(phone: string, otp: string): Promise<{
-    success: boolean;
-    verified: boolean;
-    phone?: string;
-    deviceToken?: string;
-    message: string;
-    error?: string;
-  }> {
-    const res = await fetch('/api/marketplace/verify-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, otp }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'ওটিপি যাচাইয়ে ত্রুটি হয়েছে');
-    return data;
-  },
-
-  async checkPhoneVerified(phone: string, deviceToken?: string): Promise<{
-    success: boolean;
-    verified: boolean;
-    phone?: string;
-  }> {
-    try {
-      const q = new URLSearchParams({ phone });
-      if (deviceToken) q.set('deviceToken', deviceToken);
-      const res = await fetch(`/api/marketplace/check-phone-verified?${q.toString()}`);
-      if (!res.ok) return { success: false, verified: false };
-      return await res.json();
-    } catch {
-      return { success: false, verified: false };
-    }
   },
 };
 

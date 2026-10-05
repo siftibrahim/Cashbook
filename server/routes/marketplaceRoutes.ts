@@ -100,7 +100,7 @@ router.get('/feed', async (req: Request, res: Response) => {
           p.description, p.rating, p.review_count, p.is_published_online, 
           p.is_listed_on_marketplace, p.is_featured_on_marketplace, p.marketplace_category_id,
           p.updated_at,
-          COALESCE(s.store_name, u.shop_name, 'ভেন্ডর শপ') as vendor_shop_name,
+          COALESCE(s.store_name, u.shop_name, 'টুইং হিসাবি ভেরিফাইড মার্চেন্ট') as vendor_shop_name,
           COALESCE(s.store_slug, u.phone, p.user_id) as vendor_slug,
           COALESCE(s.phone, u.phone, '') as vendor_phone,
           COALESCE(s.address, u.address, 'বাংলাদেশ') as vendor_address,
@@ -182,7 +182,7 @@ router.get('/feed', async (req: Request, res: Response) => {
         return {
           ...p,
           vendorId: p.userId,
-          vendorShopName: s?.storeName || u?.shopName || 'ভেন্ডর শপ',
+          vendorShopName: s?.storeName || u?.shopName || 'টুইং হিসাবি ভেরিফাইড মার্চেন্ট',
           vendorSlug: s?.storeSlug || u?.phone || p.userId,
           vendorPhone: s?.phone || u?.phone || '',
           vendorAddress: s?.address || u?.address || 'বাংলাদেশ',
@@ -267,6 +267,87 @@ router.get('/categories', async (_req: Request, res: Response) => {
 
     return res.json({ success: true, categories });
   } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 2.1 GET /api/marketplace/vendors - All Verified Twing Hisabi Vendors
+ */
+router.get('/vendors', async (_req: Request, res: Response) => {
+  try {
+    const pool = getDbPool();
+    let vendors: any[] = [];
+
+    if (pool) {
+      const q = `
+        SELECT 
+          u.id, 
+          u.name as owner_name, 
+          u.phone, 
+          COALESCE(s.store_name, u.shop_name, 'টুইং ভেরিফাইড শপ') as shop_name,
+          COALESCE(s.category, u.business_type, 'জেনারেল স্টোর') as category,
+          COALESCE(s.address, u.address, 'বাংলাদেশ') as address,
+          s.logo_url,
+          s.theme_color,
+          COUNT(p.id) as product_count,
+          COALESCE(AVG(p.rating), 4.8) as rating,
+          SUM(COALESCE(p.review_count, 0)) as review_count
+        FROM users u
+        LEFT JOIN online_store_configs s ON s.user_id = u.id
+        LEFT JOIN products p ON p.user_id = u.id AND (p.is_listed_on_marketplace = TRUE OR p.is_featured_on_marketplace = TRUE) AND p.marketplace_status = 'approved' AND p.is_published_online = TRUE
+        WHERE (u.status = 'active' OR u.status IS NULL)
+        GROUP BY u.id, u.name, u.phone, s.store_name, u.shop_name, s.category, u.business_type, s.address, u.address, s.logo_url, s.theme_color
+        ORDER BY product_count DESC, u.registered_at DESC
+      `;
+      const result = await pool.query(q).catch(() => ({ rows: [] }));
+      vendors = (result.rows || []).map((r: any) => ({
+        id: r.id,
+        name: r.shop_name,
+        ownerName: r.owner_name,
+        phone: r.phone,
+        address: r.address,
+        category: r.category,
+        productCount: `${r.product_count || 0}+ পণ্য`,
+        rating: Number(parseFloat(r.rating || 4.8).toFixed(1)),
+        reviews: `${r.review_count || 40}+`,
+        verified: true,
+        isTwingVerified: true,
+        logoUrl: r.logo_url || '',
+        themeColor: r.theme_color || 'teal',
+      }));
+    } else {
+      // In-Memory store
+      const users = (inMemoryStore.users || []).filter((u: any) => u.status === 'active' || !u.status);
+      vendors = users.map((u: any) => {
+        const s = (inMemoryStore.online_store_configs || []).find((c: any) => c.userId === u.id);
+        const userProds = (inMemoryStore.products || []).filter(
+          (p: any) => p.userId === u.id && (p.isListedOnMarketplace || p.isFeaturedOnMarketplace) && p.marketplaceStatus === 'approved' && p.isPublishedOnline !== false
+        );
+        return {
+          id: u.id,
+          name: s?.storeName || u.shop_name || u.shopName || 'টুইং ভেরিফাইড শপ',
+          ownerName: u.name,
+          phone: s?.phone || u.phone || '',
+          address: s?.address || u.address || 'বাংলাদেশ',
+          category: s?.category || u.business_type || u.businessType || 'জেনারেল স্টোর',
+          productCount: `${userProds.length}+ পণ্য`,
+          rating: 4.8,
+          reviews: '৫০+',
+          verified: true,
+          isTwingVerified: true,
+          logoUrl: s?.logoUrl || '',
+          themeColor: s?.themeColor || 'teal',
+        };
+      });
+    }
+
+    return res.json({
+      success: true,
+      vendors,
+    });
+  } catch (err: any) {
+    console.error('Marketplace vendors error:', err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -1592,6 +1673,97 @@ router.get('/events', (req: Request, res: Response) => {
     clearInterval(keepAlive);
     realtimeEvents.removeClient(clientId);
   });
+});
+
+/**
+ * 4.9 GET /api/marketplace/customer/orders - Get all orders by customer phone number
+ */
+router.get('/customer/orders', async (req: Request, res: Response) => {
+  try {
+    const { phone } = req.query;
+    if (!phone || typeof phone !== 'string') {
+      return res.status(400).json({ error: 'মোবাইল নম্বর আবশ্যক' });
+    }
+    const cleanDigits = phone.replace(/[^\d]/g, '');
+    if (cleanDigits.length < 10) {
+      return res.status(400).json({ error: 'সঠিক মোবাইল নম্বর দিন' });
+    }
+    const phoneSuffix = cleanDigits.slice(-10);
+    const pool = getDbPool();
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const result = await pool.query(
+        `SELECT * FROM marketplace_master_orders 
+         WHERE REPLACE(REPLACE(customer_phone, ' ', ''), '-', '') LIKE $1
+         ORDER BY created_at DESC`,
+        [`%${phoneSuffix}`]
+      );
+      const orders = await Promise.all(
+        result.rows.map(async (row) => {
+          const subRes = await pool.query(
+            `SELECT * FROM online_orders WHERE master_order_id = $1 ORDER BY created_at ASC`,
+            [row.id]
+          );
+          return {
+            id: row.id,
+            orderNumber: row.order_number,
+            customerName: row.customer_name,
+            customerPhone: row.customer_phone,
+            customerAddress: row.customer_address,
+            deliveryCity: row.delivery_city,
+            totalProductsAmount: parseFloat(row.total_products_amount) || 0,
+            totalDeliveryCharge: parseFloat(row.total_delivery_charge) || 0,
+            grandTotal: parseFloat(row.grand_total) || 0,
+            paymentMethod: row.payment_method,
+            paymentStatus: row.payment_status,
+            paymentTrxId: row.payment_trx_id,
+            overallStatus: row.overall_status,
+            notes: row.notes,
+            createdAt: Number(row.created_at),
+            subOrders: subRes.rows.map((s) => ({
+              id: s.id,
+              orderNumber: s.order_number,
+              vendorId: s.user_id,
+              vendorShopName: s.vendor_shop_name,
+              status: s.order_status,
+              courierName: s.courier_name,
+              courierTrackingCode: s.courier_tracking_code,
+              deliveryManName: s.delivery_man_name,
+              deliveryManPhone: s.delivery_man_phone,
+              items: typeof s.items === 'string' ? JSON.parse(s.items) : (s.items || []),
+              subtotal: parseFloat(s.subtotal) || 0,
+              deliveryCharge: parseFloat(s.delivery_charge) || 0,
+              totalAmount: parseFloat(s.total_amount) || 0,
+            })),
+          };
+        })
+      );
+      return res.json({ success: true, orders });
+    } else {
+      const allMaster = inMemoryStore.marketplace_master_orders || [];
+      const matched = allMaster
+        .filter((m) => {
+          const mPhone = (m.customerPhone || '').replace(/[^\d]/g, '');
+          return mPhone.endsWith(phoneSuffix);
+        })
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      const orders = matched.map((m) => {
+        const subs = (inMemoryStore.online_orders || []).filter(
+          (o) => o.masterOrderId === m.id || o.masterOrderId === m.orderNumber
+        );
+        return {
+          ...m,
+          subOrders: subs.length > 0 ? subs : m.subOrders || [],
+        };
+      });
+
+      return res.json({ success: true, orders });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 /**

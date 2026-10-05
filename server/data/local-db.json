@@ -6,9 +6,9 @@
       "phone": "01355358890",
       "email": "01355358890@twing.com",
       "password_hash": "$2b$10$3ricMJu7jioZxVB2ryC3cu.PsNPgmpHwoYSGLblwa9pYglitbbHL2",
-      "shop_name": "Eva stor",
-      "business_type": "জেনারেল স্টোর",
-      "address": "বাংলাদেশ",
+      "shop_name": "Eva Store (ইভা স্টোর)",
+      "business_type": "বিউটি ও পার্সোনাল কেয়ার",
+      "address": "গুলশান, ঢাকা",
       "role": "user",
       "status": "active",
       "subscriptionPlan": "১ মাসের স্টার্টার প্যাক",
@@ -16,7 +16,7 @@
       "subscriptionExpiresAt": 1793592035262,
       "registered_at": 1789790435262,
       "last_active_at": 1790901599887,
-      "notes": "অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে"
+      "notes": "টুইংহিসাবি ভেরিফাইড মার্চেন্ট"
     },
     {
       "id": "usr_mudvydt9klkw",
@@ -24,9 +24,9 @@
       "phone": "01778601196",
       "email": "01778601196@twing.com",
       "password_hash": "$2b$10$yyj6PRaaGz5fOZKNcr2yjOy7qlJdVxuD4ZQ516k/T9vSwtrAeukna",
-      "shop_name": "তানজিনা স্টেরন",
-      "business_type": "জেনারেল স্টোর",
-      "address": "বাংলাদেশ",
+      "shop_name": "তানজিনা ফ্যাশন (Tanjina Fashion)",
+      "business_type": "ফ্যাশন ও পোশাক",
+      "address": "ধানমন্ডি, ঢাকা",
       "role": "user",
       "status": "active",
       "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
@@ -34,7 +34,7 @@
       "subscriptionExpiresAt": 1791364412052,
       "registered_at": 1790154812052,
       "last_active_at": 1791083812097,
-      "notes": null
+      "notes": "টুইংহিসাবি ভেরিফাইড মার্চেন্ট"
     },
     {
       "id": "usr_mufp15ah8y5a",
@@ -42,9 +42,9 @@
       "phone": "01746713663",
       "email": "01746713663@twing.com",
       "password_hash": "$2b$10$xTALoccok9hqTwhAbDdD9.e4rXD9VqkxtBDB0NdoOjdUJf4c.ibly",
-      "shop_name": "রমজান স্টোর",
-      "business_type": "জেনারেল স্টোর",
-      "address": "বাংলাদেশ",
+      "shop_name": "রমজান স্টোর (Ramjan Store)",
+      "business_type": "খাদ্য ও গ্রোসারি",
+      "address": "উত্তরা, ঢাকা",
       "role": "user",
       "status": "active",
       "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
@@ -52,7 +52,7 @@
       "subscriptionExpiresAt": 1791473716234,
       "registered_at": 1790264116234,
       "last_active_at": 1790264116234,
-      "notes": null
+      "notes": "টুইংহিসাবি ভেরিফাইড মার্চেন্ট"
     },
     {
       "id": "usr_muomg24mrtzt",
@@ -60,9 +60,9 @@
       "phone": "01926596061",
       "email": "01926596061@twing.com",
       "password_hash": "$2b$10$01G/My0qMnX0v9Qv/Sf5yuuyIlTMiTE2T355g5zh5qv22ZjKp7mMO",
-      "shop_name": "বন্দর প্রিন্টিং প্রেস",
-      "business_type": "জেনারেল স্টোর",
-      "address": "বাংলাদেশ",
+      "shop_name": "বন্দর প্রিন্টিং ও স্টেশনারি",
+      "business_type": "বই ও স্টেশনারি",
+      "address": "আগ্রাবাদ, চট্টগ্রাম",
       "role": "user",
       "status": "active",
       "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
@@ -70,7 +70,7 @@
       "subscriptionExpiresAt": 1792013568720,
       "registered_at": 1790803968720,
       "last_active_at": 1790842421794,
-      "notes": null
+      "notes": "টুইংহিসাবি ভেরিফাইড মার্চেন্ট"
     },
     {
       "id": "usr_mupp4sbguuh1",
@@ -78,9 +78,9 @@
       "phone": "01303327485",
       "email": "01303327485@twing.com",
       "password_hash": "$2b$10$YOz0VtZP2XMcFOt7kkHImeyLm4ENBO5qJrpXaTGYLO6FhAOgHKfj6",
-      "shop_name": "Ma Electronics",
-      "business_type": "জেনারেল স্টোর",
-      "address": "বাংলাদেশ",
+      "shop_name": "Ma Electronics (মা ইলেকট্রনিক্স)",
+      "business_type": "কম্পিউটার ও গ্যাজেট",
+      "address": "মিরপুর-১০, ঢাকা",
       "role": "user",
       "status": "active",
       "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
@@ -88,7 +88,7 @@
       "subscriptionExpiresAt": 1792078547793,
       "registered_at": 1790868947793,
       "last_active_at": 1790868947793,
-      "notes": null
+      "notes": "টুইংহিসাবি ভেরিফাইড মার্চেন্ট"
     },
     {
       "id": "usr_super_admin",
@@ -96,9 +96,9 @@
       "phone": "01306908115",
       "email": "siftibrahim@gmail.com",
       "password_hash": "$2b$10$lZKejmjxA6MrREGW.2TudOFb1MLioYkHcJnlCP.yvGc05yID6NThi",
-      "shop_name": "TWING হিসাবি",
-      "business_type": "জেনারেল স্টোর",
-      "address": "ঢাকা, বাংলাদেশ",
+      "shop_name": "TWING হিসাবি অফিসিয়াল মার্ট",
+      "business_type": "সেন্ট্রাল ভেরিফাইড মার্ট",
+      "address": "মতিঝিল, ঢাকা",
       "role": "super_admin",
       "status": "active",
       "subscriptionPlan": "আজীবন আনলিমিটেড (সুপার অ্যাডমিন)",
@@ -106,7 +106,7 @@
       "subscriptionExpiresAt": 2105147647299,
       "registered_at": 1789787647299,
       "last_active_at": 1789792127578,
-      "notes": null
+      "notes": "টুইংহিসাবি প্রতিষ্ঠাতা ও সুপার অ্যাডমিন"
     }
   ],
   "stores": [],
@@ -114,6 +114,144 @@
   "transactions": [],
   "expenses": [],
   "products": [
+    {
+      "id": "prod_vaseline_blueseal",
+      "name": "Vaseline Blueseal Pure Petroleum Jelly Original (100ml)",
+      "category": "বিউটি ও পার্সোনাল কেয়ার",
+      "unit": "জার",
+      "buyPrice": 380,
+      "salePrice": 670,
+      "originalPrice": 1500,
+      "discountPercent": 55,
+      "rating": 0,
+      "reviewCount": 0,
+      "stock": 50,
+      "minStockAlert": 5,
+      "sku": "VAS-BLUE-100",
+      "imageUrl": "https://images.unsplash.com/photo-1556228720-195a672e8a03?w=500&auto=format&fit=crop&q=80",
+      "description": "১০০% খাঁটি পেট্রোলিয়াম জেলি। শুষ্ক ও রুক্ষ ত্বককে সারাদিন রাখে নরম, কোমল ও সুরক্ষা বলয়ে সুরক্ষিত।",
+      "isPublishedOnline": true,
+      "isListedOnMarketplace": true,
+      "marketplaceStatus": "approved",
+      "isFeaturedOnMarketplace": true,
+      "userId": "usr_mu7v0ixqnql8",
+      "updatedAt": 1791136800000
+    },
+    {
+      "id": "prod_sheglam_blush",
+      "name": "SHEGLAM Color Bloom Liquid Blush Matte Finish",
+      "category": "বিউটি ও পার্সোনাল কেয়ার",
+      "unit": "পিস",
+      "buyPrice": 500,
+      "salePrice": 880,
+      "originalPrice": 1260,
+      "discountPercent": 30,
+      "rating": 0,
+      "reviewCount": 0,
+      "stock": 35,
+      "minStockAlert": 5,
+      "sku": "SHG-BLM-MAT",
+      "imageUrl": "https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=500&auto=format&fit=crop&q=80",
+      "description": "জনপ্রিয় ম্যাট ফিনিশ লিকুইড ব্লাশ। লং-লাস্টিং ফর্মুলা এবং স্পঞ্জ অ্যাপ্লিকেটরসহ সহজে ব্লেন্ডেবল।",
+      "isPublishedOnline": true,
+      "isListedOnMarketplace": true,
+      "marketplaceStatus": "approved",
+      "isFeaturedOnMarketplace": true,
+      "userId": "usr_mu7v0ixqnql8",
+      "updatedAt": 1791136800000
+    },
+    {
+      "id": "prod_neutrogena_sunscreen",
+      "name": "Neutrogena Ultra Sheer Dry-Touch Sunscreen SPF 45",
+      "category": "বিউটি ও পার্সোনাল কেয়ার",
+      "unit": "টিউব",
+      "buyPrice": 1100,
+      "salePrice": 1600,
+      "originalPrice": 2000,
+      "discountPercent": 20,
+      "rating": 4.8,
+      "reviewCount": 34,
+      "stock": 28,
+      "minStockAlert": 4,
+      "sku": "NEU-SHEER-45",
+      "imageUrl": "https://images.unsplash.com/photo-1556228722-d9b3be6477e0?w=500&auto=format&fit=crop&q=80",
+      "description": "হেলিওপ্লেক্স ব্রড স্পেকট্রাম সানস্ক্রিন লোশন। হালকা ও নন-গ্রিসি ড্রাইটাস ফর্মুলা যা ক্ষতিকর রোদ থেকে সুরক্ষা দেয়।",
+      "isPublishedOnline": true,
+      "isListedOnMarketplace": true,
+      "marketplaceStatus": "approved",
+      "isFeaturedOnMarketplace": true,
+      "userId": "usr_mu7v0ixqnql8",
+      "updatedAt": 1791136800000
+    },
+    {
+      "id": "prod_haisenpet_catfood",
+      "name": "Haisenpet Premium Cat Food Chicken, Tuna (1.2KG)",
+      "category": "পোষা প্রাণী ও খাদ্য",
+      "unit": "প্যাকেট",
+      "buyPrice": 550,
+      "salePrice": 750,
+      "originalPrice": 900,
+      "discountPercent": 17,
+      "rating": 0,
+      "reviewCount": 0,
+      "stock": 40,
+      "minStockAlert": 5,
+      "sku": "HAI-CAT-12K",
+      "imageUrl": "https://images.unsplash.com/photo-1589924691995-400dc9ecc119?w=500&auto=format&fit=crop&q=80",
+      "description": "সম্পূর্ণ ব্যালেন্সড পুষ্টিযুক্ত প্রিমিয়াম ক্যাট ফুড। চিকেন ও টুনা ফ্লেভার সমৃদ্ধ এবং শতভাগ কালার-ফ্রি।",
+      "isPublishedOnline": true,
+      "isListedOnMarketplace": true,
+      "marketplaceStatus": "approved",
+      "isFeaturedOnMarketplace": true,
+      "userId": "usr_mufp15ah8y5a",
+      "updatedAt": 1791136800000
+    },
+    {
+      "id": "prod_jungle_catfood",
+      "name": "Jungle Adult Cat Food Chicken & Fish 500g",
+      "category": "পোষা প্রাণী ও খাদ্য",
+      "unit": "প্যাকেট",
+      "buyPrice": 380,
+      "salePrice": 520,
+      "originalPrice": 680,
+      "discountPercent": 23,
+      "rating": 0,
+      "reviewCount": 0,
+      "stock": 45,
+      "minStockAlert": 6,
+      "sku": "JUN-CAT-500G",
+      "imageUrl": "https://images.unsplash.com/photo-1548767797-d8c844163c4c?w=500&auto=format&fit=crop&q=80",
+      "description": "প্রাপ্তবয়স্ক বিড়ালের জন্য পুষ্টিকর ড্রাই ফুড। চিকেন এবং ফিশ সমৃদ্ধ স্বাস্থ্যকর ডায়েট।",
+      "isPublishedOnline": true,
+      "isListedOnMarketplace": true,
+      "marketplaceStatus": "approved",
+      "isFeaturedOnMarketplace": true,
+      "userId": "usr_mufp15ah8y5a",
+      "updatedAt": 1791136800000
+    },
+    {
+      "id": "prod_bengal_shampoo",
+      "name": "Bengal Antiseptic Antifungal Medicated Shampoo for Pets",
+      "category": "পোষা প্রাণী ও খাদ্য",
+      "unit": "বোতল",
+      "buyPrice": 320,
+      "salePrice": 450,
+      "originalPrice": 495,
+      "discountPercent": 9,
+      "rating": 0,
+      "reviewCount": 0,
+      "stock": 30,
+      "minStockAlert": 4,
+      "sku": "BEN-PET-SHMP",
+      "imageUrl": "https://images.unsplash.com/photo-1608248597359-54877dc8d93e?w=500&auto=format&fit=crop&q=80",
+      "description": "পোষা প্রাণীর চর্মরোগ, খুশকি ও চুলকানি নিরাময়ে চিকিৎসকদের অনুমোদিত মেডিকেটেড অ্যান্টিসেপটিক শ্যাম্পু।",
+      "isPublishedOnline": true,
+      "isListedOnMarketplace": true,
+      "marketplaceStatus": "approved",
+      "isFeaturedOnMarketplace": true,
+      "userId": "usr_mufp15ah8y5a",
+      "updatedAt": 1791136800000
+    },
     {
       "id": "prod_galaxy_a15",
       "name": "Samsung Galaxy A15 (6GB+128GB)",
@@ -134,7 +272,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_galaxy_store",
+      "userId": "usr_mupp4sbguuh1",
       "updatedAt": 1791135700000
     },
     {
@@ -157,7 +295,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_tech_world",
+      "userId": "usr_mupp4sbguuh1",
       "updatedAt": 1791135700000
     },
     {
@@ -180,7 +318,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_style_zone",
+      "userId": "usr_mudvydt9klkw",
       "updatedAt": 1791135700000
     },
     {
@@ -203,7 +341,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_home_appliance",
+      "userId": "usr_mupp4sbguuh1",
       "updatedAt": 1791135700000
     },
     {
@@ -226,7 +364,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_beauty_care",
+      "userId": "usr_mudvydt9klkw",
       "updatedAt": 1791135700000
     },
     {
@@ -249,7 +387,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_tech_world",
+      "userId": "usr_mupp4sbguuh1",
       "updatedAt": 1791135700000
     },
     {
@@ -272,7 +410,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_home_appliance",
+      "userId": "usr_mufp15ah8y5a",
       "updatedAt": 1791135700000
     },
     {
@@ -295,7 +433,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_galaxy_store",
+      "userId": "usr_mufp15ah8y5a",
       "updatedAt": 1791135700000
     },
     {
@@ -318,7 +456,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_beauty_care",
+      "userId": "usr_mu7v0ixqnql8",
       "updatedAt": 1791135800000
     },
     {
@@ -341,7 +479,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_galaxy_store",
+      "userId": "usr_mupp4sbguuh1",
       "updatedAt": 1791135800000
     },
     {
@@ -364,7 +502,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_style_zone",
+      "userId": "usr_mudvydt9klkw",
       "updatedAt": 1791135800000
     },
     {
@@ -387,7 +525,7 @@
       "isListedOnMarketplace": true,
       "marketplaceStatus": "approved",
       "isFeaturedOnMarketplace": true,
-      "userId": "usr_home_appliance",
+      "userId": "usr_mupp4sbguuh1",
       "updatedAt": 1791135800000
     }
   ],
@@ -398,51 +536,30 @@
   "support_messages": [],
   "system_config": {},
   "admin_activity_logs": [],
-  "password_reset_otps": [
-    {
-      "id": "2fa_mu8dz0xhmcx0vu",
-      "phone": "01306908115",
-      "userId": "usr_super_admin",
-      "otp": "529445",
-      "expiresAt": 1789823178773,
-      "verified": false,
-      "createdAt": 1789822278773
-    }
-  ],
+  "password_reset_otps": [],
   "trusted_devices": [],
-  "sms_logs": [
-    {
-      "id": "sms_1790613407889_g9i4",
-      "userId": "usr_mu7v0ixqnql8",
-      "customerName": "গ্রাহক",
-      "customerPhone": "01711122233",
-      "message": "Test zero balance",
-      "smsType": "marketplace_order",
-      "status": "sent",
-      "costSms": 1,
-      "createdAt": 1790613406972
-    },
-    {
-      "id": "sms_1790613392852_coq6",
-      "userId": "usr_mu7v0ixqnql8",
-      "customerName": "টেস্ট কাস্টমার",
-      "customerPhone": "01711122233",
-      "message": "Test marketplace order confirmation message",
-      "smsType": "marketplace_order_confirm",
-      "status": "sent",
-      "costSms": 1,
-      "createdAt": 1790613391905
-    }
-  ],
+  "sms_logs": [],
   "sms_purchases": [],
   "online_orders": [],
   "online_store_configs": [
     {
-      "userId": "usr_galaxy_store",
-      "storeName": "Galaxy Store",
-      "storeSlug": "galaxy-store",
-      "category": "মোবাইল ও এক্সেসরিজ",
-      "phone": "01711001122",
+      "userId": "usr_mu7v0ixqnql8",
+      "storeName": "Eva Store (ইভা স্টোর)",
+      "storeSlug": "eva-store",
+      "category": "বিউটি ও পার্সোনাল কেয়ার",
+      "phone": "01355358890",
+      "address": "গুলশান, ঢাকা",
+      "themeColor": "pink",
+      "isEnabled": true,
+      "isStoreAllowedByAdmin": true,
+      "adminStoreStatus": "active"
+    },
+    {
+      "userId": "usr_mupp4sbguuh1",
+      "storeName": "Ma Electronics (মা ইলেকট্রনিক্স)",
+      "storeSlug": "ma-electronics",
+      "category": "কম্পিউটার ও গ্যাজেট",
+      "phone": "01303327485",
       "address": "মিরপুর-১০, ঢাকা",
       "themeColor": "blue",
       "isEnabled": true,
@@ -450,49 +567,49 @@
       "adminStoreStatus": "active"
     },
     {
-      "userId": "usr_tech_world",
-      "storeName": "Tech World",
-      "storeSlug": "tech-world",
-      "category": "কম্পিউটার ও গ্যাজেট",
-      "phone": "01822002233",
-      "address": "আইডিবি ভবন, আগারগাঁও, ঢাকা",
-      "themeColor": "teal",
-      "isEnabled": true,
-      "isStoreAllowedByAdmin": true,
-      "adminStoreStatus": "active"
-    },
-    {
-      "userId": "usr_style_zone",
-      "storeName": "Style Zone",
-      "storeSlug": "style-zone",
-      "category": "ফ্যাশন ও পোশাক",
-      "phone": "01933003344",
-      "address": "উত্তরা সেক্টর ৭, ঢাকা",
-      "themeColor": "purple",
-      "isEnabled": true,
-      "isStoreAllowedByAdmin": true,
-      "adminStoreStatus": "active"
-    },
-    {
-      "userId": "usr_home_appliance",
-      "storeName": "Home Appliance BD",
-      "storeSlug": "home-appliance-bd",
-      "category": "গৃহস্থালী পণ্য",
-      "phone": "01644004455",
-      "address": "নিউ মার্কেট, ঢাকা",
+      "userId": "usr_mufp15ah8y5a",
+      "storeName": "রমজান স্টোর (Ramjan Store)",
+      "storeSlug": "ramjan-store",
+      "category": "খাদ্য ও গ্রোসারি",
+      "phone": "01746713663",
+      "address": "উত্তরা, ঢাকা",
       "themeColor": "emerald",
       "isEnabled": true,
       "isStoreAllowedByAdmin": true,
       "adminStoreStatus": "active"
     },
     {
-      "userId": "usr_beauty_care",
-      "storeName": "Beauty Care",
-      "storeSlug": "beauty-care",
-      "category": "বিউটি ও পার্সোনাল কেয়ার",
-      "phone": "01555005566",
+      "userId": "usr_mudvydt9klkw",
+      "storeName": "তানজিনা ফ্যাশন (Tanjina Fashion)",
+      "storeSlug": "tanjina-fashion",
+      "category": "ফ্যাশন ও পোশাক",
+      "phone": "01778601196",
       "address": "ধানমন্ডি, ঢাকা",
-      "themeColor": "pink",
+      "themeColor": "purple",
+      "isEnabled": true,
+      "isStoreAllowedByAdmin": true,
+      "adminStoreStatus": "active"
+    },
+    {
+      "userId": "usr_muomg24mrtzt",
+      "storeName": "বন্দর প্রিন্টিং ও স্টেশনারি",
+      "storeSlug": "bandar-printing",
+      "category": "বই ও স্টেশনারি",
+      "phone": "01926596061",
+      "address": "আগ্রাবাদ, চট্টগ্রাম",
+      "themeColor": "indigo",
+      "isEnabled": true,
+      "isStoreAllowedByAdmin": true,
+      "adminStoreStatus": "active"
+    },
+    {
+      "userId": "usr_super_admin",
+      "storeName": "TWING হিসাবি অফিসিয়াল মার্ট",
+      "storeSlug": "twing-official",
+      "category": "সেন্ট্রাল ভেরিফাইড মার্ট",
+      "phone": "01306908115",
+      "address": "মতিঝিল, ঢাকা",
+      "themeColor": "teal",
       "isEnabled": true,
       "isStoreAllowedByAdmin": true,
       "adminStoreStatus": "active"

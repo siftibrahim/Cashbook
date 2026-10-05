@@ -24,6 +24,7 @@ import {
 import { MarketplaceCartItem, MarketplaceProduct, MarketplaceMasterOrder } from '../../types';
 import { formatMoney } from '../../utils/storage';
 import { marketplaceApi } from '../../services/marketplaceService';
+import { getStoredCustomer, saveStoredCustomer, VerifiedCustomer } from './CustomerAccountView';
 
 interface MarketplaceCartCheckoutDrawerProps {
   isOpen: boolean;
@@ -53,17 +54,22 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
   paymentSettings,
 }) => {
   const [step, setStep] = useState<'cart' | 'checkout' | 'success'>('cart');
-  const [customerName, setCustomerName] = useState(() => localStorage.getItem('twing_mkt_cust_name') || '');
-  const [customerPhone, setCustomerPhone] = useState(() => localStorage.getItem('twing_mkt_cust_phone') || '');
-  const [customerAddress, setCustomerAddress] = useState(() => localStorage.getItem('twing_mkt_cust_address') || '');
-  const [deliveryCity, setDeliveryCity] = useState<'dhaka' | 'outside'>('dhaka');
+  const storedCust = getStoredCustomer();
+  const [customerName, setCustomerName] = useState(() => storedCust?.name || localStorage.getItem('twing_mkt_cust_name') || '');
+  const [customerPhone, setCustomerPhone] = useState(() => storedCust?.phone || localStorage.getItem('twing_mkt_cust_phone') || '');
+  const [customerAddress, setCustomerAddress] = useState(() => storedCust?.address || localStorage.getItem('twing_mkt_cust_address') || '');
+  const [deliveryCity, setDeliveryCity] = useState<'dhaka' | 'outside'>(() => (storedCust?.city as 'dhaka' | 'outside') || 'dhaka');
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'bkash' | 'nagad' | 'rocket' | 'online_paymently'>('cod');
   const [paymentTrxId, setPaymentTrxId] = useState('');
   const [senderPhone, setSenderPhone] = useState('');
   const [notes, setNotes] = useState('');
 
-  // OTP Verification state
-  const [isPhoneVerified, setIsPhoneVerified] = useState(true);
+  // Device-level OTP Verification state
+  const [isPhoneVerified, setIsPhoneVerified] = useState<boolean>(() => Boolean(getStoredCustomer()?.isVerified));
+  const [showOtpBox, setShowOtpBox] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [otpSuccessMessage, setOtpSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [confirmedOrder, setConfirmedOrder] = useState<MarketplaceMasterOrder | null>(null);
@@ -82,7 +88,7 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
 
     cart.forEach((item) => {
       const vId = item.product.vendorId || (item.product as any).userId || 'vendor_official';
-      const vName = item.product.vendorShopName || 'ভেন্ডর শপ';
+      const vName = item.product.vendorShopName || 'টুইং হিসাবি ভেরিফাইড মার্চেন্ট';
       const vAddress = item.product.vendorAddress || 'বাংলাদেশ';
       const vPhone = item.product.vendorPhone || '';
 
@@ -118,42 +124,40 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
 
   const grandTotal = totalProductsAmount + totalDeliveryCharge;
 
-  const handleCheckoutSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customerName.trim() || !customerPhone.trim() || !customerAddress.trim()) {
-      setSubmitError('অনুগ্রহ করে নাম, মোবাইল নম্বর এবং সম্পূর্ণ ঠিকানা প্রদান করুন।');
-      return;
-    }
-
-    if (cart.length === 0) {
-      setSubmitError('আপনার কার্ট খালি।');
-      return;
-    }
-
-    if (paymentMethod !== 'cod' && paymentMethod !== 'online_paymently' && !paymentTrxId.trim()) {
-      setSubmitError('অনুগ্রহ করে পেমেন্ট ট্রানজেকশন আইডি (TrxID) লিখুন।');
-      return;
-    }
-
-    setSubmitError('');
+  const executeOrderPlacement = async () => {
     setIsSubmitting(true);
-
+    setSubmitError('');
     try {
-      // Save info for future visits
-      try {
-        localStorage.setItem('twing_mkt_cust_name', customerName);
-        localStorage.setItem('twing_mkt_cust_phone', customerPhone);
-        localStorage.setItem('twing_mkt_cust_address', customerAddress);
-      } catch {}
+      const cleanPhone = customerPhone.replace(/[^\d+]/g, '').trim();
+      const standardPhone = cleanPhone.startsWith('+88')
+        ? cleanPhone.slice(3)
+        : cleanPhone.startsWith('88')
+        ? cleanPhone.slice(2)
+        : cleanPhone;
+
+      const deviceToken = localStorage.getItem('twing_customer_device_token') || 'dev_' + Date.now().toString(36);
+      localStorage.setItem('twing_customer_device_token', deviceToken);
+
+      // Save customer verified record to device permanently
+      saveStoredCustomer({
+        id: 'cust_' + standardPhone,
+        name: customerName.trim(),
+        phone: standardPhone,
+        address: customerAddress.trim(),
+        city: deliveryCity,
+        deviceToken,
+        isVerified: true,
+        verifiedAt: new Date().toISOString(),
+      });
 
       const payload = {
         customerName: customerName.trim(),
-        customerPhone: customerPhone.trim(),
+        customerPhone: standardPhone,
         customerAddress: customerAddress.trim(),
         deliveryCity,
         paymentMethod,
         paymentTrxId: paymentTrxId.trim(),
-        senderPhone: senderPhone.trim() || customerPhone.trim(),
+        senderPhone: senderPhone.trim() || standardPhone,
         notes: notes.trim(),
         isPhoneVerified: true,
         items: cart.map((item) => ({
@@ -179,6 +183,98 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
       }
     } catch (err: any) {
       setSubmitError(err.message || 'অর্ডারে ত্রুটি হয়েছে। অনুগ্রহ করে ইন্টারনেট সংযোগ পরীক্ষা করুন।');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCheckoutSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customerName.trim() || !customerPhone.trim() || !customerAddress.trim()) {
+      setSubmitError('অনুগ্রহ করে নাম, মোবাইল নম্বর এবং সম্পূর্ণ ঠিকানা প্রদান করুন।');
+      return;
+    }
+
+    const cleanPhone = customerPhone.replace(/[^\d+]/g, '').trim();
+    const standardPhone = cleanPhone.startsWith('+88')
+      ? cleanPhone.slice(3)
+      : cleanPhone.startsWith('88')
+      ? cleanPhone.slice(2)
+      : cleanPhone;
+
+    if (standardPhone.length !== 11 || !standardPhone.startsWith('01')) {
+      setSubmitError('অনুগ্রহ করে সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 01XXXXXXXXX)');
+      return;
+    }
+
+    if (cart.length === 0) {
+      setSubmitError('আপনার কার্ট খালি।');
+      return;
+    }
+
+    if (paymentMethod !== 'cod' && paymentMethod !== 'online_paymently' && !paymentTrxId.trim()) {
+      setSubmitError('অনুগ্রহ করে পেমেন্ট ট্রানজেকশন আইডি (TrxID) লিখুন।');
+      return;
+    }
+
+    // Check if phone or device is verified
+    if (!isPhoneVerified) {
+      // Send OTP and open OTP confirmation box
+      setIsSendingOtp(true);
+      setSubmitError('');
+      try {
+        const deviceToken = localStorage.getItem('twing_customer_device_token') || 'dev_' + Date.now().toString(36);
+        localStorage.setItem('twing_customer_device_token', deviceToken);
+
+        const res = await marketplaceApi.sendOtp(standardPhone, deviceToken);
+        if (res.alreadyVerified || res.verified) {
+          setIsPhoneVerified(true);
+          await executeOrderPlacement();
+          return;
+        }
+
+        setShowOtpBox(true);
+        setOtpSuccessMessage(res.message || 'মোবাইলে পাঠানো ওটিপি কোডটি লিখুন');
+      } catch (err: any) {
+        setSubmitError(err.message || 'ওটিপি পাঠাতে সমস্যা হয়েছে। পুনরায় চেষ্টা করুন।');
+      } finally {
+        setIsSendingOtp(false);
+      }
+      return;
+    }
+
+    // Already verified on this device! Directly place order
+    await executeOrderPlacement();
+  };
+
+  const handleVerifyOtpAndPlaceOrder = async () => {
+    if (!otpCode.trim()) {
+      setSubmitError('ওটিপি কোডটি লিখুন');
+      return;
+    }
+
+    const cleanPhone = customerPhone.replace(/[^\d+]/g, '').trim();
+    const standardPhone = cleanPhone.startsWith('+88')
+      ? cleanPhone.slice(3)
+      : cleanPhone.startsWith('88')
+      ? cleanPhone.slice(2)
+      : cleanPhone;
+
+    setIsSubmitting(true);
+    setSubmitError('');
+    try {
+      const deviceToken = localStorage.getItem('twing_customer_device_token') || 'dev_' + Date.now().toString(36);
+      const res = await marketplaceApi.verifyOtp(standardPhone, otpCode.trim(), deviceToken);
+
+      if (res.success && res.verified) {
+        setIsPhoneVerified(true);
+        setShowOtpBox(false);
+        await executeOrderPlacement();
+      } else {
+        setSubmitError(res.error || 'ভুল ওটিপি কোড! অনুগ্রহ করে আবার চেষ্টা করুন।');
+      }
+    } catch (err: any) {
+      setSubmitError(err.message || 'ভুল ওটিপি কোড! সঠিক কোডটি দিন।');
     } finally {
       setIsSubmitting(false);
     }
@@ -216,7 +312,7 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
                   {step === 'success' && 'অর্ডার নিশ্চিত হয়েছে 🎉'}
                 </h2>
                 <p className="text-xs text-slate-500">
-                  {step === 'cart' && `${vendorGroups.length} টি ভেন্ডর শপ থেকে পণ্য`}
+                  {step === 'cart' && `${vendorGroups.length} টি টুইং হিসাবি ভেরিফাইড শপ থেকে পণ্য`}
                   {step === 'checkout' && 'ভেন্ডরভিত্তিক পৃথক অটোমেটিক অর্ডার প্রস্তুত করা হবে'}
                   {step === 'success' && 'সরাসরি ভেন্ডর ওয়্যারহাউসে অর্ডার পাঠানো হয়েছে'}
                 </p>
@@ -372,6 +468,81 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
                     <User className="w-3.5 h-3.5 text-[#0b63e5]" />
                     <span>১. গ্রাহকের ডেলিভারি ঠিকানা</span>
                   </h3>
+
+                  {/* Device Verification Status Banner */}
+                  {isPhoneVerified ? (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <div>
+                          <span className="font-extrabold">ভেরিফাইড কাস্টমার একাউন্ট</span>
+                          <p className="text-[10px] text-emerald-700">এই ডিভাইসে পূর্বে ভেরিফাই করা হয়েছে — আর ওটিপি কোড লাগবে না!</p>
+                        </div>
+                      </div>
+                      <span className="bg-emerald-200/90 text-emerald-900 text-[10px] font-black px-2 py-0.5 rounded-full shrink-0">
+                        ✓ সুরক্ষিত
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <ShieldCheck className="w-4 h-4 text-[#0b63e5] shrink-0" />
+                        <span>প্রথমবার অর্ডারে একাউন্ট তৈরি ও ভেরিফিকেশন</span>
+                      </div>
+                      <p className="text-[11px] text-blue-700 leading-relaxed">
+                        অর্ডার করার সময় আপনার মোবাইল নম্বরটি একবার ভেরিফাই করলেই আপনার একাউন্ট স্থায়ীভাবে তৈরি হয়ে যাবে। ভবিষ্যতে এই ডিভাইসে আর ভেরিফাই করতে হবে না।
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Inline OTP Verification Box */}
+                  {showOtpBox && (
+                    <div className="p-4 bg-emerald-50/90 border-2 border-emerald-500 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Phone className="w-4 h-4 text-emerald-700" />
+                          <span className="text-xs font-black text-emerald-950">
+                            মোবাইল নম্বর যাচাই কোড ({customerPhone})
+                          </span>
+                        </div>
+                        <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded-md">
+                          টেস্ট কোড: 123456
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800">
+                        {otpSuccessMessage || 'আপনার নম্বরে পাঠানো কোডটি লিখুন (একটি ডিভাইসে একবার ভেরিফাই করলেই যথেষ্ট):'}
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          maxLength={6}
+                          autoFocus
+                          placeholder="123456"
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value)}
+                          className="w-36 text-center font-mono font-black text-base px-3 py-2 bg-white border border-emerald-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleVerifyOtpAndPlaceOrder}
+                          disabled={isSubmitting || !otpCode.trim()}
+                          className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>যাচাই হচ্ছে...</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>যাচাই ও অর্ডার দিন</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="space-y-2.5">
                     <div>

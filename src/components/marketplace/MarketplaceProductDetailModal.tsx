@@ -204,31 +204,31 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
                     )}
                   </div>
 
-                  {/* Vendor Details Box */}
-                  <div className="p-3 bg-white rounded-2xl border border-blue-200 flex items-center justify-between shadow-2xs">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-10 h-10 rounded-xl bg-white border border-blue-200 text-[#0b63e5] flex items-center justify-center font-black shadow-2xs">
-                        <Store className="w-5 h-5" />
+                  {/* TWING Hisabi Verified Vendor Details Box */}
+                  <div className="p-3.5 bg-gradient-to-r from-emerald-50/70 to-teal-50/50 rounded-2xl border border-emerald-200/80 flex items-center justify-between shadow-2xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-white border border-emerald-300 text-emerald-700 flex items-center justify-center font-black shadow-xs shrink-0">
+                        <ShieldCheck className="w-5 h-5 text-emerald-600" />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-black text-slate-900">
-                            {product.vendorShopName || 'ভেরিফাইড ভেন্ডর'}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-black text-slate-900 truncate">
+                            {product.vendorShopName || 'টুইং অনুমোদিত ভেন্ডোর শপ'}
                           </span>
-                          <span className="bg-[#0b63e5] text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full flex items-center gap-0.5">
-                            ✓ ভেরিফাইড
+                          <span className="bg-emerald-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-0.5 shadow-2xs">
+                            ✓ TWING হিসাবি ভেরিফাইড
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-500">
-                          {product.vendorAddress || 'ঢাকা, বাংলাদেশ'}
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {product.vendorAddress || 'বাংলাদেশ'} · অনুমোদিত মার্চেন্ট
                         </p>
                       </div>
                     </div>
                     {onVisitVendor && (
                       <button
                         type="button"
-                        onClick={() => onVisitVendor(product.vendorId, product.vendorShopName || 'ভেন্ডর')}
-                        className="px-3 py-1.5 bg-white hover:bg-blue-50 text-[#0b63e5] text-xs font-bold rounded-xl border border-blue-200 transition cursor-pointer shadow-2xs"
+                        onClick={() => onVisitVendor(product.vendorId, product.vendorShopName || 'ভেরিফাইড শপ')}
+                        className="px-3 py-1.5 bg-white hover:bg-emerald-50 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-300 transition cursor-pointer shadow-2xs shrink-0 ml-2"
                       >
                         শপ ভিজিট করুন
                       </button>
