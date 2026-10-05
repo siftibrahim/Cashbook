@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -74,6 +74,20 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
   const [submitError, setSubmitError] = useState('');
   const [confirmedOrder, setConfirmedOrder] = useState<MarketplaceMasterOrder | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+
+  // Sync stored customer profile whenever checkout drawer opens
+  useEffect(() => {
+    if (isOpen) {
+      const cust = getStoredCustomer();
+      if (cust) {
+        if (cust.name) setCustomerName(cust.name);
+        if (cust.phone) setCustomerPhone(cust.phone);
+        if (cust.address) setCustomerAddress(cust.address);
+        if (cust.city) setDeliveryCity((cust.city as 'dhaka' | 'outside') || 'dhaka');
+        setIsPhoneVerified(Boolean(cust.isVerified));
+      }
+    }
+  }, [isOpen]);
 
   // Group cart items automatically BY VENDOR
   const vendorGroups = useMemo(() => {
@@ -855,7 +869,7 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
                       </>
                     ) : (
                       <>
-                        <span>অর্ডার নিশ্চিত করুন</span>
+                        <span>{isPhoneVerified ? 'অর্ডার নিশ্চিত করুন' : 'ডিভাইস ভেরিফাই ও অর্ডার দিন'}</span>
                         <CheckCircle2 className="w-4 h-4" />
                       </>
                     )}

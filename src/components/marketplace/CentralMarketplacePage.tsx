@@ -61,6 +61,7 @@ import { SystemPaymentSettings } from '../../types/adminTypes';
 import { MarketplaceProductDetailModal } from './MarketplaceProductDetailModal';
 import { MarketplaceVendorStoreModal } from './MarketplaceVendorStoreModal';
 import { MarketplaceCartCheckoutDrawer } from './MarketplaceCartCheckoutDrawer';
+import { CustomerAccountView, getStoredCustomer } from './CustomerAccountView';
 import { MarketplaceLiveTrackingMap } from './MarketplaceLiveTrackingMap';
 import { StorefrontSupportDrawer } from '../storefront/StorefrontSupportDrawer';
 import { StorefrontNotificationDrawer } from '../storefront/StorefrontNotificationDrawer';
@@ -308,6 +309,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
+  const [verifiedCustomer, setVerifiedCustomer] = useState(() => getStoredCustomer());
 
   // Cart state - strictly user's real saved cart
   const [cart, setCart] = useState<MarketplaceCartItem[]>(() => {
@@ -707,14 +710,22 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
           {/* Right Action Icons */}
           <div className="flex items-center gap-4 sm:gap-6 shrink-0 text-slate-700">
-            {/* Login / Registration */}
+            {/* Customer Account & Device Verification */}
             <button
               type="button"
-              onClick={onMerchantLogin || onBackToDashboard}
+              onClick={() => setIsCustomerAccountOpen(true)}
               className="flex items-center gap-1.5 text-xs font-bold hover:text-[#0052cc] transition cursor-pointer"
+              title="কাস্টমার অ্যাকাউন্ট ও ডিভাইস ভেরিফিকেশন"
             >
-              <User className="w-4 h-4 text-slate-600" />
-              <span className="hidden sm:inline">লগইন / রেজিস্টার</span>
+              <div className="relative">
+                <User className="w-4 h-4 text-slate-600" />
+                {verifiedCustomer?.isVerified && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
+                )}
+              </div>
+              <span className="hidden sm:inline">
+                {verifiedCustomer?.name ? verifiedCustomer.name : 'আমার অ্যাকাউন্ট'}
+              </span>
             </button>
 
             {/* Wishlist */}
@@ -1157,11 +1168,18 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                       <span>আমার পছন্দের তালিকা</span>
                     </div>
                     <div
-                      onClick={onMerchantLogin || onBackToDashboard}
-                      className="flex items-center gap-2 hover:text-[#0052cc] cursor-pointer"
+                      onClick={() => setIsCustomerAccountOpen(true)}
+                      className="flex items-center justify-between hover:text-[#0052cc] cursor-pointer"
                     >
-                      <User className="w-3.5 h-3.5 text-slate-400" />
-                      <span>আমার অ্যাকাউন্ট</span>
+                      <div className="flex items-center gap-2">
+                        <User className="w-3.5 h-3.5 text-slate-400" />
+                        <span>আমার অ্যাকাউন্ট</span>
+                      </div>
+                      {verifiedCustomer?.isVerified && (
+                        <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full">
+                          ভেরিফাইড
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2061,10 +2079,20 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
         <button
           type="button"
-          onClick={onMerchantLogin || onBackToDashboard}
-          className="flex flex-col items-center gap-0.5 p-1 rounded-xl text-slate-500"
+          onClick={() => {
+            setMobileBottomTab('account');
+            setIsCustomerAccountOpen(true);
+          }}
+          className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition cursor-pointer relative ${
+            isCustomerAccountOpen || mobileBottomTab === 'account' ? 'text-[#0052cc] font-black' : 'text-slate-500'
+          }`}
         >
-          <span className="text-lg">👤</span>
+          <div className="relative">
+            <span className="text-lg">👤</span>
+            {verifiedCustomer?.isVerified && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
+            )}
+          </div>
           <span className="text-[10px]">আমার অ্যাকাউন্ট</span>
         </button>
       </nav>
@@ -2119,6 +2147,21 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           handleTrackOrder(undefined, ordNum);
         }}
         paymentSettings={paymentSettings}
+      />
+
+      {/* Central Marketplace Customer Account & Device Verification Modal */}
+      <CustomerAccountView
+        isOpen={isCustomerAccountOpen}
+        onClose={() => {
+          setIsCustomerAccountOpen(false);
+          setVerifiedCustomer(getStoredCustomer());
+        }}
+        onOpenTracking={(ordNum) => {
+          setNavTab('orders');
+          setTrackingSearchQuery(ordNum);
+          handleTrackOrder(undefined, ordNum);
+        }}
+        onOpenCart={() => setIsCartOpen(true)}
       />
 
       {/* Notifications Drawer */}
