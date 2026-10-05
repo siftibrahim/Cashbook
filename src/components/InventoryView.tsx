@@ -480,12 +480,30 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     </div>
                   </div>
 
-                  {p.isListedOnMarketplace && (
-                    <div className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-teal-800 bg-teal-50 border border-teal-200/80 px-2 py-0.5 rounded-md w-fit">
+                  <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = !p.isListedOnMarketplace;
+                        onUpdateProduct({ ...p, isListedOnMarketplace: updated, updatedAt: Date.now() });
+                        onShowToast(updated ? `🛍️ '${p.name}' TWING Marketplace-এ সফলভাবে প্রকাশিত হয়েছে!` : `'${p.name}' মার্কেটপ্লেস থেকে সরানো হয়েছে`);
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-black transition cursor-pointer flex items-center gap-1 border ${
+                        p.isListedOnMarketplace
+                          ? 'bg-blue-50 text-[#0b63e5] border-blue-200 hover:bg-blue-100'
+                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-blue-50 hover:text-[#0b63e5] hover:border-blue-300'
+                      }`}
+                      title={p.isListedOnMarketplace ? "মার্কেটপ্লেস থেকে বাদ দিন" : "Publish to TWING Marketplace"}
+                    >
                       <span>🛍️</span>
-                      <span>মার্কেটপ্লেস লাইভ</span>
-                    </div>
-                  )}
+                      <span>{p.isListedOnMarketplace ? 'TWING Marketplace লাইভ' : 'Publish to TWING Marketplace'}</span>
+                    </button>
+                    {p.isListedOnMarketplace && (
+                      <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                        ✓ সিঙ্কড
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Stock Controls & Actions */}
@@ -514,22 +532,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = !p.isListedOnMarketplace;
-                        onUpdateProduct({ ...p, isListedOnMarketplace: updated, updatedAt: Date.now() });
-                        onShowToast(updated ? `🛍️ '${p.name}' সেন্ট্রাল মার্কেটপ্লেসে যুক্ত হয়েছে` : `'${p.name}' মার্কেটপ্লেস থেকে সরানো হয়েছে`);
-                      }}
-                      className={`p-1.5 rounded-lg transition cursor-pointer ${
-                        p.isListedOnMarketplace
-                          ? 'bg-teal-50 text-teal-700 hover:bg-teal-100'
-                          : 'text-slate-400 hover:text-teal-700 hover:bg-slate-100'
-                      }`}
-                      title={p.isListedOnMarketplace ? "সেন্ট্রাল মার্কেটপ্লেস থেকে বাদ দিন" : "সেন্ট্রাল মার্কেটপ্লেসে প্রদর্শন করুন"}
-                    >
-                      <span className="text-xs">🛍️</span>
-                    </button>
                     {onOpenProductQr && (
                       <button
                         type="button"
@@ -946,20 +948,20 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 </div>
               </div>
 
-              {/* Central Marketplace Listing Toggle */}
-              <div className="p-3.5 bg-gradient-to-r from-teal-50/90 to-emerald-50/90 border border-teal-200 rounded-xl flex items-center justify-between gap-3">
+              {/* Publish to TWING Marketplace Listing Toggle */}
+              <div className="p-3.5 bg-gradient-to-r from-blue-50/90 to-indigo-50/90 border border-blue-200 rounded-xl flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className="text-xl shrink-0">🛍️</span>
                   <div>
-                    <p className="text-xs font-bold text-teal-950">সেন্ট্রাল মার্কেটপ্লেসে প্রদর্শন</p>
-                    <p className="text-[11px] text-teal-700">CentralMarketplace.twinghisabi.site-এ পণ্যটি সারা দেশের ক্রেতাদের দেখান</p>
+                    <p className="text-xs font-black text-[#0b63e5]">Publish to TWING Marketplace</p>
+                    <p className="text-[11px] text-slate-600">আপনার পণ্য TWING Marketplace-এ প্রকাশ করুন এবং অনলাইনে ব্যবসা বৃদ্ধি করুন। একই স্টক ও ইনভেন্টরি ব্যবহৃত হবে।</p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsListedOnMarketplace(!isListedOnMarketplace)}
                   className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-200 ease-in-out shrink-0 cursor-pointer ${
-                    isListedOnMarketplace ? 'bg-teal-600 justify-end' : 'bg-slate-300 justify-start'
+                    isListedOnMarketplace ? 'bg-[#0b63e5] justify-end' : 'bg-slate-300 justify-start'
                   }`}
                 >
                   <div className="bg-white w-4 h-4 rounded-full shadow-md transform transition" />
