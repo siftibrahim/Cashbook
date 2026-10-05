@@ -6,9 +6,9 @@
       "phone": "01355358890",
       "email": "01355358890@twing.com",
       "password_hash": "$2b$10$3ricMJu7jioZxVB2ryC3cu.PsNPgmpHwoYSGLblwa9pYglitbbHL2",
-      "shop_name": "Eva Store (ইভা স্টোর)",
-      "business_type": "বিউটি ও পার্সোনাল কেয়ার",
-      "address": "গুলশান, ঢাকা",
+      "shop_name": "Eva stor",
+      "business_type": "জেনারেল স্টোর",
+      "address": "বাংলাদেশ",
       "role": "user",
       "status": "active",
       "subscriptionPlan": "১ মাসের স্টার্টার প্যাক",
@@ -16,7 +16,7 @@
       "subscriptionExpiresAt": 1793592035262,
       "registered_at": 1789790435262,
       "last_active_at": 1790901599887,
-      "notes": "টুইংহিসাবি ভেরিফাইড মার্চেন্ট"
+      "notes": "অ্যাডমিন কর্তৃক আনব্লক করা হয়েছে"
     },
     {
       "id": "usr_mudvydt9klkw",
@@ -24,17 +24,17 @@
       "phone": "01778601196",
       "email": "01778601196@twing.com",
       "password_hash": "$2b$10$yyj6PRaaGz5fOZKNcr2yjOy7qlJdVxuD4ZQ516k/T9vSwtrAeukna",
-      "shop_name": "তানজিনা ফ্যাশন (Tanjina Fashion)",
-      "business_type": "ফ্যাশন ও পোশাক",
-      "address": "ধানমন্ডি, ঢাকা",
+      "shop_name": "তানজিনা স্টেরন",
+      "business_type": "জেনারেল স্টোর",
+      "address": "বাংলাদেশ",
       "role": "user",
       "status": "active",
       "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
       "subscriptionStatus": "trial",
       "subscriptionExpiresAt": 1791364412052,
       "registered_at": 1790154812052,
-      "last_active_at": 1791083812097,
-      "notes": "টুইংহিসাবি ভেরিফাইড মার্চেন্ট"
+      "last_active_at": 1791179086102,
+      "notes": null
     },
     {
       "id": "usr_mufp15ah8y5a",
@@ -42,9 +42,9 @@
       "phone": "01746713663",
       "email": "01746713663@twing.com",
       "password_hash": "$2b$10$xTALoccok9hqTwhAbDdD9.e4rXD9VqkxtBDB0NdoOjdUJf4c.ibly",
-      "shop_name": "রমজান স্টোর (Ramjan Store)",
-      "business_type": "খাদ্য ও গ্রোসারি",
-      "address": "উত্তরা, ঢাকা",
+      "shop_name": "রমজান স্টোর",
+      "business_type": "জেনারেল স্টোর",
+      "address": "বাংলাদেশ",
       "role": "user",
       "status": "active",
       "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
@@ -52,7 +52,7 @@
       "subscriptionExpiresAt": 1791473716234,
       "registered_at": 1790264116234,
       "last_active_at": 1790264116234,
-      "notes": "টুইংহিসাবি ভেরিফাইড মার্চেন্ট"
+      "notes": null
     },
     {
       "id": "usr_muomg24mrtzt",
@@ -60,9 +60,9 @@
       "phone": "01926596061",
       "email": "01926596061@twing.com",
       "password_hash": "$2b$10$01G/My0qMnX0v9Qv/Sf5yuuyIlTMiTE2T355g5zh5qv22ZjKp7mMO",
-      "shop_name": "বন্দর প্রিন্টিং ও স্টেশনারি",
-      "business_type": "বই ও স্টেশনারি",
-      "address": "আগ্রাবাদ, চট্টগ্রাম",
+      "shop_name": "বন্দর প্রিন্টিং প্রেস",
+      "business_type": "জেনারেল স্টোর",
+      "address": "বাংলাদেশ",
       "role": "user",
       "status": "active",
       "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
@@ -70,7 +70,7 @@
       "subscriptionExpiresAt": 1792013568720,
       "registered_at": 1790803968720,
       "last_active_at": 1790842421794,
-      "notes": "টুইংহিসাবি ভেরিফাইড মার্চেন্ট"
+      "notes": null
     },
     {
       "id": "usr_mupp4sbguuh1",
@@ -78,9 +78,9 @@
       "phone": "01303327485",
       "email": "01303327485@twing.com",
       "password_hash": "$2b$10$YOz0VtZP2XMcFOt7kkHImeyLm4ENBO5qJrpXaTGYLO6FhAOgHKfj6",
-      "shop_name": "Ma Electronics (মা ইলেকট্রনিক্স)",
-      "business_type": "কম্পিউটার ও গ্যাজেট",
-      "address": "মিরপুর-১০, ঢাকা",
+      "shop_name": "Ma Electronics",
+      "business_type": "জেনারেল স্টোর",
+      "address": "বাংলাদেশ",
       "role": "user",
       "status": "active",
       "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
@@ -88,7 +88,7 @@
       "subscriptionExpiresAt": 1792078547793,
       "registered_at": 1790868947793,
       "last_active_at": 1790868947793,
-      "notes": "টুইংহিসাবি ভেরিফাইড মার্চেন্ট"
+      "notes": null
     },
     {
       "id": "usr_super_admin",
@@ -96,9 +96,9 @@
       "phone": "01306908115",
       "email": "siftibrahim@gmail.com",
       "password_hash": "$2b$10$lZKejmjxA6MrREGW.2TudOFb1MLioYkHcJnlCP.yvGc05yID6NThi",
-      "shop_name": "TWING হিসাবি অফিসিয়াল মার্ট",
-      "business_type": "সেন্ট্রাল ভেরিফাইড মার্ট",
-      "address": "মতিঝিল, ঢাকা",
+      "shop_name": "TWING হিসাবি",
+      "business_type": "জেনারেল স্টোর",
+      "address": "ঢাকা, বাংলাদেশ",
       "role": "super_admin",
       "status": "active",
       "subscriptionPlan": "আজীবন আনলিমিটেড (সুপার অ্যাডমিন)",
@@ -106,7 +106,7 @@
       "subscriptionExpiresAt": 2105147647299,
       "registered_at": 1789787647299,
       "last_active_at": 1789792127578,
-      "notes": "টুইংহিসাবি প্রতিষ্ঠাতা ও সুপার অ্যাডমিন"
+      "notes": null
     }
   ],
   "stores": [],

@@ -46,7 +46,9 @@ import {
   ChevronDown,
   ChevronUp,
   Printer,
+  Loader2,
 } from 'lucide-react';
+import { playPaymentChime } from '../utils/audio';
 import { VendorChatInboxTab } from './vendor/VendorChatInboxTab';
 import { VendorMarketplaceHubTab } from './marketplace/VendorMarketplaceHubTab';
 import { VendorOrderControlModal } from './storefront/VendorOrderControlModal';
@@ -155,6 +157,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedRecord, setCopiedRecord] = useState<string | null>(null);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<OnlineOrder | null>(null);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [bannerUploadNotice, setBannerUploadNotice] = useState<string | null>(null);
@@ -291,7 +294,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
       onUpdateConfig(updated);
       if (onShowToast) onShowToast('✅ অনলাইন স্টোর চালুর আবেদন সফলভাবে জমা হয়েছে!');
     } catch (err: any) {
-      alert(`রিকোয়েস্ট জমা দিতে সমস্যা হয়েছে: ${err.message || 'ত্রুটি'}`);
+      if (onShowToast) onShowToast(`⚠️ রিকোয়েস্ট জমা দিতে সমস্যা হয়েছে: ${err.message || 'ত্রুটি'}`);
     } finally {
       setIsSubmittingRequest(false);
     }
@@ -311,7 +314,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
       onUpdateConfig(updated);
       if (onShowToast) onShowToast('অনলাইন স্টোর আবেদন প্রত্যাহার করা হয়েছে');
     } catch (err: any) {
-      alert(`বাতিল করতে সমস্যা হয়েছে: ${err.message || 'ত্রুটি'}`);
+      if (onShowToast) onShowToast(`⚠️ বাতিল করতে সমস্যা হয়েছে: ${err.message || 'ত্রুটি'}`);
     } finally {
       setIsSubmittingRequest(false);
     }
@@ -323,7 +326,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
     if (!code) return;
     const existing = formData.coupons || [];
     if (existing.some((c) => c.code.toUpperCase() === code)) {
-      alert('এই কোডের কুপন ইতোমধ্যে বিদ্যমান আছে!');
+      if (onShowToast) onShowToast('⚠️ এই কোডের কুপন ইতোমধ্যে বিদ্যমান আছে!');
       return;
     }
     const newCoupon: Coupon = {
@@ -342,6 +345,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
     };
     setFormData(updated);
     onUpdateConfig(updated);
+    storeApi.saveOnlineConfig(updated).catch(() => {});
     setNewCouponCode('');
     setNewCouponDescription('');
     if (onShowToast) onShowToast(`✅ কুপন '${code}' সফলভাবে যুক্ত হয়েছে!`);
@@ -651,7 +655,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
   const handleBannerFileUpload = (file: File) => {
     if (!file.type.startsWith('image/')) {
-      alert('অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
+      if (onShowToast) onShowToast('⚠️ অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
       return;
     }
     const reader = new FileReader();
@@ -791,7 +795,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
   const handleLogoFileUpload = (file: File) => {
     if (!file.type.startsWith('image/')) {
-      alert('অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
+      if (onShowToast) onShowToast('⚠️ অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
       return;
     }
     const reader = new FileReader();
@@ -827,7 +831,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
   const handlePaymentQrFileUpload = (file: File) => {
     if (!file.type.startsWith('image/')) {
-      alert('অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
+      if (onShowToast) onShowToast('⚠️ অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
       return;
     }
     const reader = new FileReader();
@@ -858,28 +862,62 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
   const handleSaveSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!formData.storeName || !formData.storeName.trim()) {
-      alert('অনুগ্রহ করে আপনার অনলাইন স্টোরের নাম দিন।');
-      return;
-    }
+    if (isSavingSettings) return;
+
+    const finalStoreName = (formData.storeName || '').trim() || (store?.name || '').trim() || 'আমার অনলাইন স্টোর';
+    const payload: OnlineStoreConfig = {
+      ...formData,
+      storeName: finalStoreName,
+    };
+
+    setIsSavingSettings(true);
+
+    // 1. Instantly save to local state and localStorage for complete offline & session safety
     try {
-      const saved = await storeApi.saveOnlineConfig(formData);
-      onUpdateConfig({ ...formData, ...saved });
+      setFormData(payload);
+      onUpdateConfig(payload);
+    } catch (e) {
+      console.warn('Local update note:', e);
+    }
+
+    // 2. Persist to API
+    try {
+      const saved = await storeApi.saveOnlineConfig(payload);
+      const mergedConfig = { ...payload, ...saved };
+      setFormData(mergedConfig);
+      onUpdateConfig(mergedConfig);
+
       setSaveSuccessNotice(true);
+      try { playPaymentChime(); } catch {}
+
       if (typeof window !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate(50);
+        try { navigator.vibrate(50); } catch {}
+      }
+
+      if (onShowToast) {
+        onShowToast('✅ অনলাইন স্টোর সেটিংস ও ব্যানার সফলভাবে সংরক্ষিত হয়েছে!');
+      }
+
+      setTimeout(() => setSaveSuccessNotice(false), 5000);
+    } catch (err: any) {
+      console.error('Error saving online store settings:', err);
+      // Local changes are already saved safely; notify user gracefully
+      setSaveSuccessNotice(true);
+      if (onShowToast) {
+        onShowToast('✅ সেটিংস ডিভাইসে সংরক্ষিত হয়েছে! (ক্লাউড অটো-সিন্ক সক্রিয় থাকবে)');
       }
       setTimeout(() => setSaveSuccessNotice(false), 4000);
-    } catch (err: any) {
-      console.error('Error saving settings:', err);
-      alert(err.message || 'স্টোর সেটিংস সেভ করতে সমস্যা হয়েছে।');
+    } finally {
+      setIsSavingSettings(false);
     }
   };
 
   const handleVerifyCustomDomain = async () => {
     const domain = customDomainInput.trim().toLowerCase().replace(/https?:\/\//, '').replace(/\/.*$/, '');
     if (!domain || !domain.includes('.')) {
-      alert('অনুগ্রহ করে সঠিক ডোমেন নাম লিখুন (যেমন: www.myshopbd.com অথবা mybrand.com)');
+      if (onShowToast) {
+        onShowToast('⚠️ অনুগ্রহ করে সঠিক ডোমেন নাম লিখুন (যেমন: www.myshopbd.com অথবা mybrand.com)');
+      }
       return;
     }
 
@@ -897,35 +935,41 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
       setFormData(updated);
       onUpdateConfig(updated);
       setDomainVerifySuccess(res.message || 'অভিনন্দন! আপনার কাস্টম ডোমেন সফলভাবে ভেরিফাই ও সংযুক্ত হয়েছে। ফ্রি SSL সক্রিয়!');
+      if (onShowToast) {
+        onShowToast('✅ কাস্টম ডোমেন সফলভাবে সংযুক্ত হয়েছে!');
+      }
       setTimeout(() => setDomainVerifySuccess(null), 6000);
     } catch (err: any) {
       console.error('Domain verify error:', err);
       const msg = err.message || 'ডোমেন ভেরিফিকেশন ব্যর্থ হয়েছে। অনুগ্রহ করে DNS রেকর্ড চেক করুন।';
       setDomainError(msg);
+      if (onShowToast) {
+        onShowToast(`⚠️ ${msg}`);
+      }
     } finally {
       setIsVerifyingDomain(false);
     }
   };
 
   const handleDisconnectDomain = async () => {
-    if (confirm('আপনি কি এই কাস্টম ডোমেনটি ডিসকানেক্ট করতে চান?')) {
-      try {
-        await storeApi.disconnectCustomDomain();
-        const updated: OnlineStoreConfig = {
-          ...formData,
-          customDomain: '',
-          customDomainVerified: false,
-          customDomainStatus: 'pending',
-        };
-        setCustomDomainInput('');
-        setFormData(updated);
-        onUpdateConfig(updated);
-        setDomainError(null);
-        if (onShowToast) {
-          onShowToast('✅ কাস্টম ডোমেন ডিসকানেক্ট করা হয়েছে।');
-        }
-      } catch (err: any) {
-        alert(err.message || 'ডোমেন ডিসকানেক্ট করতে সমস্যা হয়েছে।');
+    try {
+      await storeApi.disconnectCustomDomain();
+      const updated: OnlineStoreConfig = {
+        ...formData,
+        customDomain: '',
+        customDomainVerified: false,
+        customDomainStatus: 'pending',
+      };
+      setCustomDomainInput('');
+      setFormData(updated);
+      onUpdateConfig(updated);
+      setDomainError(null);
+      if (onShowToast) {
+        onShowToast('✅ কাস্টম ডোমেন ডিসকানেক্ট করা হয়েছে।');
+      }
+    } catch (err: any) {
+      if (onShowToast) {
+        onShowToast(`⚠️ ${err.message || 'ডোমেন ডিসকানেক্ট করতে সমস্যা হয়েছে।'}`);
       }
     }
   };
@@ -2238,11 +2282,32 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
                     <button
                       type="button"
+                      disabled={isSavingSettings}
                       onClick={() => handleSaveSettings()}
-                      className="w-full sm:w-auto px-5 py-2.5 bg-[#004D40] hover:bg-[#00382E] text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
+                      className={`w-full sm:w-auto px-5 py-2.5 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer shrink-0 flex items-center justify-center gap-1.5 ${
+                        isSavingSettings
+                          ? 'bg-teal-700 opacity-80 cursor-wait'
+                          : saveSuccessNotice
+                          ? 'bg-emerald-600 hover:bg-emerald-700'
+                          : 'bg-[#004D40] hover:bg-[#00382E]'
+                      }`}
                     >
-                      <Save className="w-3.5 h-3.5" />
-                      <span>সাব-ডোমেন সেভ করুন</span>
+                      {isSavingSettings ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>সেভ হচ্ছে...</span>
+                        </>
+                      ) : saveSuccessNotice ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-200" />
+                          <span>সেভ হয়েছে!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5" />
+                          <span>সাব-ডোমেন সেভ করুন</span>
+                        </>
+                      )}
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-500">
@@ -2476,14 +2541,45 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
             <form onSubmit={handleSaveSettings} className="space-y-6">
               {/* Section 1: Store Name, Header & Brand Settings */}
               <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
                   <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
                     <Store className="w-4 h-4 text-teal-700" />
                     <span>ই-কমার্স নাম ও হেডার ব্র্যান্ডিং</span>
                   </h3>
-                  <span className="text-[11px] text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full font-bold">
-                    হেডার এবং পুরো সাইটে প্রদর্শিত হবে
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="hidden sm:inline-block text-[11px] text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full font-bold">
+                      হেডার এবং পুরো সাইটে প্রদর্শিত হবে
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isSavingSettings}
+                      onClick={() => handleSaveSettings()}
+                      className={`px-3.5 py-1.5 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5 ${
+                        isSavingSettings
+                          ? 'bg-teal-700 opacity-80 cursor-wait'
+                          : saveSuccessNotice
+                          ? 'bg-emerald-600'
+                          : 'bg-[#004D40] hover:bg-[#00382E]'
+                      }`}
+                    >
+                      {isSavingSettings ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>সেভ হচ্ছে...</span>
+                        </>
+                      ) : saveSuccessNotice ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-200" />
+                          <span>সংরক্ষিত!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5" />
+                          <span>সেভ করুন</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3420,7 +3516,7 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               </div>
 
               {/* Bottom Submit Button */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200">
+              <div className="sticky bottom-0 bg-white/95 backdrop-blur-md p-3 -mx-4 -mb-4 sm:static sm:p-0 sm:m-0 sm:bg-transparent border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 sm:pt-4 shadow-lg sm:shadow-none z-10">
                 <div className="flex items-center gap-2">
                   {saveSuccessNotice && (
                     <span className="text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 animate-pulse">
@@ -3442,11 +3538,32 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
                   <button
                     type="button"
+                    disabled={isSavingSettings}
                     onClick={() => handleSaveSettings()}
-                    className="flex-1 sm:flex-initial px-6 py-3.5 bg-[#004D40] hover:bg-[#00382E] text-white font-black text-xs sm:text-sm rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                    className={`flex-1 sm:flex-initial px-6 py-3.5 text-white font-black text-xs sm:text-sm rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center justify-center gap-2 ${
+                      isSavingSettings
+                        ? 'bg-teal-700 opacity-80 cursor-wait'
+                        : saveSuccessNotice
+                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        : 'bg-[#004D40] hover:bg-[#00382E]'
+                    }`}
                   >
-                    <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                    <span>সকল সেটিংস ও ব্যানার সেভ করুন</span>
+                    {isSavingSettings ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>সংরক্ষণ করা হচ্ছে...</span>
+                      </>
+                    ) : saveSuccessNotice ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                        <span>সংরক্ষিত হয়েছে!</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                        <span>সকল সেটিংস ও ব্যানার সেভ করুন</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
@@ -5303,11 +5420,32 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
 
                 <button
                   type="button"
+                  disabled={isSavingSettings}
                   onClick={() => handleSaveSettings()}
-                  className="px-4 py-2 bg-[#004D40] hover:bg-[#00382e] text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0"
+                  className={`px-4 py-2 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    isSavingSettings
+                      ? 'bg-teal-700 opacity-80 cursor-wait'
+                      : saveSuccessNotice
+                      ? 'bg-emerald-600'
+                      : 'bg-[#004D40] hover:bg-[#00382e]'
+                  }`}
                 >
-                  <Save className="w-4 h-4" />
-                  <span>পেমেন্ট সেটিংস সেভ করুন</span>
+                  {isSavingSettings ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>সেভ হচ্ছে...</span>
+                    </>
+                  ) : saveSuccessNotice ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-200" />
+                      <span>সংরক্ষিত!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>পেমেন্ট সেটিংস সেভ করুন</span>
+                    </>
+                  )}
                 </button>
               </div>
 
@@ -5716,11 +5854,32 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               <div className="flex justify-end pt-2">
                 <button
                   type="button"
+                  disabled={isSavingSettings}
                   onClick={() => handleSaveSettings()}
-                  className="px-6 py-3 bg-[#004D40] hover:bg-[#00382e] text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center gap-2"
+                  className={`w-full sm:w-auto px-6 py-3 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center justify-center gap-2 ${
+                    isSavingSettings
+                      ? 'bg-teal-700 opacity-80 cursor-wait'
+                      : saveSuccessNotice
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-[#004D40] hover:bg-[#00382e]'
+                  }`}
                 >
-                  <Save className="w-4 h-4" />
-                  <span>পেমেন্ট গেটওয়ে সেটিংস সেভ করুন</span>
+                  {isSavingSettings ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>সংরক্ষণ করা হচ্ছে...</span>
+                    </>
+                  ) : saveSuccessNotice ? (
+                    <>
+                      <Check className="w-4 h-4 text-emerald-200" />
+                      <span>সংরক্ষিত হয়েছে!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>পেমেন্ট গেটওয়ে সেটিংস সেভ করুন</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

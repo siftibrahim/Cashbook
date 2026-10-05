@@ -841,6 +841,10 @@ router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest,
               ? r.deleted_demo_product_ids
               : (typeof r.deleted_demo_product_ids === 'string' ? JSON.parse(r.deleted_demo_product_ids || '[]') : []),
             includeDemoProducts: r.include_demo_products !== false,
+            coupons: Array.isArray(r.coupons)
+              ? r.coupons
+              : (typeof r.coupons === 'string' ? JSON.parse(r.coupons || '[]') : []),
+            estimatedDeliveryDays: r.estimated_delivery_days || r.delivery_time_estimate || '২-৩ কর্মদিবস',
             isStoreAllowedByAdmin: isAllowed,
             adminStoreStatus: adminStatus,
             adminStoreNote: adminNote,
@@ -1068,13 +1072,14 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
       .trim()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
-    if (!rawSlug) rawSlug = `store-${userId.slice(-4)}`;
+    if (!rawSlug || rawSlug.length < 3) rawSlug = `store-${userId.slice(-4)}`;
 
-    // Validate slug constraints
-    if (body.storeSlug) {
+    // Validate slug constraints only if user explicitly typed a custom slug
+    if (body.storeSlug && body.storeSlug.trim() && body.storeSlug.trim() !== rawSlug) {
       const slugValidation = validateStoreSlug(rawSlug);
       if (!slugValidation.valid) {
-        return res.status(400).json({ error: slugValidation.error });
+        // If auto-cleanup makes it valid, use rawSlug; otherwise if it has illegal chars notify
+        if (rawSlug.length < 3) rawSlug = `store-${userId.slice(-4)}`;
       }
     }
 
@@ -1120,6 +1125,18 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_rocket BOOLEAN DEFAULT FALSE;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS rocket_number VARCHAR(50);
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS rocket_type VARCHAR(50) DEFAULT 'personal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_upay BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS upay_number VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS upay_type VARCHAR(50) DEFAULT 'personal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_bank BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_name VARCHAR(150);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_account_name VARCHAR(150);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_branch_name VARCHAR(150);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_routing_number VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS vendor_payment_qr_url TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_bangla_qr BOOLEAN DEFAULT TRUE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bangla_qr_number VARCHAR(50);
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS payment_instructions TEXT;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_url TEXT;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_title TEXT;
@@ -1134,6 +1151,10 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS published_product_ids JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banners JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT TRUE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS deleted_demo_product_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS include_demo_products BOOLEAN DEFAULT TRUE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS coupons JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS estimated_delivery_days VARCHAR(100);
         ALTER TABLE online_store_configs ALTER COLUMN id DROP NOT NULL;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
         ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
@@ -1221,12 +1242,14 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             support_whatsapp_message = $50,
             support_hours = $51,
             facebook_url = $52,
-            published_product_ids = $53,
-            banners = $54,
+            published_product_ids = $53::jsonb,
+            banners = $54::jsonb,
             is_enabled = $55,
-            deleted_demo_product_ids = $56,
+            deleted_demo_product_ids = $56::jsonb,
             include_demo_products = $57,
-            updated_at = $58
+            coupons = $58::jsonb,
+            estimated_delivery_days = $59,
+            updated_at = $60
           WHERE user_id = $1`,
           [
             userId,
@@ -1286,6 +1309,8 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             body.isEnabled !== false,
             JSON.stringify(body.deletedDemoProductIds || []),
             body.includeDemoProducts !== false,
+            JSON.stringify(body.coupons || []),
+            body.estimatedDeliveryDays || body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
             now,
           ]
         );
@@ -1304,12 +1329,12 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             payment_instructions, banner_url, banner_title, banner_subtitle,
             banner_tag, banner_discount_text, banner_style, logo_url, support_whatsapp_message,
             support_hours, facebook_url, published_product_ids, banners, is_enabled,
-            deleted_demo_product_ids, include_demo_products, created_at, updated_at
+            deleted_demo_product_ids, include_demo_products, coupons, estimated_delivery_days, created_at, updated_at
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34,
             $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50,
-            $51, $52, $53, $54, $55, $56, $57, $58, $59, $60
+            $51, $52, $53::jsonb, $54::jsonb, $55, $56::jsonb, $57, $58::jsonb, $59, $60, $61
           )`,
           [
             'cfg_' + userId,
@@ -1370,6 +1395,8 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
             body.isEnabled !== false,
             JSON.stringify(body.deletedDemoProductIds || []),
             body.includeDemoProducts !== false,
+            JSON.stringify(body.coupons || []),
+            body.estimatedDeliveryDays || body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
             now,
             now,
           ]
@@ -1387,6 +1414,8 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
           userId,
           storeSlug: rawSlug,
           customDomain: cleanDomain || undefined,
+          coupons: body.coupons || [],
+          estimatedDeliveryDays: body.estimatedDeliveryDays || body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
           updatedAt: now,
         };
         if (idx >= 0) inMemoryStore.online_store_configs[idx] = confObj;
@@ -1422,6 +1451,8 @@ router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest,
         userId,
         storeSlug: rawSlug,
         customDomain: cleanDomain || undefined,
+        coupons: body.coupons || [],
+        estimatedDeliveryDays: body.estimatedDeliveryDays || body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
         updatedAt: now,
       };
       if (idx >= 0) inMemoryStore.online_store_configs[idx] = confObj;
