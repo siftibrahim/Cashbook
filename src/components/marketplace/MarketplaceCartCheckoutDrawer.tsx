@@ -76,6 +76,53 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
   const [submitError, setSubmitError] = useState('');
   const [confirmedOrder, setConfirmedOrder] = useState<MarketplaceMasterOrder | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const [autoCloseCountdown, setAutoCloseCountdown] = useState<number>(0);
+
+  const handleClose = () => {
+    setStep('cart');
+    setConfirmedOrder(null);
+    setShowOtpBox(false);
+    setOtpCode('');
+    setSubmitError('');
+    setAutoCloseCountdown(0);
+    onClose();
+  };
+
+  // Reset step to 'cart' whenever drawer closes
+  useEffect(() => {
+    if (!isOpen) {
+      setStep('cart');
+      setConfirmedOrder(null);
+      setAutoCloseCountdown(0);
+    }
+  }, [isOpen]);
+
+  // If cart has new items, ensure step is immediately reset to 'cart'
+  useEffect(() => {
+    if (cart.length > 0 && step === 'success') {
+      setStep('cart');
+      setConfirmedOrder(null);
+      setAutoCloseCountdown(0);
+    }
+  }, [cart.length, step]);
+
+  // Automatically close and return to shopping after order confirmation
+  useEffect(() => {
+    if (step === 'success') {
+      setAutoCloseCountdown(5);
+      const interval = setInterval(() => {
+        setAutoCloseCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            handleClose();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [step]);
 
   // Sync stored customer profile whenever checkout drawer opens
   useEffect(() => {
@@ -308,12 +355,16 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/60 backdrop-blur-xs flex justify-end">
+        <div
+          className="fixed inset-0 transition-opacity cursor-pointer"
+          onClick={handleClose}
+        />
         <motion.div
           initial={{ x: '100%' }}
           animate={{ x: 0 }}
           exit={{ x: '100%' }}
           transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-          className="relative w-full max-w-xl bg-white h-full shadow-2xl flex flex-col justify-between overflow-hidden"
+          className="relative w-full max-w-xl bg-white h-full shadow-2xl flex flex-col justify-between overflow-hidden z-10"
         >
           {/* Header */}
           <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
@@ -336,7 +387,7 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="p-2 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -532,9 +583,6 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
                             মোবাইল নম্বর যাচাই কোড ({customerPhone})
                           </span>
                         </div>
-                        <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded-md">
-                          টেস্ট কোড: 123456
-                        </span>
                       </div>
                       <p className="text-[11px] text-emerald-800">
                         {otpSuccessMessage || 'আপনার নম্বরে পাঠানো কোডটি লিখুন (একটি ডিভাইসে একবার ভেরিফাই করলেই যথেষ্ট):'}
@@ -544,7 +592,7 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
                           type="text"
                           maxLength={6}
                           autoFocus
-                          placeholder="123456"
+                          placeholder="• • • • • •"
                           value={otpCode}
                           onChange={(e) => setOtpCode(e.target.value)}
                           className="w-36 text-center font-mono font-black text-base px-3 py-2 bg-white border border-emerald-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
@@ -808,11 +856,17 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
                 </div>
 
                 <div className="pt-2 flex flex-col gap-2">
+                  {autoCloseCountdown > 0 && (
+                    <p className="text-[11px] text-slate-500 text-center font-medium">
+                      ⏱️ {autoCloseCountdown} সেকেন্ডের মধ্যে স্বয়ংক্রিয়ভাবে কার্ট বন্ধ হয়ে যাবে...
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
-                      onClose();
-                      onOpenTracking(confirmedOrder.orderNumber || confirmedOrder.id);
+                      const ordNum = confirmedOrder.orderNumber || confirmedOrder.id;
+                      handleClose();
+                      onOpenTracking(ordNum);
                     }}
                     className="w-full py-3 bg-[#0b63e5] hover:bg-[#094ec2] text-white font-bold text-xs sm:text-sm rounded-2xl shadow-md transition cursor-pointer flex items-center justify-center gap-2"
                   >
@@ -821,7 +875,7 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
                   </button>
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="w-full py-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xs rounded-2xl transition cursor-pointer shadow-2xs"
                   >
                     শপিং চালিয়ে যান

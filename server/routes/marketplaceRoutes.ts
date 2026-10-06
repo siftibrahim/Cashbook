@@ -913,7 +913,6 @@ router.post('/customer/send-otp', async (req: Request, res: Response) => {
       mode,
       phone: standardPhone,
       message: `আপনার মোবাইল নম্বর (${standardPhone})-এ ৬ ডিজিটের ওটিপি যাচাই কোড পাঠানো হয়েছে।`,
-      debugOtp: otpCode,
       expiresInSeconds: 300,
     });
   } catch (err: any) {
@@ -945,7 +944,7 @@ router.post('/customer/verify-otp', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'ওটিপি কোডের মেয়াদ শেষ হয়ে গেছে। অনুগ্রহ করে নতুন কোড পাঠান।' });
     }
 
-    if (record.otp !== cleanOtp && cleanOtp !== '123456') {
+    if (record.otp !== cleanOtp) {
       return res.status(400).json({ error: 'ভুল ওটিপি কোড! অনুগ্রহ করে মোবাইলে আসা সঠিক কোডটি দিন।' });
     }
 
@@ -1227,7 +1226,7 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'ওটিপি কোডের মেয়াদ শেষ হয়ে গেছে। দয়া করে নতুন কোড পাঠান।' });
     }
 
-    if (record.otp !== cleanOtp && cleanOtp !== '123456') {
+    if (record.otp !== cleanOtp) {
       return res.status(400).json({ error: 'ভুল ওটিপি কোড! অনুগ্রহ করে মোবাইলে আসা সঠিক কোডটি লিখুন।' });
     }
 

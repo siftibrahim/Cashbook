@@ -183,7 +183,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
   const [loginError, setLoginError] = useState('');
   const [loginSuccessMsg, setLoginSuccessMsg] = useState('');
   const [loginCountdown, setLoginCountdown] = useState(0);
-  const [loginDebugOtp, setLoginDebugOtp] = useState('');
 
   // Register Form States (Unique Phone Enforcement)
   const [regName, setRegName] = useState('');
@@ -197,7 +196,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
   const [regError, setRegError] = useState('');
   const [regSuccessMsg, setRegSuccessMsg] = useState('');
   const [regCountdown, setRegCountdown] = useState(0);
-  const [regDebugOtp, setRegDebugOtp] = useState('');
   const [phoneAlreadyExistsError, setPhoneAlreadyExistsError] = useState(false);
 
   // Google Login / Binding States
@@ -324,7 +322,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
     if (e) e.preventDefault();
     setLoginError('');
     setLoginSuccessMsg('');
-    setLoginDebugOtp('');
 
     const clean = loginPhone.replace(/[^\d+]/g, '').trim();
     const standardPhone = clean.startsWith('+88')
@@ -348,7 +345,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
       setIsLoginOtpSent(true);
       setLoginCountdown(120);
       setLoginSuccessMsg(res.message || 'আপনার মোবাইলে ৬ ডিজিটের ওটিপি কোড পাঠানো হয়েছে।');
-      if (res.debugOtp) setLoginDebugOtp(res.debugOtp);
     } catch (err: any) {
       if (err.code === 'ACCOUNT_NOT_FOUND') {
         setLoginError(
@@ -417,7 +413,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
 
         setIsLoginOtpSent(false);
         setLoginOtpCode('');
-        setLoginDebugOtp('');
         setGooglePendingData(null);
         setActiveTab('profile');
         setSaveSuccess(true);
@@ -445,7 +440,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
     if (e) e.preventDefault();
     setRegError('');
     setRegSuccessMsg('');
-    setRegDebugOtp('');
     setPhoneAlreadyExistsError(false);
 
     if (!regName.trim()) {
@@ -481,7 +475,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
       setIsRegOtpSent(true);
       setRegCountdown(120);
       setRegSuccessMsg(res.message || 'আপনার মোবাইলে ৬ ডিজিটের ভেরিফিকেশন কোড পাঠানো হয়েছে।');
-      if (res.debugOtp) setRegDebugOtp(res.debugOtp);
     } catch (err: any) {
       if (err.code === 'PHONE_ALREADY_EXISTS') {
         setPhoneAlreadyExistsError(true);
@@ -554,7 +547,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
 
         setIsRegOtpSent(false);
         setRegOtpCode('');
-        setRegDebugOtp('');
         setGooglePendingData(null);
         setActiveTab('profile');
         setSaveSuccess(true);
@@ -936,15 +928,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                       <span className="font-bold text-blue-950">
                         মোবাইল নম্বর: <span className="font-mono">{loginPhone}</span>
                       </span>
-                      {loginDebugOtp ? (
-                        <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded-md">
-                          টেস্ট ওটিপি: {loginDebugOtp}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded-md">
-                          টেস্ট কোড: 123456
-                        </span>
-                      )}
                     </div>
 
                     <div>
@@ -955,7 +938,7 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                         type="text"
                         maxLength={6}
                         autoFocus
-                        placeholder="123456"
+                        placeholder="• • • • • •"
                         value={loginOtpCode}
                         onChange={(e) => setLoginOtpCode(e.target.value)}
                         className="w-full text-center font-mono font-black text-xl tracking-widest px-4 py-2.5 bg-white border-2 border-[#0052cc] rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -1187,15 +1170,6 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                       <span className="font-bold text-emerald-950">
                         প্রেরিত নম্বর: <span className="font-mono">{regPhone}</span>
                       </span>
-                      {regDebugOtp ? (
-                        <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded-md">
-                          টেস্ট ওটিপি: {regDebugOtp}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2 py-0.5 rounded-md">
-                          টেস্ট কোড: 123456
-                        </span>
-                      )}
                     </div>
 
                     <div>
@@ -1206,7 +1180,7 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                         type="text"
                         maxLength={6}
                         autoFocus
-                        placeholder="123456"
+                        placeholder="• • • • • •"
                         value={regOtpCode}
                         onChange={(e) => setRegOtpCode(e.target.value)}
                         className="w-full text-center font-mono font-black text-xl tracking-widest px-4 py-2.5 bg-white border-2 border-emerald-500 rounded-xl focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"

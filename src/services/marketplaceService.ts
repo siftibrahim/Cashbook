@@ -142,7 +142,6 @@ export const marketplaceApi = {
     mode: string;
     phone: string;
     message: string;
-    debugOtp?: string;
     code?: string;
     error?: string;
   }> {
