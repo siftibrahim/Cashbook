@@ -89,6 +89,7 @@ export const inMemoryStore: {
   online_store_configs: any[];
   store_chat_messages: any[];
   marketplace_master_orders: any[];
+  marketplace_customers: any[];
   marketplace_categories: any[];
   marketplace_settings: any;
   vendor_payout_requests: any[];
@@ -114,6 +115,7 @@ export const inMemoryStore: {
   online_store_configs: [],
   store_chat_messages: [],
   marketplace_master_orders: [],
+  marketplace_customers: [],
   marketplace_categories: [],
   marketplace_settings: {},
   vendor_payout_requests: [],
@@ -1370,6 +1372,26 @@ export async function initializeDatabaseSchema() {
       ALTER TABLE marketplace_master_orders ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(12, 2) DEFAULT 0;
       CREATE INDEX IF NOT EXISTS idx_mkt_orders_phone ON marketplace_master_orders(customer_phone);
       CREATE INDEX IF NOT EXISTS idx_mkt_orders_created ON marketplace_master_orders(created_at DESC);
+
+      -- 3.5 Central Marketplace Customers Table (Unique Phone, Passwordless Phone+OTP / Google)
+      CREATE TABLE IF NOT EXISTS marketplace_customers (
+        id VARCHAR(100) PRIMARY KEY,
+        name VARCHAR(150) NOT NULL,
+        phone VARCHAR(50) NOT NULL,
+        email VARCHAR(255),
+        google_id VARCHAR(255),
+        picture TEXT,
+        address TEXT DEFAULT '',
+        city VARCHAR(50) DEFAULT 'dhaka',
+        device_token VARCHAR(255),
+        is_verified BOOLEAN DEFAULT TRUE,
+        verified_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_mkt_cust_phone_uniq ON marketplace_customers(phone);
+      CREATE INDEX IF NOT EXISTS idx_mkt_cust_email ON marketplace_customers(email);
+      CREATE INDEX IF NOT EXISTS idx_mkt_cust_google ON marketplace_customers(google_id);
 
       -- 4. Central Marketplace Categories Table
       CREATE TABLE IF NOT EXISTS marketplace_categories (

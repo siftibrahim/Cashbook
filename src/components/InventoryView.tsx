@@ -8,12 +8,6 @@ import {
   getFallbackProductImage,
 } from '../utils/productImages';
 import {
-  enhanceProductPhoto,
-  autoGenerateStudioProductImage,
-  StudioBackdropStyle,
-} from '../utils/productStudioEnhancer';
-import { ProductStudioModal } from './studio/ProductStudioModal';
-import {
   Package,
   Search,
   Plus,
@@ -83,11 +77,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [minAlert, setMinAlert] = useState('10');
   const [imageUrl, setImageUrl] = useState('');
   const [originalUploadedImage, setOriginalUploadedImage] = useState<string>('');
-  const [isEnhanced, setIsEnhanced] = useState(false);
-  const [isAutoEnhancing, setIsAutoEnhancing] = useState(false);
-  const [studioStyle, setStudioStyle] = useState<StudioBackdropStyle>('clean_white');
-  const [enhancingCardId, setEnhancingCardId] = useState<string | null>(null);
-  const [editingStudioProduct, setEditingStudioProduct] = useState<{ id: string; name: string; imageUrl?: string; category?: string } | null>(null);
   const [description, setDescription] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
@@ -196,7 +185,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setMinAlert('10');
     setImageUrl('');
     setOriginalUploadedImage('');
-    setIsEnhanced(false);
     setDescription('');
     setIsListedOnMarketplace(true);
     setShowPresetPicker(false);
@@ -216,33 +204,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setMinAlert((p.minStockAlert || 10).toString());
     setImageUrl(p.imageUrl || '');
     setOriginalUploadedImage(p.imageUrl || '');
-    setIsEnhanced(false);
     setDescription(p.description || '');
     setIsListedOnMarketplace(p.isListedOnMarketplace !== false);
     setShowPresetPicker(false);
     setShowUrlInput(false);
     setIsModalOpen(true);
-  };
-
-  const applyStudioEnhance = async (sourceImage: string, style: StudioBackdropStyle = studioStyle) => {
-    if (!sourceImage) return;
-    setIsAutoEnhancing(true);
-    try {
-      const res = await enhanceProductPhoto(sourceImage, {
-        style,
-        productName: name,
-        category,
-      });
-      setImageUrl(res.enhancedImageUrl);
-      setIsEnhanced(true);
-      setStudioStyle(style);
-      onShowToast('✨ অটো-স্টুডিও ব্যাকগ্রাউন্ড ও লাইটিং তৈরি হয়েছে!');
-    } catch (err) {
-      console.warn('Auto enhance notice:', err);
-      onShowToast('স্টুডিও ব্যাকগ্রাউন্ড প্রসেসিংয়ে সমস্যা হয়েছে');
-    } finally {
-      setIsAutoEnhancing(false);
-    }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -252,36 +218,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       setIsUploading(true);
       const compressed = await compressProductImage(file);
       setOriginalUploadedImage(compressed);
-
-      // AUTOMATIC AI STUDIO GENERATION ON UPLOAD
-      setIsAutoEnhancing(true);
-      onShowToast('🤖 এআই স্বয়ংক্রিয়ভাবে আকর্ষণীয় স্টুডিও ছবি তৈরি করছে...');
-      try {
-        const res = await autoGenerateStudioProductImage(compressed, name, category);
-        setImageUrl(res.enhancedImageUrl);
-        setIsEnhanced(true);
-        onShowToast('✨ এআই স্বয়ংক্রিয়ভাবে আকর্ষণীয় স্টুডিও ছবি তৈরি করেছে!');
-      } catch (e) {
-        setImageUrl(compressed);
-        setIsEnhanced(false);
-        onShowToast('📸 পণ্যের ছবি যুক্ত হয়েছে!');
-      } finally {
-        setIsAutoEnhancing(false);
-      }
+      setImageUrl(compressed);
+      onShowToast('📸 পণ্যের ছবি যুক্ত হয়েছে!');
     } catch (err) {
       onShowToast('ছবি প্রসেসিংয়ে সমস্যা হয়েছে। অন্য ছবি চেষ্টা করুন।');
     } finally {
       setIsUploading(false);
       if (e.target) e.target.value = '';
     }
-  };
-
-  const handleEnhanceExistingProduct = (p: Product) => {
-    if (!p.imageUrl) {
-      onShowToast('এই পণ্যে কোনো ছবি নেই');
-      return;
-    }
-    setEditingStudioProduct(p);
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -593,21 +537,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1">
-                    {p.imageUrl && (
-                      <button
-                        type="button"
-                        disabled={enhancingCardId === p.id}
-                        onClick={() => handleEnhanceExistingProduct(p)}
-                        className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition cursor-pointer"
-                        title="এআই দিয়ে ছবির ব্যাকগ্রাউন্ড মুছে প্রফেশনাল স্টুডিও লুক দিন"
-                      >
-                        {enhancingCardId === p.id ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-700" />
-                        ) : (
-                          <Sparkles className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    )}
                     {onOpenProductQr && (
                       <button
                         type="button"
@@ -810,32 +739,21 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             (e.currentTarget as HTMLImageElement).src = getFallbackProductImage(name, category);
                           }}
                         />
-                        {isAutoEnhancing && (
-                          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs flex flex-col items-center justify-center text-white text-[9px] font-bold p-1 text-center">
-                            <RefreshCw className="w-4 h-4 animate-spin mb-1 text-teal-300" />
-                            <span>প্রসেসিং...</span>
-                          </div>
-                        )}
                       </div>
 
-                      <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="flex-1 min-w-0 space-y-2">
                         <div className="flex items-center justify-between">
                           <p className="text-[11px] font-extrabold text-emerald-700 flex items-center gap-1">
                             <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>{isEnhanced ? '✨ স্মার্ট স্টুডিও অটো-এনহান্সড' : 'ছবি যুক্ত রয়েছে'}</span>
+                            <span>ছবি যুক্ত রয়েছে</span>
                           </p>
-                          {isEnhanced && (
-                            <span className="text-[9px] bg-teal-100 text-teal-900 font-black px-2 py-0.5 rounded-full">
-                              ১০০% ফ্রি
-                            </span>
-                          )}
                         </div>
 
                         <div className="flex flex-wrap gap-1.5">
                           <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
-                            disabled={isUploading || isAutoEnhancing}
+                            disabled={isUploading}
                             className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
                           >
                             <Upload className="w-3 h-3" />
@@ -851,119 +769,18 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             <span>রেডিমেড ছবি</span>
                           </button>
 
-                          {originalUploadedImage && originalUploadedImage !== imageUrl && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setImageUrl(originalUploadedImage);
-                                setIsEnhanced(false);
-                              }}
-                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[10px] font-bold cursor-pointer transition"
-                            >
-                              📷 আসল ছবি
-                            </button>
-                          )}
-
-                          {(!isEnhanced || originalUploadedImage === imageUrl) && (
-                            <button
-                              type="button"
-                              onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl)}
-                              disabled={isAutoEnhancing}
-                              className="px-2.5 py-1 bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 text-white rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer transition shadow-xs"
-                            >
-                              <Sparkles className="w-3 h-3 text-amber-300" />
-                              <span>অটো ব্যাকগ্রাউন্ড দিন</span>
-                            </button>
-                          )}
-
                           <button
                             type="button"
                             onClick={() => {
-                              setEditingStudioProduct({
-                                id: editingProduct?.id || 'temp',
-                                name: name || 'পণ্য',
-                                imageUrl: originalUploadedImage || imageUrl,
-                                category: category || 'সাধারণ',
-                              });
+                              setImageUrl('');
+                              setOriginalUploadedImage('');
                             }}
-                            className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer transition shadow-xs"
-                            title="পেছনের বক্স মুছে শুধু মূল পণ্য সিলেক্ট করুন ও বড় করুন"
+                            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
                           >
-                            <Sparkles className="w-3 h-3 text-slate-950" />
-                            <span>ক্রপ ও ফোকাস এডিট</span>
+                            <Trash2 className="w-3 h-3" />
+                            <span>ছবি মুছুন</span>
                           </button>
                         </div>
-                      </div>
-                    </div>
-
-                    {/* Smart Studio Backdrop Styles Bar */}
-                    <div className="p-2.5 bg-gradient-to-r from-slate-100 via-teal-50/60 to-emerald-50/50 rounded-xl border border-teal-200/60 space-y-1.5">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-extrabold text-slate-800 flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5 text-teal-700" />
-                          <span>স্টুডিও ব্যাকগ্রাউন্ড স্টাইল:</span>
-                        </span>
-                        <span className="text-[10px] text-teal-800 font-semibold">
-                          (স্বয়ংক্রিয় প্রফেশনাল লাইটিং ও শ্যাডো)
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-4 gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl, 'clean_white')}
-                          disabled={isAutoEnhancing}
-                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold text-center border transition cursor-pointer flex items-center justify-center gap-1 ${
-                            studioStyle === 'clean_white' && isEnhanced
-                              ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
-                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
-                          }`}
-                        >
-                          <span>⚪</span>
-                          <span className="truncate">হোয়াইট</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl, 'studio_soft')}
-                          disabled={isAutoEnhancing}
-                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold text-center border transition cursor-pointer flex items-center justify-center gap-1 ${
-                            studioStyle === 'studio_soft' && isEnhanced
-                              ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
-                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
-                          }`}
-                        >
-                          <span>🩶</span>
-                          <span className="truncate">সফট স্টুডিও</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl, 'wooden_table')}
-                          disabled={isAutoEnhancing}
-                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold text-center border transition cursor-pointer flex items-center justify-center gap-1 ${
-                            studioStyle === 'wooden_table' && isEnhanced
-                              ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
-                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
-                          }`}
-                        >
-                          <span>🪵</span>
-                          <span className="truncate">উডেন</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => applyStudioEnhance(originalUploadedImage || imageUrl, 'minimalist_gradient')}
-                          disabled={isAutoEnhancing}
-                          className={`py-1.5 px-2 rounded-lg text-[10px] font-bold text-center border transition cursor-pointer flex items-center justify-center gap-1 ${
-                            studioStyle === 'minimalist_gradient' && isEnhanced
-                              ? 'bg-teal-700 text-white border-teal-800 shadow-2xs'
-                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
-                          }`}
-                        >
-                          <span>🩶</span>
-                          <span className="truncate">মিনিমাল</span>
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -1196,30 +1013,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </form>
           </div>
         </div>
-      )}
-
-      {/* AI PRODUCT STUDIO MODAL */}
-      {editingStudioProduct && (
-        <ProductStudioModal
-          isOpen={Boolean(editingStudioProduct)}
-          onClose={() => setEditingStudioProduct(null)}
-          product={editingStudioProduct}
-          onSuccess={(updatedUrl) => {
-            if (editingStudioProduct.id === 'temp' || isModalOpen) {
-              setImageUrl(updatedUrl);
-              setIsEnhanced(true);
-            } else {
-              const original = products.find((p) => p.id === editingStudioProduct.id);
-              if (original) {
-                const updated = { ...original, imageUrl: updatedUrl, updatedAt: Date.now() };
-                onUpdateProduct(updated);
-              }
-              marketplaceApi.updateProductImage(editingStudioProduct.id, updatedUrl).catch(() => {});
-            }
-            onShowToast(`✨ '${editingStudioProduct.name}'-এর স্টুডিও ছবি প্রস্তুত হয়েছে!`);
-          }}
-          onShowToast={onShowToast}
-        />
       )}
     </div>
   );

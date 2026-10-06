@@ -617,7 +617,49 @@
   ],
   "store_chat_messages": [],
   "marketplace_master_orders": [],
+  "marketplace_customers": [
+    {
+      "id": "cust_01799887766_muw9qoxs",
+      "name": "মো: রহিম ইসলাম",
+      "phone": "01799887766",
+      "email": "",
+      "googleId": "",
+      "picture": "",
+      "address": "মিরপুর ১০, ঢাকা",
+      "city": "dhaka",
+      "deviceToken": "dev_tok_01799887766_muw9r72r_p41ksz",
+      "isVerified": true,
+      "verifiedAt": "2026-10-06T05:59:43.253Z",
+      "createdAt": 1791266359744,
+      "updatedAt": 1791266383253
+    },
+    {
+      "id": "cust_01611223344_muw9rjax",
+      "name": "Test Google User",
+      "phone": "01611223344",
+      "email": "testuser@gmail.com",
+      "googleId": "g_12345",
+      "picture": "",
+      "address": "",
+      "city": "dhaka",
+      "deviceToken": "dev_tok_01611223344_muw9rmn7_no36hj",
+      "isVerified": true,
+      "verifiedAt": "2026-10-06T05:59:59.097Z",
+      "createdAt": 1791266399097,
+      "updatedAt": 1791266403428
+    }
+  ],
   "marketplace_categories": [],
   "marketplace_settings": {},
-  "vendor_payout_requests": []
+  "vendor_payout_requests": [],
+  "marketplace_verified_devices": {
+    "01799887766": {
+      "verifiedAt": 1791266383251,
+      "deviceToken": "dev_tok_01799887766_muw9r72r_p41ksz"
+    },
+    "01611223344": {
+      "verifiedAt": 1791266403427,
+      "deviceToken": "dev_tok_01611223344_muw9rmn7_no36hj"
+    }
+  }
 }

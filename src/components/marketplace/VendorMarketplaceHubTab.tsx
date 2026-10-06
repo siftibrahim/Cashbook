@@ -47,8 +47,6 @@ import { storeApi, userSmsApi } from '../../services/apiService';
 import { MarketplaceOrderInvoiceModal } from './MarketplaceOrderInvoiceModal';
 import { MarketplaceCourierModal } from './MarketplaceCourierModal';
 import { MarketplaceSmsModal } from './MarketplaceSmsModal';
-import { enhanceProductPhoto } from '../../utils/productStudioEnhancer';
-import { ProductStudioModal } from '../studio/ProductStudioModal';
 import { ProfilePictureUploader } from '../profile/ProfilePictureUploader';
 
 interface VendorMarketplaceHubTabProps {
@@ -80,9 +78,6 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
   const [filterMode, setFilterMode] = useState<'all' | 'listed' | 'unlisted'>('all');
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
-  const [enhancingId, setEnhancingId] = useState<string | null>(null);
-  const [isBulkEnhancing, setIsBulkEnhancing] = useState(false);
-  const [editingStudioProduct, setEditingStudioProduct] = useState<Product | null>(null);
 
   // Wallet & Payout State
   const [wallet, setWallet] = useState<VendorWalletSummary | null>(null);
@@ -331,43 +326,6 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
     }
     setIsBulkProcessing(false);
     if (onShowToast) onShowToast(`🎉 সফলভাবে ${count}টি পণ্য সেন্ট্রাল মার্কেটপ্লেসে যুক্ত করা হয়েছে!`);
-    if (onUpdateProducts) onUpdateProducts();
-  };
-
-  // AI Single Product Image Background Removal & Studio Enhancement
-  const handleEnhanceSingleProduct = (product: Product) => {
-    if (!product.imageUrl) {
-      if (onShowToast) onShowToast('এই পণ্যে কোনো ছবি নেই');
-      return;
-    }
-    setEditingStudioProduct(product);
-  };
-
-  // Bulk AI Studio Background Removal for all products
-  const handleBulkEnhanceImages = async () => {
-    const validProds = products.filter((p) => Boolean(p.imageUrl));
-    if (validProds.length === 0) {
-      if (onShowToast) onShowToast('কোনো পণ্যে ছবি পাওয়া যায়নি');
-      return;
-    }
-    if (!confirm(`আপনি কি আপনার ${validProds.length}টি পণ্যের ছবিতে এআই স্টুডিও ব্যাকগ্রাউন্ড তৈরি করতে চান?`)) {
-      return;
-    }
-
-    setIsBulkEnhancing(true);
-    let count = 0;
-    for (const p of validProds) {
-      try {
-        const res = await enhanceProductPhoto(p.imageUrl!, { style: 'clean_white' });
-        p.imageUrl = res.enhancedImageUrl;
-        await marketplaceApi.updateProductImage(p.id, res.enhancedImageUrl);
-        count++;
-      } catch (e) {
-        console.warn('Bulk enhance item err:', e);
-      }
-    }
-    setIsBulkEnhancing(false);
-    if (onShowToast) onShowToast(`🎉 সফলভাবে ${count}টি পণ্যে এআই ব্যাকগ্রাউন্ড রূপান্তর সম্পন্ন হয়েছে!`);
     if (onUpdateProducts) onUpdateProducts();
   };
 
@@ -999,28 +957,8 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
             <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
               <button
                 type="button"
-                onClick={handleBulkEnhanceImages}
-                disabled={isBulkEnhancing || isBulkProcessing}
-                className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition shadow-2xs cursor-pointer disabled:opacity-50"
-                title="সকল পণ্যের ছবিকে এআই দিয়ে ব্যাকগ্রাউন্ড মুছে প্রফেশনাল স্টুডিও ছবিতে রূপান্তর করুন"
-              >
-                {isBulkEnhancing ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
-                    <span>এআই প্রসেসিং হচ্ছে...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5 text-amber-200" />
-                    <span>সব ছবিতে এআই ব্যাকগ্রাউন্ড</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
                 onClick={handleBulkEnable}
-                disabled={isBulkProcessing || isBulkEnhancing}
+                disabled={isBulkProcessing}
                 className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-lg font-bold text-xs flex items-center gap-1.5 transition shadow-2xs cursor-pointer disabled:opacity-50"
               >
                 <Sparkles className="w-3.5 h-3.5 text-slate-950" />
@@ -1090,28 +1028,6 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      {p.imageUrl && (
-                        <button
-                          type="button"
-                          disabled={enhancingId === p.id}
-                          onClick={() => handleEnhanceSingleProduct(p)}
-                          className="px-2.5 py-1.5 rounded-xl font-bold text-xs bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 transition flex items-center gap-1 cursor-pointer"
-                          title="এআই দিয়ে ছবির ব্যাকগ্রাউন্ড মুছে প্রফেশনাল স্টুডিও লুক দিন"
-                        >
-                          {enhancingId === p.id ? (
-                            <>
-                              <RefreshCw className="w-3 h-3 animate-spin text-amber-700" />
-                              <span className="text-[10px]">এআই কাজ করছে...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles className="w-3 h-3 text-amber-600" />
-                              <span className="text-[10px] hidden sm:inline">এআই স্টুডিও</span>
-                            </>
-                          )}
-                        </button>
-                      )}
-
                       <button
                         type="button"
                         disabled={isToggling}
@@ -2218,20 +2134,6 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
           order={smsNotifyingOrder}
           onClose={() => setSmsNotifyingOrder(null)}
           storeName={store?.name || 'ভেন্ডর শপ'}
-        />
-      )}
-
-      {/* AI PRODUCT STUDIO MODAL */}
-      {editingStudioProduct && (
-        <ProductStudioModal
-          isOpen={Boolean(editingStudioProduct)}
-          onClose={() => setEditingStudioProduct(null)}
-          product={editingStudioProduct}
-          onSuccess={(updatedUrl) => {
-            editingStudioProduct.imageUrl = updatedUrl;
-            if (onUpdateProducts) onUpdateProducts();
-          }}
-          onShowToast={onShowToast}
         />
       )}
     </div>

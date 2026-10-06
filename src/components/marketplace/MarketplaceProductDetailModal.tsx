@@ -23,10 +23,8 @@ import {
 } from 'lucide-react';
 import { MarketplaceProduct } from '../../types';
 import { formatMoney } from '../../utils/storage';
-import { enhanceProductPhoto } from '../../utils/productStudioEnhancer';
 import { marketplaceApi } from '../../services/marketplaceService';
 import { triggerConfettiCelebration } from '../../utils/audio';
-import { ProductStudioModal } from '../studio/ProductStudioModal';
 
 interface MarketplaceProductDetailModalProps {
   product: MarketplaceProduct | null;
@@ -59,7 +57,6 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
   const [activeTab, setActiveTab] = useState<'desc' | 'specs' | 'reviews'>('desc');
   const [isCopied, setIsCopied] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState(() => product?.imageUrl || '');
-  const [isStudioEditorOpen, setIsStudioEditorOpen] = useState(false);
 
   React.useEffect(() => {
     if (product) {
@@ -157,17 +154,6 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
                     className="w-full h-full object-contain hover:scale-105 transition-transform duration-300"
                     loading="lazy"
                   />
-                  {currentImageUrl && (
-                    <button
-                      type="button"
-                      onClick={() => setIsStudioEditorOpen(true)}
-                      className="absolute top-3 right-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 text-[10px] font-black px-2.5 py-1.5 rounded-xl shadow-md flex items-center gap-1.5 backdrop-blur-xs transition cursor-pointer"
-                      title="এআই দিয়ে এই পণ্যের ছবির ব্যাকগ্রাউন্ড মুছে সুন্দর স্টুডিও লুক দিন"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-slate-950" />
-                      <span>✨ এআই স্টুডিও এডিট</span>
-                    </button>
-                  )}
                   {discount > 0 && (
                     <div className="absolute top-3 left-3 bg-rose-500 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-md">
                       -{discount}% ছাড়
@@ -460,28 +446,6 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
           </div>
         </motion.div>
       </div>
-
-      {isStudioEditorOpen && product && (
-        <ProductStudioModal
-          isOpen={isStudioEditorOpen}
-          onClose={() => setIsStudioEditorOpen(false)}
-          product={{
-            id: product.id,
-            name: product.name,
-            imageUrl: currentImageUrl,
-            category: product.category,
-          }}
-          onSuccess={(updatedImg) => {
-            setCurrentImageUrl(updatedImg);
-            product.imageUrl = updatedImg;
-            marketplaceApi.updateProductImage(product.id, updatedImg).catch(() => {});
-            if (onShowToast) {
-              onShowToast(`✨ '${product.name}'-এর ছবি আকর্ষণীয় স্টুডিও লুকে রূপান্তরিত হয়েছে!`);
-            }
-          }}
-          onShowToast={onShowToast}
-        />
-      )}
     </AnimatePresence>
   );
 };

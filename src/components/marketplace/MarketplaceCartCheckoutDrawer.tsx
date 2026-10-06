@@ -38,6 +38,7 @@ interface MarketplaceCartCheckoutDrawerProps {
   onOrderSuccess: (order: MarketplaceMasterOrder) => void;
   onOpenTracking: (orderNumber: string) => void;
   paymentSettings?: any;
+  onOpenLogin?: () => void;
 }
 
 export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDrawerProps> = ({
@@ -52,6 +53,7 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
   onOrderSuccess,
   onOpenTracking,
   paymentSettings,
+  onOpenLogin,
 }) => {
   const [step, setStep] = useState<'cart' | 'checkout' | 'success'>('cart');
   const storedCust = getStoredCustomer();
@@ -499,12 +501,23 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
                     </div>
                   ) : (
                     <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1">
-                      <div className="flex items-center gap-1.5 font-bold">
-                        <ShieldCheck className="w-4 h-4 text-[#0b63e5] shrink-0" />
-                        <span>প্রথমবার অর্ডারে একাউন্ট তৈরি ও ভেরিফিকেশন</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 font-bold">
+                          <ShieldCheck className="w-4 h-4 text-[#0b63e5] shrink-0" />
+                          <span>কাস্টমার অ্যাকাউন্ট ও ভেরিফিকেশন</span>
+                        </div>
+                        {onOpenLogin && (
+                          <button
+                            type="button"
+                            onClick={onOpenLogin}
+                            className="px-2.5 py-0.5 bg-[#0052cc] text-white font-bold rounded-lg hover:bg-blue-700 transition cursor-pointer text-[10px]"
+                          >
+                            লগইন করুন
+                          </button>
+                        )}
                       </div>
                       <p className="text-[11px] text-blue-700 leading-relaxed">
-                        অর্ডার করার সময় আপনার মোবাইল নম্বরটি একবার ভেরিফাই করলেই আপনার একাউন্ট স্থায়ীভাবে তৈরি হয়ে যাবে। ভবিষ্যতে এই ডিভাইসে আর ভেরিফাই করতে হবে না।
+                        আপনার অ্যাকাউন্ট থাকলে সরাসরি লগইন করতে পারেন, অথবা তথ্য প্রদান করে ওটিপি দিয়ে স্বয়ংক্রিয়ভাবে অ্যাকাউন্ট সম্পন্ন করতে পারবেন।
                       </p>
                     </div>
                   )}

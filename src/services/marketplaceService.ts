@@ -128,6 +128,114 @@ export const marketplaceApi = {
     return data;
   },
 
+  async customerSendOtp(payload: {
+    phone: string;
+    mode?: 'login' | 'register';
+    name?: string;
+    address?: string;
+    city?: string;
+    email?: string;
+    googleId?: string;
+    picture?: string;
+  }): Promise<{
+    success: boolean;
+    mode: string;
+    phone: string;
+    message: string;
+    debugOtp?: string;
+    code?: string;
+    error?: string;
+  }> {
+    const res = await fetch('/api/marketplace/customer/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const err: any = new Error(data.error || 'ওটিপি পাঠাতে সমস্যা হয়েছে');
+      err.code = data.code;
+      throw err;
+    }
+    return data;
+  },
+
+  async customerVerifyOtp(payload: {
+    phone: string;
+    otp: string;
+    deviceToken?: string;
+    name?: string;
+    address?: string;
+    city?: string;
+    email?: string;
+    googleId?: string;
+    picture?: string;
+  }): Promise<{
+    success: boolean;
+    isNew?: boolean;
+    verified: boolean;
+    customer: any;
+    token: string;
+    message?: string;
+    error?: string;
+    code?: string;
+  }> {
+    const res = await fetch('/api/marketplace/customer/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const err: any = new Error(data.error || 'ওটিপি যাচাই ব্যর্থ হয়েছে');
+      err.code = data.code;
+      throw err;
+    }
+    return data;
+  },
+
+  async customerGoogleAuth(payload: {
+    googleId?: string;
+    email?: string;
+    name?: string;
+    picture?: string;
+    credential?: string;
+    deviceToken?: string;
+  }): Promise<{
+    success: boolean;
+    isLinked?: boolean;
+    needsPhone?: boolean;
+    googleData?: {
+      googleId?: string;
+      email?: string;
+      name?: string;
+      picture?: string;
+    };
+    customer?: any;
+    token?: string;
+    message?: string;
+    error?: string;
+  }> {
+    const res = await fetch('/api/marketplace/customer/google-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'গুগল সাইন-ইন ব্যর্থ হয়েছে');
+    return data;
+  },
+
+  async getCustomerProfile(phone: string): Promise<{ success: boolean; customer?: any; error?: string }> {
+    try {
+      const res = await fetch(`/api/marketplace/customer/profile?phone=${encodeURIComponent(phone.trim())}`);
+      const data = await res.json();
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  },
+
   async getCustomerOrders(phone: string, deviceToken?: string): Promise<{ success: boolean; orders: any[]; error?: string }> {
     try {
       const url = `/api/marketplace/customer/orders?phone=${encodeURIComponent(phone.trim())}${deviceToken ? `&deviceToken=${encodeURIComponent(deviceToken.trim())}` : ''}`;
