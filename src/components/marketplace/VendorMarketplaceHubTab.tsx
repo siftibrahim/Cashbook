@@ -40,6 +40,9 @@ import {
   Calendar,
   AlertTriangle,
   Zap,
+  FolderPlus,
+  Tag,
+  Plus,
 } from 'lucide-react';
 import { Product, OnlineOrder, StoreProfile, VendorPayoutRequest, VendorWalletSummary } from '../../types';
 import { marketplaceApi } from '../../services/marketplaceService';
@@ -112,6 +115,59 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
     window.addEventListener('twing_sms_balance_updated', handleSmsRefresh);
     return () => window.removeEventListener('twing_sms_balance_updated', handleSmsRefresh);
   }, []);
+
+  // Vendor Category Management State & Actions
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [categoriesList, setCategoriesList] = useState<any[]>([]);
+  const [newCatNameBn, setNewCatNameBn] = useState('');
+  const [newCatNameEn, setNewCatNameEn] = useState('');
+  const [newCatIcon, setNewCatIcon] = useState('🛍️');
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+
+  const loadCategories = async () => {
+    try {
+      const res = await marketplaceApi.getCategories();
+      if (res.success && Array.isArray(res.categories)) {
+        setCategoriesList(res.categories);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  const handleCreateCategory = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newCatNameBn.trim()) {
+      if (onShowToast) onShowToast('⚠️ ক্যাটাগরির নাম লিখুন');
+      return;
+    }
+    setIsCreatingCategory(true);
+    try {
+      const res = await marketplaceApi.createCategory({
+        nameBn: newCatNameBn.trim(),
+        nameEn: newCatNameEn.trim(),
+        icon: newCatIcon,
+        vendorId: store.id,
+      });
+      if (res.success) {
+        if (onShowToast) onShowToast(`✅ "${newCatNameBn.trim()}" ক্যাটাগরি সফলভাবে তৈরি হয়েছে!`);
+        setNewCatNameBn('');
+        setNewCatNameEn('');
+        setNewCatIcon('🛍️');
+        setIsCategoryModalOpen(false);
+        loadCategories();
+        if (onUpdateProducts) onUpdateProducts();
+      } else {
+        if (onShowToast) onShowToast(`❌ সমস্যা: ${res.error || 'ক্যাটাগরি তৈরি হয়নি'}`);
+      }
+    } catch (err: any) {
+      if (onShowToast) onShowToast(`❌ সমস্যা: ${err.message}`);
+    } finally {
+      setIsCreatingCategory(false);
+    }
+  };
 
   const handleOpenRecharge = () => {
     if (typeof window !== 'undefined') {
@@ -955,6 +1011,16 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
             </div>
 
             <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <button
+                type="button"
+                onClick={() => setIsCategoryModalOpen(true)}
+                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg font-bold text-xs flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                title="ভেন্ডর হিসেবে নতুন ক্যাটাগরি তৈরি করুন"
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-emerald-700" />
+                <span>+ নতুন ক্যাটাগরি</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handleBulkEnable}
@@ -2164,6 +2230,175 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
           onClose={() => setSmsNotifyingOrder(null)}
           storeName={store?.name || 'ভেন্ডর শপ'}
         />
+      )}
+
+      {/* VENDOR CREATE CATEGORY MODAL */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-xl shadow-xs">
+                  <FolderPlus className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black tracking-tight">নতুন ক্যাটাগরি তৈরি করুন</h3>
+                  <p className="text-xs text-white/80">ভেন্ডর হিসেবে সেন্ট্রাল মার্কেটপ্লেসে নতুন ক্যাটাগরি যুক্ত করুন</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCategoryModalOpen(false)}
+                className="p-2 rounded-full hover:bg-white/20 text-white transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <form onSubmit={handleCreateCategory} className="p-4 sm:p-6 space-y-4">
+              {/* Quick Template Suggestions */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                  দ্রুত সাজেশন (এক ক্লিকে নির্বাচন করুন):
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { name: 'বেবি ও কিডস কেয়ার', icon: '🧸' },
+                    { name: 'জুতো ও ফুটওয়্যার', icon: '👟' },
+                    { name: 'ব্যাগ ও ট্রাভেল', icon: '🎒' },
+                    { name: 'বই ও স্টেশনারি', icon: '📚' },
+                    { name: 'ঘড়ি ও এক্সেসরিজ', icon: '⌚' },
+                    { name: 'মেকআপ ও কসমেটিক্স', icon: '💄' },
+                    { name: 'অটোমোবাইল ও বাইক', icon: '🚗' },
+                    { name: 'অর্গানিক ও ভেষজ পণ্য', icon: '🌿' },
+                    { name: 'খেলাধুলা ও ফিটনেস', icon: '🏏' },
+                  ].map((tpl, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        setNewCatNameBn(tpl.name);
+                        setNewCatIcon(tpl.icon);
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-200 border border-slate-200 text-slate-700 transition cursor-pointer flex items-center gap-1"
+                    >
+                      <span>{tpl.icon}</span>
+                      <span>{tpl.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Category Name in Bangla */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                  <span>ক্যাটাগরির নাম (বাংলায়) <span className="text-rose-500">*</span></span>
+                  <span className="text-[11px] text-slate-400 font-normal">যেমন: জেন্টস ফ্যাশন</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newCatNameBn}
+                  onChange={(e) => setNewCatNameBn(e.target.value)}
+                  placeholder="উদাঃ বেবি ফুড ও ডায়পার"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                />
+              </div>
+
+              {/* Icon / Emoji Selection */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                  <span>ক্যাটাগরি আইকন / ইমোজি</span>
+                  <span className="text-sm">{newCatIcon} নির্বাচিত</span>
+                </label>
+                <div className="flex flex-wrap gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl max-h-28 overflow-y-auto">
+                  {[
+                    '🛍️', '🌾', '☕', '⚡', '📱', '➕', '👕', '🛋️', '🧴', '🧸',
+                    '🍳', '👟', '🎒', '💊', '🚗', '🍔', '🎁', '⌚', '💄', '🌿',
+                    '🏏', '📚', '🎧', '🚲', '🍫', '🥩', '🐟', '🧼', '🧹', '🕶️'
+                  ].map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => setNewCatIcon(emoji)}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg transition cursor-pointer ${
+                        newCatIcon === emoji
+                          ? 'bg-emerald-600 text-white shadow-md scale-110'
+                          : 'bg-white border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Category Name in English (Optional) */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                  <span>ইংরেজি নাম বা স্লাগ (ঐচ্ছিক)</span>
+                  <span className="text-[11px] text-slate-400 font-normal">যেমন: baby-care</span>
+                </label>
+                <input
+                  type="text"
+                  value={newCatNameEn}
+                  onChange={(e) => setNewCatNameEn(e.target.value)}
+                  placeholder="উদাঃ Baby Care & Diapers"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                />
+              </div>
+
+              {/* Existing Categories Summary */}
+              {categoriesList.length > 0 && (
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                  <span className="text-[11px] font-bold text-slate-600">
+                    বর্তমানে সক্রিয় ক্যাটাগরি ({categoriesList.length}টি):
+                  </span>
+                  <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto text-[10px]">
+                    {categoriesList.map((c, idx) => (
+                      <span
+                        key={c.id || idx}
+                        className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700"
+                      >
+                        {c.icon || '🛍️'} {c.nameBn || c.name_bn || c.nameEn}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 text-xs font-bold transition cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingCategory || !newCatNameBn.trim()}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  {isCreatingCategory ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>সংরক্ষণ হচ্ছে...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>ক্যাটাগরি তৈরি করুন</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

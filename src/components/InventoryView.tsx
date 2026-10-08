@@ -244,6 +244,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     const finalCategory = isCustomCategoryMode && customCategoryInput.trim()
       ? customCategoryInput.trim()
       : (category || 'অন্যান্য');
+
+    if (isCustomCategoryMode && customCategoryInput.trim()) {
+      marketplaceApi.createCategory({
+        nameBn: customCategoryInput.trim(),
+        icon: '📦',
+        vendorId: store.id,
+      }).catch(() => {});
+    }
+
     const finalImageUrl = imageUrl.trim() || (editingProduct ? (editingProduct.imageUrl || '') : getFallbackProductImage(name.trim(), finalCategory));
 
     if (editingProduct) {

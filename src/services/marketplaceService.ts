@@ -84,6 +84,26 @@ export const marketplaceApi = {
     }
   },
 
+  async createCategory(categoryData: {
+    nameBn: string;
+    nameEn?: string;
+    slug?: string;
+    icon?: string;
+    sortOrder?: number;
+    vendorId?: string;
+  }): Promise<{ success: boolean; category?: any; message?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/marketplace/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(categoryData),
+      });
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  },
+
   async getVendors(): Promise<{ success: boolean; vendors: any[] }> {
     try {
       const res = await fetch('/api/marketplace/vendors');

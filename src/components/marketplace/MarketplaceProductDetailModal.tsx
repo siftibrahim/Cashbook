@@ -20,6 +20,7 @@ import {
   Package,
   Sparkles,
   RefreshCw,
+  Maximize2,
 } from 'lucide-react';
 import { MarketplaceProduct } from '../../types';
 import { formatMoney } from '../../utils/storage';
@@ -56,6 +57,7 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
   const [quantity, setQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState<'desc' | 'specs' | 'reviews'>('desc');
   const [isCopied, setIsCopied] = useState(false);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState(() => product?.imageUrl || '');
 
   React.useEffect(() => {
@@ -157,21 +159,34 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {/* Top Grid: Image + Details */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Product Image Gallery */}
+              {/* Product Image Gallery: Full Bleed Image (No empty side gaps) with Fullscreen Lightbox Option */}
               <div className="flex flex-col gap-3">
-                <div className="relative aspect-square w-full rounded-2xl bg-white border border-slate-200 overflow-hidden flex items-center justify-center p-3 shadow-2xs">
+                <div className="relative aspect-square w-full rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden shadow-2xs group">
                   <img
                     src={currentImageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80'}
                     alt={product.name}
-                    className="w-full h-full object-contain hover:scale-105 transition-transform duration-300"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-pointer"
                     loading="lazy"
+                    onClick={() => setIsLightboxOpen(true)}
                   />
+
+                  {/* Fullscreen Expand Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsLightboxOpen(true)}
+                    className="absolute top-3 right-3 p-2 rounded-xl bg-black/50 hover:bg-black/75 text-white backdrop-blur-xs transition shadow-md cursor-pointer flex items-center gap-1 text-[11px] font-bold opacity-90 hover:opacity-100"
+                    title="ফুল স্ক্রিন দেখুন"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">ফুল স্ক্রিন</span>
+                  </button>
+
                   {discount > 0 && (
                     <div className="absolute top-3 left-3 bg-rose-500 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-md">
                       -{discount}% ছাড়
                     </div>
                   )}
-                  <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-slate-200/70 text-[11px] font-bold text-slate-700 flex items-center gap-1 shadow-2xs">
+                  <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-slate-200/70 text-[11px] font-bold text-slate-700 flex items-center gap-1 shadow-2xs">
                     <Package className="w-3.5 h-3.5 text-[#0b63e5]" />
                     <span>কোড: {product.sku || product.id.slice(-6)}</span>
                   </div>
@@ -440,11 +455,11 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
                       onClick={() => onSelectProduct && onSelectProduct(rel)}
                       className="p-2.5 rounded-2xl border border-slate-200 hover:border-blue-300 bg-white hover:shadow-md transition cursor-pointer flex flex-col justify-between shadow-2xs"
                     >
-                      <div className="aspect-square w-full rounded-xl bg-white border border-slate-100 overflow-hidden mb-2">
+                      <div className="aspect-square w-full rounded-xl bg-slate-100 border border-slate-100 overflow-hidden mb-2">
                         <img
                           src={rel.imageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=300&auto=format&fit=crop&q=80'}
                           alt={rel.name}
-                          className="w-full h-full object-contain"
+                          className="w-full h-full object-cover"
                           loading="lazy"
                         />
                       </div>
@@ -457,6 +472,37 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
             )}
           </div>
         </motion.div>
+
+        {/* Fullscreen Product Image Lightbox Modal */}
+        {isLightboxOpen && (
+          <div
+            className="fixed inset-0 z-60 bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-md"
+            onClick={() => setIsLightboxOpen(false)}
+          >
+            <button
+              type="button"
+              onClick={() => setIsLightboxOpen(false)}
+              className="absolute top-4 right-4 p-3 rounded-full bg-white/20 hover:bg-white/30 text-white transition cursor-pointer"
+              title="বন্ধ করুন"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <div
+              className="relative max-w-4xl max-h-[85vh] w-full flex items-center justify-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={currentImageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=1200&auto=format&fit=crop&q=80'}
+                alt={product.name}
+                className="max-w-full max-h-[82vh] object-contain rounded-2xl shadow-2xl"
+              />
+            </div>
+            <div className="mt-3 text-center text-white">
+              <h4 className="text-sm font-bold">{product.name}</h4>
+              <p className="text-xs text-white/70">৳ {formatMoney(product.salePrice)} • ফুল স্ক্রিন প্রিভিউ</p>
+            </div>
+          </div>
+        )}
       </div>
     </AnimatePresence>
   );

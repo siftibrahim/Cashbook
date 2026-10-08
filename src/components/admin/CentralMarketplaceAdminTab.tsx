@@ -51,6 +51,13 @@ import {
   RotateCcw,
   MessageSquare,
   Percent,
+  ArrowUp,
+  ArrowDown,
+  SlidersHorizontal,
+  Gift,
+  Flame,
+  Tag,
+  Layers,
 } from 'lucide-react';
 import { marketplaceAdminApi } from '../../services/marketplaceAdminService';
 import { MarketplaceOrderInvoiceModal } from '../marketplace/MarketplaceOrderInvoiceModal';
@@ -278,11 +285,20 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     bannerButtonText: 'এখনই অর্ডার করুন',
     bannerActive: true,
     banners: DEFAULT_ADMIN_BANNERS,
+    autoSlideEnabled: true,
+    sliderInterval: 5000,
+    pauseOnHover: true,
+    bannerHeight: 'standard' as 'compact' | 'standard' | 'tall',
+    showSliderArrows: true,
+    showSliderDots: true,
   });
 
   // Banner Modal & Ads Controls State
   const [isBannerModalOpen, setIsBannerModalOpen] = useState(false);
   const [bannerFilterPlacement, setBannerFilterPlacement] = useState<'all' | 'hero_slider' | 'middle_strip' | 'sidebar_ad' | 'bottom_banner'>('all');
+  const [bannerStatusFilter, setBannerStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [bannerSearchQuery, setBannerSearchQuery] = useState('');
+  const [previewingBanner, setPreviewingBanner] = useState<MarketplaceBannerItem | null>(null);
   const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
   const [bannerModalForm, setBannerModalForm] = useState<MarketplaceBannerItem>({
     id: '',
@@ -343,6 +359,12 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             bannerButtonText: res.settings.bannerButtonText ?? prev.bannerButtonText,
             bannerActive: res.settings.bannerActive !== false,
             banners: Array.isArray(res.settings.banners) && res.settings.banners.length > 0 ? res.settings.banners : prev.banners,
+            autoSlideEnabled: res.settings.autoSlideEnabled !== false,
+            sliderInterval: Number(res.settings.sliderInterval) || 5000,
+            pauseOnHover: res.settings.pauseOnHover !== false,
+            bannerHeight: res.settings.bannerHeight || 'standard',
+            showSliderArrows: res.settings.showSliderArrows !== false,
+            showSliderDots: res.settings.showSliderDots !== false,
           }));
         }
       }
@@ -966,6 +988,48 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     } catch (err: any) {
       alert(err.message || 'সংরক্ষণ ব্যর্থ হয়েছে');
     }
+  };
+
+  const handleDuplicateBanner = async (banner: MarketplaceBannerItem) => {
+    const duplicated: MarketplaceBannerItem = {
+      ...banner,
+      id: 'banner_' + Date.now(),
+      title: `${banner.title} (কপি)`,
+      order: (settingsForm.banners.length || 0) + 1,
+    };
+    const updated = [...settingsForm.banners, duplicated];
+    const newForm = { ...settingsForm, banners: updated };
+    setSettingsForm(newForm);
+    try {
+      await marketplaceAdminApi.saveSettings({ ...data.settings, ...newForm });
+      showToast('ব্যানার সফলভাবে ডুপ্লিকেট করা হয়েছে');
+      loadData(false);
+    } catch (err: any) {
+      alert(err.message || 'ডুপ্লিকেট করতে ব্যর্থ হয়েছে');
+    }
+  };
+
+  const handleResetDefaultBanners = async () => {
+    if (!confirm('আপনি কি পূর্বনির্ধারিত (Default) ব্যানার তালিকা রিস্টোর করতে চান? আপনার বর্তমান পরিবর্তনগুলো মুছে যেতে পারে।')) return;
+    const newForm = { ...settingsForm, banners: DEFAULT_ADMIN_BANNERS };
+    setSettingsForm(newForm);
+    try {
+      await marketplaceAdminApi.saveSettings({ ...data.settings, ...newForm });
+      showToast('ডিফল্ট ব্যানার সফলভাবে রিস্টোর হয়েছে');
+      loadData(false);
+    } catch (err: any) {
+      alert(err.message || 'রিস্টোর করতে সমস্যা হয়েছে');
+    }
+  };
+
+  const handleUpdateCarouselSetting = async (key: string, value: any) => {
+    const newForm = { ...settingsForm, [key]: value };
+    setSettingsForm(newForm);
+    try {
+      await marketplaceAdminApi.saveSettings({ ...data.settings, ...newForm });
+      showToast('স্লাইডার কন্ট্রোল আপডেট হয়েছে');
+      loadData(false);
+    } catch {}
   };
 
   // Derived Metrics
@@ -3225,6 +3289,478 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
         </div>
       )}
 
+      {/* ========================================================================= */}
+      {/* SUB-TAB: BANNERS & ADS MANAGEMENT (অধিক ব্যানার ও পূর্ণাঙ্গ কন্ট্রোল অপশন) */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'banners' && (
+        <div className="space-y-6">
+          {/* 1. Header Banner & Stats Bar */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 bg-rose-100 text-rose-800 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-rose-600" />
+                  <span>সুপার অ্যাডমিন ব্যানার কন্ট্রোল</span>
+                </span>
+                <span className="text-xs text-slate-500 font-bold">
+                  মোট {settingsForm.banners.length}টি ব্যানার কনফিগার করা
+                </span>
+              </div>
+              <h3 className="font-black text-base sm:text-lg text-slate-900">
+                সেন্ট্রাল মার্কেটপ্লেস ব্যানার ও বিজ্ঞাপন ব্যবস্থাপনা
+              </h3>
+              <p className="text-xs text-slate-500 max-w-2xl">
+                সেন্ট্রাল মলের মূল হিরো স্লাইডার, মিডল সেকশন অফার স্ট্রিপ, সাইডবার ও ফুটার বিজ্ঞাপন ব্যানার তৈরি করুন, একাধিক ব্যানার সাজান এবং রিয়েল-টাইমে নিয়ন্ত্রণ করুন।
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={handleResetDefaultBanners}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5"
+                title="ডিফল্ট ব্যানার প্রিসেট পুনরায় লোড করুন"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>ডিফল্ট রিস্টোর</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenAddBanner}
+                className="px-4 py-2.5 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white font-black text-xs rounded-xl shadow-md transition cursor-pointer flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>নতুন ব্যানার যোগ করুন</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 2. Global Hero Slider & Advertising Controls Card */}
+          <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 text-white rounded-2xl p-5 sm:p-6 shadow-md border border-slate-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center">
+                  <SlidersHorizontal className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-black text-sm text-white flex items-center gap-2">
+                    <span>হিরো স্লাইডার ও গ্লোবাল ডিসপ্লে কন্ট্রোল অপশন</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      লাইভ স্টোরফ্রন্ট সিঙ্ক
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    একাধিক ব্যানার থাকলে স্লাইডারের গতি, সময়কাল, উচ্চতা ও নেভিগেশন বোতাম নিয়ন্ত্রণ করুন
+                  </p>
+                </div>
+              </div>
+
+              {/* Ads Enabled Toggle */}
+              <label className="inline-flex items-center gap-2 cursor-pointer bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
+                <input
+                  type="checkbox"
+                  checked={settingsForm.enableMarketplaceAds !== false}
+                  onChange={(e) => handleUpdateCarouselSetting('enableMarketplaceAds', e.target.checked)}
+                  className="rounded text-rose-500 focus:ring-rose-400"
+                />
+                <span className="text-xs font-bold text-slate-200">বিজ্ঞাপন সিস্টেম চালু</span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 pt-1 text-xs">
+              {/* Control 1: Auto Slide Toggle */}
+              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-slate-200 block">স্বয়ংক্রিয় স্লাইডার (Auto-Slide)</span>
+                  <span className="text-[10px] text-slate-400">নির্দিষ্ট সময় পরপর স্বয়ংক্রিয় স্লাইড</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateCarouselSetting('autoSlideEnabled', !settingsForm.autoSlideEnabled)}
+                  className={`w-11 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
+                    settingsForm.autoSlideEnabled ? 'bg-emerald-500 justify-end' : 'bg-slate-700 justify-start'
+                  }`}
+                >
+                  <div className="bg-white w-4 h-4 rounded-full shadow-md" />
+                </button>
+              </div>
+
+              {/* Control 2: Slide Interval */}
+              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700 space-y-1">
+                <label className="font-bold text-slate-200 block text-[11px]">
+                  স্লাইড পরিবর্তন সময়কাল (Interval)
+                </label>
+                <select
+                  value={settingsForm.sliderInterval || 5000}
+                  onChange={(e) => handleUpdateCarouselSetting('sliderInterval', Number(e.target.value))}
+                  className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-bold focus:outline-none focus:border-rose-400 cursor-pointer"
+                >
+                  <option value={3000}>৩ সেকেন্ড (দ্রুত গতি)</option>
+                  <option value={4000}>৪ সেকেন্ড</option>
+                  <option value={5000}>৫ সেকেন্ড (প্রস্তাবিত ডিফল্ট)</option>
+                  <option value={7000}>৭ সেকেন্ড (ধীর গতি)</option>
+                  <option value={10000}>১০ সেকেন্ড</option>
+                </select>
+              </div>
+
+              {/* Control 3: Pause on Hover */}
+              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-slate-200 block">কার্সার রাখলে পজ (Pause on Hover)</span>
+                  <span className="text-[10px] text-slate-400">মাউস বা স্পর্শে স্লাইড থামবে</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUpdateCarouselSetting('pauseOnHover', !settingsForm.pauseOnHover)}
+                  className={`w-11 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
+                    settingsForm.pauseOnHover !== false ? 'bg-emerald-500 justify-end' : 'bg-slate-700 justify-start'
+                  }`}
+                >
+                  <div className="bg-white w-4 h-4 rounded-full shadow-md" />
+                </button>
+              </div>
+
+              {/* Control 4: Banner Height Mode */}
+              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700 space-y-1">
+                <label className="font-bold text-slate-200 block text-[11px]">
+                  হিরো ব্যানারের উচ্চতা (Banner Height)
+                </label>
+                <select
+                  value={settingsForm.bannerHeight || 'standard'}
+                  onChange={(e) => handleUpdateCarouselSetting('bannerHeight', e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg px-2.5 py-1.5 text-xs font-bold focus:outline-none focus:border-rose-400 cursor-pointer"
+                >
+                  <option value="compact">কমপ্যাক্ট (Compact - ১৪০px)</option>
+                  <option value="standard">স্ট্যান্ডার্ড (Standard - ১৭৫px)</option>
+                  <option value="tall">লার্জ / বড় (Tall - ২১০px)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Extra Controls: Arrows & Dots */}
+            <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-slate-800 text-xs">
+              <label className="inline-flex items-center gap-2 cursor-pointer text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={settingsForm.showSliderArrows !== false}
+                  onChange={(e) => handleUpdateCarouselSetting('showSliderArrows', e.target.checked)}
+                  className="rounded text-rose-500 focus:ring-rose-400"
+                />
+                <span className="font-bold">স্লাইডার পরবর্তী/পূর্ববর্তী অ্যারো বাটন দেখান</span>
+              </label>
+
+              <label className="inline-flex items-center gap-2 cursor-pointer text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={settingsForm.showSliderDots !== false}
+                  onChange={(e) => handleUpdateCarouselSetting('showSliderDots', e.target.checked)}
+                  className="rounded text-rose-500 focus:ring-rose-400"
+                />
+                <span className="font-bold">স্লাইডারের নিচে ডটস নেভিগেশন দেখান</span>
+              </label>
+            </div>
+          </div>
+
+          {/* 3. Placement Tabs & Search Filter */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              {/* Placement Filter Tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                {[
+                  { key: 'all', label: 'সকল ব্যানার', count: settingsForm.banners.length },
+                  { key: 'hero_slider', label: '🎯 হিরো স্লাইডার', count: settingsForm.banners.filter(b => b.placement === 'hero_slider').length },
+                  { key: 'middle_strip', label: '🎁 মিডল সেকশন অফার', count: settingsForm.banners.filter(b => b.placement === 'middle_strip').length },
+                  { key: 'sidebar_ad', label: '💎 সাইডবার বিজ্ঞাপন', count: settingsForm.banners.filter(b => b.placement === 'sidebar_ad').length },
+                  { key: 'bottom_banner', label: '🚀 ফুটার ব্যানার', count: settingsForm.banners.filter(b => b.placement === 'bottom_banner').length },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setBannerFilterPlacement(tab.key as any)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
+                      bannerFilterPlacement === tab.key
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                      bannerFilterPlacement === tab.key ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-800'
+                    }`}>
+                      {tab.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Status Filter */}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-bold text-slate-500">স্ট্যাটাস:</span>
+                <select
+                  value={bannerStatusFilter}
+                  onChange={(e) => setBannerStatusFilter(e.target.value as any)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-500/20 cursor-pointer"
+                >
+                  <option value="all">সকল স্ট্যাটাস</option>
+                  <option value="active">শুধু সক্রিয় (Active)</option>
+                  <option value="inactive">নিষ্ক্রিয় (Inactive)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={bannerSearchQuery}
+                onChange={(e) => setBannerSearchQuery(e.target.value)}
+                placeholder="ব্যানার টাইটেল, ট্যাগ, সাবটাইটেল বা বিজ্ঞাপনদাতার নাম দিয়ে খুঁজুন..."
+                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 text-xs font-medium"
+              />
+            </div>
+          </div>
+
+          {/* 4. Banner List / Grid */}
+          {(() => {
+            const filteredBanners = settingsForm.banners.filter((b) => {
+              if (bannerFilterPlacement !== 'all' && b.placement !== bannerFilterPlacement) return false;
+              if (bannerStatusFilter === 'active' && b.isActive === false) return false;
+              if (bannerStatusFilter === 'inactive' && b.isActive !== false) return false;
+              if (bannerSearchQuery.trim()) {
+                const q = bannerSearchQuery.toLowerCase();
+                const matchTitle = b.title?.toLowerCase().includes(q);
+                const matchSub = b.subtitle?.toLowerCase().includes(q);
+                const matchTag = b.tag?.toLowerCase().includes(q);
+                const matchAdv = b.advertiserName?.toLowerCase().includes(q);
+                if (!matchTitle && !matchSub && !matchTag && !matchAdv) return false;
+              }
+              return true;
+            });
+
+            if (filteredBanners.length === 0) {
+              return (
+                <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center mx-auto">
+                    <ImageIcon className="w-7 h-7" />
+                  </div>
+                  <h4 className="font-bold text-slate-800 text-sm">কোনো ব্যানার খুঁজে পাওয়া যায়নি</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    আপনার নির্বাচিত ফিল্টারে কোনো ব্যানার নেই। নতুন আকর্ষণীয় ব্যানার তৈরি করুন অথবা ফিল্টার পরিবর্তন করুন।
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOpenAddBanner}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>নতুন ব্যানার যোগ করুন</span>
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredBanners.map((banner, index) => {
+                  const originalIndex = settingsForm.banners.findIndex((b) => b.id === banner.id);
+                  const isFirst = originalIndex === 0;
+                  const isLast = originalIndex === settingsForm.banners.length - 1;
+
+                  const placementBadges: Record<string, { label: string; badgeCls: string }> = {
+                    hero_slider: { label: '🎯 হিরো স্লাইডার', badgeCls: 'bg-blue-100 text-blue-800 border-blue-200' },
+                    middle_strip: { label: '🎁 মিডল অফার', badgeCls: 'bg-purple-100 text-purple-800 border-purple-200' },
+                    sidebar_ad: { label: '💎 সাইডবার বিজ্ঞাপন', badgeCls: 'bg-amber-100 text-amber-800 border-amber-200' },
+                    bottom_banner: { label: '🚀 ফুটার ব্যানার', badgeCls: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+                  };
+
+                  const pInfo = placementBadges[banner.placement] || { label: banner.placement, badgeCls: 'bg-slate-100 text-slate-700' };
+
+                  return (
+                    <div
+                      key={banner.id || index}
+                      className={`bg-white border rounded-2xl overflow-hidden shadow-xs hover:shadow-md transition flex flex-col justify-between ${
+                        banner.isActive !== false ? 'border-slate-200' : 'border-rose-200 bg-rose-50/20 opacity-80'
+                      }`}
+                    >
+                      {/* Image Preview & Badges Top */}
+                      <div className="relative h-40 bg-slate-100 overflow-hidden group">
+                        {banner.imageUrl ? (
+                          <img
+                            src={banner.imageUrl}
+                            alt={banner.title}
+                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = '/src/assets/images/mkt_clean_hero_banner_1791439411244.jpg';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 gap-1 p-4 text-center">
+                            <ImageIcon className="w-8 h-8 text-slate-300" />
+                            <span className="text-[10px] font-bold">ইমেজ URL যুক্ত করা হয়নি</span>
+                          </div>
+                        )}
+
+                        {/* Top Overlay Badges */}
+                        <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between gap-2 pointer-events-none">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border backdrop-blur-xs shadow-2xs ${pInfo.badgeCls}`}>
+                            {pInfo.label}
+                          </span>
+
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border shadow-2xs ${
+                            banner.isActive !== false
+                              ? 'bg-emerald-500 text-white border-emerald-600'
+                              : 'bg-rose-500 text-white border-rose-600'
+                          }`}>
+                            {banner.isActive !== false ? '● সক্রিয়' : '○ বন্ধ'}
+                          </span>
+                        </div>
+
+                        {/* Order Badge */}
+                        <div className="absolute bottom-2.5 left-2.5 px-2 py-0.5 rounded-lg bg-black/60 text-white text-[10px] font-mono font-bold backdrop-blur-xs">
+                          ক্রম: #{originalIndex + 1}
+                        </div>
+
+                        {/* Quick Preview Overlay Button */}
+                        <button
+                          type="button"
+                          onClick={() => setPreviewingBanner(banner)}
+                          className="absolute bottom-2.5 right-2.5 px-2.5 py-1 bg-white/90 hover:bg-white text-slate-800 rounded-lg text-[10px] font-bold shadow-xs transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3 text-slate-600" />
+                          <span>প্রিভিউ</span>
+                        </button>
+                      </div>
+
+                      {/* Content Body */}
+                      <div className="p-4 space-y-2 flex-1 flex flex-col justify-between">
+                        <div className="space-y-1.5">
+                          {banner.tag && (
+                            <span className="inline-block px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 text-[10px] font-black uppercase">
+                              {banner.tag}
+                            </span>
+                          )}
+
+                          <h4 className="font-black text-xs sm:text-sm text-slate-900 line-clamp-2 leading-snug">
+                            {banner.title}
+                          </h4>
+
+                          {banner.subtitle && (
+                            <p className="text-[11px] text-slate-500 line-clamp-2">
+                              {banner.subtitle}
+                            </p>
+                          )}
+
+                          {/* Link & Advertiser info */}
+                          <div className="pt-1 space-y-1 text-[10px] text-slate-500">
+                            {banner.linkUrl && (
+                              <div className="flex items-center gap-1 truncate text-slate-600">
+                                <LinkIcon className="w-3 h-3 text-slate-400 shrink-0" />
+                                <span className="font-mono truncate">{banner.linkUrl}</span>
+                              </div>
+                            )}
+
+                            {banner.advertiserName && (
+                              <div className="flex items-center gap-1 text-slate-600 font-bold">
+                                <span>বিজ্ঞাপনদাতা:</span>
+                                <span className="text-rose-700">{banner.advertiserName}</span>
+                              </div>
+                            )}
+
+                            {banner.buttonText && (
+                              <div className="inline-block mt-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[10px] font-bold">
+                                বাটন: "{banner.buttonText}"
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action Toolbar */}
+                        <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-1 mt-2">
+                          {/* Reorder Up/Down */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={isFirst}
+                              onClick={() => handleMoveBanner(originalIndex, 'up')}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
+                              title="উপরে সরান"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isLast}
+                              onClick={() => handleMoveBanner(originalIndex, 'down')}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
+                              title="নিচে সরান"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          {/* Right Controls: Duplicate, Toggle, Edit, Delete */}
+                          <div className="flex items-center gap-1">
+                            {/* Duplicate Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleDuplicateBanner(banner)}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                              title="ব্যানার ডুপ্লিকেট (কপি) করুন"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Toggle Active Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleBanner(banner.id)}
+                              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                                banner.isActive !== false
+                                  ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                  : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                              }`}
+                              title={banner.isActive !== false ? 'বন্ধ করুন' : 'চালু করুন'}
+                            >
+                              {banner.isActive !== false ? (
+                                <PlayCircle className="w-3.5 h-3.5" />
+                              ) : (
+                                <PauseCircle className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+
+                            {/* Edit Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditBanner(banner)}
+                              className="p-1.5 rounded-lg bg-teal-50 text-teal-700 hover:bg-teal-100 transition cursor-pointer"
+                              title="সম্পাদনা করুন"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Delete Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteBanner(banner.id)}
+                              className="p-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 transition cursor-pointer"
+                              title="মুছে ফেলুন"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* SUB-TAB 4: SETTINGS */}
       {activeSubTab === 'settings' && (
         <form onSubmit={handleSaveSettings} className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 space-y-6 max-w-3xl text-xs shadow-xs">
@@ -3393,6 +3929,33 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                 />
               </div>
             </div>
+          </div>
+
+          {/* Direct Banner Hub Switch Card */}
+          <div className="p-4 bg-gradient-to-r from-rose-50 via-pink-50 to-amber-50 border border-rose-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-600 to-rose-700 text-white flex items-center justify-center font-bold text-lg shadow-xs shrink-0">
+                📢
+              </div>
+              <div>
+                <h4 className="font-black text-xs text-rose-950 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>মাল্টিপল ব্যানার ও বিস্তারিত কন্ট্রোল প্যানেল (Multi-Banner Manager)</span>
+                  <span className="px-2 py-0.2 bg-rose-200 text-rose-900 rounded-full text-[10px] font-black">
+                    {settingsForm.banners.length}টি ব্যানার
+                  </span>
+                </h4>
+                <p className="text-[11px] text-rose-800 mt-0.5">
+                  সেন্ট্রাল মার্কেটপ্লেসের একাধিক হিরো ক্যারোজেল, মিডল অফার স্ট্রিপ, সাইডবার ও ফুটার বিজ্ঞাপন পরিচালনা ও সাজাতে ব্যানার ট্যাবে যান।
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('banners')}
+              className="px-4 py-2 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5 shadow-xs shrink-0"
+            >
+              <span>ব্যানার ও বিজ্ঞাপন পরিচালনা করুন ➔</span>
+            </button>
           </div>
 
           {/* Marketplace Hero Banner Controls (Full Super Admin Control) */}
@@ -4924,6 +5487,526 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
           onClose={() => setSmsNotifyingOrder(null)}
           storeName="সেন্ট্রাল মার্কেটপ্লেস"
         />
+      )}
+
+      {/* ================= MODAL: ADD / EDIT BANNER ================= */}
+      {isBannerModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 my-8 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-rose-900 via-pink-900 to-rose-950 p-5 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center border border-white/20">
+                  <ImageIcon className="w-5 h-5 text-rose-300" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm sm:text-base text-white">
+                    {editingBannerId ? 'ব্যানার / বিজ্ঞাপন সম্পাদনা করুন' : 'নতুন ব্যানার / বিজ্ঞাপন যুক্ত করুন'}
+                  </h3>
+                  <p className="text-[11px] text-rose-200">
+                    মার্কেটপ্লেস স্টোরফ্রন্টের বিভিন্ন স্লটে আকর্ষণীয় ব্যানার তৈরি ও নিয়ন্ত্রণ করুন
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBannerModalOpen(false)}
+                className="text-white/70 hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form Scrollable Area */}
+            <form onSubmit={handleSaveBannerModal} className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1 text-xs">
+              {/* 1. Placement Slot Selector */}
+              <div className="space-y-2">
+                <label className="font-black text-slate-800 block text-xs">
+                  ব্যানার প্লেসমেন্ট স্লট নির্বাচন করুন <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {[
+                    {
+                      key: 'hero_slider',
+                      title: '🎯 হিরো স্লাইডার (Hero Slider)',
+                      desc: 'হোমপেজের মূল শীর্ষ ক্যারোজেল (স্বয়ংক্রিয় স্লাইড হয়)',
+                      badge: 'সর্বোচ্চ দৃশ্যমান',
+                    },
+                    {
+                      key: 'middle_strip',
+                      title: '🎁 মিডল সেকশন অফার (Middle Strip)',
+                      desc: 'প্যাকেজ ডিল বা প্রোডাক্ট গ্রিডের মাঝে বড় অফার স্ট্রিপ',
+                      badge: 'স্পেশাল ক্যাম্পেইন',
+                    },
+                    {
+                      key: 'sidebar_ad',
+                      title: '💎 সাইডবার বিজ্ঞাপন (Sidebar Ad)',
+                      desc: 'ক্যাটাগরি সাইডবারের নিচে বা গ্রিডে স্পন্সরড কার্ড',
+                      badge: 'মার্চেন্ট ব্র্যান্ডিং',
+                    },
+                    {
+                      key: 'bottom_banner',
+                      title: '🚀 ফুটার ব্যানার (Bottom Banner)',
+                      desc: 'পেজের নিচের অংশে মেগা ডিসকাউন্ট স্ট্রিপ',
+                      badge: 'ফুটার অফার',
+                    },
+                  ].map((slot) => {
+                    const isSelected = bannerModalForm.placement === slot.key;
+                    return (
+                      <div
+                        key={slot.key}
+                        onClick={() => setBannerModalForm({ ...bannerModalForm, placement: slot.key as any })}
+                        className={`p-3 rounded-2xl border-2 transition cursor-pointer flex flex-col justify-between space-y-1.5 ${
+                          isSelected
+                            ? 'border-rose-600 bg-rose-50/50 shadow-xs'
+                            : 'border-slate-200 bg-slate-50/50 hover:bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-black text-slate-900 text-xs">{slot.title}</span>
+                          <span className={`px-1.5 py-0.2 rounded-md text-[9px] font-black ${
+                            isSelected ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-700'
+                          }`}>
+                            {slot.badge}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-tight">{slot.desc}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Banner Title & Subtitle */}
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    ব্যানার শিরোনাম (Title) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={bannerModalForm.title}
+                    onChange={(e) => setBannerModalForm({ ...bannerModalForm, title: e.target.value })}
+                    placeholder="যেমন: আপনার প্রয়োজনীয় সব পণ্য এখন এক প্ল্যাটফর্মে"
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl font-bold text-xs bg-slate-50/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    ব্যানার সাবটাইটেল বা সংক্ষিপ্ত বিবরণ (Subtitle)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={bannerModalForm.subtitle || ''}
+                    onChange={(e) => setBannerModalForm({ ...bannerModalForm, subtitle: e.target.value })}
+                    placeholder="যেমন: বহু ভেন্ডরের হাজারো খাঁটি পণ্য, সেরা দামে দ্রুত ক্যাশ অন ডেলিভারি!"
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                  />
+                </div>
+              </div>
+
+              {/* 3. Badge / Tag with Quick Chips */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 block">
+                  ব্যানার ব্যাজ বা ট্যাগ (Badge / Tag)
+                </label>
+                <input
+                  type="text"
+                  value={bannerModalForm.tag || ''}
+                  onChange={(e) => setBannerModalForm({ ...bannerModalForm, tag: e.target.value })}
+                  placeholder="যেমন: ⚡ মেগা ধামাকা অফার"
+                  className="w-full px-3.5 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                />
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400 font-bold">প্রস্তাবিত ট্যাগ:</span>
+                  {[
+                    '⚡ মেগা ধামাকা অফার',
+                    '🔥 হট ডিল',
+                    '🌿 ১০০% খাঁটি পণ্য',
+                    '🎁 বিশেষ ছাড়',
+                    '🚚 ফ্রি ডেলিভারি',
+                    '💎 স্পন্সরড বিজ্ঞাপন',
+                    '⭐ প্রিমিয়াম কোয়ালিটি',
+                  ].map((tg) => (
+                    <button
+                      key={tg}
+                      type="button"
+                      onClick={() => setBannerModalForm({ ...bannerModalForm, tag: tg })}
+                      className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-rose-100 hover:text-rose-800 text-[10px] font-bold text-slate-600 transition cursor-pointer"
+                    >
+                      {tg}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 4. Banner Image URL + Upload + Presets */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <label className="font-black text-slate-800 block text-xs">
+                  ব্যানার ছবি (Image URL বা সরাসরি আপলোড) <span className="text-rose-500">*</span>
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="url"
+                    value={bannerModalForm.imageUrl || ''}
+                    onChange={(e) => setBannerModalForm({ ...bannerModalForm, imageUrl: e.target.value })}
+                    placeholder="https://images.unsplash.com/... বা /src/assets/..."
+                    className="flex-1 px-3.5 py-2 border border-slate-200 rounded-xl font-mono text-[11px] bg-slate-50/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                  />
+                  <label className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl cursor-pointer text-xs transition border border-slate-300 shrink-0">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>ডিভাইস থেকে আপলোড</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            if (reader.result) {
+                              setBannerModalForm({ ...bannerModalForm, imageUrl: reader.result as string });
+                              showToast('ছবি সফলভাবে যুক্ত হয়েছে');
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {/* Preset image picker */}
+                <div className="space-y-1 pt-1">
+                  <span className="text-[10px] font-bold text-slate-400 block">এক ক্লিকে আকর্ষণীয় প্রি-ডিফাইনড ছবি নির্বাচন করুন:</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      {
+                        label: '🥦 গ্রোসারি ও ফ্রেশ বাজার',
+                        url: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
+                      },
+                      {
+                        label: '📱 স্মার্ট গ্যাজেট',
+                        url: '/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg',
+                      },
+                      {
+                        label: '🌱 অর্গানিক ঘি ও মধু',
+                        url: '/src/assets/images/marketplace_artisan_ghee_1790221157459.jpg',
+                      },
+                      {
+                        label: '👗 লাইফস্টাইল ও ফ্যাশন',
+                        url: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=1200&auto=format&fit=crop&q=80',
+                      },
+                      {
+                        label: '🚚 কুরিয়ার ও ডেলিভারি',
+                        url: '/src/assets/images/marketplace_courier_vendor_1791135724375.jpg',
+                      },
+                      {
+                        label: '✨ মেগা অফার ফেস্টিভ্যাল',
+                        url: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&auto=format&fit=crop&q=80',
+                      },
+                      {
+                        label: '🥕 তাজা সবজি ও ফল',
+                        url: 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=1200&auto=format&fit=crop&q=80',
+                      },
+                      {
+                        label: '🛍️ ক্লিন মডার্ন ব্যানার',
+                        url: '/src/assets/images/mkt_clean_hero_banner_1791439411244.jpg',
+                      },
+                    ].map((p, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setBannerModalForm({ ...bannerModalForm, imageUrl: p.url })}
+                        className={`p-1.5 rounded-xl border text-left transition cursor-pointer flex items-center gap-1.5 ${
+                          bannerModalForm.imageUrl === p.url ? 'border-rose-500 bg-rose-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 bg-slate-200">
+                          <img src={p.url} alt={p.label} className="w-full h-full object-cover" />
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-700 truncate">{p.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. Destination Link & Target Selection */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <label className="font-black text-slate-800 block text-xs">
+                  ক্লিক লিংক বা ডেস্টিনেশন (Click Action)
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-500 font-bold block mb-1">
+                      দ্রুত ডেস্টিনেশন প্রিসেট নির্বাচন:
+                    </label>
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setBannerModalForm({ ...bannerModalForm, linkUrl: e.target.value });
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 cursor-pointer"
+                      defaultValue=""
+                    >
+                      <option value="" disabled>-- দ্রুত সেকশন নির্বাচন করুন --</option>
+                      <option value="#marketplace-package-deals">⚡ মেগা সেভার প্যাকেজ ডিলস সেকশন</option>
+                      <option value="#marketplace-flash-sale">🔥 হট ডিলস ও ফ্ল্যাশ সেল সেকশন</option>
+                      <option value="#marketplace-all-products">🛍️ সকল পণ্য ব্রাউজিং সেকশন</option>
+                      <option value="#marketplace-top-sellers">👑 সেরা বিক্রিত পণ্য সেকশন</option>
+                      <option value="#marketplace-best-offers-section">🎁 বেস্ট অফার এরিয়া</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-slate-500 font-bold block mb-1">
+                      নির্দিষ্ট প্রোডাক্ট লিংক করুন (ঐচ্ছিক):
+                    </label>
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          const selProd = data.products.find((p) => p.id === e.target.value);
+                          setBannerModalForm({
+                            ...bannerModalForm,
+                            linkUrl: `?product=${e.target.value}`,
+                            title: bannerModalForm.title || selProd?.name || '',
+                            imageUrl: bannerModalForm.imageUrl || selProd?.imageUrl || '',
+                          });
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 cursor-pointer truncate"
+                      defaultValue=""
+                    >
+                      <option value="" disabled>-- ক্যাটালগ প্রোডাক্ট নির্বাচন করুন --</option>
+                      {data.products.slice(0, 40).map((prod) => (
+                        <option key={prod.id} value={prod.id}>
+                          {prod.name} (৳{prod.salePrice || prod.price})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <input
+                    type="text"
+                    value={bannerModalForm.linkUrl || ''}
+                    onChange={(e) => setBannerModalForm({ ...bannerModalForm, linkUrl: e.target.value })}
+                    placeholder="#marketplace-package-deals বা ?product=PROD_ID বা কাস্টম URL"
+                    className="w-full px-3.5 py-2 border border-slate-200 rounded-xl font-mono text-[11px] bg-slate-50/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                  />
+                </div>
+              </div>
+
+              {/* 6. Button Text & Advertiser Name */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    অ্যাকশন বাটন টেক্সট (Button Text)
+                  </label>
+                  <input
+                    type="text"
+                    value={bannerModalForm.buttonText || ''}
+                    onChange={(e) => setBannerModalForm({ ...bannerModalForm, buttonText: e.target.value })}
+                    placeholder="যেমন: এখনই অর্ডার করুন"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    বিজ্ঞাপনদাতা / স্পন্সর নাম (Advertiser Name)
+                  </label>
+                  <input
+                    type="text"
+                    value={bannerModalForm.advertiserName || ''}
+                    onChange={(e) => setBannerModalForm({ ...bannerModalForm, advertiserName: e.target.value })}
+                    placeholder="যেমন: TWING Mall Official বা মার্চেন্ট নাম"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50/40 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20"
+                  />
+                </div>
+              </div>
+
+              {/* 7. Active Status Switch */}
+              <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                <div>
+                  <span className="font-bold text-slate-900 block">ব্যানার স্ট্যাটাস সক্রিয় রাখুন</span>
+                  <span className="text-[10px] text-slate-500">বন্ধ রাখলে স্টোরফ্রন্টে এই ব্যানার প্রদর্শিত হবে না</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBannerModalForm({ ...bannerModalForm, isActive: bannerModalForm.isActive === false ? true : false })}
+                  className={`w-11 h-6 flex items-center rounded-full p-1 transition cursor-pointer ${
+                    bannerModalForm.isActive !== false ? 'bg-emerald-600 justify-end' : 'bg-slate-300 justify-start'
+                  }`}
+                >
+                  <div className="bg-white w-4 h-4 rounded-full shadow-md" />
+                </button>
+              </div>
+
+              {/* 8. Live Storefront Preview */}
+              {bannerModalForm.imageUrl && (
+                <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                  <span className="text-[11px] font-bold text-slate-500 block">
+                    লাইভ প্রিভিউ (Storefront Preview):
+                  </span>
+                  <div className="relative rounded-2xl overflow-hidden h-36 sm:h-44 w-full shadow-md border border-slate-200 bg-slate-900">
+                    <img
+                      src={bannerModalForm.imageUrl}
+                      alt="Banner Preview"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = '/src/assets/images/mkt_clean_hero_banner_1791439411244.jpg';
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-transparent flex items-center p-4 sm:p-6">
+                      <div className="max-w-md space-y-1.5 text-white">
+                        {bannerModalForm.tag && (
+                          <span className="inline-block px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase">
+                            {bannerModalForm.tag}
+                          </span>
+                        )}
+                        <h4 className="text-sm sm:text-base font-black text-white leading-tight">
+                          {bannerModalForm.title || 'ব্যানার টাইটেল দিন'}
+                        </h4>
+                        {bannerModalForm.subtitle && (
+                          <p className="text-[11px] text-slate-200 line-clamp-2">
+                            {bannerModalForm.subtitle}
+                          </p>
+                        )}
+                        <div className="pt-1 flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 px-3 py-1 bg-rose-600 text-white rounded-lg text-[10px] font-bold">
+                            {bannerModalForm.buttonText || 'এখনই অর্ডার করুন'}
+                          </span>
+                          {bannerModalForm.advertiserName && (
+                            <span className="text-[10px] text-slate-300 font-bold">
+                              স্পন্সর: {bannerModalForm.advertiserName}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Form Action Buttons */}
+              <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsBannerModalOpen(false)}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-rose-700 hover:bg-rose-800 text-white font-black rounded-xl text-xs transition cursor-pointer shadow-md"
+                >
+                  {editingBannerId ? 'ব্যানার আপডেট সংরক্ষণ' : 'নতুন ব্যানার সংরক্ষণ করুন'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: BANNER PREVIEW ================= */}
+      {previewingBanner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 space-y-4 p-5 sm:p-6">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                  <Eye className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-slate-900">ব্যানার স্টোরফ্রন্ট লাইভ প্রিভিউ</h3>
+                  <p className="text-[11px] text-slate-500">গ্রাহকরা সেন্ট্রাল মার্কেটপ্লেসে এই ব্যানারটি যেভাবে দেখবেন</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewingBanner(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Desktop / Large Preview Box */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-600 block">🖥️ স্টোরফ্রন্ট প্রিভিউ:</span>
+              <div className="relative rounded-2xl overflow-hidden h-44 sm:h-56 w-full shadow-md border border-slate-200 bg-slate-900">
+                <img
+                  src={previewingBanner.imageUrl || '/src/assets/images/mkt_clean_hero_banner_1791439411244.jpg'}
+                  alt={previewingBanner.title}
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-transparent flex items-center p-5 sm:p-7">
+                  <div className="max-w-md space-y-2 text-white">
+                    {previewingBanner.tag && (
+                      <span className="inline-block px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase">
+                        {previewingBanner.tag}
+                      </span>
+                    )}
+                    <h4 className="text-base sm:text-xl font-black text-white leading-tight">
+                      {previewingBanner.title}
+                    </h4>
+                    {previewingBanner.subtitle && (
+                      <p className="text-xs text-slate-200 line-clamp-2">
+                        {previewingBanner.subtitle}
+                      </p>
+                    )}
+                    <div className="pt-1.5 flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-4 py-1.5 bg-rose-600 text-white rounded-xl text-xs font-bold shadow-xs">
+                        {previewingBanner.buttonText || 'এখনই অর্ডার করুন'}
+                      </span>
+                      {previewingBanner.advertiserName && (
+                        <span className="text-xs text-slate-300 font-bold">
+                          {previewingBanner.advertiserName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Banner Metadata Info */}
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">প্লেসমেন্ট স্লট:</span>
+                <span className="font-bold text-slate-800">{previewingBanner.placement}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">লিংক গন্তব্য:</span>
+                <span className="font-mono font-bold text-rose-700">{previewingBanner.linkUrl || 'নেই'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">স্ট্যাটাস:</span>
+                <span className={`font-bold ${previewingBanner.isActive !== false ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {previewingBanner.isActive !== false ? 'সক্রিয় (Active)' : 'নিষ্ক্রিয় (Inactive)'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setPreviewingBanner(null)}
+                className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition cursor-pointer"
+              >
+                বন্ধ করুন
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -217,18 +217,18 @@ export const MarketplaceVendorStoreModal: React.FC<MarketplaceVendorStoreModalPr
                     <div
                       key={p.id}
                       onClick={() => onViewProduct(p)}
-                      className="group bg-white rounded-2xl border border-slate-200/80 p-2.5 flex flex-col justify-between hover:shadow-md hover:border-blue-300 transition duration-200 cursor-pointer relative"
+                      className="group bg-white rounded-2xl border border-slate-200/80 overflow-hidden flex flex-col justify-between hover:shadow-md hover:border-blue-300 transition duration-200 cursor-pointer relative"
                     >
-                      {/* Image container */}
-                      <div className="relative aspect-square w-full rounded-xl bg-white border border-slate-100 overflow-hidden mb-2.5 flex items-center justify-center p-2">
+                      {/* Image container: Full Bleed object-cover without side gaps */}
+                      <div className="relative aspect-square w-full bg-slate-100 overflow-hidden">
                         <img
                           src={p.imageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&auto=format&fit=crop&q=80'}
                           alt={p.name}
-                          className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           loading="lazy"
                         />
                         {discount > 0 && (
-                          <div className="absolute top-2 left-2 bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-lg">
+                          <div className="absolute top-2 left-2 bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-lg shadow-2xs">
                             -{discount}%
                           </div>
                         )}
@@ -247,7 +247,7 @@ export const MarketplaceVendorStoreModal: React.FC<MarketplaceVendorStoreModalPr
                       </div>
 
                       {/* Product details */}
-                      <div className="space-y-1">
+                      <div className="p-2.5 space-y-1">
                         <h4 className="text-xs font-black text-slate-800 line-clamp-2 leading-tight group-hover:text-[#0b63e5] transition">
                           {p.name}
                         </h4>

@@ -135,11 +135,11 @@ const MarketplaceProductCard: React.FC<MarketplaceProductCardProps> = ({
   return (
     <div
       onClick={onClick}
-      className="bg-white rounded-2xl border border-slate-200/90 p-2.5 sm:p-3 flex flex-col justify-between hover:shadow-md hover:border-slate-300 transition duration-200 cursor-pointer relative group h-full select-none"
+      className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden flex flex-col justify-between hover:shadow-md hover:border-slate-300 transition duration-200 cursor-pointer relative group h-full select-none"
     >
       <div>
-        {/* Image Container with Top Hanging Discount Ribbon Badge */}
-        <div className="relative aspect-square w-full rounded-xl bg-white overflow-hidden mb-2 flex items-center justify-center p-2.5">
+        {/* Full-bleed Product Image: fills the frame edge-to-edge with NO blank side spaces */}
+        <div className="relative aspect-square w-full bg-slate-100 overflow-hidden">
           {/* Top Hanging Badge matching screenshot */}
           {discount > 0 ? (
             isRedTag ? (
@@ -177,59 +177,62 @@ const MarketplaceProductCard: React.FC<MarketplaceProductCardProps> = ({
             />
           </button>
 
-          {/* Product Image */}
+          {/* Product Image: Full Bleed object-cover */}
           <img
             src={product.imageUrl}
             alt={product.name}
-            className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             loading="lazy"
           />
         </div>
 
-        {/* 12-24 Hours Delivery Pill matching screenshot */}
-        <div className="mb-1 flex items-center">
-          <span className="inline-flex items-center gap-1 bg-slate-100/90 text-slate-700 text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 rounded-md">
-            <span className="text-xs">🚀</span>
-            <span>12-24 HOURS</span>
-          </span>
-        </div>
-
-        {/* Product Title (2-line clamped) */}
-        <h3 className="text-xs sm:text-[13px] font-medium text-slate-900 line-clamp-2 leading-snug min-h-[34px] sm:min-h-[38px] group-hover:text-[#009b77] transition">
-          {product.name}
-        </h3>
-
-        {/* Twing Hisabi Verified Vendor Badge */}
-        <div className="flex items-center gap-1 text-[10px] text-emerald-700 font-semibold truncate pt-0.5">
-          <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
-          <span className="truncate">টুইং ভেরিফাইড: {product.vendorShopName || 'ভেরিফাইড মার্চেন্ট'}</span>
-        </div>
-
-        {/* Rating Stars & Count (e.g. ★ ★ ★ ★ ★ (0)) */}
-        <div className="flex items-center gap-1 text-[11px] pt-1">
-          <div className="flex items-center gap-0.5">
-            {[...Array(5)].map((_, i) => {
-              const isFilled = (product.rating || 0) >= i + 1;
-              return (
-                <Star
-                  key={i}
-                  className={`w-3 h-3 ${
-                    isFilled
-                      ? 'fill-amber-400 text-amber-400'
-                      : 'fill-slate-200 text-slate-200'
-                  }`}
-                />
-              );
-            })}
+        {/* Product Details Section Below */}
+        <div className="p-2.5 sm:p-3 pb-0 space-y-1">
+          {/* 12-24 Hours Delivery Pill matching screenshot */}
+          <div className="mb-1 flex items-center">
+            <span className="inline-flex items-center gap-1 bg-slate-100/90 text-slate-700 text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 rounded-md">
+              <span className="text-xs">🚀</span>
+              <span>12-24 HOURS</span>
+            </span>
           </div>
-          <span className="text-[11px] text-slate-500 font-medium">
-            ({product.reviewCount || 0})
-          </span>
+
+          {/* Product Title (2-line clamped) */}
+          <h3 className="text-xs sm:text-[13px] font-medium text-slate-900 line-clamp-2 leading-snug min-h-[34px] sm:min-h-[38px] group-hover:text-[#009b77] transition">
+            {product.name}
+          </h3>
+
+          {/* Twing Hisabi Verified Vendor Badge */}
+          <div className="flex items-center gap-1 text-[10px] text-emerald-700 font-semibold truncate pt-0.5">
+            <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+            <span className="truncate">টুইং ভেরিফাইড: {product.vendorShopName || 'ভেরিফাইড মার্চেন্ট'}</span>
+          </div>
+
+          {/* Rating Stars & Count (e.g. ★ ★ ★ ★ ★ (0)) */}
+          <div className="flex items-center gap-1 text-[11px] pt-1">
+            <div className="flex items-center gap-0.5">
+              {[...Array(5)].map((_, i) => {
+                const isFilled = (product.rating || 0) >= i + 1;
+                return (
+                  <Star
+                    key={i}
+                    className={`w-3 h-3 ${
+                      isFilled
+                        ? 'fill-amber-400 text-amber-400'
+                        : 'fill-slate-200 text-slate-200'
+                    }`}
+                  />
+                );
+              })}
+            </div>
+            <span className="text-[11px] text-slate-500 font-medium">
+              ({product.reviewCount || 0})
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Bottom Row: Price & ADD Button matching screenshot */}
-      <div className="flex items-end justify-between gap-2 pt-2 mt-auto">
+      <div className="p-2.5 sm:p-3 pt-2 flex items-end justify-between gap-2 mt-auto">
         {/* Price Column */}
         <div className="flex flex-col">
           <div className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
@@ -311,6 +314,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
   const [isMobileCategoriesOpen, setIsMobileCategoriesOpen] = useState(false);
   const [highlightPackageId, setHighlightPackageId] = useState<string | null>(null);
+  const [dynamicCategories, setDynamicCategories] = useState<any[]>([]);
   const [customerAccountTab, setCustomerAccountTab] = useState<'profile' | 'orders' | 'login' | 'register'>('profile');
   const [verifiedCustomer, setVerifiedCustomer] = useState(() => getStoredCustomer());
 
@@ -425,6 +429,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     };
   }, []);
 
+  const [isSliderHovered, setIsSliderHovered] = useState(false);
+
   // Dynamic Super Admin Hero Banners & Promotional Ads
   const heroBanners = useMemo(() => {
     const list = marketplaceSettings?.banners || [];
@@ -433,9 +439,12 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return [
       {
         id: 'default_hero_1',
-        title: 'মেগা সেভার কম্বো প্যাকেজ ও স্পেশাল ধামাকা অফার',
+        title: marketplaceSettings?.bannerTitle || 'মেগা সেভার কম্বো প্যাকেজ ও স্পেশাল ধামাকা অফার',
+        subtitle: marketplaceSettings?.bannerSubtitle,
+        tag: marketplaceSettings?.bannerTag,
         imageUrl: marketplaceSettings?.bannerImageUrl || '/src/assets/images/mkt_clean_hero_banner_1791439411244.jpg',
         linkUrl: marketplaceSettings?.bannerLink || '#marketplace-package-deals',
+        buttonText: marketplaceSettings?.bannerButtonText || 'এখনই অর্ডার করুন',
       },
       {
         id: 'default_hero_2',
@@ -452,24 +461,41 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     ];
   }, [marketplaceSettings]);
 
-  const middleBanner = useMemo(() => {
+  const middleBanners = useMemo(() => {
     const list = marketplaceSettings?.banners || [];
-    return list.find((b: any) => b.isActive !== false && b.placement === 'middle_strip');
+    return list.filter((b: any) => b.isActive !== false && b.placement === 'middle_strip');
   }, [marketplaceSettings]);
+  const middleBanner = middleBanners[0];
 
-  const sidebarAd = useMemo(() => {
+  const sidebarAds = useMemo(() => {
     const list = marketplaceSettings?.banners || [];
-    return list.find((b: any) => b.isActive !== false && b.placement === 'sidebar_ad');
+    return list.filter((b: any) => b.isActive !== false && b.placement === 'sidebar_ad');
   }, [marketplaceSettings]);
+  const sidebarAd = sidebarAds[0];
 
-  // Auto-slide Hero Banners
+  const bottomBanners = useMemo(() => {
+    const list = marketplaceSettings?.banners || [];
+    return list.filter((b: any) => b.isActive !== false && b.placement === 'bottom_banner');
+  }, [marketplaceSettings]);
+  const bottomBanner = bottomBanners[0];
+
+  // Auto-slide Hero Banners with Super Admin controls
   useEffect(() => {
     if (heroBanners.length <= 1) return;
+    if (marketplaceSettings?.autoSlideEnabled === false) return;
+    if (isSliderHovered && marketplaceSettings?.pauseOnHover !== false) return;
+    const intervalTime = Number(marketplaceSettings?.sliderInterval) || 5000;
     const interval = setInterval(() => {
       setCurrentSlide((c) => (c + 1) % heroBanners.length);
-    }, 5000);
+    }, intervalTime);
     return () => clearInterval(interval);
-  }, [heroBanners.length]);
+  }, [
+    heroBanners.length,
+    marketplaceSettings?.autoSlideEnabled,
+    marketplaceSettings?.sliderInterval,
+    marketplaceSettings?.pauseOnHover,
+    isSliderHovered,
+  ]);
 
   // Synchronize Selected Product with Live URL (?product=...)
   const handleSelectProduct = (product: MarketplaceProduct | null) => {
@@ -550,8 +576,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       setIsLoading(true);
       try {
         const res = await marketplaceApi.getFeed({
-          search: searchQuery,
-          category: selectedCategory !== 'all' ? selectedCategory : undefined,
+          search: searchQuery.trim() || undefined,
         });
         if (isMounted && res?.success && Array.isArray(res.products)) {
           setProducts(res.products);
@@ -566,7 +591,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [searchQuery, selectedCategory]);
+  }, [searchQuery]);
 
   // Load verified Twing Hisabi vendors strictly from database
   useEffect(() => {
@@ -582,6 +607,25 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       }
     }
     loadVendors();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Load dynamic marketplace categories (including vendor-created categories)
+  useEffect(() => {
+    let isMounted = true;
+    async function loadCategories() {
+      try {
+        const res = await marketplaceApi.getCategories();
+        if (isMounted && res?.success && Array.isArray(res.categories)) {
+          setDynamicCategories(res.categories);
+        }
+      } catch (e) {
+        if (isMounted) setDynamicCategories([]);
+      }
+    }
+    loadCategories();
     return () => {
       isMounted = false;
     };
@@ -788,18 +832,207 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return [...products].reverse().slice(0, 4);
   }, [products]);
 
-  const filteredAllProducts = useMemo(() => {
-    const activeCat = allProductsCategory !== 'all' ? allProductsCategory : selectedCategory;
-    if (activeCat === 'all') return products;
+  // Dynamically merge system categories, vendor-created categories, and catalog product categories
+  const mergedSidebarCategories = useMemo(() => {
+    const list = [...SIDEBAR_CATEGORIES];
+    const existingIds = new Set(list.map((c) => c.id));
+    const existingNames = new Set(list.map((c) => c.nameBn.trim().toLowerCase()));
+
+    const isKnownCategory = (id: string, name: string) => {
+      if (existingIds.has(id)) return true;
+      const lower = name.toLowerCase();
+      if (existingNames.has(lower)) return true;
+      if ((id === 'cat_fashion' || lower.includes('ফ্যাশন') || lower.includes('পোশাক')) && existingIds.has('cat_fashion')) return true;
+      if ((id === 'cat_beauty' || lower.includes('বিউটি') || lower.includes('রূপচর্চা') || lower.includes('প্রসাধন')) && existingIds.has('cat_beauty')) return true;
+      if ((id === 'cat_home' || lower.includes('গৃহস্থাল') || lower.includes('রান্নাঘর')) && existingIds.has('cat_home')) return true;
+      if ((id === 'cat_health' || lower.includes('স্বাস্থ্য') || lower.includes('মেডিসিন') || lower.includes('ফার্মেসি') || lower.includes('ওষুধ')) && existingIds.has('cat_health')) return true;
+      if ((id === 'cat_grocery' || id === 'cat_food' || lower.includes('মুদি') || lower.includes('গ্রোসারি')) && existingIds.has('cat_food')) return true;
+      if ((id === 'cat_elec' || id === 'cat_electronics' || lower.includes('ইলেকট্রনিক্স')) && existingIds.has('cat_elec')) return true;
+      return false;
+    };
+
+    dynamicCategories.forEach((dc, idx) => {
+      const name = (dc.nameBn || dc.name_bn || dc.nameEn || '').trim();
+      const rawId = dc.id || `dyn_${idx}`;
+      if (!name) return;
+
+      if (!isKnownCategory(rawId, name)) {
+        let uniqueId = rawId;
+        if (existingIds.has(uniqueId)) {
+          uniqueId = `dyn_${rawId}_${idx}`;
+        }
+        existingIds.add(uniqueId);
+        existingNames.add(name.toLowerCase());
+        list.push({
+          id: uniqueId,
+          nameBn: name,
+          match: name,
+          icon: dc.icon || '🛍️',
+          color: 'text-teal-600',
+        });
+      }
+    });
+
+    products.forEach((p, idx) => {
+      const pCat = p.category ? p.category.trim() : '';
+      if (pCat && !isKnownCategory(`prod_cat_${pCat}`, pCat)) {
+        let uniqueId = `prod_cat_${pCat}`;
+        if (existingIds.has(uniqueId)) {
+          uniqueId = `prod_cat_${pCat}_${idx}`;
+        }
+        existingIds.add(uniqueId);
+        existingNames.add(pCat.toLowerCase());
+        list.push({
+          id: uniqueId,
+          nameBn: pCat,
+          match: pCat,
+          icon: '📦',
+          color: 'text-blue-600',
+        });
+      }
+    });
+
+    return list;
+  }, [dynamicCategories, products]);
+
+  const mergedCircularCategories = useMemo(() => {
+    const list = [...CIRCULAR_CATEGORIES];
+    const existingIds = new Set(list.map((c) => c.id));
+    const existingMatches = new Set(list.map((c) => c.match.trim().toLowerCase()));
+
+    const isKnownCircular = (id: string, name: string) => {
+      if (existingIds.has(id)) return true;
+      const lower = name.toLowerCase();
+      if (existingMatches.has(lower)) return true;
+      if ((id.includes('fashion') || lower.includes('ফ্যাশন') || lower.includes('পোশাক')) && existingIds.has('circ_fashion')) return true;
+      if ((id.includes('beauty') || lower.includes('বিউটি') || lower.includes('রূপচর্চা')) && existingIds.has('circ_beauty')) return true;
+      if ((id.includes('home') || lower.includes('গৃহস্থাল') || lower.includes('রান্নাঘর')) && existingIds.has('circ_home')) return true;
+      if ((id.includes('health') || lower.includes('স্বাস্থ্য') || lower.includes('মেডিসিন') || lower.includes('ফার্মেসি')) && existingIds.has('circ_health')) return true;
+      if ((id.includes('grocery') || id.includes('food') || lower.includes('মুদি') || lower.includes('গ্রোসারি')) && existingIds.has('circ_grocery')) return true;
+      if ((id.includes('gadget') || id.includes('electronics') || lower.includes('ইলেকট্রনিক্স')) && existingIds.has('circ_gadget')) return true;
+      return false;
+    };
+
+    dynamicCategories.forEach((dc, idx) => {
+      const name = (dc.nameBn || dc.name_bn || dc.nameEn || '').trim();
+      const rawId = dc.id || `circ_dyn_${idx}`;
+      if (!name) return;
+
+      if (!isKnownCircular(rawId, name)) {
+        let uniqueId = rawId.startsWith('circ_') ? rawId : `circ_${rawId}`;
+        if (existingIds.has(uniqueId)) {
+          uniqueId = `${uniqueId}_${idx}`;
+        }
+        existingIds.add(uniqueId);
+        existingMatches.add(name.toLowerCase());
+        list.push({
+          id: uniqueId,
+          nameBn: name.length > 8 ? name.slice(0, 7) + '...' : name,
+          icon: dc.icon || '🛍️',
+          match: name,
+          bg: 'bg-emerald-50 border border-emerald-100/80 text-emerald-600 shadow-2xs',
+          text: 'text-emerald-600',
+        });
+      }
+    });
+
+    products.forEach((p, idx) => {
+      const pCat = p.category ? p.category.trim() : '';
+      if (pCat && !isKnownCircular(`circ_prod_${pCat}`, pCat)) {
+        let uniqueId = `circ_prod_${pCat}`;
+        if (existingIds.has(uniqueId)) {
+          uniqueId = `${uniqueId}_${idx}`;
+        }
+        existingIds.add(uniqueId);
+        existingMatches.add(pCat.toLowerCase());
+        list.push({
+          id: uniqueId,
+          nameBn: pCat.length > 8 ? pCat.slice(0, 7) + '...' : pCat,
+          icon: '📦',
+          match: pCat,
+          bg: 'bg-teal-50 border border-teal-100/80 text-teal-600 shadow-2xs',
+          text: 'text-teal-600',
+        });
+      }
+    });
+
+    return list;
+  }, [dynamicCategories, products]);
+
+  // Robust Category selection handler with smooth scroll
+  const handleCategorySelect = (categoryKey: string) => {
+    const next = selectedCategory === categoryKey ? 'all' : categoryKey;
+    setSelectedCategory(next);
+    setAllProductsCategory(next);
+    setAllProductsVisibleCount(12);
+
+    setTimeout(() => {
+      if (next !== 'all') {
+        const catEl = document.getElementById('marketplace-category-view');
+        if (catEl) {
+          catEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
+        }
+      }
+      const allEl = document.getElementById('marketplace-all-products');
+      if (allEl) {
+        allEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 80);
+  };
+
+  // Robust category filtered products with multi-keyword synonym support
+  const categoryFilteredProducts = useMemo(() => {
+    if (selectedCategory === 'all') return products;
+    const target = selectedCategory.trim().toLowerCase();
+
+    const aliases: Record<string, string[]> = {
+      'চাল ও ডাল': ['চাল', 'ডাল', 'মুদি', 'গ্রোসারি', 'খাদ্য', 'সেলাইন'],
+      'চাল, ডাল ও গ্রোসারি': ['চাল', 'ডাল', 'মুদি', 'গ্রোসারি', 'খাদ্য', 'সেলাইন'],
+      'গ্রোসারি': ['চাল', 'ডাল', 'মুদি', 'গ্রোসারি', 'খাদ্য', 'সেলাইন', 'তেল', 'ঘি'],
+      'চা ও বিস্কুট': ['চা', 'বিস্কুট', 'বেকারি', 'স্ন্যাক্স', 'খাবার', 'ডেনিস', 'ফিস্ট'],
+      'চা, বিস্কুট ও বেকারি': ['চা', 'বিস্কুট', 'বেকারি', 'স্ন্যাক্স', 'খাবার', 'ডেনিস', 'ফিস্ট'],
+      'চা-বিস্কুট': ['চা', 'বিস্কুট', 'বেকারি', 'স্ন্যাক্স', 'খাবার', 'ডেনিস', 'ফিস্ট'],
+      'ইলেকট্রনিক্স': ['ইলেকট্রনিক্স', 'গ্যাজেট', 'ক্যালকুলেটর', 'স্মার্ট', 'ফোন'],
+      'ইলেকট্রনিক্স ও গ্যাজেট': ['ইলেকট্রনিক্স', 'গ্যাজেট', 'ক্যালকুলেটর', 'স্মার্ট', 'ফোন'],
+      'কম্পিউটার ও গ্যাজেট': ['কম্পিউটার', 'ল্যাপটপ', 'গ্যাজেট', 'ইলেকট্রনিক্স', 'ক্যালকুলেটর'],
+      'মোবাইল': ['মোবাইল', 'ফোন', 'এক্সেসরিজ'],
+      'মোবাইল ও এক্সেসরিজ': ['মোবাইল', 'ফোন', 'এক্সেসরিজ'],
+      'স্বাস্থ্য': ['স্বাস্থ্য', 'ফার্মেসি', 'সেলাইন', 'ওষুধ', 'মেডিসিন'],
+      'স্বাস্থ্য ও ফার্মেসি': ['স্বাস্থ্য', 'ফার্মেসি', 'সেলাইন', 'ওষুধ', 'মেডিসিন'],
+      'ফ্যাশন': ['পোশাক', 'ফ্যাশন', 'শার্ট', 'শাড়ি', 'জামা'],
+      'ফ্যাশন ও পোশাক': ['পোশাক', 'ফ্যাশন', 'শার্ট', 'শাড়ি', 'জামা'],
+      'গৃহস্থালী': ['গৃহস্থাল', 'হোম', 'ফার্নিচার', 'ঘর'],
+      'গৃহস্থালী পণ্য': ['গৃহস্থাল', 'হোম', 'ফার্নিচার', 'ঘর'],
+      'বিউটি': ['বিউটি', 'প্রসাধন', 'লোশন', 'ক্রিম'],
+      'বিউটি ও পার্সোনাল কেয়ার': ['বিউটি', 'প্রসাধন', 'লোশন', 'ক্রিম'],
+      'অন্যান্য': ['অন্যান্য', 'সাধারণ', 'কোকা কোলা', 'রুটি', 'ডেনিস'],
+      'অন্যান্য পণ্য': ['অন্যান্য', 'সাধারণ', 'কোকা কোলা', 'রুটি', 'ডেনিস'],
+    };
+
+    const targetAliases = aliases[target] || [target];
+
     return products.filter((p) => {
       const pCat = (p.category || '').toLowerCase();
       const pName = (p.name || '').toLowerCase();
-      const target = activeCat.toLowerCase();
-      if (pCat.includes(target) || target.includes(pCat)) return true;
-      const words = target.split(/[\s,+/&|]+/).filter((w) => w.length >= 2 && w !== 'এবং' && w !== 'বা');
-      return words.some((w) => pCat.includes(w) || pName.includes(w));
+      const pDesc = (p.description || '').toLowerCase();
+
+      if (pCat === target || pCat.includes(target) || target.includes(pCat)) return true;
+      return targetAliases.some((alias) => pCat.includes(alias) || pName.includes(alias) || pDesc.includes(alias));
     });
-  }, [products, allProductsCategory, selectedCategory]);
+  }, [products, selectedCategory]);
+
+  const filteredAllProducts = useMemo(() => {
+    if (allProductsCategory === 'all') {
+      return selectedCategory !== 'all' ? categoryFilteredProducts : products;
+    }
+    const target = allProductsCategory.trim().toLowerCase();
+    return products.filter((p) => {
+      const pCat = (p.category || '').toLowerCase();
+      const pName = (p.name || '').toLowerCase();
+      return pCat.includes(target) || target.includes(pCat) || pName.includes(target);
+    });
+  }, [products, allProductsCategory, selectedCategory, categoryFilteredProducts]);
 
   const displayedAllProducts = useMemo(() => {
     return filteredAllProducts.slice(0, allProductsVisibleCount);
@@ -1340,23 +1573,17 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
             {/* TOP 3-COLUMN HERO GRID */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
               {/* ------------------------------------------------------------- */}
-              {/* LEFT COLUMN: 12 Categories List (~20% width = 3/12 cols) */}
+              {/* LEFT COLUMN: Categories List (~20% width = 3/12 cols) */}
               {/* ------------------------------------------------------------- */}
               <div className="hidden lg:block lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-                <div className="divide-y divide-slate-100">
-                  {SIDEBAR_CATEGORIES.map((cat) => {
-                    const isSideActive = selectedCategory === cat.nameBn || allProductsCategory === cat.nameBn;
+                <div className="divide-y divide-slate-100 max-h-[580px] overflow-y-auto no-scrollbar">
+                  {mergedSidebarCategories.map((cat, idx) => {
+                    const isSideActive = selectedCategory === cat.match || selectedCategory === cat.nameBn || (cat.match === 'all' && selectedCategory === 'all') || allProductsCategory === cat.nameBn;
                     return (
                       <button
-                        key={cat.id}
+                        key={cat.id ? `side_${cat.id}` : `side_${idx}`}
                         type="button"
-                        onClick={() => {
-                          const next = isSideActive ? 'all' : cat.nameBn;
-                          setSelectedCategory(next);
-                          setAllProductsCategory(next);
-                          const el = document.getElementById('marketplace-all-products');
-                          if (el) el.scrollIntoView({ behavior: 'smooth' });
-                        }}
+                        onClick={() => handleCategorySelect(cat.match || cat.nameBn)}
                         className={`w-full px-3.5 py-2 text-left text-xs font-medium transition flex items-center justify-between cursor-pointer group ${
                           isSideActive
                             ? 'bg-blue-50 text-[#0052cc] font-black border-l-3 border-[#0052cc] shadow-2xs'
@@ -1372,6 +1599,58 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                     );
                   })}
                 </div>
+
+                {/* Super Admin Sponsored Sidebar Ad */}
+                {sidebarAd && (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      if (sidebarAd.linkUrl?.startsWith('#')) {
+                        const target = document.querySelector(sidebarAd.linkUrl);
+                        if (target) target.scrollIntoView({ behavior: 'smooth' });
+                      } else if (sidebarAd.linkUrl?.includes('?product=')) {
+                        const pId = new URL(sidebarAd.linkUrl, window.location.origin).searchParams.get('product');
+                        if (pId) {
+                          const prod = products.find((x) => x.id === pId);
+                          if (prod) handleSelectProduct(prod);
+                        }
+                      } else if (sidebarAd.linkUrl) {
+                        window.location.href = sidebarAd.linkUrl;
+                      }
+                    }}
+                    className="p-3 bg-gradient-to-br from-amber-50/70 to-orange-50/60 border-t border-slate-200 cursor-pointer group transition hover:bg-amber-100/60"
+                  >
+                    {sidebarAd.imageUrl && (
+                      <div className="h-20 w-full rounded-xl overflow-hidden mb-2 shadow-2xs">
+                        <img
+                          src={sidebarAd.imageUrl}
+                          alt={sidebarAd.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition"
+                          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                        />
+                      </div>
+                    )}
+                    {sidebarAd.tag && (
+                      <span className="inline-block px-1.5 py-0.2 rounded-md bg-amber-200 text-amber-900 text-[9px] font-black uppercase mb-1">
+                        {sidebarAd.tag}
+                      </span>
+                    )}
+                    <h5 className="font-black text-slate-900 text-xs line-clamp-1 group-hover:text-[#0052cc]">
+                      {sidebarAd.title}
+                    </h5>
+                    {sidebarAd.subtitle && (
+                      <p className="text-[10px] text-slate-500 line-clamp-2 mt-0.5">
+                        {sidebarAd.subtitle}
+                      </p>
+                    )}
+                    {sidebarAd.advertiserName && (
+                      <span className="text-[9px] text-slate-400 font-bold block mt-1">
+                        {sidebarAd.advertiserName}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* ------------------------------------------------------------- */}
@@ -1382,17 +1661,32 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                 {(() => {
                   const b = heroBanners[currentSlide % heroBanners.length] || heroBanners[0];
                   const totalSlides = heroBanners.length;
+                  const heightCls = marketplaceSettings?.bannerHeight === 'compact'
+                    ? 'h-[95px] sm:h-[120px] md:h-[145px] lg:h-[155px]'
+                    : marketplaceSettings?.bannerHeight === 'tall'
+                    ? 'h-[125px] sm:h-[155px] md:h-[185px] lg:h-[210px]'
+                    : 'h-[110px] sm:h-[135px] md:h-[160px] lg:h-[175px]';
 
                   return (
                     <div
                       role="button"
                       tabIndex={0}
+                      onMouseEnter={() => setIsSliderHovered(true)}
+                      onMouseLeave={() => setIsSliderHovered(false)}
                       onClick={() => {
-                        if (b.linkUrl?.startsWith('#')) {
-                          const target = document.querySelector(b.linkUrl);
-                          if (target) target.scrollIntoView({ behavior: 'smooth' });
-                        } else if (b.linkUrl?.includes('?product=')) {
-                          const pId = new URL(b.linkUrl, window.location.origin).searchParams.get('product');
+                        const targetId = b.linkUrl || '#marketplace-package-deals';
+                        if (targetId.startsWith('#')) {
+                          const target = document.querySelector(targetId);
+                          if (target) {
+                            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            setHighlightPackageId('pkg_active');
+                            setTimeout(() => setHighlightPackageId(null), 2500);
+                          } else {
+                            const el = document.getElementById('marketplace-all-products');
+                            if (el) el.scrollIntoView({ behavior: 'smooth' });
+                          }
+                        } else if (targetId.includes('?product=')) {
+                          const pId = new URL(targetId, window.location.origin).searchParams.get('product');
                           if (pId) {
                             const prod = products.find((x) => x.id === pId);
                             if (prod) handleSelectProduct(prod);
@@ -1402,10 +1696,10 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                               });
                             }
                           }
-                        } else if (b.linkUrl) {
-                          window.location.href = b.linkUrl;
+                        } else if (targetId) {
+                          window.location.href = targetId;
                         } else {
-                          const el = document.getElementById('marketplace-all-products');
+                          const el = document.getElementById('marketplace-package-deals') || document.getElementById('marketplace-all-products');
                           if (el) el.scrollIntoView({ behavior: 'smooth' });
                         }
                       }}
@@ -1420,94 +1714,94 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                         }
                         setTouchStartX(null);
                       }}
-                      className="relative rounded-2xl sm:rounded-3xl overflow-hidden w-full h-[145px] sm:h-[185px] md:h-[215px] lg:h-[225px] shadow-sm border border-slate-200/90 group cursor-pointer select-none transition transform active:scale-[0.99] bg-slate-100"
-                      title={b.title ? `${b.title} - অফার দেখতে ক্লিক করুন` : 'অফার দেখতে ক্লিক করুন'}
+                      className={`relative rounded-xl sm:rounded-2xl overflow-hidden w-full ${heightCls} shadow-xs border border-slate-200/80 group cursor-pointer select-none transition transform active:scale-[0.98] bg-slate-100`}
+                      title={b.title ? `${b.title} - প্যাকেজ দেখতে ক্লিক করুন` : 'প্যাকেজ দেখতে ক্লিক করুন'}
                     >
                       {/* 1. FULL-BLEED CLEAN BANNER IMAGE (NO TEXT OVERLAID) */}
                       <img
                         key={b.id || currentSlide}
-                        src={b.imageUrl || '/src/assets/images/marketplace_hero_banner_1790221146678.jpg'}
+                        src={b.imageUrl || '/src/assets/images/mkt_clean_hero_banner_1791439411244.jpg'}
                         alt={b.title || 'Marketplace Hero Banner'}
                         className="w-full h-full object-cover object-center transform group-hover:scale-[1.02] transition-transform duration-700 ease-out"
                         onError={(e) => {
-                          (e.target as HTMLImageElement).src = '/src/assets/images/marketplace_hero_banner_1790221146678.jpg';
+                          (e.target as HTMLImageElement).src = '/src/assets/images/mkt_clean_hero_banner_1791439411244.jpg';
                         }}
                       />
 
                       {/* 2. SLIDER CONTROLS (STOP PROPAGATION SO SLIDE CHANGES SMOOTHLY) */}
                       {totalSlides > 1 && (
                         <>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setCurrentSlide((c) => (c > 0 ? c - 1 : totalSlides - 1));
-                            }}
-                            className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-black/40 hover:bg-black/70 text-white backdrop-blur-xs flex items-center justify-center opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition shadow-sm cursor-pointer"
-                            title="পূর্ববর্তী ব্যানার"
-                            aria-label="Previous Slide"
-                          >
-                            <ChevronLeft className="w-4 h-4" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setCurrentSlide((c) => (c < totalSlides - 1 ? c + 1 : 0));
-                            }}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 z-20 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-black/40 hover:bg-black/70 text-white backdrop-blur-xs flex items-center justify-center opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition shadow-sm cursor-pointer"
-                            title="পরবর্তী ব্যানার"
-                            aria-label="Next Slide"
-                          >
-                            <ChevronRight className="w-4 h-4" />
-                          </button>
-
-                          {/* Minimal sleek dots indicator */}
-                          <div
-                            className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/35 backdrop-blur-xs"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {heroBanners.map((_, dot) => (
+                          {marketplaceSettings?.showSliderArrows !== false && (
+                            <>
                               <button
-                                key={dot}
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setCurrentSlide(dot);
+                                  setCurrentSlide((c) => (c > 0 ? c - 1 : totalSlides - 1));
                                 }}
-                                className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
-                                  currentSlide === dot
-                                    ? 'w-5 sm:w-6 bg-white shadow-xs'
-                                    : 'w-1.5 bg-white/50 hover:bg-white/80'
-                                }`}
-                                aria-label={`Slide ${dot + 1}`}
-                              />
-                            ))}
-                          </div>
+                                className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-black/40 hover:bg-black/70 text-white backdrop-blur-xs flex items-center justify-center opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition shadow-sm cursor-pointer"
+                                title="পূর্ববর্তী ব্যানার"
+                                aria-label="Previous Slide"
+                              >
+                                <ChevronLeft className="w-4 h-4" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCurrentSlide((c) => (c < totalSlides - 1 ? c + 1 : 0));
+                                }}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 z-20 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-black/40 hover:bg-black/70 text-white backdrop-blur-xs flex items-center justify-center opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition shadow-sm cursor-pointer"
+                                title="পরবর্তী ব্যানার"
+                                aria-label="Next Slide"
+                              >
+                                <ChevronRight className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+
+                          {/* Minimal sleek dots indicator */}
+                          {marketplaceSettings?.showSliderDots !== false && (
+                            <div
+                              className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/35 backdrop-blur-xs"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {heroBanners.map((_, dot) => (
+                                <button
+                                  key={dot}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCurrentSlide(dot);
+                                  }}
+                                  className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
+                                    currentSlide === dot
+                                      ? 'w-5 sm:w-6 bg-white shadow-xs'
+                                      : 'w-1.5 bg-white/50 hover:bg-white/80'
+                                  }`}
+                                  aria-label={`Slide ${dot + 1}`}
+                                />
+                              ))}
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
                   );
                 })()}
 
-                {/* 10 Circular Categories Row */}
+                {/* Circular Categories Row (Includes Dynamic Vendor Categories) */}
                 <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-2xs">
-                  <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 text-center">
-                    {CIRCULAR_CATEGORIES.map((cat) => {
-                      const isCatActive = selectedCategory === cat.match || selectedCategory === cat.nameBn || allProductsCategory === cat.match;
+                  <div className="flex gap-2 sm:gap-2.5 overflow-x-auto no-scrollbar pb-1 text-center items-start">
+                    {mergedCircularCategories.map((cat, idx) => {
+                      const isCatActive = selectedCategory === cat.match || selectedCategory === cat.nameBn || (cat.match === 'all' && selectedCategory === 'all') || allProductsCategory === cat.match;
                       return (
                         <button
-                          key={cat.id}
+                          key={cat.id ? `circ_${cat.id}` : `circ_${idx}`}
                           type="button"
-                          onClick={() => {
-                            const next = isCatActive ? 'all' : cat.match;
-                            setSelectedCategory(next);
-                            setAllProductsCategory(next);
-                            const el = document.getElementById('marketplace-all-products');
-                            if (el) el.scrollIntoView({ behavior: 'smooth' });
-                          }}
-                          className="flex flex-col items-center gap-1 cursor-pointer group p-1 rounded-xl transition"
+                          onClick={() => handleCategorySelect(cat.match || cat.nameBn)}
+                          className="flex flex-col items-center gap-1 cursor-pointer group p-1 rounded-xl transition min-w-[58px] sm:min-w-[64px] shrink-0"
                         >
                           <div
                             className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center text-lg transition-all group-hover:scale-110 shadow-2xs ${
@@ -1776,8 +2070,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                         </span>
                       </div>
                       <p className="text-xs text-slate-600 font-medium mt-0.5">
-                        {products.length > 0
-                          ? `এই ক্যাটাগরিতে ${products.length} টি পণ্য পাওয়া গেছে`
+                        {categoryFilteredProducts.length > 0
+                          ? `এই ক্যাটাগরিতে ${categoryFilteredProducts.length} টি পণ্য পাওয়া গেছে`
                           : 'এই ক্যাটাগরিতে বর্তমানে কোনো পণ্য পাওয়া যায়নি'}
                       </p>
                     </div>
@@ -1795,9 +2089,9 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                   </button>
                 </div>
 
-                {products.length > 0 ? (
+                {categoryFilteredProducts.length > 0 ? (
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-                    {products.map((prod) => (
+                    {categoryFilteredProducts.map((prod) => (
                       <MarketplaceProductCard
                         key={prod.id}
                         product={prod}
@@ -1818,10 +2112,10 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                   <div className="p-8 sm:p-12 bg-white border border-slate-200 rounded-2xl text-center space-y-3 shadow-2xs">
                     <div className="text-5xl">🛍️</div>
                     <h3 className="text-base font-black text-slate-800">
-                      '{selectedCategory}' ক্যাটাগরিতে বর্তমানে কোনো পণ্য নেই
+                      '{selectedCategory}' ক্যাটাগরিতে শীঘ্রই নতুন কালেকশন যুক্ত হচ্ছে
                     </h3>
                     <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                      আমাদের ভেন্ডররা দ্রুত নতুন পণ্য যুক্ত করছেন। আপনি অন্যান্য ক্যাটাগরি দেখতে পারেন।
+                      আমাদের ভেন্ডররা দ্রুত নতুন পণ্য যুক্ত করছেন। আপনি নিচের প্যাকেজ ও অন্যান্য আকর্ষণীয় পণ্য দেখতে পারেন।
                     </p>
                     <button
                       type="button"
@@ -1837,6 +2131,233 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                 )}
               </section>
             )}
+
+            {/* ========================================================================= */}
+            {/* 🎁 স্পেশাল প্যাকেজ ও ধামাকা ডিল (Package Deals linked to Hero Banner Button) */}
+            {/* ========================================================================= */}
+            <section
+              id="marketplace-package-deals"
+              className={`space-y-3.5 pt-2 transition-all duration-500 rounded-3xl p-2 sm:p-3 ${
+                highlightPackageId === 'pkg_active'
+                  ? 'ring-4 ring-[#0052cc] ring-offset-2 bg-blue-50/60 shadow-lg'
+                  : ''
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1 border-b border-slate-200/80">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-white border border-amber-200 text-amber-600 flex items-center justify-center font-bold shadow-2xs">
+                    🎁
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
+                        স্পেশাল প্যাকেজ ও ধামাকা অফার
+                      </h2>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500 text-white uppercase tracking-wider shadow-2xs">
+                        কম্বো প্যাকেজ
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 hidden sm:block">
+                      ব্যানারের আকর্ষণীয় প্যাকেজগুলো কিনুন সবচেয়ে কম খরচে ও বিশেষ ছাড়ে!
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-xl self-start sm:self-auto flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>প্যাকেজে অতিরিক্ত ছাড় ও উপহার</span>
+                </div>
+              </div>
+
+              {/* Package Deal Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                {/* Package 1 */}
+                <div className="bg-white rounded-2xl border border-slate-200 hover:border-[#0052cc] p-3.5 sm:p-4 flex flex-col justify-between hover:shadow-md transition duration-200 relative group">
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="bg-rose-50 text-rose-700 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-rose-200">
+                        ⚡ ধামাকা সেভিংস
+                      </span>
+                      <span className="text-xs font-bold text-slate-400">৪ টি আইটেম</span>
+                    </div>
+
+                    <div className="h-32 sm:h-36 rounded-xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center p-1">
+                      <img
+                        src="/src/assets/images/mkt_clean_hero_banner_1791439411244.jpg"
+                        alt="গ্রোসারি ও টি-টাইম ফ্যামিলি প্যাক"
+                        className="w-full h-full object-cover rounded-lg group-hover:scale-105 transition duration-500"
+                      />
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 group-hover:text-[#0052cc] transition">
+                        মেগা ফ্যামিলি টি-টাইম ও স্ন্যাক্স প্যাকেজ
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        ফিস্ট বিস্কুট + ডেনিস + কোকা কোলা ৪০০মিলি + অলটাইম রুটি
+                      </p>
+                    </div>
+
+                    <div className="space-y-1 text-xs text-slate-600 bg-slate-50 p-2 rounded-xl">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-emerald-600">✓</span>
+                        <span>১০০% অথেনটিক ফ্রেশ আইটেম</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-emerald-600">✓</span>
+                        <span>দ্রুত ক্যাশ অন ডেলিভারি সুবিধা</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 mt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-base sm:text-lg font-black text-slate-900">৳২৭০</div>
+                      <div className="text-xs text-slate-400 line-through">৳৩১০</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const itemsToAdd = products.filter((p) =>
+                          ['ফিস্ট বিস্কুট', 'ডেনিস', 'কোকা কোলা ৪০০মিলি', 'অলটাইম রুটি'].includes(p.name)
+                        );
+                        if (itemsToAdd.length > 0) {
+                          itemsToAdd.forEach((item) => addToCart(item, 1));
+                        } else if (products.length > 0) {
+                          addToCart(products[0], 2);
+                        }
+                        setIsCartOpen(true);
+                        showToast('🎁 প্যাকেজের পণ্যগুলো কার্টে যুক্ত হয়েছে!');
+                      }}
+                      className="px-4 py-2 bg-[#0052cc] hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1"
+                    >
+                      <ShoppingCart className="w-3.5 h-3.5" />
+                      <span>প্যাকেজটি কিনুন</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Package 2 */}
+                <div className="bg-white rounded-2xl border border-slate-200 hover:border-[#0052cc] p-3.5 sm:p-4 flex flex-col justify-between hover:shadow-md transition duration-200 relative group">
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="bg-blue-50 text-[#0052cc] text-[10px] font-black px-2.5 py-0.5 rounded-full border border-blue-200">
+                        💻 স্মার্ট গ্যাজেট
+                      </span>
+                      <span className="text-xs font-bold text-slate-400">টপ রেটেড</span>
+                    </div>
+
+                    <div className="h-32 sm:h-36 rounded-xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center p-1">
+                      <img
+                        src="/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg"
+                        alt="স্মার্ট গ্যাজেট প্যাকেজ"
+                        className="w-full h-full object-cover rounded-lg group-hover:scale-105 transition duration-500"
+                      />
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 group-hover:text-[#0052cc] transition">
+                        স্মার্ট ইলেকট্রনিক্স ও স্টুডেন্ট অফিস প্যাক
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        ডিজিটাল ক্যালকুলেটর + গ্যাজেট ও ইলেকট্রনিক সামগ্রী
+                      </p>
+                    </div>
+
+                    <div className="space-y-1 text-xs text-slate-600 bg-slate-50 p-2 rounded-xl">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-emerald-600">✓</span>
+                        <span>টুইং ভেরিফাইড অফিসিয়াল ওয়ারেন্টি</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-emerald-600">✓</span>
+                        <span>দ্রুত ডেলিভারি ও রিপ্লেসমেন্ট গ্যারান্টি</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 mt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-base sm:text-lg font-black text-slate-900">৳৩৯০</div>
+                      <div className="text-xs text-slate-400 line-through">৳৪৫০</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const gadget = products.find((p) => p.name.includes('ক্যালকুলেটর')) || products[0];
+                        if (gadget) addToCart(gadget, 1);
+                        setIsCartOpen(true);
+                        showToast('🎁 স্মার্ট গ্যাজেট প্যাকেজ কার্টে যুক্ত হয়েছে!');
+                      }}
+                      className="px-4 py-2 bg-[#0052cc] hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1"
+                    >
+                      <ShoppingCart className="w-3.5 h-3.5" />
+                      <span>প্যাকেজটি কিনুন</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Package 3 */}
+                <div className="bg-white rounded-2xl border border-slate-200 hover:border-[#0052cc] p-3.5 sm:p-4 flex flex-col justify-between hover:shadow-md transition duration-200 relative group">
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="bg-emerald-50 text-emerald-700 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-emerald-200">
+                        🌾 অর্গানিক খাদ্য
+                      </span>
+                      <span className="text-xs font-bold text-slate-400">১০০% খাঁটি</span>
+                    </div>
+
+                    <div className="h-32 sm:h-36 rounded-xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center p-1">
+                      <img
+                        src="/src/assets/images/marketplace_artisan_ghee_1790221157459.jpg"
+                        alt="অর্গানিক গ্রোসারি প্যাক"
+                        className="w-full h-full object-cover rounded-lg group-hover:scale-105 transition duration-500"
+                      />
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 group-hover:text-[#0052cc] transition">
+                        প্রিমিয়াম ডেইলি গ্রোসারি ও হেলথ সেভার প্যাক
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        স্বাস্থ্যকর ওআরএস সেলাইন + খাঁটি খাদ্য ও প্রয়োজনীয় আইটেম
+                      </p>
+                    </div>
+
+                    <div className="space-y-1 text-xs text-slate-600 bg-slate-50 p-2 rounded-xl">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-emerald-600">✓</span>
+                        <span>সেরা মানের হাইজিনিক প্যাকেজিং</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-emerald-600">✓</span>
+                        <span>সরাসরি বিশ্বস্ত মার্চেন্ট থেকে প্রেরিত</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 mt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-base sm:text-lg font-black text-slate-900">৳১৯০</div>
+                      <div className="text-xs text-slate-400 line-through">৳২২০</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const item = products.find((p) => p.name.includes('সেলাইন')) || products[0];
+                        if (item) addToCart(item, 2);
+                        setIsCartOpen(true);
+                        showToast('🎁 গ্রোসারি প্যাকেজ কার্টে যুক্ত হয়েছে!');
+                      }}
+                      className="px-4 py-2 bg-[#0052cc] hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1"
+                    >
+                      <ShoppingCart className="w-3.5 h-3.5" />
+                      <span>প্যাকেজটি কিনুন</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
 
             {/* ========================================================================= */}
             {/* 1. 🔥 আজকের অফার / Flash Sale */}
@@ -2172,94 +2693,162 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
             {/* ========================================================================= */}
             {/* 5. 🎁 বিশেষ অফার (Promotional Banner - Super Admin Controlled) */}
             {/* ========================================================================= */}
-            <section className="pt-2">
-              <div className="relative rounded-2xl overflow-hidden bg-white text-slate-800 p-5 sm:p-7 shadow-xs border-2 border-[#0052cc]/30 flex flex-col md:flex-row items-center justify-between gap-5">
-                <div className="relative z-10 space-y-2 max-w-xl text-center md:text-left">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[11px] font-black tracking-wide border border-amber-300 text-amber-700 shadow-2xs">
-                    <Gift className="w-3.5 h-3.5 text-amber-600" />
-                    <span>{middleBanner?.tag || 'বিশেষ মেগা অফার ২০২৫'}</span>
-                  </div>
+            {middleBanners.length > 0 ? (
+              <section className="pt-2">
+                <div className={`grid gap-4 ${middleBanners.length > 1 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+                  {middleBanners.map((mBanner: any, mIdx: number) => (
+                    <div
+                      key={mBanner.id || mIdx}
+                      className="relative rounded-2xl overflow-hidden bg-white text-slate-800 p-5 sm:p-6 shadow-xs border-2 border-[#0052cc]/30 flex flex-col sm:flex-row items-center justify-between gap-4"
+                    >
+                      <div className="relative z-10 space-y-2 flex-1 text-center sm:text-left">
+                        {mBanner.tag && (
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[11px] font-black tracking-wide border border-amber-300 text-amber-700 shadow-2xs">
+                            <Gift className="w-3.5 h-3.5 text-amber-600" />
+                            <span>{mBanner.tag}</span>
+                          </div>
+                        )}
 
-                  <h3 className="text-xl sm:text-2xl lg:text-3xl font-black leading-tight tracking-tight text-[#0052cc]">
-                    {middleBanner?.title || 'সারা বাংলাদেশে ফ্রি ডেলিভারি + সর্বোচ্চ ৩০% ছাড়!'}
-                  </h3>
+                        <h3 className="text-lg sm:text-xl font-black leading-tight tracking-tight text-[#0052cc]">
+                          {mBanner.title || 'সারা বাংলাদেশে ফ্রি ডেলিভারি + আকর্ষণীয় অফার!'}
+                        </h3>
 
-                  <p className="text-xs sm:text-sm text-slate-600 font-medium">
-                    {middleBanner?.subtitle ||
-                      'TWING Marketplace-এ কেনাকাটা করুন নিশ্চিন্তে। প্রথম অর্ডারে কুপন কোড ব্যবহার করে উপভোগ করুন বিশেষ ছাড়।'}
-                  </p>
+                        {mBanner.subtitle && (
+                          <p className="text-xs text-slate-600 font-medium line-clamp-2">
+                            {mBanner.subtitle}
+                          </p>
+                        )}
 
-                  <div className="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-3">
-                    {/* Copyable Coupon Badge */}
-                    <div className="flex items-center gap-2 bg-white px-3.5 py-1.5 rounded-xl border border-dashed border-[#0052cc] shadow-2xs">
-                      <span className="text-[10px] text-slate-500 uppercase font-bold">ভাউচার কোড:</span>
-                      <span className="font-mono font-black text-xs text-[#0052cc] tracking-wider">
-                        TWINGFREE
-                      </span>
+                        <div className="pt-1 flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
+                          {/* Copyable Coupon Badge */}
+                          <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-xl border border-dashed border-[#0052cc] shadow-2xs">
+                            <span className="text-[10px] text-slate-500 uppercase font-bold">ভাউচার:</span>
+                            <span className="font-mono font-black text-xs text-[#0052cc] tracking-wider">
+                              TWINGFREE
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText('TWINGFREE');
+                                showToast('🎉 কুপন কোড TWINGFREE কপি করা হয়েছে!');
+                              }}
+                              className="p-1 hover:bg-slate-100 rounded-md transition text-slate-600 cursor-pointer"
+                              title="কপি করুন"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const dest = mBanner.linkUrl || '#marketplace-all-products';
+                              if (dest.startsWith('#')) {
+                                const target = document.querySelector(dest);
+                                if (target) target.scrollIntoView({ behavior: 'smooth' });
+                              } else if (dest.includes('?product=')) {
+                                const pId = new URL(dest, window.location.origin).searchParams.get('product');
+                                if (pId) {
+                                  const prod = products.find((x) => x.id === pId);
+                                  if (prod) handleSelectProduct(prod);
+                                  else {
+                                    marketplaceApi.getProductById(pId).then((r) => {
+                                      if (r.success && r.product) handleSelectProduct(r.product);
+                                    });
+                                  }
+                                }
+                              } else if (dest) {
+                                window.location.href = dest;
+                              }
+                            }}
+                            className="px-4 py-1.5 bg-[#0052cc] hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                          >
+                            <span>{mBanner.buttonText || 'অফার উপভোগ করুন'}</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Right Illustration */}
+                      {mBanner.imageUrl && (
+                        <div className="relative z-10 shrink-0 w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden shadow-xs border border-slate-200 bg-white">
+                          <img
+                            src={mBanner.imageUrl}
+                            alt={mBanner.title || 'Marketplace Offer'}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src =
+                                '/src/assets/images/marketplace_courier_vendor_1791135724375.jpg';
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <section className="pt-2">
+                <div className="relative rounded-2xl overflow-hidden bg-white text-slate-800 p-5 sm:p-7 shadow-xs border-2 border-[#0052cc]/30 flex flex-col md:flex-row items-center justify-between gap-5">
+                  <div className="relative z-10 space-y-2 max-w-xl text-center md:text-left">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[11px] font-black tracking-wide border border-amber-300 text-amber-700 shadow-2xs">
+                      <Gift className="w-3.5 h-3.5 text-amber-600" />
+                      <span>বিশেষ মেগা অফার ২০২৫</span>
+                    </div>
+
+                    <h3 className="text-xl sm:text-2xl lg:text-3xl font-black leading-tight tracking-tight text-[#0052cc]">
+                      সারা বাংলাদেশে ফ্রি ডেলিভারি + সর্বোচ্চ ৩০% ছাড়!
+                    </h3>
+
+                    <p className="text-xs sm:text-sm text-slate-600 font-medium">
+                      TWING Marketplace-এ কেনাকাটা করুন নিশ্চিন্তে। প্রথম অর্ডারে কুপন কোড ব্যবহার করে উপভোগ করুন বিশেষ ছাড়।
+                    </p>
+
+                    <div className="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-3">
+                      <div className="flex items-center gap-2 bg-white px-3.5 py-1.5 rounded-xl border border-dashed border-[#0052cc] shadow-2xs">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold">ভাউচার কোড:</span>
+                        <span className="font-mono font-black text-xs text-[#0052cc] tracking-wider">
+                          TWINGFREE
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText('TWINGFREE');
+                            showToast('🎉 কুপন কোড TWINGFREE কপি করা হয়েছে!');
+                          }}
+                          className="p-1 hover:bg-slate-100 rounded-md transition text-slate-600 cursor-pointer"
+                          title="কপি করুন"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
                       <button
                         type="button"
                         onClick={() => {
-                          navigator.clipboard.writeText('TWINGFREE');
-                          showToast('🎉 কুপন কোড TWINGFREE কপি করা হয়েছে!');
-                        }}
-                        className="p-1 hover:bg-slate-100 rounded-md transition text-slate-600 cursor-pointer"
-                        title="কপি করুন"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (middleBanner?.linkUrl?.startsWith('#')) {
-                          const target = document.querySelector(middleBanner.linkUrl);
-                          if (target) target.scrollIntoView({ behavior: 'smooth' });
-                        } else if (middleBanner?.linkUrl?.includes('?product=')) {
-                          const pId = new URL(middleBanner.linkUrl, window.location.origin).searchParams.get('product');
-                          if (pId) {
-                            const prod = products.find((x) => x.id === pId);
-                            if (prod) handleSelectProduct(prod);
-                            else {
-                              marketplaceApi.getProductById(pId).then((r) => {
-                                if (r.success && r.product) handleSelectProduct(r.product);
-                              });
-                            }
-                          }
-                        } else if (middleBanner?.linkUrl) {
-                          window.location.href = middleBanner.linkUrl;
-                        } else {
                           const el = document.getElementById('marketplace-all-products');
                           if (el) el.scrollIntoView({ behavior: 'smooth' });
-                        }
-                      }}
-                      className="px-5 py-2 bg-[#0052cc] hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
-                    >
-                      <span>{middleBanner?.buttonText || 'এখনই অফার উপভোগ করুন'}</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
+                        }}
+                        className="px-5 py-2 bg-[#0052cc] hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                      >
+                        <span>এখনই অফার উপভোগ করুন</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                {/* Right Illustration */}
-                <div className="relative z-10 shrink-0 w-32 sm:w-44 md:w-52 flex items-center justify-center">
-                  <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl overflow-hidden shadow-sm border border-slate-200 bg-white flex items-center justify-center p-1">
-                    <img
-                      src={
-                        middleBanner?.imageUrl ||
-                        '/src/assets/images/marketplace_courier_vendor_1791135724375.jpg'
-                      }
-                      alt={middleBanner?.title || 'TWING Mega Offer'}
-                      className="w-full h-full object-cover rounded-xl"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src =
-                          '/src/assets/images/marketplace_courier_vendor_1791135724375.jpg';
-                      }}
-                    />
+                  <div className="relative z-10 shrink-0 w-32 sm:w-44 md:w-52 flex items-center justify-center">
+                    <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl overflow-hidden shadow-sm border border-slate-200 bg-white flex items-center justify-center p-1">
+                      <img
+                        src="/src/assets/images/marketplace_courier_vendor_1791135724375.jpg"
+                        alt="TWING Mega Offer"
+                        className="w-full h-full object-cover rounded-xl"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </section>
+              </section>
+            )}
 
             {/* ========================================================================= */}
             {/* 6. ⭐ আপনার জন্য নির্বাচিত */}
@@ -2405,36 +2994,24 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
               {/* Category Quick Filter Chips */}
               <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-                {[
-                  { id: 'all', label: 'সব পণ্য' },
-                  { id: 'মোবাইল ও এক্সেসরিজ', label: 'মোবাইল' },
-                  { id: 'কম্পিউটার ও গ্যাজেট', label: 'গ্যাজেট' },
-                  { id: 'ফ্যাশন ও পোশাক', label: 'ফ্যাশন' },
-                  { id: 'গৃহস্থালী পণ্য', label: 'গৃহস্থালী' },
-                  { id: 'বিউটি ও পার্সোনাল কেয়ার', label: 'বিউটি' },
-                  { id: 'স্বাস্থ্য ও ফার্মেসি', label: 'স্বাস্থ্য' },
-                  { id: 'কিচেন ও ডাইনিং', label: 'কিচেন' },
-                  { id: 'চা ও বিস্কুট', label: 'চা ও বিস্কুট' },
-                  { id: 'চাল ও ডাল', label: 'চাল ও ডাল' },
-                  { id: 'অন্যান্য', label: 'অন্যান্য' },
-                ].map((chip) => {
-                  const isChipActive = (allProductsCategory === chip.id || (allProductsCategory === 'all' && selectedCategory === chip.id)) || (allProductsCategory === 'all' && chip.id === 'all' && selectedCategory === 'all');
+                {mergedSidebarCategories.map((cat, idx) => {
+                  const chipId = cat.match || cat.nameBn;
+                  const isChipActive =
+                    (allProductsCategory === chipId || (allProductsCategory === 'all' && selectedCategory === chipId)) ||
+                    (allProductsCategory === 'all' && chipId === 'all' && selectedCategory === 'all');
                   return (
                     <button
-                      key={chip.id}
+                      key={cat.id ? `chip_${cat.id}` : `chip_${idx}`}
                       type="button"
-                      onClick={() => {
-                        setAllProductsCategory(chip.id);
-                        setSelectedCategory(chip.id);
-                        setAllProductsVisibleCount(8);
-                      }}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition cursor-pointer shadow-2xs ${
+                      onClick={() => handleCategorySelect(chipId)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition cursor-pointer shadow-2xs flex items-center gap-1 ${
                         isChipActive
                           ? 'bg-[#0052cc] text-white shadow-xs'
                           : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
                       }`}
                     >
-                      {chip.label}
+                      <span>{cat.icon}</span>
+                      <span>{cat.nameBn}</span>
                     </button>
                   );
                 })}
@@ -2556,6 +3133,69 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Bottom Promotional Banners (Super Admin Controlled) */}
+              {bottomBanners.length > 0 && (
+                <div className="space-y-3 pt-2">
+                  {bottomBanners.map((bBanner: any, bIdx: number) => (
+                    <div
+                      key={bBanner.id || bIdx}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (bBanner.linkUrl?.startsWith('#')) {
+                          const target = document.querySelector(bBanner.linkUrl);
+                          if (target) target.scrollIntoView({ behavior: 'smooth' });
+                        } else if (bBanner.linkUrl?.includes('?product=')) {
+                          const pId = new URL(bBanner.linkUrl, window.location.origin).searchParams.get('product');
+                          if (pId) {
+                            const prod = products.find((x) => x.id === pId);
+                            if (prod) handleSelectProduct(prod);
+                          }
+                        } else if (bBanner.linkUrl) {
+                          window.location.href = bBanner.linkUrl;
+                        }
+                      }}
+                      className="relative rounded-2xl overflow-hidden bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 sm:p-6 shadow-sm border border-slate-800 cursor-pointer group flex flex-col md:flex-row items-center justify-between gap-4"
+                    >
+                      <div className="space-y-1.5 text-center md:text-left z-10 flex-1">
+                        {bBanner.tag && (
+                          <span className="inline-block px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase">
+                            {bBanner.tag}
+                          </span>
+                        )}
+                        <h4 className="text-base sm:text-lg font-black text-white">
+                          {bBanner.title}
+                        </h4>
+                        {bBanner.subtitle && (
+                          <p className="text-xs text-slate-300 line-clamp-2 max-w-xl">
+                            {bBanner.subtitle}
+                          </p>
+                        )}
+                        {bBanner.buttonText && (
+                          <div className="pt-1">
+                            <span className="inline-flex items-center gap-1 px-4 py-1.5 bg-[#0052cc] hover:bg-blue-600 text-white text-xs font-bold rounded-xl shadow-xs transition">
+                              <span>{bBanner.buttonText}</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {bBanner.imageUrl && (
+                        <div className="relative z-10 w-full md:w-56 h-28 sm:h-32 rounded-xl overflow-hidden shadow-xs shrink-0 bg-slate-800">
+                          <img
+                            src={bBanner.imageUrl}
+                            alt={bBanner.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                            onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -2584,11 +3224,10 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           type="button"
           onClick={() => {
             setMobileBottomTab('categories');
-            const el = document.getElementById('marketplace-offers-section');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
+            setIsMobileCategoriesOpen(true);
           }}
-          className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition ${
-            mobileBottomTab === 'categories' ? 'text-[#0052cc] font-black' : 'text-slate-500'
+          className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition cursor-pointer ${
+            mobileBottomTab === 'categories' || isMobileCategoriesOpen ? 'text-[#0052cc] font-black' : 'text-slate-500'
           }`}
         >
           <span className="text-lg">📂</span>
@@ -2598,7 +3237,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         <button
           type="button"
           onClick={() => setIsCartOpen(true)}
-          className="flex flex-col items-center gap-0.5 p-1 rounded-xl text-slate-500 relative"
+          className="flex flex-col items-center gap-0.5 p-1 rounded-xl text-slate-500 relative cursor-pointer"
         >
           <span className="text-lg">🛒</span>
           {cartItemCount > 0 && (
@@ -2615,7 +3254,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
             setMobileBottomTab('orders');
             setNavTab('orders');
           }}
-          className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition ${
+          className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition cursor-pointer ${
             navTab === 'orders' ? 'text-[#0052cc] font-black' : 'text-slate-500'
           }`}
         >
@@ -2643,6 +3282,62 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           <span className="text-[10px]">{verifiedCustomer ? 'অ্যাকাউন্ট' : 'লগইন'}</span>
         </button>
       </nav>
+
+      {/* Mobile Categories Bottom Sheet Modal */}
+      <AnimatePresence>
+        {isMobileCategoriesOpen && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-xs md:hidden">
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="bg-white w-full rounded-t-3xl max-h-[85vh] overflow-y-auto p-4 space-y-4 shadow-2xl"
+            >
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">📂</span>
+                  <h3 className="text-base font-black text-slate-900">সকল ক্যাটাগরি</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsMobileCategoriesOpen(false)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-sm cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                {mergedSidebarCategories.map((cat, idx) => {
+                  const isActive = selectedCategory === cat.match || selectedCategory === cat.nameBn || (cat.match === 'all' && selectedCategory === 'all');
+                  return (
+                    <button
+                      key={cat.id ? `mob_${cat.id}` : `mob_${idx}`}
+                      type="button"
+                      onClick={() => {
+                        handleCategorySelect(cat.match || cat.nameBn);
+                        setIsMobileCategoriesOpen(false);
+                      }}
+                      className={`p-3 rounded-2xl border text-left flex items-center gap-3 transition cursor-pointer ${
+                        isActive
+                          ? 'bg-blue-50/80 border-[#0052cc] text-[#0052cc] font-black shadow-xs ring-1 ring-[#0052cc]'
+                          : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      <span className="text-2xl shrink-0">{cat.icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold truncate">{cat.nameBn}</div>
+                        <div className="text-[10px] text-slate-400">পণ্য দেখুন →</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ========================================================================= */}
       {/* 8. MODALS & DRAWERS */}

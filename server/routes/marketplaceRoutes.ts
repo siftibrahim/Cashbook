@@ -336,6 +336,89 @@ router.get('/categories', async (_req: Request, res: Response) => {
 });
 
 /**
+ * 2.05 POST /api/marketplace/categories - Vendor or Admin Create Category
+ */
+router.post('/categories', async (req: Request, res: Response) => {
+  try {
+    const { id, nameBn, nameEn, slug, icon, sortOrder, vendorId } = req.body;
+    if (!nameBn || !nameBn.trim()) {
+      return res.status(400).json({ success: false, error: 'ক্যাটাগরির নাম আবশ্যক' });
+    }
+
+    const trimmedNameBn = nameBn.trim();
+    const cleanSlug = (slug || nameEn || trimmedNameBn)
+      .toLowerCase()
+      .replace(/[^a-z0-9\u0980-\u09FF]+/g, '-')
+      .replace(/^-+|-+$/g, '') || `cat-${Date.now()}`;
+    const catId = id || `cat_${Date.now()}`;
+    const catIcon = icon || '🛍️';
+
+    const pool = getDbPool();
+    if (pool) {
+      await pool.query(`
+        INSERT INTO marketplace_categories (id, name_bn, name_en, slug, icon, sort_order, is_active, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (id) DO UPDATE SET
+          name_bn = EXCLUDED.name_bn,
+          name_en = EXCLUDED.name_en,
+          slug = EXCLUDED.slug,
+          icon = EXCLUDED.icon,
+          sort_order = EXCLUDED.sort_order,
+          is_active = EXCLUDED.is_active
+      `, [
+        catId,
+        trimmedNameBn,
+        nameEn?.trim() || '',
+        cleanSlug,
+        catIcon,
+        Number(sortOrder) || 0,
+        true,
+        Date.now(),
+      ]).catch((err) => {
+        console.warn('DB Insert marketplace_categories error:', err.message);
+      });
+    }
+
+    inMemoryStore.marketplace_categories = inMemoryStore.marketplace_categories || [];
+    const existingIdx = inMemoryStore.marketplace_categories.findIndex(
+      (c: any) => c.id === catId || (c.nameBn || c.name_bn)?.trim() === trimmedNameBn
+    );
+
+    const newCat = {
+      id: catId,
+      nameBn: trimmedNameBn,
+      name_bn: trimmedNameBn,
+      nameEn: nameEn?.trim() || '',
+      name_en: nameEn?.trim() || '',
+      slug: cleanSlug,
+      icon: catIcon,
+      sortOrder: Number(sortOrder) || inMemoryStore.marketplace_categories.length + 1,
+      isActive: true,
+      vendorId: vendorId || null,
+      createdAt: Date.now(),
+    };
+
+    if (existingIdx >= 0) {
+      inMemoryStore.marketplace_categories[existingIdx] = {
+        ...inMemoryStore.marketplace_categories[existingIdx],
+        ...newCat,
+      };
+    } else {
+      inMemoryStore.marketplace_categories.push(newCat);
+    }
+    saveInMemoryStoreToDisk();
+
+    return res.json({
+      success: true,
+      message: 'ক্যাটাগরি সফলভাবে তৈরি করা হয়েছে',
+      category: newCat,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * 2.1 GET /api/marketplace/vendors - All Verified Twing Hisabi Vendors
  */
 router.get('/vendors', async (_req: Request, res: Response) => {
