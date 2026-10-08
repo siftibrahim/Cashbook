@@ -384,8 +384,138 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   // Payment settings
   const [paymentSettings, setPaymentSettings] = useState<SystemPaymentSettings>(INITIAL_PAYMENT_SETTINGS);
 
+  // Marketplace Global Settings (Banners & Ads controlled by Super Admin)
+  const [marketplaceSettings, setMarketplaceSettings] = useState<any>(null);
+
   // Current logged in user
   const currentUser = getStoredUser();
+
+  // Load Marketplace Settings (Banners & Ads) and listen for realtime updates
+  useEffect(() => {
+    let isMounted = true;
+    async function loadSettings() {
+      try {
+        const res = await marketplaceApi.getSettings();
+        if (isMounted && res?.settings) {
+          setMarketplaceSettings(res.settings);
+        }
+      } catch {}
+    }
+    loadSettings();
+
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('/api/realtime');
+      es.addEventListener('marketplace_updated', (e: any) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload?.settings) {
+            setMarketplaceSettings(payload.settings);
+          }
+        } catch {}
+      });
+    } catch {}
+
+    return () => {
+      isMounted = false;
+      if (es) es.close();
+    };
+  }, []);
+
+  // Dynamic Super Admin Hero Banners & Promotional Ads
+  const heroBanners = useMemo(() => {
+    const list = marketplaceSettings?.banners || [];
+    const active = list.filter((b: any) => b.isActive !== false && (b.placement === 'hero_slider' || !b.placement));
+    if (active.length > 0) return active;
+    return [
+      {
+        id: 'default_hero_1',
+        title: marketplaceSettings?.bannerTitle || 'আপনার প্রয়োজনীয় সব পণ্য এখন একই প্ল্যাটফর্মে',
+        subtitle: marketplaceSettings?.bannerSubtitle || 'বহু ভেন্ডরের হাজারো পণ্য, সেরা দামে!',
+        tag: marketplaceSettings?.bannerTag || '⚡ মেগা ধামাকা অফার',
+        imageUrl: marketplaceSettings?.bannerImageUrl || '/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg',
+        linkUrl: marketplaceSettings?.bannerLink || '#marketplace-flash-sale',
+        buttonText: marketplaceSettings?.bannerButtonText || 'এখনই শপিং করুন',
+      },
+    ];
+  }, [marketplaceSettings]);
+
+  const middleBanner = useMemo(() => {
+    const list = marketplaceSettings?.banners || [];
+    return list.find((b: any) => b.isActive !== false && b.placement === 'middle_strip');
+  }, [marketplaceSettings]);
+
+  const sidebarAd = useMemo(() => {
+    const list = marketplaceSettings?.banners || [];
+    return list.find((b: any) => b.isActive !== false && b.placement === 'sidebar_ad');
+  }, [marketplaceSettings]);
+
+  // Auto-slide Hero Banners
+  useEffect(() => {
+    if (heroBanners.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentSlide((c) => (c + 1) % heroBanners.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [heroBanners.length]);
+
+  // Synchronize Selected Product with Live URL (?product=...)
+  const handleSelectProduct = (product: MarketplaceProduct | null) => {
+    setSelectedProduct(product);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (product) {
+        url.searchParams.set('product', product.id);
+        window.history.replaceState({}, '', url.toString());
+      } else {
+        url.searchParams.delete('product');
+        url.searchParams.delete('productId');
+        url.searchParams.delete('p');
+        window.history.replaceState({}, '', url.toString());
+      }
+    }
+  };
+
+  // Direct Product URL resolution on mount / navigation
+  useEffect(() => {
+    let isCancelled = false;
+    async function checkUrlProduct() {
+      if (typeof window === 'undefined') return;
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlProdId = searchParams.get('product') || searchParams.get('productId') || searchParams.get('p');
+
+      let targetId = urlProdId;
+      if (!targetId) {
+        const pathMatch = window.location.pathname.match(/\/(?:marketplace\/)?(?:product|p)\/([a-zA-Z0-9_-]+)/);
+        if (pathMatch && pathMatch[1]) {
+          targetId = pathMatch[1];
+        }
+      }
+
+      if (targetId) {
+        // Check already loaded products first
+        const local = products.find((p) => p.id === targetId || (p as any).sku === targetId);
+        if (local) {
+          setSelectedProduct(local);
+          return;
+        }
+        // Fetch direct live product from API
+        try {
+          const res = await marketplaceApi.getProductById(targetId);
+          if (!isCancelled && res.success && res.product) {
+            setSelectedProduct(res.product);
+          }
+        } catch {}
+      }
+    }
+
+    checkUrlProduct();
+    window.addEventListener('popstate', checkUrlProduct);
+    return () => {
+      isCancelled = true;
+      window.removeEventListener('popstate', checkUrlProduct);
+    };
+  }, [products.length]);
 
   // Save Cart to storage
   useEffect(() => {
@@ -807,9 +937,11 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
             >
               <div className="relative">
                 <ShoppingCart className="w-5 h-5 text-slate-700" />
-                <span className="absolute -top-2 -right-2 bg-rose-600 text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs">
-                  {cartItemCount || 2}
-                </span>
+                {cartItemCount > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-rose-600 text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs">
+                    {cartItemCount}
+                  </span>
+                )}
               </div>
               <span className="hidden sm:inline text-xs font-bold">কার্ট</span>
             </button>
@@ -979,25 +1111,85 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
             </div>
           </div>
         ) : navTab === 'orders' ? (
-          /* Order Tracking View */
+          /* Customer Personal Orders & Live Tracking View */
           <div className="max-w-4xl mx-auto w-full space-y-5">
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-white border border-[#0052cc]/30 text-[#0052cc] flex items-center justify-center font-bold shadow-2xs">
-                  <Package className="w-5 h-5" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-white border border-[#0052cc]/30 text-[#0052cc] flex items-center justify-center font-bold shadow-2xs">
+                    <Package className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-black text-slate-900">
+                      আমার সেন্ট্রাল মার্কেটপ্লেস অর্ডার ({customerOrders.length})
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      {verifiedCustomer ? `নম্বর: ${verifiedCustomer.phone} • ভেরিফাইড ক্রেতা` : 'আপনার অর্ডারের লাইভ ডেলিভারি ও প্রসেসিং স্ট্যাটাস'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-base font-black text-slate-900">
-                    সেন্ট্রাল অর্ডার ট্র্যাকিং ও ডেলিভারি স্ট্যাটাস
-                  </h2>
-                  <p className="text-xs text-slate-500">আপনার অর্ডার নম্বর দিয়ে ট্র্যাক করুন</p>
-                </div>
+                {verifiedCustomer ? (
+                  <button
+                    onClick={() => {
+                      if (verifiedCustomer.phone) {
+                        marketplaceApi.getCustomerOrders(verifiedCustomer.phone).then((r) => {
+                          if (r.success && Array.isArray(r.orders)) {
+                            const cleanPhone = verifiedCustomer.phone.replace(/[^\d]/g, '').slice(-10);
+                            const strictlyMine = r.orders.filter((o: any) => {
+                              const oPhone = String(o.customerPhone || o.customer_phone || '').replace(/[^\d]/g, '');
+                              return oPhone.endsWith(cleanPhone);
+                            });
+                            setCustomerOrders(strictlyMine);
+                            localStorage.setItem(getCustomerOrdersStorageKey(verifiedCustomer.phone), JSON.stringify(strictlyMine));
+                            showToast('অর্ডার তালিকা রিফ্রেশ হয়েছে');
+                          }
+                        });
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>রিফ্রেশ</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setCustomerAccountTab('login');
+                      setIsCustomerAccountOpen(true);
+                    }}
+                    className="px-3 py-1.5 bg-[#0052cc] hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>লগইন করুন</span>
+                  </button>
+                )}
               </div>
 
-              <form onSubmit={handleTrackOrder} className="flex gap-2">
+              {/* If customer is NOT logged in, show helpful prompt */}
+              {!verifiedCustomer && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                  <div>
+                    <p className="font-extrabold text-blue-900">💡 আপনার অর্ডার তালিকা দেখতে চান?</p>
+                    <p className="text-blue-700 text-[11px]">
+                      আপনার মোবাইল নম্বর দিয়ে পাসওয়ার্ড ছাড়া ১-ক্লিকে ওটিপি দিয়ে লগইন করুন অথবা নিচে অর্ডার নম্বর দিয়ে ট্র্যাক করুন।
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setCustomerAccountTab('login');
+                      setIsCustomerAccountOpen(true);
+                    }}
+                    className="px-4 py-2 bg-[#0052cc] hover:bg-blue-700 text-white font-black rounded-xl cursor-pointer shrink-0"
+                  >
+                    ওটিপি লগইন করুন
+                  </button>
+                </div>
+              )}
+
+              {/* Quick Search / Track by Order Number */}
+              <form onSubmit={handleTrackOrder} className="flex gap-2 pt-1">
                 <input
                   type="text"
-                  placeholder="অর্ডার নম্বর (যেমন: MKT-123456)..."
+                  placeholder="অর্ডার নম্বর দিয়ে খুঁজুন (যেমন: #MKT-123456)..."
                   value={trackingSearchQuery}
                   onChange={(e) => setTrackingSearchQuery(e.target.value)}
                   className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-[#0052cc]"
@@ -1018,6 +1210,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
               )}
             </div>
 
+            {/* Live queried order display */}
             {queriedOrder && (
               <MarketplaceLiveTrackingMap
                 order={queriedOrder}
@@ -1028,6 +1221,100 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                   showToast('কপি করা হয়েছে!');
                 }}
               />
+            )}
+
+            {/* List of customer's strictly own orders */}
+            {verifiedCustomer && customerOrders.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                  আপনার সংরক্ষিত অর্ডারসমূহ ({customerOrders.length})
+                </h3>
+                <div className="space-y-3">
+                  {customerOrders.map((ord) => (
+                    <div
+                      key={ord.id}
+                      className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <div className="font-black text-slate-900 text-xs flex items-center gap-2">
+                            <span>#{ord.orderNumber || ord.id}</span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                ord.overallStatus === 'delivered'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : ord.overallStatus === 'cancelled'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {ord.overallStatus === 'delivered'
+                                ? 'ডেলিভার্ড'
+                                : ord.overallStatus === 'cancelled'
+                                ? 'বাতিল'
+                                : 'প্রক্রিয়াধীন'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            {ord.createdAt ? new Date(ord.createdAt).toLocaleString('bn-BD') : ''} • পেমেন্ট: {ord.paymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : ord.paymentMethod}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-black text-sm text-[#0052cc]">
+                            ৳ {formatMoney(ord.grandTotal || 0)}
+                          </div>
+                          <button
+                            onClick={() => {
+                              setTrackingSearchQuery(ord.orderNumber || ord.id);
+                              handleTrackOrder(undefined, ord.orderNumber || ord.id);
+                            }}
+                            className="mt-1 px-3 py-1 bg-blue-50 hover:bg-blue-100 text-[#0052cc] text-[11px] font-black rounded-lg transition cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <span>লাইভ ট্র্যাক</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Sub-orders / items summary */}
+                      {Array.isArray(ord.subOrders) && ord.subOrders.length > 0 && (
+                        <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                          <p className="text-[11px] font-bold text-slate-600">
+                            ভেন্ডর শপ: {ord.subOrders.map((s: any) => s.vendorShopName).filter(Boolean).join(', ')}
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {ord.subOrders.map((sub: any, sIdx: number) => (
+                              <div
+                                key={sub.id || sIdx}
+                                className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] text-slate-700 font-medium"
+                              >
+                                {sub.vendorShopName}: <span className="font-bold">{sub.status || 'প্রক্রিয়াধীন'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Empty state when customer has 0 orders */}
+            {verifiedCustomer && customerOrders.length === 0 && !queriedOrder && (
+              <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 space-y-3">
+                <Package className="w-12 h-12 text-slate-300 mx-auto" />
+                <h4 className="font-bold text-slate-800 text-sm">কোনো অর্ডার পাওয়া যায়নি</h4>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  আপনার এই মোবাইল নম্বর দিয়ে সেন্ট্রাল মার্কেটপ্লেসে এখনও কোনো অর্ডার দেওয়া হয়নি।
+                </p>
+                <button
+                  onClick={() => setNavTab('home')}
+                  className="px-4 py-2 bg-[#0052cc] text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition cursor-pointer"
+                >
+                  কেনাকাটা শুরু করুন
+                </button>
+              </div>
             )}
           </div>
         ) : (
@@ -1064,91 +1351,121 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
               {/* CENTER COLUMN: Hero Slider Banner & 10 Circular Categories (6/12 cols) */}
               {/* ------------------------------------------------------------- */}
               <div className="col-span-1 lg:col-span-6 space-y-3.5">
-                {/* Hero Banner Container */}
-                <div className="relative rounded-2xl overflow-hidden bg-gradient-to-r from-[#edf5ff] via-[#f1f7ff] to-[#e8f1fc] border border-blue-200/80 p-5 sm:p-7 flex flex-col justify-between min-h-[290px] shadow-2xs">
-                  <div className="relative z-10 max-w-[280px] sm:max-w-xs space-y-2">
-                    <p className="text-xs sm:text-sm font-bold text-slate-700">
-                      আপনার প্রয়োজনীয় সব পণ্য এখন
-                    </p>
-                    <h1 className="text-2xl sm:text-3xl font-black text-[#0052cc] leading-tight">
-                      একই প্ল্যাটফর্মে
-                    </h1>
-                    <p className="text-xs font-medium text-slate-600">
-                      বহু ভেন্ডরের হাজারো পণ্য, সেরা দামে!
-                    </p>
+                {/* Hero Banner Container - Dynamically Driven by Super Admin */}
+                {(() => {
+                  const b = heroBanners[currentSlide % heroBanners.length] || heroBanners[0];
+                  return (
+                    <div className="relative rounded-2xl overflow-hidden bg-gradient-to-r from-[#edf5ff] via-[#f1f7ff] to-[#e8f1fc] border border-blue-200/80 p-5 sm:p-7 flex flex-col justify-between min-h-[290px] shadow-2xs">
+                      <div className="relative z-10 max-w-[280px] sm:max-w-xs space-y-2">
+                        {b.tag && (
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white text-[10px] font-black tracking-wide border border-blue-200/80 text-[#0052cc] shadow-2xs">
+                            <span>{b.tag}</span>
+                          </div>
+                        )}
+                        <h1 className="text-2xl sm:text-3xl font-black text-[#0052cc] leading-tight">
+                          {b.title}
+                        </h1>
+                        {b.subtitle && (
+                          <p className="text-xs font-medium text-slate-600 line-clamp-2">
+                            {b.subtitle}
+                          </p>
+                        )}
 
-                    {/* 3 Trust Badges in a row */}
-                    <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] font-bold text-slate-700">
-                      <span className="flex items-center gap-1 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full border border-blue-200/60 shadow-2xs">
-                        <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                        <span>নিরাপদ লেনদেন</span>
-                      </span>
-                      <span className="flex items-center gap-1 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full border border-blue-200/60 shadow-2xs">
-                        <CheckCircle2 className="w-3 h-3 text-[#0052cc]" />
-                        <span>বিশ্বস্ত ভেন্ডর</span>
-                      </span>
-                      <span className="flex items-center gap-1 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full border border-blue-200/60 shadow-2xs">
-                        <Truck className="w-3 h-3 text-teal-600" />
-                        <span>দ্রুত ডেলিভারি</span>
-                      </span>
-                    </div>
+                        {/* 3 Trust Badges in a row */}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] font-bold text-slate-700">
+                          <span className="flex items-center gap-1 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full border border-blue-200/60 shadow-2xs">
+                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                            <span>নিরাপদ লেনদেন</span>
+                          </span>
+                          <span className="flex items-center gap-1 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full border border-blue-200/60 shadow-2xs">
+                            <CheckCircle2 className="w-3 h-3 text-[#0052cc]" />
+                            <span>বিশ্বস্ত ভেন্ডর</span>
+                          </span>
+                          <span className="flex items-center gap-1 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full border border-blue-200/60 shadow-2xs">
+                            <Truck className="w-3 h-3 text-teal-600" />
+                            <span>দ্রুত ডেলিভারি</span>
+                          </span>
+                        </div>
 
-                    <div className="pt-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const el = document.getElementById('marketplace-flash-sale');
-                          if (el) el.scrollIntoView({ behavior: 'smooth' });
-                        }}
-                        className="px-5 py-2 bg-[#0052cc] hover:bg-blue-700 text-white font-bold text-xs rounded-full shadow-sm transition cursor-pointer flex items-center gap-1.5"
-                      >
-                        <span>এখনই শপিং করুন</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (b.linkUrl?.startsWith('#')) {
+                                const target = document.querySelector(b.linkUrl);
+                                if (target) target.scrollIntoView({ behavior: 'smooth' });
+                              } else if (b.linkUrl?.includes('?product=')) {
+                                const pId = new URL(b.linkUrl, window.location.origin).searchParams.get('product');
+                                if (pId) {
+                                  const prod = products.find((x) => x.id === pId);
+                                  if (prod) handleSelectProduct(prod);
+                                  else {
+                                    marketplaceApi.getProductById(pId).then((r) => {
+                                      if (r.success && r.product) handleSelectProduct(r.product);
+                                    });
+                                  }
+                                }
+                              } else if (b.linkUrl) {
+                                window.location.href = b.linkUrl;
+                              } else {
+                                const el = document.getElementById('marketplace-flash-sale');
+                                if (el) el.scrollIntoView({ behavior: 'smooth' });
+                              }
+                            }}
+                            className="px-5 py-2 bg-[#0052cc] hover:bg-blue-700 text-white font-bold text-xs rounded-full shadow-sm transition cursor-pointer flex items-center gap-1.5"
+                          >
+                            <span>{b.buttonText || 'এখনই শপিং করুন'}</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
 
-                  {/* Right side Gadgets Product Showcase Image */}
-                  <div className="absolute right-0 bottom-0 top-0 w-1/2 flex items-center justify-end pointer-events-none p-2 sm:p-4">
-                    <img
-                      src="/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg"
-                      alt="Gadgets & Shopping Cart"
-                      className="max-h-[260px] w-auto object-contain drop-shadow-xl"
-                    />
-                  </div>
-
-                  {/* Slider Controls */}
-                  <div className="flex items-center justify-between pt-2 relative z-10">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentSlide((c) => (c > 0 ? c - 1 : 3))}
-                      className="p-1.5 rounded-full bg-white/90 hover:bg-white text-slate-700 shadow-2xs border border-blue-200/60 cursor-pointer"
-                    >
-                      <ChevronLeft className="w-3 h-3" />
-                    </button>
-
-                    {/* Pagination Dots */}
-                    <div className="flex items-center gap-1.5">
-                      {[0, 1, 2, 3].map((dot) => (
-                        <span
-                          key={dot}
-                          onClick={() => setCurrentSlide(dot)}
-                          className={`w-1.5 h-1.5 rounded-full cursor-pointer transition-all ${
-                            currentSlide === dot ? 'w-4 bg-[#0052cc]' : 'bg-slate-300'
-                          }`}
+                      {/* Right side Showcase Image */}
+                      <div className="absolute right-0 bottom-0 top-0 w-1/2 flex items-center justify-end pointer-events-none p-2 sm:p-4">
+                        <img
+                          src={b.imageUrl || '/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg'}
+                          alt={b.title}
+                          className="max-h-[260px] w-auto object-contain drop-shadow-xl"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = '/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg';
+                          }}
                         />
-                      ))}
-                    </div>
+                      </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setCurrentSlide((c) => (c < 3 ? c + 1 : 0))}
-                      className="p-1.5 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-2xs border border-slate-200 cursor-pointer"
-                    >
-                      <ChevronRight className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
+                      {/* Slider Controls */}
+                      <div className="flex items-center justify-between pt-2 relative z-10">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentSlide((c) => (c > 0 ? c - 1 : heroBanners.length - 1))}
+                          className="p-1.5 rounded-full bg-white/90 hover:bg-white text-slate-700 shadow-2xs border border-blue-200/60 cursor-pointer"
+                        >
+                          <ChevronLeft className="w-3 h-3" />
+                        </button>
+
+                        {/* Pagination Dots */}
+                        <div className="flex items-center gap-1.5">
+                          {heroBanners.map((_, dot) => (
+                            <span
+                              key={dot}
+                              onClick={() => setCurrentSlide(dot)}
+                              className={`w-1.5 h-1.5 rounded-full cursor-pointer transition-all ${
+                                currentSlide === dot ? 'w-4 bg-[#0052cc]' : 'bg-slate-300'
+                              }`}
+                            />
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setCurrentSlide((c) => (c < heroBanners.length - 1 ? c + 1 : 0))}
+                          className="p-1.5 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-2xs border border-slate-200 cursor-pointer"
+                        >
+                          <ChevronRight className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 10 Circular Categories Row */}
                 <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-2xs">
@@ -1467,7 +1784,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                       e.stopPropagation();
                       addToCart(p, 1);
                     }}
-                    onClick={() => setSelectedProduct(prod)}
+                    onClick={() => handleSelectProduct(prod)}
                     isWishlisted={wishlistIds.includes(prod.id)}
                     onToggleWishlist={(id, e) => {
                       e.stopPropagation();
@@ -1522,7 +1839,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                       e.stopPropagation();
                       addToCart(p, 1);
                     }}
-                    onClick={() => setSelectedProduct(prod)}
+                    onClick={() => handleSelectProduct(prod)}
                     isWishlisted={wishlistIds.includes(prod.id)}
                     onToggleWishlist={(id, e) => {
                       e.stopPropagation();
@@ -1731,22 +2048,23 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
             </section>
 
             {/* ========================================================================= */}
-            {/* 5. 🎁 বিশেষ অফার (Promotional Banner) */}
+            {/* 5. 🎁 বিশেষ অফার (Promotional Banner - Super Admin Controlled) */}
             {/* ========================================================================= */}
             <section className="pt-2">
               <div className="relative rounded-2xl overflow-hidden bg-white text-slate-800 p-5 sm:p-7 shadow-xs border-2 border-[#0052cc]/30 flex flex-col md:flex-row items-center justify-between gap-5">
                 <div className="relative z-10 space-y-2 max-w-xl text-center md:text-left">
                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-[11px] font-black tracking-wide border border-amber-300 text-amber-700 shadow-2xs">
                     <Gift className="w-3.5 h-3.5 text-amber-600" />
-                    <span>বিশেষ মেগা অফার ২০২৫</span>
+                    <span>{middleBanner?.tag || 'বিশেষ মেগা অফার ২০২৫'}</span>
                   </div>
 
                   <h3 className="text-xl sm:text-2xl lg:text-3xl font-black leading-tight tracking-tight text-[#0052cc]">
-                    সারা বাংলাদেশে ফ্রি ডেলিভারি + সর্বোচ্চ ৩০% ছাড়!
+                    {middleBanner?.title || 'সারা বাংলাদেশে ফ্রি ডেলিভারি + সর্বোচ্চ ৩০% ছাড়!'}
                   </h3>
 
                   <p className="text-xs sm:text-sm text-slate-600 font-medium">
-                    TWING Marketplace-এ কেনাকাটা করুন নিশ্চিন্তে। প্রথম অর্ডারে কুপন কোড ব্যবহার করে উপভোগ করুন বিশেষ ছাড়।
+                    {middleBanner?.subtitle ||
+                      'TWING Marketplace-এ কেনাকাটা করুন নিশ্চিন্তে। প্রথম অর্ডারে কুপন কোড ব্যবহার করে উপভোগ করুন বিশেষ ছাড়।'}
                   </p>
 
                   <div className="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-3">
@@ -1762,7 +2080,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                           navigator.clipboard.writeText('TWINGFREE');
                           showToast('🎉 কুপন কোড TWINGFREE কপি করা হয়েছে!');
                         }}
-                        className="p-1 hover:bg-slate-100 rounded-md transition text-slate-600"
+                        className="p-1 hover:bg-slate-100 rounded-md transition text-slate-600 cursor-pointer"
                         title="কপি করুন"
                       >
                         <Copy className="w-3.5 h-3.5" />
@@ -1772,12 +2090,30 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const el = document.getElementById('marketplace-all-products');
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        if (middleBanner?.linkUrl?.startsWith('#')) {
+                          const target = document.querySelector(middleBanner.linkUrl);
+                          if (target) target.scrollIntoView({ behavior: 'smooth' });
+                        } else if (middleBanner?.linkUrl?.includes('?product=')) {
+                          const pId = new URL(middleBanner.linkUrl, window.location.origin).searchParams.get('product');
+                          if (pId) {
+                            const prod = products.find((x) => x.id === pId);
+                            if (prod) handleSelectProduct(prod);
+                            else {
+                              marketplaceApi.getProductById(pId).then((r) => {
+                                if (r.success && r.product) handleSelectProduct(r.product);
+                              });
+                            }
+                          }
+                        } else if (middleBanner?.linkUrl) {
+                          window.location.href = middleBanner.linkUrl;
+                        } else {
+                          const el = document.getElementById('marketplace-all-products');
+                          if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        }
                       }}
                       className="px-5 py-2 bg-[#0052cc] hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
                     >
-                      <span>এখনই অফার উপভোগ করুন</span>
+                      <span>{middleBanner?.buttonText || 'এখনই অফার উপভোগ করুন'}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -1787,9 +2123,16 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                 <div className="relative z-10 shrink-0 w-32 sm:w-44 md:w-52 flex items-center justify-center">
                   <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl overflow-hidden shadow-sm border border-slate-200 bg-white flex items-center justify-center p-1">
                     <img
-                      src="/src/assets/images/marketplace_courier_vendor_1791135724375.jpg"
-                      alt="TWING Mega Offer"
+                      src={
+                        middleBanner?.imageUrl ||
+                        '/src/assets/images/marketplace_courier_vendor_1791135724375.jpg'
+                      }
+                      alt={middleBanner?.title || 'TWING Mega Offer'}
                       className="w-full h-full object-cover rounded-xl"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src =
+                          '/src/assets/images/marketplace_courier_vendor_1791135724375.jpg';
+                      }}
                     />
                   </div>
                 </div>
@@ -2129,9 +2472,11 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           className="flex flex-col items-center gap-0.5 p-1 rounded-xl text-slate-500 relative"
         >
           <span className="text-lg">🛒</span>
-          <span className="absolute top-0 right-2 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">
-            {cartItemCount || 2}
-          </span>
+          {cartItemCount > 0 && (
+            <span className="absolute top-0 right-2 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">
+              {cartItemCount}
+            </span>
+          )}
           <span className="text-[10px]">কার্ট</span>
         </button>
 
@@ -2177,17 +2522,17 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       <MarketplaceProductDetailModal
         product={selectedProduct}
         isOpen={Boolean(selectedProduct)}
-        onClose={() => setSelectedProduct(null)}
+        onClose={() => handleSelectProduct(null)}
         onAddToCart={addToCart}
         onBuyNow={handleBuyNow}
         isWishlisted={selectedProduct ? wishlistIds.includes(selectedProduct.id) : false}
         onToggleWishlist={handleToggleWishlist}
         onVisitVendor={(vId, vName) => {
-          setSelectedProduct(null);
+          handleSelectProduct(null);
           setSelectedVendorStore({ id: vId, name: vName });
         }}
         relatedProducts={products.filter((p) => p.id !== selectedProduct?.id)}
-        onSelectProduct={(p) => setSelectedProduct(p)}
+        onSelectProduct={(p) => handleSelectProduct(p)}
       />
 
       {/* Vendor Store Modal */}
@@ -2198,7 +2543,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         onClose={() => setSelectedVendorStore(null)}
         products={products}
         onAddToCart={addToCart}
-        onViewProduct={(p) => setSelectedProduct(p)}
+        onViewProduct={(p) => handleSelectProduct(p)}
         wishlistIds={wishlistIds}
         onToggleWishlist={handleToggleWishlist}
       />

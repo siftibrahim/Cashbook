@@ -30,6 +30,7 @@ interface StorefrontOrderTrackerProps {
   orders: OnlineOrder[];
   whatsappPhone?: string;
   storeConfig?: OnlineStoreConfig;
+  currentCustomerPhone?: string;
   onRefresh?: () => Promise<void> | void;
   isRefreshing?: boolean;
   onOrderUpdatedLocally?: (updatedOrder: OnlineOrder) => void;
@@ -39,6 +40,7 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
   orders,
   whatsappPhone,
   storeConfig,
+  currentCustomerPhone,
   onRefresh,
   isRefreshing = false,
   onOrderUpdatedLocally,
@@ -53,15 +55,38 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<{ orderId: string; type: 'success' | 'error'; text: string } | null>(null);
 
+  // Strictly use current customer's phone digits only - never fall back to storeConfig.customerPhone!
+  const customerPhoneDigits = (currentCustomerPhone || '').replace(/[^\d]/g, '').slice(-10);
+
   const filteredOrders = orders.filter((o) => {
-    if (!searchKey.trim()) return true;
-    const q = searchKey.trim().toLowerCase();
-    return (
-      o.orderNumber?.toLowerCase().includes(q) ||
-      o.customerPhone?.includes(q) ||
-      o.customerName?.toLowerCase().includes(q) ||
-      o.id?.toLowerCase().includes(q)
-    );
+    const oDigits = (o.customerPhone || '').replace(/[^\d]/g, '');
+
+    // 1. Strict customer phone isolation: if customer phone is provided, only show matching orders
+    if (customerPhoneDigits && customerPhoneDigits.length >= 10) {
+      if (!oDigits.endsWith(customerPhoneDigits)) {
+        return false;
+      }
+    } else {
+      // If customer phone is not set, do not expose existing customer orders without search query
+      if (oDigits.length >= 10 && !searchKey.trim()) {
+        return false;
+      }
+    }
+
+    // 2. Search filter: if search key is provided, match within the isolated orders
+    if (searchKey.trim()) {
+      const q = searchKey.trim().toLowerCase();
+      const qDigits = q.replace(/[^\d]/g, '');
+      const matchesText =
+        o.orderNumber?.toLowerCase().includes(q) ||
+        o.id?.toLowerCase().includes(q) ||
+        o.customerName?.toLowerCase().includes(q);
+      const matchesPhone = qDigits.length >= 4 && oDigits.includes(qDigits);
+
+      return Boolean(matchesText || matchesPhone);
+    }
+
+    return true;
   });
 
   const getStatusStep = (status: string) => {
@@ -289,9 +314,15 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
             <div className="w-12 h-12 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center">
               <PackageCheck className="w-6 h-6" />
             </div>
-            <h3 className="font-bold text-sm text-slate-800">কোনো অর্ডার পাওয়া যায়নি</h3>
+            <h3 className="font-bold text-sm text-slate-800">
+              {searchKey.trim() || (customerPhoneDigits && customerPhoneDigits.length >= 10)
+                ? 'কোনো অর্ডার পাওয়া যায়নি'
+                : 'আপনার অর্ডার ট্র্যাক করুন'}
+            </h3>
             <p className="text-xs text-slate-400 max-w-xs mx-auto">
-              আপনি এখনো কোনো অর্ডার করেননি অথবা নম্বরটি সঠিকভাবে মেলেনি। হোমপেইজ থেকে পছন্দের পণ্য অর্ডার করুন।
+              {searchKey.trim() || (customerPhoneDigits && customerPhoneDigits.length >= 10)
+                ? 'প্রদত্ত নম্বর বা কোডে কোনো অর্ডার খুঁজে পাওয়া যায়নি। সঠিক অর্ডার নম্বর বা মোবাইল নম্বর দিয়ে খুঁজুন।'
+                : 'আপনার অর্ডারের লাইভ ডেলিভারি ও প্রসেসিং স্ট্যাটাস দেখতে উপরের সার্চ বক্সে আপনার মোবাইল নম্বর অথবা অর্ডার নম্বর লিখুন।'}
             </p>
           </div>
         ) : (

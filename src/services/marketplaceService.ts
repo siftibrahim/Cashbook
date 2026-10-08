@@ -62,6 +62,17 @@ export const marketplaceApi = {
     }
   },
 
+  async getProductById(id: string): Promise<{ success: boolean; product?: MarketplaceProduct; error?: string }> {
+    try {
+      const res = await fetch(`/api/marketplace/product/${encodeURIComponent(id)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'পণ্য পাওয়া যায়নি');
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  },
+
   async getCategories(): Promise<{ success: boolean; categories: MarketplaceCategory[] }> {
     try {
       const res = await fetch('/api/marketplace/categories');

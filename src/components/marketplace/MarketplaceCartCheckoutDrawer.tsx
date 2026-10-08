@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -78,6 +78,11 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
   const [isCopied, setIsCopied] = useState(false);
   const [autoCloseCountdown, setAutoCloseCountdown] = useState<number>(0);
 
+  const confirmedOrderRef = useRef<MarketplaceMasterOrder | null>(null);
+  useEffect(() => {
+    confirmedOrderRef.current = confirmedOrder;
+  }, [confirmedOrder]);
+
   const handleClose = () => {
     setStep('cart');
     setConfirmedOrder(null);
@@ -109,12 +114,16 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
   // Automatically close and return to shopping after order confirmation
   useEffect(() => {
     if (step === 'success') {
-      setAutoCloseCountdown(5);
+      setAutoCloseCountdown(4);
       const interval = setInterval(() => {
         setAutoCloseCountdown((prev) => {
           if (prev <= 1) {
             clearInterval(interval);
+            const ordNum = confirmedOrderRef.current?.orderNumber || confirmedOrderRef.current?.id;
             handleClose();
+            if (ordNum) {
+              onOpenTracking(ordNum);
+            }
             return 0;
           }
           return prev - 1;

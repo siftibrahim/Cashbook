@@ -60,8 +60,14 @@ interface CartItem {
   quantity: number;
 }
 
-const STORE_ORDERS_STORAGE_KEY = 'ibrahim_khata_online_customer_orders_v1';
+// Deprecated global storage key kept for one-time purge only to protect customer privacy
+const DEPRECATED_LEGACY_ORDERS_KEY = 'ibrahim_khata_online_customer_orders_v1';
 const STORE_CUSTOMER_INFO_KEY = 'twing_customer_profile_v1';
+
+export function getStoreOrdersKey(phone?: string): string {
+  const digits = (phone || '').replace(/[^\d]/g, '').slice(-10);
+  return digits ? `twing_store_orders_${digits}` : 'twing_store_orders_guest';
+}
 
 export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
   isOpen,
@@ -321,14 +327,36 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     }
   };
 
-  // Stored customer orders
+  // Stored customer orders strictly scoped to active customer's phone
   const [customerOrders, setCustomerOrders] = useState<OnlineOrder[]>(() => {
     try {
-      const raw = localStorage.getItem(STORE_ORDERS_STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
+      const initPhone = (customerProfile.phone || '').trim();
+      const raw = localStorage.getItem(getStoreOrdersKey(initPhone));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch {}
     return [];
   });
+
+  // Re-sync customer orders when customer phone changes
+  useEffect(() => {
+    try {
+      const clean = customerPhone.trim();
+      if (!clean) {
+        setCustomerOrders([]);
+        return;
+      }
+      const raw = localStorage.getItem(getStoreOrdersKey(clean));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setCustomerOrders(parsed);
+      } else {
+        setCustomerOrders([]);
+      }
+    } catch {}
+  }, [customerPhone]);
 
   const customerOrdersRef = useRef<OnlineOrder[]>(customerOrders);
   useEffect(() => {
@@ -348,7 +376,7 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
         ? customerOrdersRef.current
         : (() => {
             try {
-              const raw = localStorage.getItem(STORE_ORDERS_STORAGE_KEY);
+              const raw = localStorage.getItem(getStoreOrdersKey(customerPhone));
               return raw ? JSON.parse(raw) : [];
             } catch {
               return [];
@@ -413,7 +441,8 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
 
           const merged = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
           try {
-            localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(merged));
+            const key = getStoreOrdersKey(customerPhone);
+            localStorage.setItem(key, JSON.stringify(merged));
           } catch {}
           return merged;
         });
@@ -482,7 +511,9 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
 
                 if (hasChange) {
                   try {
-                    localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(next));
+                    const key = getStoreOrdersKey(customerPhone);
+                    localStorage.setItem(key, JSON.stringify(next));
+                    localStorage.removeItem(DEPRECATED_LEGACY_ORDERS_KEY);
                   } catch {}
                   return next;
                 }
@@ -535,7 +566,9 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
           });
           if (!updatedAny) return prev;
           try {
-            localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(updated));
+            const key = getStoreOrdersKey(customerPhone);
+            localStorage.setItem(key, JSON.stringify(updated));
+            localStorage.removeItem(DEPRECATED_LEGACY_ORDERS_KEY);
           } catch {}
           return updated;
         });
@@ -544,9 +577,10 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     };
 
     const handleStorageEvent = (e: StorageEvent) => {
-      if (!e.key || e.key === STORE_ORDERS_STORAGE_KEY) {
+      const activeKey = getStoreOrdersKey(customerPhone);
+      if (e.key === activeKey) {
         try {
-          const raw = localStorage.getItem(STORE_ORDERS_STORAGE_KEY);
+          const raw = localStorage.getItem(activeKey);
           if (raw) setCustomerOrders(JSON.parse(raw));
         } catch {}
       }
@@ -806,11 +840,12 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     setTimeout(() => {
       onPlaceOrder(newOrder);
 
-      // Save to customer order list in localStorage
+      // Save to customer order list in localStorage scoped to this customer
       const updatedOrders = [newOrder, ...customerOrders];
       setCustomerOrders(updatedOrders);
       try {
-        localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(updatedOrders));
+        const key = getStoreOrdersKey(newOrder.customerPhone || customerPhone);
+        localStorage.setItem(key, JSON.stringify(updatedOrders));
       } catch {}
 
       setCompletedOrder(newOrder);
@@ -1138,6 +1173,7 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                 orders={customerOrders}
                 whatsappPhone={config.whatsappPhone || config.phone}
                 storeConfig={config}
+                currentCustomerPhone={customerPhone}
                 onRefresh={() => refreshCustomerOrders(true)}
                 isRefreshing={isRefreshingOrders}
                 onOrderUpdatedLocally={(updatedOrd) => {
@@ -1148,7 +1184,8 @@ _ধন্যবাদ! অনুগ্রহ করে অর্ডারটি
                         : o
                     );
                     try {
-                      localStorage.setItem(STORE_ORDERS_STORAGE_KEY, JSON.stringify(next));
+                      const key = getStoreOrdersKey(customerPhone);
+                      localStorage.setItem(key, JSON.stringify(next));
                     } catch {}
                     return next;
                   });

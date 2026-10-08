@@ -105,6 +105,18 @@ export function detectPublicStoreContext(): StoreContextResult {
     return { isPublicStore: false };
   }
 
+  // 2. PRIMARY CANONICAL RESOLUTION: Dynamic Wildcard Subdomain
+  // e.g. https://tanjinhub.twinghisabi.site
+  const subdomainSlug = extractSubdomainFromHostname(hostname);
+  if (subdomainSlug) {
+    // Tenant Isolation: on a vendor subdomain, query parameters CANNOT override the vendor!
+    return {
+      isPublicStore: true,
+      storeIdentifier: subdomainSlug,
+      source: 'subdomain',
+    };
+  }
+
   // 1.1 Central Marketplace Domain, Subdomain or Route Detection
   // e.g. CentralMarketplace.twinghisabi.site, centralmarketplace.localhost, /marketplace, ?marketplace=1
   const isMarketplaceSubdomain =
@@ -117,27 +129,19 @@ export function detectPublicStoreContext(): StoreContextResult {
     pathname.startsWith('/marketplace/') ||
     pathname === '/centralmarketplace' ||
     pathname.startsWith('/centralmarketplace/') ||
+    pathname.startsWith('/product/') ||
+    pathname.startsWith('/p/') ||
     params.get('marketplace') === '1' ||
     params.get('central') === '1' ||
-    params.get('market') === '1';
+    params.get('market') === '1' ||
+    Boolean(params.get('product') && !params.get('shop') && !params.get('store')) ||
+    Boolean(params.get('productId') && !params.get('shop') && !params.get('store'));
 
   if (isMarketplaceSubdomain || isMarketplacePathOrQuery) {
     return {
       isPublicStore: false,
       isCentralMarketplace: true,
       source: 'marketplace',
-    };
-  }
-
-  // 2. PRIMARY CANONICAL RESOLUTION: Dynamic Wildcard Subdomain
-  // e.g. https://tanjinhub.twinghisabi.site
-  const subdomainSlug = extractSubdomainFromHostname(hostname);
-  if (subdomainSlug) {
-    // Tenant Isolation: on a vendor subdomain, query parameters CANNOT override the vendor!
-    return {
-      isPublicStore: true,
-      storeIdentifier: subdomainSlug,
-      source: 'subdomain',
     };
   }
 

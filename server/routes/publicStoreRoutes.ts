@@ -798,14 +798,17 @@ router.post('/:identifier/orders/batch-track', async (req: Request, res: Respons
       const params: any[] = [targetUserId];
       const conditions: string[] = [];
 
-      if (cleanNumbers.length > 0) {
-        params.push(cleanNumbers);
-        conditions.push(`(order_number = ANY($${params.length}) OR id = ANY($${params.length}))`);
-      }
-
       if (cleanPhone) {
         params.push(`%${cleanPhone.slice(-10)}%`);
-        conditions.push(`customer_phone LIKE $${params.length}`);
+        if (cleanNumbers.length > 0) {
+          params.push(cleanNumbers);
+          conditions.push(`customer_phone LIKE $${params.length - 1} AND (order_number = ANY($${params.length}) OR id = ANY($${params.length}))`);
+        } else {
+          conditions.push(`customer_phone LIKE $${params.length}`);
+        }
+      } else if (cleanNumbers.length > 0) {
+        params.push(cleanNumbers);
+        conditions.push(`(order_number = ANY($${params.length}) OR id = ANY($${params.length}))`);
       }
 
       query += conditions.join(' OR ') + `) ORDER BY created_at DESC LIMIT 50`;
@@ -853,9 +856,15 @@ router.post('/:identifier/orders/batch-track', async (req: Request, res: Respons
       const allOrders = inMemoryStore.online_orders || [];
       const orders = allOrders.filter((o) => {
         if (o.userId !== targetUserId && o.userId !== 'default_vendor' && o.userId) return false;
-        if (cleanNumbers.includes(o.orderNumber) || cleanNumbers.includes(o.id)) return true;
-        if (cleanPhone && o.customerPhone && o.customerPhone.includes(cleanPhone.slice(-10))) return true;
-        return false;
+        const oPhone = String(o.customerPhone || '');
+        if (cleanPhone) {
+          if (!oPhone.includes(cleanPhone.slice(-10))) return false;
+          if (cleanNumbers.length > 0) {
+            return cleanNumbers.includes(o.orderNumber) || cleanNumbers.includes(o.id);
+          }
+          return true;
+        }
+        return cleanNumbers.includes(o.orderNumber) || cleanNumbers.includes(o.id);
       });
 
       return res.json({ orders });

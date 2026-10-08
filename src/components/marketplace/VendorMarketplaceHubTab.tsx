@@ -1027,7 +1027,36 @@ export const VendorMarketplaceHubTab: React.FC<VendorMarketplaceHubTabProps> = (
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {isListed && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const liveUrl = `${window.location.origin}/marketplace?product=${encodeURIComponent(p.id)}`;
+                              navigator.clipboard.writeText(liveUrl);
+                              if (onShowToast) onShowToast('✅ প্রোডাক্ট লাইভ লিংক কপি হয়েছে!');
+                            }}
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                            title="লাইভ লিংক কপি করুন"
+                          >
+                            <Copy className="w-3.5 h-3.5 text-slate-600" />
+                            <span className="hidden sm:inline">লিংক</span>
+                          </button>
+
+                          <a
+                            href={`/marketplace?product=${encodeURIComponent(p.id)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#0052cc] font-bold text-xs rounded-xl flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                            title="সরাসরি লাইভ দেখুন"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 text-[#0052cc]" />
+                            <span className="hidden sm:inline">লাইভ দেখুন</span>
+                          </a>
+                        </>
+                      )}
+
                       <button
                         type="button"
                         disabled={isToggling}

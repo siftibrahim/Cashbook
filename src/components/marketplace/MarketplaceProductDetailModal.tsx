@@ -70,17 +70,29 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
     ? Math.round(((product.originalPrice - product.salePrice) / product.originalPrice) * 100)
     : 0);
 
+  const getProductCanonicalUrl = () => {
+    if (typeof window === 'undefined') return '';
+    return `${window.location.origin}/marketplace?product=${encodeURIComponent(product.id)}`;
+  };
+
   const handleShare = () => {
+    const canonicalUrl = getProductCanonicalUrl();
     if (navigator.share) {
       navigator.share({
         title: product.name,
-        text: `${product.name} - TWING Marketplace-এ মাত্র ৳${formatMoney(product.salePrice)} টাকায়!`,
-        url: window.location.href,
-      }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(window.location.href);
+        text: `${product.name} - TWING Central Marketplace-এ মাত্র ৳${formatMoney(product.salePrice)} টাকায়!`,
+        url: canonicalUrl,
+      }).catch(() => {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(canonicalUrl);
+          setIsCopied(true);
+          setTimeout(() => setIsCopied(false), 2500);
+        }
+      });
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(canonicalUrl);
       setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
+      setTimeout(() => setIsCopied(false), 2500);
     }
   };
 

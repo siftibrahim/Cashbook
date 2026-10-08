@@ -66,8 +66,22 @@ interface CentralMarketplaceAdminTabProps {
   isSuperAdmin: boolean;
 }
 
+export interface MarketplaceBannerItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  tag?: string;
+  imageUrl?: string;
+  linkUrl?: string;
+  buttonText?: string;
+  placement: 'hero_slider' | 'middle_strip' | 'sidebar_ad' | 'bottom_banner';
+  isActive: boolean;
+  order?: number;
+  advertiserName?: string;
+}
+
 export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProps> = ({ isSuperAdmin }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'vendor_balances' | 'profit' | 'payouts' | 'products' | 'categories' | 'settings'>('orders');
+  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'vendor_balances' | 'profit' | 'payouts' | 'products' | 'categories' | 'banners' | 'settings'>('orders');
   const [isLoading, setIsLoading] = useState(true);
   const [isPaymentSettingsModalOpen, setIsPaymentSettingsModalOpen] = useState(false);
   const [systemPaymentSettings, setSystemPaymentSettings] = useState<SystemPaymentSettings | null>(null);
@@ -192,6 +206,60 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
   const [isCatModalOpen, setIsCatModalOpen] = useState(false);
   const [catForm, setCatForm] = useState({ id: '', nameBn: '', nameEn: '', slug: '', icon: 'ShoppingBag', sortOrder: 1, isActive: true });
 
+  const DEFAULT_ADMIN_BANNERS: MarketplaceBannerItem[] = [
+    {
+      id: 'banner_hero_1',
+      title: 'আপনার প্রয়োজনীয় সব পণ্য এখন একই প্ল্যাটফর্মে',
+      subtitle: 'বহু ভেন্ডরের হাজারো খাঁটি পণ্য, সেরা দামে দ্রুত ক্যাশ অন ডেলিভারি!',
+      tag: '⚡ মেগা ধামাকা অফার',
+      imageUrl: '/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg',
+      linkUrl: '#marketplace-flash-sale',
+      buttonText: 'এখনই শপিং করুন',
+      placement: 'hero_slider',
+      isActive: true,
+      order: 1,
+      advertiserName: 'TWING Mall Official',
+    },
+    {
+      id: 'banner_hero_2',
+      title: '১০০% অরিজিনাল গ্রোসারি ও অরগানিক ফুড সরাসরি ফ্রেশ সোর্স থেকে',
+      subtitle: 'গাওয়া ঘি, সুন্দরবনের মধু, খাঁটি সরিষার তেল ও প্রিমিয়াম চাল-ডাল!',
+      tag: '🌿 প্রিমিয়াম কোয়ালিটি',
+      imageUrl: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
+      linkUrl: '#marketplace-all-products',
+      buttonText: 'অরগানিক পণ্য দেখুন',
+      placement: 'hero_slider',
+      isActive: true,
+      order: 2,
+      advertiserName: 'ভেরিফাইড ফ্রেশ ফার্ম',
+    },
+    {
+      id: 'banner_middle_1',
+      title: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও ১০০% অরিজিনাল পণ্যের নিশ্চয়তা!',
+      subtitle: 'টুইং হিসাবি ভেরিফাইড মার্চেন্টদের থেকে নিরাপদ কেনাকাটা করুন।',
+      tag: '🔥 স্পেশাল ক্যাম্পেইন',
+      imageUrl: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&auto=format&fit=crop&q=80',
+      linkUrl: '#marketplace-flash-sale',
+      buttonText: 'অফার উপভোগ করুন',
+      placement: 'middle_strip',
+      isActive: true,
+      order: 3,
+    },
+    {
+      id: 'banner_sidebar_1',
+      title: 'টুইং হিসাবি সেন্ট্রাল মল',
+      subtitle: 'ভেরিফাইড উদ্যোক্তাদের মেগা মার্কেটপ্লেস',
+      tag: '💎 স্পন্সরড বিজ্ঞাপন',
+      imageUrl: '',
+      linkUrl: '#marketplace-all-products',
+      buttonText: 'এক্সপ্লোর করুন',
+      placement: 'sidebar_ad',
+      isActive: true,
+      order: 4,
+      advertiserName: 'স্পন্সর: TWING Official',
+    },
+  ];
+
   // Platform & Delivery Settings
   const [settingsForm, setSettingsForm] = useState({
     isMarketplaceActive: true,
@@ -200,6 +268,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     platformDeliveryMargin: 10,
     deliveryFeeDhaka: 70,
     deliveryFeeOutside: 130,
+    enableMarketplaceAds: true,
     bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও ১০০% অরিজিনাল পণ্যের নিশ্চয়তা!',
     bannerImageUrl: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
     bannerTitle: 'আপনার প্রতিদিনের প্রয়োজনীয় সব পণ্য এখন এক জায়গায়!',
@@ -208,7 +277,26 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     bannerLink: '#marketplace-best-offers-section',
     bannerButtonText: 'এখনই অর্ডার করুন',
     bannerActive: true,
+    banners: DEFAULT_ADMIN_BANNERS,
   });
+
+  // Banner Modal & Ads Controls State
+  const [isBannerModalOpen, setIsBannerModalOpen] = useState(false);
+  const [bannerFilterPlacement, setBannerFilterPlacement] = useState<'all' | 'hero_slider' | 'middle_strip' | 'sidebar_ad' | 'bottom_banner'>('all');
+  const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
+  const [bannerModalForm, setBannerModalForm] = useState<MarketplaceBannerItem>({
+    id: '',
+    title: '',
+    subtitle: '',
+    tag: '⚡ মেগা অফার',
+    imageUrl: '',
+    linkUrl: '#marketplace-all-products',
+    buttonText: 'এখনই শপিং করুন',
+    placement: 'hero_slider',
+    isActive: true,
+    advertiserName: '',
+  });
+
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date>(new Date());
@@ -245,6 +333,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             platformDeliveryMargin: res.settings.platformDeliveryMargin ?? 10,
             deliveryFeeDhaka: res.settings.deliveryFeeDhaka ?? 70,
             deliveryFeeOutside: res.settings.deliveryFeeOutside ?? 130,
+            enableMarketplaceAds: res.settings.enableMarketplaceAds !== false,
             bannerNotice: res.settings.bannerNotice ?? prev.bannerNotice,
             bannerImageUrl: res.settings.bannerImageUrl ?? prev.bannerImageUrl,
             bannerTitle: res.settings.bannerTitle ?? prev.bannerTitle,
@@ -253,6 +342,7 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             bannerLink: res.settings.bannerLink ?? prev.bannerLink,
             bannerButtonText: res.settings.bannerButtonText ?? prev.bannerButtonText,
             bannerActive: res.settings.bannerActive !== false,
+            banners: Array.isArray(res.settings.banners) && res.settings.banners.length > 0 ? res.settings.banners : prev.banners,
           }));
         }
       }
@@ -784,6 +874,100 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     }
   };
 
+  // Banner & Ads Management Helpers
+  const handleToggleBanner = async (bannerId: string) => {
+    const updated = settingsForm.banners.map((b) =>
+      b.id === bannerId ? { ...b, isActive: !b.isActive } : b
+    );
+    const newForm = { ...settingsForm, banners: updated };
+    setSettingsForm(newForm);
+    try {
+      await marketplaceAdminApi.saveSettings({ ...data.settings, ...newForm });
+      showToast('ব্যানার স্ট্যাটাস আপডেট হয়েছে');
+      loadData(false);
+    } catch {}
+  };
+
+  const handleDeleteBanner = async (bannerId: string) => {
+    if (!confirm('আপনি কি নিশ্চিত যে এই ব্যানার/বিজ্ঞাপনটি মুছে ফেলতে চান?')) return;
+    const updated = settingsForm.banners.filter((b) => b.id !== bannerId);
+    const newForm = { ...settingsForm, banners: updated };
+    setSettingsForm(newForm);
+    try {
+      await marketplaceAdminApi.saveSettings({ ...data.settings, ...newForm });
+      showToast('ব্যানার মুছে ফেলা হয়েছে');
+      loadData(false);
+    } catch {}
+  };
+
+  const handleMoveBanner = async (index: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= settingsForm.banners.length) return;
+    const updated = [...settingsForm.banners];
+    const temp = updated[index];
+    updated[index] = updated[targetIdx];
+    updated[targetIdx] = temp;
+    const newForm = { ...settingsForm, banners: updated };
+    setSettingsForm(newForm);
+    try {
+      await marketplaceAdminApi.saveSettings({ ...data.settings, ...newForm });
+      showToast('ব্যানারের ক্রম পরিবর্তন হয়েছে');
+      loadData(false);
+    } catch {}
+  };
+
+  const handleOpenAddBanner = () => {
+    setEditingBannerId(null);
+    setBannerModalForm({
+      id: 'banner_' + Date.now(),
+      title: '',
+      subtitle: '',
+      tag: '⚡ মেগা অফার',
+      imageUrl: '',
+      linkUrl: '#marketplace-all-products',
+      buttonText: 'এখনই শপিং করুন',
+      placement: 'hero_slider',
+      isActive: true,
+      advertiserName: '',
+    });
+    setIsBannerModalOpen(true);
+  };
+
+  const handleOpenEditBanner = (b: MarketplaceBannerItem) => {
+    setEditingBannerId(b.id);
+    setBannerModalForm({ ...b });
+    setIsBannerModalOpen(true);
+  };
+
+  const handleSaveBannerModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bannerModalForm.title.trim()) {
+      alert('ব্যানার টাইটেল আবশ্যক');
+      return;
+    }
+    let updated: MarketplaceBannerItem[];
+    if (editingBannerId) {
+      updated = settingsForm.banners.map((b) =>
+        b.id === editingBannerId ? { ...bannerModalForm, id: editingBannerId } : b
+      );
+    } else {
+      updated = [
+        ...settingsForm.banners,
+        { ...bannerModalForm, id: bannerModalForm.id || 'banner_' + Date.now() },
+      ];
+    }
+    const newForm = { ...settingsForm, banners: updated };
+    setSettingsForm(newForm);
+    setIsBannerModalOpen(false);
+    try {
+      await marketplaceAdminApi.saveSettings({ ...data.settings, ...newForm });
+      showToast(editingBannerId ? 'ব্যানার আপডেট সম্পন্ন হয়েছে' : 'নতুন ব্যানার যুক্ত হয়েছে');
+      loadData(false);
+    } catch (err: any) {
+      alert(err.message || 'সংরক্ষণ ব্যর্থ হয়েছে');
+    }
+  };
+
   // Derived Metrics
   const totalMasterOrders = data.masterOrders.length;
   const totalGmv = data.masterOrders.reduce((sum, o) => sum + (o.grandTotal || 0), 0);
@@ -1143,6 +1327,29 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             }`}>
               {data.categories.length}
             </span>
+          </button>
+
+          {/* Subtab: Banners & Ads */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('banners')}
+            className={`px-3.5 py-2.5 text-xs font-bold rounded-xl transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeSubTab === 'banners'
+                ? 'bg-rose-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <span>📢 ব্যানার ও বিজ্ঞাপন</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              activeSubTab === 'banners' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+            }`}>
+              {settingsForm.banners.length}
+            </span>
+            {settingsForm.enableMarketplaceAds ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-400" title="অ্যাড সক্রিয়" />
+            ) : (
+              <span className="w-2 h-2 rounded-full bg-slate-400" title="অ্যাড নিষ্ক্রিয়" />
+            )}
           </button>
 
           {/* Subtab 6: Settings */}
@@ -2764,6 +2971,29 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
                         >
                           {p.isFeaturedOnMarketplace ? '★ ফিচার্ড' : '☆ ফিচার'}
                         </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const liveUrl = `${window.location.origin}/marketplace?product=${encodeURIComponent(p.id)}`;
+                            navigator.clipboard.writeText(liveUrl);
+                            showToast('✅ প্রোডাক্ট লাইভ লিংক কপি হয়েছে!');
+                          }}
+                          className="p-1 rounded-lg text-slate-500 hover:text-teal-700 hover:bg-teal-50 transition cursor-pointer"
+                          title="লাইভ প্রোডাক্ট লিংক কপি করুন"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+
+                        <a
+                          href={`/marketplace?product=${encodeURIComponent(p.id)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1 rounded-lg text-slate-500 hover:text-[#0052cc] hover:bg-blue-50 transition cursor-pointer"
+                          title="সরাসরি মার্কেটপ্লেসে লাইভ দেখুন"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
 
                         <button
                           type="button"

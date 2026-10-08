@@ -402,6 +402,82 @@ router.get('/featured', async (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * 2.3 GET /api/marketplace/product/:id - Fetch Single Product by ID, SKU or QR code
+ */
+router.get(['/product/:id', '/products/:id'], async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'পণ্য আইডি আবশ্যক' });
+    const pool = getDbPool();
+
+    if (pool) {
+      const result = await pool.query(`
+        SELECT 
+          p.id, p.user_id, p.name, p.category, p.unit, p.buy_price, p.sale_price, 
+          p.original_price, p.discount_percent, p.stock, p.sku, p.qr_code, p.image_url, 
+          p.description, p.rating, p.review_count, p.is_published_online, 
+          p.is_listed_on_marketplace, p.is_featured_on_marketplace, p.marketplace_status,
+          u.name as vendor_name, s.store_name, s.logo_url as vendor_logo, s.phone as vendor_phone,
+          s.delivery_inside_dhaka, s.delivery_outside_dhaka, s.category as vendor_category
+        FROM products p
+        LEFT JOIN users u ON p.user_id = u.id
+        LEFT JOIN stores s ON p.user_id = s.user_id
+        WHERE (p.id = $1 OR p.sku = $1 OR p.qr_code = $1)
+        LIMIT 1
+      `, [id]);
+
+      if (result.rows.length > 0) {
+        const row = result.rows[0];
+        const product = {
+          id: row.id,
+          userId: row.user_id,
+          vendorId: row.user_id,
+          vendorShopName: row.store_name || row.vendor_name || 'ভেরিফাইড মার্চেন্ট শপ',
+          vendorLogo: row.vendor_logo || '',
+          vendorPhone: row.vendor_phone || '',
+          vendorRating: 4.9,
+          name: row.name,
+          category: row.category,
+          unit: row.unit,
+          buyPrice: parseFloat(row.buy_price) || 0,
+          salePrice: parseFloat(row.sale_price) || 0,
+          originalPrice: parseFloat(row.original_price) || parseFloat(row.sale_price) * 1.15,
+          discountPercent: row.discount_percent || 0,
+          stock: parseInt(row.stock) || 0,
+          sku: row.sku || '',
+          imageUrl: row.image_url || '',
+          description: row.description || '',
+          rating: parseFloat(row.rating) || 4.9,
+          reviewCount: parseInt(row.review_count) || 24,
+          isListedOnMarketplace: row.is_listed_on_marketplace,
+          isFeaturedOnMarketplace: row.is_featured_on_marketplace,
+          marketplaceStatus: row.marketplace_status || 'approved',
+        };
+        return res.json({ success: true, product });
+      }
+    }
+
+    // in-memory fallback
+    const allProds = inMemoryStore.products || [];
+    const p = allProds.find((x: any) => x.id === id || x.sku === id || x.qrCode === id);
+    if (p) {
+      const product = {
+        ...p,
+        vendorShopName: p.vendorShopName || 'ভেরিফাইড মার্চেন্ট শপ',
+        originalPrice: p.originalPrice || (p.salePrice ? p.salePrice * 1.15 : 0),
+        rating: p.rating || 4.9,
+        reviewCount: p.reviewCount || 18,
+      };
+      return res.json({ success: true, product });
+    }
+
+    return res.status(404).json({ error: 'পণ্যটি পাওয়া যায়নি' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 const BANGLA_MONTHS = [
   'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন',
   'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
@@ -438,6 +514,57 @@ const DEFAULT_MARKETPLACE_SETTINGS = {
   platformBkashNumber: '01306908115',
   bannerNotice: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও অরিজিনাল পণ্যের নিশ্চয়তা!',
   paymentInstructions: 'বিকাশ, নগদ বা রকেট নম্বরে প্রয়োজনীয় টাকা পাঠিয়ে TrxID এবং প্রেরক নম্বর দিয়ে অর্ডার কনফার্ম করুন।',
+  enableMarketplaceAds: true,
+  banners: [
+    {
+      id: 'banner_hero_1',
+      title: 'আপনার প্রয়োজনীয় সব পণ্য এখন একই প্ল্যাটফর্মে',
+      subtitle: 'বহু ভেন্ডরের হাজারো খাঁটি পণ্য, সেরা দামে দ্রুত ক্যাশ অন ডেলিভারি!',
+      tag: '⚡ মেগা ধামাকা অফার',
+      imageUrl: '/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg',
+      linkUrl: '#marketplace-flash-sale',
+      buttonText: 'এখনই শপিং করুন',
+      placement: 'hero_slider',
+      isActive: true,
+      order: 1,
+    },
+    {
+      id: 'banner_hero_2',
+      title: '১০০% অরিজিনাল গ্রোসারি ও অরগানিক ফুড সরাসরি ফ্রেশ সোর্স থেকে',
+      subtitle: 'গাওয়া ঘি, সুন্দরবনের মধু, খাঁটি সরিষার তেল ও প্রিমিয়াম চাল-ডাল!',
+      tag: '🌿 প্রিমিয়াম কোয়ালিটি',
+      imageUrl: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1200&auto=format&fit=crop&q=80',
+      linkUrl: '#marketplace-all-products',
+      buttonText: 'অরগানিক পণ্য দেখুন',
+      placement: 'hero_slider',
+      isActive: true,
+      order: 2,
+    },
+    {
+      id: 'banner_middle_1',
+      title: 'সারা দেশে দ্রুত ক্যাশ অন ডেলিভারি ও ১০০% অরিজিনাল পণ্যের নিশ্চয়তা!',
+      subtitle: 'টুইং হিসাবি ভেরিফাইড মার্চেন্টদের থেকে নিরাপদ কেনাকাটা করুন।',
+      tag: '🔥 স্পেশাল ক্যাম্পেইন',
+      imageUrl: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=1200&auto=format&fit=crop&q=80',
+      linkUrl: '#marketplace-flash-sale',
+      buttonText: 'অফার উপভোগ করুন',
+      placement: 'middle_strip',
+      isActive: true,
+      order: 3,
+    },
+    {
+      id: 'banner_sidebar_1',
+      title: 'টুইং হিসাবি সেন্ট্রাল মল',
+      subtitle: 'ভেরিফাইড উদ্যোক্তাদের মেগা মার্কেটপ্লেস',
+      tag: '💎 অফিসিয়াল অ্যাড',
+      imageUrl: '',
+      linkUrl: '#marketplace-all-products',
+      buttonText: 'এক্সপ্লোর করুন',
+      placement: 'sidebar_ad',
+      isActive: true,
+      order: 4,
+    },
+  ],
 };
 
 async function getStoredMarketplaceSettings(): Promise<any> {
