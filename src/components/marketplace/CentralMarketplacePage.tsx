@@ -73,32 +73,32 @@ const MKT_CUSTOMER_ORDERS_KEY = 'twing_marketplace_customer_orders_v1';
 
 // 12 Exact Categories for Left Sidebar matching screenshot
 const SIDEBAR_CATEGORIES = [
-  { id: 'cat_mobile', nameBn: 'মোবাইল ও এক্সেসরিজ', icon: '📱', color: 'text-blue-500' },
-  { id: 'cat_gadget', nameBn: 'কম্পিউটার ও গ্যাজেট', icon: '💻', color: 'text-sky-500' },
-  { id: 'cat_elec', nameBn: 'ইলেকট্রনিক্স', icon: '🔌', color: 'text-teal-500' },
-  { id: 'cat_home', nameBn: 'গৃহস্থালী পণ্য', icon: '🏠', color: 'text-amber-500' },
-  { id: 'cat_fashion', nameBn: 'ফ্যাশন ও পোশাক', icon: '👕', color: 'text-purple-500' },
-  { id: 'cat_beauty', nameBn: 'বিউটি ও পার্সোনাল কেয়ার', icon: '🧴', color: 'text-pink-500' },
-  { id: 'cat_baby', nameBn: 'খেলনা ও বেবি প্রোডাক্ট', icon: '🧸', color: 'text-orange-500' },
-  { id: 'cat_kitchen', nameBn: 'কিচেন ও ডাইনিং', icon: '🍳', color: 'text-emerald-500' },
-  { id: 'cat_health', nameBn: 'স্বাস্থ্য ও ফার্মেসি', icon: '➕', color: 'text-rose-500' },
-  { id: 'cat_sports', nameBn: 'ক্রীড়া ও আউটডোর', icon: '⚽', color: 'text-indigo-500' },
-  { id: 'cat_books', nameBn: 'বই ও স্টেশনারি', icon: '📚', color: 'text-blue-600' },
-  { id: 'cat_others', nameBn: 'অন্যান্য পণ্য', icon: '🔲', color: 'text-slate-500' },
+  { id: 'cat_all', nameBn: 'সব পণ্য', match: 'all', icon: '🛍️', color: 'text-indigo-500' },
+  { id: 'cat_food', nameBn: 'চাল, ডাল ও গ্রোসারি', match: 'চাল ও ডাল', icon: '🌾', color: 'text-emerald-500' },
+  { id: 'cat_tea', nameBn: 'চা, বিস্কুট ও বেকারি', match: 'চা ও বিস্কুট', icon: '☕', color: 'text-amber-500' },
+  { id: 'cat_elec', nameBn: 'ইলেকট্রনিক্স ও গ্যাজেট', match: 'ইলেকট্রনিক্স ও গ্যাজেট', icon: '🔌', color: 'text-teal-500' },
+  { id: 'cat_mobile', nameBn: 'মোবাইল ও এক্সেসরিজ', match: 'মোবাইল ও এক্সেসরিজ', icon: '📱', color: 'text-blue-500' },
+  { id: 'cat_health', nameBn: 'স্বাস্থ্য ও ফার্মেসি', match: 'স্বাস্থ্য ও ফার্মেসি', icon: '➕', color: 'text-rose-500' },
+  { id: 'cat_fashion', nameBn: 'ফ্যাশন ও পোশাক', match: 'ফ্যাশন ও পোশাক', icon: '👕', color: 'text-purple-500' },
+  { id: 'cat_home', nameBn: 'গৃহস্থালী পণ্য', match: 'গৃহস্থালী পণ্য', icon: '🏠', color: 'text-amber-500' },
+  { id: 'cat_beauty', nameBn: 'বিউটি ও পার্সোনাল কেয়ার', match: 'বিউটি ও পার্সোনাল কেয়ার', icon: '🧴', color: 'text-pink-500' },
+  { id: 'cat_baby', nameBn: 'খেলনা ও বেবি প্রোডাক্ট', match: 'খেলনা ও বেবি প্রোডাক্ট', icon: '🧸', color: 'text-orange-500' },
+  { id: 'cat_kitchen', nameBn: 'কিচেন ও ডাইনিং', match: 'কিচেন ও ডাইনিং', icon: '🍳', color: 'text-emerald-500' },
+  { id: 'cat_others', nameBn: 'অন্যান্য পণ্য', match: 'অন্যান্য', icon: '🔲', color: 'text-slate-500' },
 ];
 
 // 10 Exact Circular Categories below Hero Banner (Exact Marketplace Styling)
 const CIRCULAR_CATEGORIES = [
-  { id: 'circ_mobile', nameBn: 'মোবাইল', icon: '📱', match: 'মোবাইল ও এক্সেসরিজ', bg: 'bg-blue-50 border border-blue-100/80 text-[#0052cc] shadow-2xs', text: 'text-[#0052cc]' },
-  { id: 'circ_laptop', nameBn: 'ল্যাপটপ', icon: '💻', match: 'কম্পিউটার ও গ্যাজেট', bg: 'bg-sky-50 border border-sky-100/80 text-sky-600 shadow-2xs', text: 'text-sky-600' },
-  { id: 'circ_fashion', nameBn: 'ফ্যাশন', icon: '👕', match: 'ফ্যাশন ও পোশাক', bg: 'bg-amber-50 border border-amber-100/80 text-amber-600 shadow-2xs', text: 'text-amber-600' },
+  { id: 'circ_all', nameBn: 'সব পণ্য', icon: '🛍️', match: 'all', bg: 'bg-indigo-50 border border-indigo-100/80 text-[#0052cc] shadow-2xs', text: 'text-[#0052cc]' },
+  { id: 'circ_grocery', nameBn: 'গ্রোসারি', icon: '🌾', match: 'চাল ও ডাল', bg: 'bg-emerald-50 border border-emerald-100/80 text-emerald-600 shadow-2xs', text: 'text-emerald-600' },
+  { id: 'circ_tea', nameBn: 'চা-বিস্কুট', icon: '☕', match: 'চা ও বিস্কুট', bg: 'bg-amber-50 border border-amber-100/80 text-amber-600 shadow-2xs', text: 'text-amber-600' },
+  { id: 'circ_gadget', nameBn: 'ইলেকট্রনিক্স', icon: '⚡', match: 'ইলেকট্রনিক্স ও গ্যাজেট', bg: 'bg-blue-50 border border-blue-100/80 text-[#0052cc] shadow-2xs', text: 'text-[#0052cc]' },
+  { id: 'circ_mobile', nameBn: 'মোবাইল', icon: '📱', match: 'মোবাইল ও এক্সেসরিজ', bg: 'bg-sky-50 border border-sky-100/80 text-sky-600 shadow-2xs', text: 'text-sky-600' },
+  { id: 'circ_health', nameBn: 'স্বাস্থ্য', icon: '➕', match: 'স্বাস্থ্য ও ফার্মেসি', bg: 'bg-rose-50 border border-rose-100/80 text-rose-600 shadow-2xs', text: 'text-rose-600' },
+  { id: 'circ_fashion', nameBn: 'ফ্যাশন', icon: '👕', match: 'ফ্যাশন ও পোশাক', bg: 'bg-purple-50 border border-purple-100/80 text-purple-600 shadow-2xs', text: 'text-purple-600' },
   { id: 'circ_home', nameBn: 'গৃহস্থালী', icon: '🛋️', match: 'গৃহস্থালী পণ্য', bg: 'bg-indigo-50 border border-indigo-100/80 text-indigo-600 shadow-2xs', text: 'text-indigo-600' },
   { id: 'circ_beauty', nameBn: 'বিউটি', icon: '🧴', match: 'বিউটি ও পার্সোনাল কেয়ার', bg: 'bg-pink-50 border border-pink-100/80 text-pink-600 shadow-2xs', text: 'text-pink-600' },
-  { id: 'circ_kitchen', nameBn: 'কিচেন', icon: '🍲', match: 'কিচেন ও ডাইনিং', bg: 'bg-slate-100 border border-slate-200 text-slate-700 shadow-2xs', text: 'text-slate-700' },
-  { id: 'circ_toys', nameBn: 'খেলনা', icon: '🧸', match: 'খেলনা ও বেবি প্রোডাক্ট', bg: 'bg-orange-50 border border-orange-100/80 text-orange-600 shadow-2xs', text: 'text-orange-600' },
-  { id: 'circ_books', nameBn: 'বই', icon: '📖', match: 'বই ও স্টেশনারি', bg: 'bg-blue-50 border border-blue-100/80 text-blue-600 shadow-2xs', text: 'text-blue-600' },
-  { id: 'circ_health', nameBn: 'হেলথ', icon: '➕', match: 'স্বাস্থ্য ও ফার্মেসি', bg: 'bg-emerald-50 border border-emerald-100/80 text-emerald-600 shadow-2xs', text: 'text-emerald-600' },
-  { id: 'circ_others', nameBn: 'অন্যান্য', icon: '🔲', match: 'অন্যান্য পণ্য', bg: 'bg-slate-100 border border-slate-200 text-slate-600 shadow-2xs', text: 'text-[#6b7280]' },
+  { id: 'circ_others', nameBn: 'অন্যান্য', icon: '🔲', match: 'অন্যান্য', bg: 'bg-slate-100 border border-slate-200 text-slate-700 shadow-2xs', text: 'text-[#6b7280]' },
 ];
 
 
@@ -309,6 +309,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
+  const [isMobileCategoriesOpen, setIsMobileCategoriesOpen] = useState(false);
+  const [highlightPackageId, setHighlightPackageId] = useState<string | null>(null);
   const [customerAccountTab, setCustomerAccountTab] = useState<'profile' | 'orders' | 'login' | 'register'>('profile');
   const [verifiedCustomer, setVerifiedCustomer] = useState(() => getStoredCustomer());
 
@@ -371,6 +373,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
 
   // Hero Slider
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -430,12 +433,21 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return [
       {
         id: 'default_hero_1',
-        title: marketplaceSettings?.bannerTitle || 'আপনার প্রয়োজনীয় সব পণ্য এখন একই প্ল্যাটফর্মে',
-        subtitle: marketplaceSettings?.bannerSubtitle || 'বহু ভেন্ডরের হাজারো পণ্য, সেরা দামে!',
-        tag: marketplaceSettings?.bannerTag || '⚡ মেগা ধামাকা অফার',
-        imageUrl: marketplaceSettings?.bannerImageUrl || '/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg',
-        linkUrl: marketplaceSettings?.bannerLink || '#marketplace-flash-sale',
-        buttonText: marketplaceSettings?.bannerButtonText || 'এখনই শপিং করুন',
+        title: 'মেগা সেভার কম্বো প্যাকেজ ও স্পেশাল ধামাকা অফার',
+        imageUrl: marketplaceSettings?.bannerImageUrl || '/src/assets/images/mkt_clean_hero_banner_1791439411244.jpg',
+        linkUrl: marketplaceSettings?.bannerLink || '#marketplace-package-deals',
+      },
+      {
+        id: 'default_hero_2',
+        title: 'স্মার্ট ইলেকট্রনিক্স ও গ্যাজেট প্যাকেজ অফার',
+        imageUrl: '/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg',
+        linkUrl: '#marketplace-package-deals',
+      },
+      {
+        id: 'default_hero_3',
+        title: '১০০% অরিজিনাল গ্রোসারি ও অরগানিক খাদ্য প্যাকেজ',
+        imageUrl: '/src/assets/images/marketplace_artisan_ghee_1790221157459.jpg',
+        linkUrl: '#marketplace-package-deals',
       },
     ];
   }, [marketplaceSettings]);
@@ -777,11 +789,17 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   }, [products]);
 
   const filteredAllProducts = useMemo(() => {
-    if (allProductsCategory === 'all') return products;
-    return products.filter(
-      (p) => p.category.includes(allProductsCategory) || allProductsCategory.includes(p.category)
-    );
-  }, [products, allProductsCategory]);
+    const activeCat = allProductsCategory !== 'all' ? allProductsCategory : selectedCategory;
+    if (activeCat === 'all') return products;
+    return products.filter((p) => {
+      const pCat = (p.category || '').toLowerCase();
+      const pName = (p.name || '').toLowerCase();
+      const target = activeCat.toLowerCase();
+      if (pCat.includes(target) || target.includes(pCat)) return true;
+      const words = target.split(/[\s,+/&|]+/).filter((w) => w.length >= 2 && w !== 'এবং' && w !== 'বা');
+      return words.some((w) => pCat.includes(w) || pName.includes(w));
+    });
+  }, [products, allProductsCategory, selectedCategory]);
 
   const displayedAllProducts = useMemo(() => {
     return filteredAllProducts.slice(0, allProductsVisibleCount);
@@ -1326,24 +1344,33 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
               {/* ------------------------------------------------------------- */}
               <div className="hidden lg:block lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
                 <div className="divide-y divide-slate-100">
-                  {SIDEBAR_CATEGORIES.map((cat) => (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setSelectedCategory(cat.nameBn)}
-                      className={`w-full px-3.5 py-2 text-left text-xs font-medium transition flex items-center justify-between cursor-pointer group ${
-                        selectedCategory === cat.nameBn
-                          ? 'bg-white text-[#0052cc] font-black border-l-3 border-[#0052cc] shadow-2xs'
-                          : 'bg-white text-slate-700 hover:text-[#0052cc]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">{cat.icon}</span>
-                        <span className="truncate">{cat.nameBn}</span>
-                      </div>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-[#0052cc] transition" />
-                    </button>
-                  ))}
+                  {SIDEBAR_CATEGORIES.map((cat) => {
+                    const isSideActive = selectedCategory === cat.nameBn || allProductsCategory === cat.nameBn;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => {
+                          const next = isSideActive ? 'all' : cat.nameBn;
+                          setSelectedCategory(next);
+                          setAllProductsCategory(next);
+                          const el = document.getElementById('marketplace-all-products');
+                          if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        }}
+                        className={`w-full px-3.5 py-2 text-left text-xs font-medium transition flex items-center justify-between cursor-pointer group ${
+                          isSideActive
+                            ? 'bg-blue-50 text-[#0052cc] font-black border-l-3 border-[#0052cc] shadow-2xs'
+                            : 'bg-white text-slate-700 hover:text-[#0052cc] hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{cat.icon}</span>
+                          <span className="truncate">{cat.nameBn}</span>
+                        </div>
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-[#0052cc] transition" />
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1351,118 +1378,115 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
               {/* CENTER COLUMN: Hero Slider Banner & 10 Circular Categories (6/12 cols) */}
               {/* ------------------------------------------------------------- */}
               <div className="col-span-1 lg:col-span-6 space-y-3.5">
-                {/* Hero Banner Container - Dynamically Driven by Super Admin */}
+                {/* Hero Banner Container - Clean Image Button with Pure Visuals */}
                 {(() => {
                   const b = heroBanners[currentSlide % heroBanners.length] || heroBanners[0];
+                  const totalSlides = heroBanners.length;
+
                   return (
-                    <div className="relative rounded-2xl overflow-hidden bg-gradient-to-r from-[#edf5ff] via-[#f1f7ff] to-[#e8f1fc] border border-blue-200/80 p-5 sm:p-7 flex flex-col justify-between min-h-[290px] shadow-2xs">
-                      <div className="relative z-10 max-w-[280px] sm:max-w-xs space-y-2">
-                        {b.tag && (
-                          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white text-[10px] font-black tracking-wide border border-blue-200/80 text-[#0052cc] shadow-2xs">
-                            <span>{b.tag}</span>
-                          </div>
-                        )}
-                        <h1 className="text-2xl sm:text-3xl font-black text-[#0052cc] leading-tight">
-                          {b.title}
-                        </h1>
-                        {b.subtitle && (
-                          <p className="text-xs font-medium text-slate-600 line-clamp-2">
-                            {b.subtitle}
-                          </p>
-                        )}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (b.linkUrl?.startsWith('#')) {
+                          const target = document.querySelector(b.linkUrl);
+                          if (target) target.scrollIntoView({ behavior: 'smooth' });
+                        } else if (b.linkUrl?.includes('?product=')) {
+                          const pId = new URL(b.linkUrl, window.location.origin).searchParams.get('product');
+                          if (pId) {
+                            const prod = products.find((x) => x.id === pId);
+                            if (prod) handleSelectProduct(prod);
+                            else {
+                              marketplaceApi.getProductById(pId).then((r) => {
+                                if (r.success && r.product) handleSelectProduct(r.product);
+                              });
+                            }
+                          }
+                        } else if (b.linkUrl) {
+                          window.location.href = b.linkUrl;
+                        } else {
+                          const el = document.getElementById('marketplace-all-products');
+                          if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        }
+                      }}
+                      onTouchStart={(e) => setTouchStartX(e.touches[0].clientX)}
+                      onTouchEnd={(e) => {
+                        if (touchStartX === null) return;
+                        const diff = touchStartX - e.changedTouches[0].clientX;
+                        if (diff > 45) {
+                          setCurrentSlide((c) => (c < totalSlides - 1 ? c + 1 : 0));
+                        } else if (diff < -45) {
+                          setCurrentSlide((c) => (c > 0 ? c - 1 : totalSlides - 1));
+                        }
+                        setTouchStartX(null);
+                      }}
+                      className="relative rounded-2xl sm:rounded-3xl overflow-hidden w-full h-[145px] sm:h-[185px] md:h-[215px] lg:h-[225px] shadow-sm border border-slate-200/90 group cursor-pointer select-none transition transform active:scale-[0.99] bg-slate-100"
+                      title={b.title ? `${b.title} - অফার দেখতে ক্লিক করুন` : 'অফার দেখতে ক্লিক করুন'}
+                    >
+                      {/* 1. FULL-BLEED CLEAN BANNER IMAGE (NO TEXT OVERLAID) */}
+                      <img
+                        key={b.id || currentSlide}
+                        src={b.imageUrl || '/src/assets/images/marketplace_hero_banner_1790221146678.jpg'}
+                        alt={b.title || 'Marketplace Hero Banner'}
+                        className="w-full h-full object-cover object-center transform group-hover:scale-[1.02] transition-transform duration-700 ease-out"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = '/src/assets/images/marketplace_hero_banner_1790221146678.jpg';
+                        }}
+                      />
 
-                        {/* 3 Trust Badges in a row */}
-                        <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] font-bold text-slate-700">
-                          <span className="flex items-center gap-1 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full border border-blue-200/60 shadow-2xs">
-                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                            <span>নিরাপদ লেনদেন</span>
-                          </span>
-                          <span className="flex items-center gap-1 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full border border-blue-200/60 shadow-2xs">
-                            <CheckCircle2 className="w-3 h-3 text-[#0052cc]" />
-                            <span>বিশ্বস্ত ভেন্ডর</span>
-                          </span>
-                          <span className="flex items-center gap-1 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full border border-blue-200/60 shadow-2xs">
-                            <Truck className="w-3 h-3 text-teal-600" />
-                            <span>দ্রুত ডেলিভারি</span>
-                          </span>
-                        </div>
-
-                        <div className="pt-2">
+                      {/* 2. SLIDER CONTROLS (STOP PROPAGATION SO SLIDE CHANGES SMOOTHLY) */}
+                      {totalSlides > 1 && (
+                        <>
                           <button
                             type="button"
-                            onClick={() => {
-                              if (b.linkUrl?.startsWith('#')) {
-                                const target = document.querySelector(b.linkUrl);
-                                if (target) target.scrollIntoView({ behavior: 'smooth' });
-                              } else if (b.linkUrl?.includes('?product=')) {
-                                const pId = new URL(b.linkUrl, window.location.origin).searchParams.get('product');
-                                if (pId) {
-                                  const prod = products.find((x) => x.id === pId);
-                                  if (prod) handleSelectProduct(prod);
-                                  else {
-                                    marketplaceApi.getProductById(pId).then((r) => {
-                                      if (r.success && r.product) handleSelectProduct(r.product);
-                                    });
-                                  }
-                                }
-                              } else if (b.linkUrl) {
-                                window.location.href = b.linkUrl;
-                              } else {
-                                const el = document.getElementById('marketplace-flash-sale');
-                                if (el) el.scrollIntoView({ behavior: 'smooth' });
-                              }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCurrentSlide((c) => (c > 0 ? c - 1 : totalSlides - 1));
                             }}
-                            className="px-5 py-2 bg-[#0052cc] hover:bg-blue-700 text-white font-bold text-xs rounded-full shadow-sm transition cursor-pointer flex items-center gap-1.5"
+                            className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-black/40 hover:bg-black/70 text-white backdrop-blur-xs flex items-center justify-center opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition shadow-sm cursor-pointer"
+                            title="পূর্ববর্তী ব্যানার"
+                            aria-label="Previous Slide"
                           >
-                            <span>{b.buttonText || 'এখনই শপিং করুন'}</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
+                            <ChevronLeft className="w-4 h-4" />
                           </button>
-                        </div>
-                      </div>
 
-                      {/* Right side Showcase Image */}
-                      <div className="absolute right-0 bottom-0 top-0 w-1/2 flex items-center justify-end pointer-events-none p-2 sm:p-4">
-                        <img
-                          src={b.imageUrl || '/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg'}
-                          alt={b.title}
-                          className="max-h-[260px] w-auto object-contain drop-shadow-xl"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = '/src/assets/images/marketplace_hero_gadgets_1791135706091.jpg';
-                          }}
-                        />
-                      </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCurrentSlide((c) => (c < totalSlides - 1 ? c + 1 : 0));
+                            }}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 z-20 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-black/40 hover:bg-black/70 text-white backdrop-blur-xs flex items-center justify-center opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition shadow-sm cursor-pointer"
+                            title="পরবর্তী ব্যানার"
+                            aria-label="Next Slide"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
 
-                      {/* Slider Controls */}
-                      <div className="flex items-center justify-between pt-2 relative z-10">
-                        <button
-                          type="button"
-                          onClick={() => setCurrentSlide((c) => (c > 0 ? c - 1 : heroBanners.length - 1))}
-                          className="p-1.5 rounded-full bg-white/90 hover:bg-white text-slate-700 shadow-2xs border border-blue-200/60 cursor-pointer"
-                        >
-                          <ChevronLeft className="w-3 h-3" />
-                        </button>
-
-                        {/* Pagination Dots */}
-                        <div className="flex items-center gap-1.5">
-                          {heroBanners.map((_, dot) => (
-                            <span
-                              key={dot}
-                              onClick={() => setCurrentSlide(dot)}
-                              className={`w-1.5 h-1.5 rounded-full cursor-pointer transition-all ${
-                                currentSlide === dot ? 'w-4 bg-[#0052cc]' : 'bg-slate-300'
-                              }`}
-                            />
-                          ))}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setCurrentSlide((c) => (c < heroBanners.length - 1 ? c + 1 : 0))}
-                          className="p-1.5 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-2xs border border-slate-200 cursor-pointer"
-                        >
-                          <ChevronRight className="w-3 h-3" />
-                        </button>
-                      </div>
+                          {/* Minimal sleek dots indicator */}
+                          <div
+                            className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/35 backdrop-blur-xs"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {heroBanners.map((_, dot) => (
+                              <button
+                                key={dot}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCurrentSlide(dot);
+                                }}
+                                className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
+                                  currentSlide === dot
+                                    ? 'w-5 sm:w-6 bg-white shadow-xs'
+                                    : 'w-1.5 bg-white/50 hover:bg-white/80'
+                                }`}
+                                aria-label={`Slide ${dot + 1}`}
+                              />
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                   );
                 })()}
@@ -1470,22 +1494,42 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                 {/* 10 Circular Categories Row */}
                 <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-2xs">
                   <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 text-center">
-                    {CIRCULAR_CATEGORIES.map((cat) => (
-                      <div
-                        key={cat.id}
-                        onClick={() => setSelectedCategory(cat.match)}
-                        className="flex flex-col items-center gap-1 cursor-pointer group"
-                      >
-                        <div
-                          className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center text-lg transition group-hover:scale-105 shadow-2xs ${cat.bg}`}
+                    {CIRCULAR_CATEGORIES.map((cat) => {
+                      const isCatActive = selectedCategory === cat.match || selectedCategory === cat.nameBn || allProductsCategory === cat.match;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => {
+                            const next = isCatActive ? 'all' : cat.match;
+                            setSelectedCategory(next);
+                            setAllProductsCategory(next);
+                            const el = document.getElementById('marketplace-all-products');
+                            if (el) el.scrollIntoView({ behavior: 'smooth' });
+                          }}
+                          className="flex flex-col items-center gap-1 cursor-pointer group p-1 rounded-xl transition"
                         >
-                          {cat.icon}
-                        </div>
-                        <span className="text-[10px] font-bold text-slate-700 group-hover:text-[#0052cc] line-clamp-1">
-                          {cat.nameBn}
-                        </span>
-                      </div>
-                    ))}
+                          <div
+                            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-2xl flex items-center justify-center text-lg transition-all group-hover:scale-110 shadow-2xs ${
+                              isCatActive
+                                ? 'bg-[#0052cc] text-white ring-2 ring-[#0052cc] ring-offset-2 scale-105 shadow-md'
+                                : cat.bg
+                            }`}
+                          >
+                            {cat.icon}
+                          </div>
+                          <span
+                            className={`text-[10px] font-bold line-clamp-1 transition ${
+                              isCatActive
+                                ? 'text-[#0052cc] font-black'
+                                : 'text-slate-700 group-hover:text-[#0052cc]'
+                            }`}
+                          >
+                            {cat.nameBn}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -1715,6 +1759,84 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Active Category Filter View */}
+            {selectedCategory !== 'all' && (
+              <section id="marketplace-category-view" className="space-y-4 pt-2">
+                <div className="bg-gradient-to-r from-blue-50 via-indigo-50/70 to-blue-50 border border-blue-200 p-4 sm:p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[#0052cc] text-white flex items-center justify-center font-bold text-lg shadow-sm">
+                      <Tag className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500 font-bold">নির্বাচিত ক্যাটাগরি:</span>
+                        <span className="px-3 py-1 rounded-full bg-[#0052cc] text-white text-xs font-black shadow-2xs">
+                          {selectedCategory}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 font-medium mt-0.5">
+                        {products.length > 0
+                          ? `এই ক্যাটাগরিতে ${products.length} টি পণ্য পাওয়া গেছে`
+                          : 'এই ক্যাটাগরিতে বর্তমানে কোনো পণ্য পাওয়া যায়নি'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory('all');
+                      setAllProductsCategory('all');
+                    }}
+                    className="px-4 py-2 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs font-black rounded-xl cursor-pointer flex items-center gap-1.5 transition shadow-2xs self-start sm:self-auto"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>ফিল্টার মুছুন / সব পণ্য দেখুন</span>
+                  </button>
+                </div>
+
+                {products.length > 0 ? (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                    {products.map((prod) => (
+                      <MarketplaceProductCard
+                        key={prod.id}
+                        product={prod}
+                        onAddToCart={(p, e) => {
+                          e.stopPropagation();
+                          addToCart(p, 1);
+                        }}
+                        onClick={() => handleSelectProduct(prod)}
+                        isWishlisted={wishlistIds.includes(prod.id)}
+                        onToggleWishlist={(id, e) => {
+                          e.stopPropagation();
+                          handleToggleWishlist(id);
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 sm:p-12 bg-white border border-slate-200 rounded-2xl text-center space-y-3 shadow-2xs">
+                    <div className="text-5xl">🛍️</div>
+                    <h3 className="text-base font-black text-slate-800">
+                      '{selectedCategory}' ক্যাটাগরিতে বর্তমানে কোনো পণ্য নেই
+                    </h3>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      আমাদের ভেন্ডররা দ্রুত নতুন পণ্য যুক্ত করছেন। আপনি অন্যান্য ক্যাটাগরি দেখতে পারেন।
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategory('all');
+                        setAllProductsCategory('all');
+                      }}
+                      className="px-5 py-2.5 bg-[#0052cc] text-white font-bold text-xs rounded-xl shadow-xs hover:bg-blue-700 transition cursor-pointer"
+                    >
+                      সকল পণ্য দেখুন
+                    </button>
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* ========================================================================= */}
             {/* 1. 🔥 আজকের অফার / Flash Sale */}
@@ -2292,23 +2414,30 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                   { id: 'বিউটি ও পার্সোনাল কেয়ার', label: 'বিউটি' },
                   { id: 'স্বাস্থ্য ও ফার্মেসি', label: 'স্বাস্থ্য' },
                   { id: 'কিচেন ও ডাইনিং', label: 'কিচেন' },
-                ].map((chip) => (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    onClick={() => {
-                      setAllProductsCategory(chip.id);
-                      setAllProductsVisibleCount(8);
-                    }}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition cursor-pointer shadow-2xs ${
-                      allProductsCategory === chip.id
-                        ? 'bg-[#0052cc] text-white shadow-xs'
-                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
+                  { id: 'চা ও বিস্কুট', label: 'চা ও বিস্কুট' },
+                  { id: 'চাল ও ডাল', label: 'চাল ও ডাল' },
+                  { id: 'অন্যান্য', label: 'অন্যান্য' },
+                ].map((chip) => {
+                  const isChipActive = (allProductsCategory === chip.id || (allProductsCategory === 'all' && selectedCategory === chip.id)) || (allProductsCategory === 'all' && chip.id === 'all' && selectedCategory === 'all');
+                  return (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      onClick={() => {
+                        setAllProductsCategory(chip.id);
+                        setSelectedCategory(chip.id);
+                        setAllProductsVisibleCount(8);
+                      }}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition cursor-pointer shadow-2xs ${
+                        isChipActive
+                          ? 'bg-[#0052cc] text-white shadow-xs'
+                          : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      {chip.label}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* 2-Column Responsive Product Grid */}

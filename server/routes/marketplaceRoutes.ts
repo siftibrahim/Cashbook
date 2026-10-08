@@ -29,17 +29,82 @@ export function checkIsSuperAdminOrStaff(req: AuthenticatedRequest): boolean {
   return false;
 }
 
-// Central Marketplace Feed - purely vendor products from database/store, NO mock default products
+// Central Marketplace Feed - Category mapping with rich Bangla and English synonyms
 const CATEGORY_SLUG_MAP: Record<string, string[]> = {
+  // Mobile & Phones
+  'মোবাইল': ['মোবাইল', 'ফোন', 'এক্সেসরিজ', 'headphone', 'charger', 'phone'],
+  'মোবাইল ও এক্সেসরিজ': ['মোবাইল', 'ফোন', 'এক্সেসরিজ', 'headphone', 'charger', 'গ্যাজেট'],
+  'mobile': ['মোবাইল', 'phone', 'এক্সেসরিজ'],
+
+  // Laptops, Computers & Gadgets
+  'ল্যাপটপ': ['ল্যাপটপ', 'কম্পিউটার', 'গ্যাজেট', 'ক্যালকুলেটর', 'মাউস', 'laptop'],
+  'কম্পিউটার ও গ্যাজেট': ['কম্পিউটার', 'ল্যাপটপ', 'গ্যাজেট', 'ইলেকট্রনিক্স', 'ক্যালকুলেটর', 'মাউস'],
+  'ইলেকট্রনিক্স': ['ইলেকট্রনিক্স', 'গ্যাজেট', 'ইলেকট্রিক', 'ক্যালকুলেটর', 'ফ্যান', 'স্মার্ট'],
+  'ইলেকট্রনিক্স ও গ্যাজেট': ['ইলেকট্রনিক্স', 'গ্যাজেট', 'ক্যালকুলেটর', 'স্মার্ট', 'ফোন'],
+  'gadgets': ['গ্যাজেট', 'ইলেকট্রনিক্স', 'স্মার্ট', 'ওয়াচ'],
+
+  // Fashion & Clothing
+  'ফ্যাশন': ['পোশাক', 'ফ্যাশন', 'শার্ট', 'প্যান্ট', 'শাড়ি', 'জামা', 'টি-শার্ট', 'কটন'],
+  'ফ্যাশন ও পোশাক': ['পোশাক', 'ফ্যাশন', 'শার্ট', 'প্যান্ট', 'শাড়ি', 'জামা', 'টি-শার্ট', 'কটন'],
+  'fashion': ['পোশাক', 'ফ্যাশন', 'শাড়ি', 'কটন'],
+
+  // Home & Household
+  'গৃহস্থালী': ['গৃহস্থাল', 'হোম', 'ফার্নিচার', 'ঘর'],
+  'গৃহস্থালী পণ্য': ['গৃহস্থাল', 'হোম', 'ফার্নিচার', 'ঘর'],
+
+  // Beauty & Personal Care
+  'বিউটি': ['বিউটি', 'প্রসাধন', 'লোশন', 'ক্রিম', 'সাবান', 'শ্যাম্পু', 'তেল'],
+  'বিউটি ও পার্সোনাল কেয়ার': ['বিউটি', 'প্রসাধন', 'লোশন', 'ক্রিম', 'সাবান', 'শ্যাম্পু', 'তেল'],
+  'beauty': ['রূপচর্চা', 'প্রসাধন', 'বিউটি'],
+
+  // Kitchen & Dining
+  'কিচেন': ['কিচেন', 'ডাইনিং', 'রান্না', 'হাড়ি', 'কড়াই', 'প্লেট'],
+  'কিচেন ও ডাইনিং': ['কিচেন', 'ডাইনিং', 'রান্না', 'হাড়ি', 'কড়াই', 'প্লেট'],
+  'kitchen': ['গৃহস্থালি', 'কিচেন', 'রান্না'],
+
+  // Toys & Baby
+  'খেলনা': ['খেলনা', 'বেবি', 'বাচ্চা', 'toy'],
+  'খেলনা ও বেবি প্রোডাক্ট': ['খেলনা', 'বেবি', 'বাচ্চা', 'toy'],
+
+  // Books & Stationery
+  'বই': ['বই', 'স্টেশনারি', 'খাতা', 'কলম', 'বইপুস্তক'],
+  'বই ও স্টেশনারি': ['বই', 'স্টেশনারি', 'খাতা', 'কলম', 'বইপুস্তক'],
+
+  // Health & Pharmacy
+  'হেলথ': ['স্বাস্থ্য', 'ফার্মেসি', 'সেলাইন', 'ওষুধ', 'মেডিসিন', 'মধু'],
+  'স্বাস্থ্য ও ফার্মেসি': ['স্বাস্থ্য', 'ফার্মেসি', 'সেলাইন', 'ওষুধ', 'মেডিসিন', 'মধু'],
+  'health': ['স্বাস্থ্য', 'ওষুধ', 'মধু', 'ন্যাচারাল', 'সেলাইন'],
+
+  // Grocery, Food, Tea, Biscuits, Rice, Pulses
+  'চাল ও ডাল': ['চাল', 'ডাল', 'মুদি', 'খাদ্য', 'গ্রোসারি', 'সেলাইন'],
+  'চাল, ডাল ও গ্রোসারি': ['চাল', 'ডাল', 'মুদি', 'খাদ্য', 'গ্রোসারি', 'সেলাইন'],
+  'চা ও বিস্কুট': ['চা', 'বিস্কুট', 'বেকারি', 'স্ন্যাক্স', 'খাবার', 'ডেনিস', 'ফিস্ট'],
+  'চা, বিস্কুট ও বেকারি': ['চা', 'বিস্কুট', 'বেকারি', 'স্ন্যাক্স', 'খাবার', 'ডেনিস', 'ফিস্ট'],
+  'চা-বিস্কুট': ['চা', 'বিস্কুট', 'বেকারি', 'স্ন্যাক্স', 'খাবার', 'ডেনিস', 'ফিস্ট'],
+  'গ্রোসারি': ['চাল', 'ডাল', 'মুদি', 'চা', 'বিস্কুট', 'তেল', 'ঘি', 'রুটি', 'কোকা কোলা', 'পানীয়', 'খাবার', 'ফুড'],
+  'খাদ্য': ['খাদ্য', 'চাল', 'ডাল', 'মুদি', 'চা', 'বিস্কুট', 'তেল', 'ঘি', 'রুটি', 'কোকা কোলা'],
   'rice-pulses': ['চাল', 'ডাল', 'মুদি'],
   'oil-ghee': ['তেল', 'ঘি', 'গাওয়া'],
-  'fashion': ['পোশাক', 'ফ্যাশন', 'শাড়ি', 'কটন'],
-  'gadgets': ['গ্যাজেট', 'ইলেকট্রনিক্স', 'স্মার্ট', 'ওয়াচ'],
-  'beauty': ['রূপচর্চা', 'প্রসাধন'],
-  'health': ['স্বাস্থ্য', 'ওষুধ', 'মধু', 'ন্যাচারাল'],
-  'kitchen': ['গৃহস্থালি', 'কিচেন'],
   'spices': ['মশলা', 'মধু', 'অর্গানিক'],
+
+  // Others
+  'অন্যান্য': ['অন্যান্য', 'জেনারেল', 'সাধারণ', 'কোকা কোলা', 'রুটি', 'ডেনিস'],
+  'অন্যান্য পণ্য': ['অন্যান্য', 'জেনারেল', 'সাধারণ', 'কোকা কোলা', 'রুটি', 'ডেনিস'],
 };
+
+function getCategorySearchKeywords(catInput: string): string[] {
+  const clean = catInput.trim().toLowerCase();
+  const direct = CATEGORY_SLUG_MAP[clean];
+  const set = new Set<string>();
+  if (direct) {
+    direct.forEach((k) => set.add(k));
+  }
+  set.add(clean);
+  // Extract individual meaningful words from Bangla category
+  const words = clean.split(/[\s,+/&|]+/).filter((w) => w.length >= 2 && w !== 'এবং' && w !== 'বা');
+  words.forEach((w) => set.add(w));
+  return Array.from(set);
+}
 
 /**
  * 1. GET /api/marketplace/feed - Central Marketplace Multi-Vendor Product Feed
@@ -67,13 +132,12 @@ router.get('/feed', async (req: Request, res: Response) => {
       }
 
       if (category && category !== 'all') {
-        const catStr = String(category).toLowerCase();
-        const keywords = CATEGORY_SLUG_MAP[catStr] || [catStr];
+        const keywords = getCategorySearchKeywords(String(category));
         const orConds = keywords.map(kw => {
           params.push(`%${kw}%`);
           return `(p.category ILIKE $${params.length} OR p.name ILIKE $${params.length} OR p.marketplace_category_id ILIKE $${params.length})`;
         });
-        params.push(catStr);
+        params.push(String(category).trim().toLowerCase());
         orConds.push(`p.marketplace_category_id = $${params.length}`);
         conditions.push(`(${orConds.join(' OR ')})`);
       }
@@ -149,7 +213,7 @@ router.get('/feed', async (req: Request, res: Response) => {
     } else {
       // InMemoryStore Fallback
       const allMem = inMemoryStore.products || [];
-      const catKeywords = category && category !== 'all' ? (CATEGORY_SLUG_MAP[String(category).toLowerCase()] || [String(category).toLowerCase()]) : [];
+      const catKeywords = category && category !== 'all' ? getCategorySearchKeywords(String(category)) : [];
       const filtered = allMem.filter(p => {
         // 🔒 MUST be vendor's public product (strictly published online)
         if (p.isPublishedOnline === false) return false;
