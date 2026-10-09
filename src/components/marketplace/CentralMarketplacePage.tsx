@@ -66,6 +66,23 @@ import { MarketplaceLiveTrackingMap } from './MarketplaceLiveTrackingMap';
 import { StorefrontSupportDrawer } from '../storefront/StorefrontSupportDrawer';
 import { StorefrontNotificationDrawer } from '../storefront/StorefrontNotificationDrawer';
 
+import { FacebookNavbar, FacebookNavTab } from './FacebookNavbar';
+import { FacebookFeedView } from './FacebookFeedView';
+import { FacebookProfileView } from './FacebookProfileView';
+import { FacebookMessengerView } from './FacebookMessengerView';
+import { FacebookNotificationsView } from './FacebookNotificationsView';
+import { CustomerSellProductModal } from './CustomerSellProductModal';
+import { MarketplaceQuickBuyModal } from './MarketplaceQuickBuyModal';
+import { UserSearchBar } from './UserSearchBar';
+import { FacebookFriendsModal } from './FacebookFriendsModal';
+import { marketplaceSocialService } from '../../services/marketplaceSocialService';
+import {
+  CustomerProfile,
+  SocialNotification,
+  ChatConversation,
+  FriendRequest,
+} from '../../types/marketplaceSocial';
+
 // Storage keys
 const MKT_WISHLIST_KEY = 'twing_marketplace_wishlist';
 const MKT_CART_KEY = 'twing_marketplace_cart';
@@ -295,6 +312,43 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   // Navigation & View state
   const [navTab, setNavTab] = useState<'home' | 'vendors' | 'offers' | 'bestselling' | 'new' | 'orders' | 'support'>('home');
   const [mobileBottomTab, setMobileBottomTab] = useState<'home' | 'categories' | 'cart' | 'orders' | 'account'>('home');
+
+  // Facebook Social Marketplace state
+  const [fbTab, setFbTab] = useState<FacebookNavTab>('feed');
+  const [currentProfile, setCurrentProfile] = useState<CustomerProfile>(() => marketplaceSocialService.getCurrentProfile());
+  const [notifications, setNotifications] = useState<SocialNotification[]>(() => marketplaceSocialService.getNotifications());
+  const [conversations, setConversations] = useState<ChatConversation[]>(() => marketplaceSocialService.getConversations());
+  const [chatTargetUserId, setChatTargetUserId] = useState<string | null>(null);
+  const [chatProductContext, setChatProductContext] = useState<any | null>(null);
+  const [viewingProfileUserId, setViewingProfileUserId] = useState<string | null>(null);
+  const [isSellModalOpen, setIsSellModalOpen] = useState(false);
+  const [quickBuyProduct, setQuickBuyProduct] = useState<any | null>(null);
+  const [isFriendsModalOpen, setIsFriendsModalOpen] = useState(false);
+  const [pendingFriendRequests, setPendingFriendRequests] = useState<FriendRequest[]>(() =>
+    marketplaceSocialService.getPendingReceivedRequests()
+  );
+
+  const pendingFriendRequestsCount = pendingFriendRequests.length;
+
+  const refreshSocialData = () => {
+    setNotifications(marketplaceSocialService.getNotifications());
+    setPendingFriendRequests(marketplaceSocialService.getPendingReceivedRequests());
+    setConversations(marketplaceSocialService.getConversations());
+  };
+
+  useEffect(() => {
+    const handleProfileSync = (e: any) => {
+      if (e.detail) {
+        setCurrentProfile(e.detail);
+      }
+      refreshSocialData();
+    };
+    window.addEventListener('twing_profile_updated', handleProfileSync);
+    return () => window.removeEventListener('twing_profile_updated', handleProfileSync);
+  }, []);
+
+  const unreadMessagesCount = conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+  const unreadNotificationsCount = notifications.filter((n) => !n.read).length;
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -1039,7 +1093,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   }, [filteredAllProducts, allProductsVisibleCount]);
 
   return (
-    <div className="w-full min-h-screen bg-white flex flex-col font-sans text-slate-800 antialiased selection:bg-[#0052cc] selection:text-white">
+    <div className="w-full min-h-screen bg-white flex flex-col font-sans text-slate-800 antialiased selection:bg-[#0052cc] selection:text-white max-w-full overflow-x-clip">
       {/* Toast Alert */}
       <AnimatePresence>
         {toastMessage && (
@@ -1055,240 +1109,187 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       </AnimatePresence>
 
       {/* ========================================================================= */}
-      {/* 1. TOP HEADER (EXACT PIXEL-MATCH TO SCREENSHOT) */}
+      {/* 1. TOP FACEBOOK NAVBAR */}
       {/* ========================================================================= */}
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-2xs">
-        <div className="max-w-[1400px] mx-auto px-4 lg:px-8 py-3 flex items-center justify-between gap-4 lg:gap-8">
-          {/* Logo & Tagline Container */}
-          <div className="flex items-center gap-4 shrink-0">
-            {/* Logo */}
-            <div
-              onClick={() => {
-                setNavTab('home');
-                setSelectedCategory('all');
-                setSearchQuery('');
-              }}
-              className="flex items-center gap-2.5 cursor-pointer select-none"
+      <FacebookNavbar
+        currentTab={fbTab}
+        onTabChange={(tab) => {
+          setFbTab(tab);
+          if (tab === 'profile') {
+            setViewingProfileUserId(null);
+          }
+        }}
+        currentProfile={currentProfile}
+        unreadMessagesCount={unreadMessagesCount}
+        unreadNotificationsCount={unreadNotificationsCount}
+        pendingFriendRequestsCount={pendingFriendRequestsCount}
+        onOpenFriendsModal={() => setIsFriendsModalOpen(true)}
+        searchQuery={searchQuery}
+        onSearchChange={(q) => setSearchQuery(q)}
+        onOpenSellModal={() => setIsSellModalOpen(true)}
+        onBackToDashboard={onBackToDashboard}
+        cartItemCount={cartItemCount}
+        onOpenCart={() => setIsCartOpen(true)}
+      />
+
+      {/* ========================================================================= */}
+      {/* 2. USER SEARCH BAR (DIRECTLY BELOW HEADER FOR FINDING PEOPLE & FRIENDS) */}
+      {/* ========================================================================= */}
+      <UserSearchBar
+        onSelectUser={(selectedUser) => {
+          setViewingProfileUserId(selectedUser.id);
+          setFbTab('profile');
+        }}
+        onRequestSentToast={(msg) => {
+          showToast(msg);
+          refreshSocialData();
+        }}
+      />
+
+      {fbTab === 'marketplace' && (
+        <nav className="bg-white border-b border-slate-200 text-xs sm:text-sm font-bold shadow-2xs sticky top-14 sm:top-16 z-30 overflow-x-auto no-scrollbar w-full">
+          <div className="max-w-[1400px] mx-auto px-2 sm:px-4 lg:px-8 flex items-center min-w-0">
+            {/* Blue "সব ক্যাটাগরি" Button on Left */}
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('all')}
+              className="flex items-center gap-2 px-3 sm:px-5 py-2.5 bg-[#0052cc] hover:bg-blue-700 text-white font-black tracking-wide rounded-t-lg transition cursor-pointer shrink-0 text-xs sm:text-sm"
             >
-              {/* Blue shopping bag with stylized curved gradient handle */}
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#0052cc] to-[#0284c7] text-white flex items-center justify-center shadow-sm relative overflow-hidden">
-                <ShoppingBag className="w-5 h-5 text-white" />
-                <div className="absolute top-1 w-3 h-2 border-2 border-amber-300 rounded-t-full" />
-              </div>
+              <Menu className="w-4 h-4" />
+              <span className="hidden xs:inline">সব ক্যাটাগরি</span>
+              <span className="xs:hidden">ক্যাটাগরি</span>
+            </button>
 
-              <div className="flex flex-col -space-y-1">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-xl sm:text-2xl font-black tracking-tight text-[#0052cc]">TWING</span>
-                </div>
-                <span className="text-xs font-black tracking-wide text-[#ea580c]">Marketplace</span>
-              </div>
-            </div>
-
-            {/* Tagline beside logo */}
-            <div className="hidden xl:block text-xs font-medium text-slate-500 pl-3 border-l border-slate-200">
-              সবাইয়ের জন্য, সবার পছন্দ
-            </div>
-          </div>
-
-          {/* Large Search Bar */}
-          <div className="hidden md:flex flex-1 max-w-2xl mx-auto">
-            <div className="relative w-full flex items-center">
-              <input
-                type="text"
-                placeholder="পণ্য, ব্র্যান্ড বা ভেন্ডরের নাম খুঁজুন..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-4 pr-12 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-hidden focus:border-[#0052cc] focus:bg-white transition shadow-2xs placeholder:text-slate-400"
-              />
-              <button
-                type="button"
-                className="absolute right-1 p-2 bg-[#0052cc] hover:bg-blue-700 text-white rounded-lg transition cursor-pointer flex items-center justify-center"
-              >
-                <Search className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Right Action Icons */}
-          <div className="flex items-center gap-3 sm:gap-5 shrink-0 text-slate-700">
-            {/* Customer Account & Authentication Buttons */}
-            {verifiedCustomer?.isVerified ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setCustomerAccountTab('profile');
-                  setIsCustomerAccountOpen(true);
-                }}
-                className="flex items-center gap-1.5 text-xs font-bold hover:text-[#0052cc] transition cursor-pointer"
-                title="কাস্টমার প্রোফাইল ও অর্ডার"
-              >
-                <div className="relative">
-                  <User className="w-4 h-4 text-slate-600" />
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
-                </div>
-                <span className="hidden sm:inline font-bold">
-                  {verifiedCustomer.name || 'আমার প্রোফাইল'}
-                </span>
-              </button>
-            ) : (
-              <div className="flex items-center gap-1.5">
+            {/* Navigation Links */}
+            <div className="flex items-center gap-3 sm:gap-6 ml-3 sm:ml-6 py-2 overflow-x-auto no-scrollbar whitespace-nowrap min-w-0 flex-1">
+              {[
+                { id: 'home', label: 'হোম' },
+                { id: 'vendors', label: 'সকল ভেন্ডর' },
+                { id: 'offers', label: 'অফার' },
+                { id: 'bestselling', label: 'বেস্ট সেলিং' },
+                { id: 'new', label: 'নতুন পণ্য' },
+                { id: 'orders', label: 'আমার অর্ডার' },
+                { id: 'support', label: 'সাহায্য কেন্দ্র' },
+              ].map((tab) => (
                 <button
+                  key={tab.id}
                   type="button"
                   onClick={() => {
-                    setCustomerAccountTab('login');
-                    setIsCustomerAccountOpen(true);
-                  }}
-                  className="px-2.5 py-1 text-xs font-bold text-[#0052cc] hover:bg-blue-50 border border-blue-200 rounded-lg transition cursor-pointer flex items-center gap-1"
-                >
-                  <User className="w-3.5 h-3.5" />
-                  <span>লগইন</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCustomerAccountTab('register');
-                    setIsCustomerAccountOpen(true);
-                  }}
-                  className="px-2.5 py-1 text-xs font-black bg-[#0052cc] text-white hover:bg-blue-700 rounded-lg transition shadow-2xs cursor-pointer hidden xs:inline-flex items-center gap-1"
-                >
-                  <span>রেজিস্ট্রেশন</span>
-                </button>
-              </div>
-            )}
-
-            {/* Wishlist */}
-            <button
-              type="button"
-              onClick={() => showToast(`পছন্দের তালিকায় ${wishlistIds.length} টি পণ্য রয়েছে`)}
-              className="flex items-center gap-1.5 text-xs font-bold hover:text-[#0052cc] transition cursor-pointer"
-            >
-              <Heart className="w-4 h-4 text-slate-600" />
-              <span className="hidden sm:inline">পছন্দের তালিকা</span>
-            </button>
-
-            {/* Notification with red badge 3 */}
-            <button
-              type="button"
-              onClick={() => setIsNotificationsOpen(true)}
-              className="relative p-1 hover:text-[#0052cc] transition cursor-pointer"
-              title="নোটিফিকেশন"
-            >
-              <Bell className="w-5 h-5 text-slate-600" />
-              <span className="absolute -top-1 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs">
-                3
-              </span>
-            </button>
-
-            {/* Shopping Cart with red badge 2 */}
-            <button
-              type="button"
-              onClick={() => setIsCartOpen(true)}
-              className="flex items-center gap-1.5 hover:text-[#0052cc] transition cursor-pointer relative"
-              title="কার্ট"
-            >
-              <div className="relative">
-                <ShoppingCart className="w-5 h-5 text-slate-700" />
-                {cartItemCount > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-rose-600 text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs">
-                    {cartItemCount}
-                  </span>
-                )}
-              </div>
-              <span className="hidden sm:inline text-xs font-bold">কার্ট</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Mobile Search Bar Row */}
-        <div className="md:hidden px-4 pb-2.5 pt-0.5">
-          <div className="relative w-full flex items-center">
-            <input
-              type="text"
-              placeholder="পণ্য, ব্র্যান্ড বা ভেন্ডরের নাম খুঁজুন..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-3 pr-10 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
-            />
-            <button
-              type="button"
-              className="absolute right-1 p-1.5 bg-[#0052cc] text-white rounded-md"
-            >
-              <Search className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* ========================================================================= */}
-      {/* 2. MAIN HORIZONTAL NAVIGATION BAR (DESKTOP) */}
-      {/* ========================================================================= */}
-      <nav className="hidden md:block bg-white border-b border-slate-200 text-xs sm:text-sm font-bold shadow-2xs">
-        <div className="max-w-[1400px] mx-auto px-4 lg:px-8 flex items-center">
-          {/* Blue "সব ক্যাটাগরি" Button on Left */}
-          <button
-            type="button"
-            onClick={() => setSelectedCategory('all')}
-            className="flex items-center gap-2.5 px-6 py-2.5 bg-[#0052cc] hover:bg-blue-700 text-white font-black tracking-wide rounded-t-lg transition cursor-pointer shrink-0"
-          >
-            <Menu className="w-4 h-4" />
-            <span>সব ক্যাটাগরি</span>
-          </button>
-
-          {/* Navigation Links */}
-          <div className="flex items-center gap-6 ml-6 py-2">
-            {[
-              { id: 'home', label: 'হোম' },
-              { id: 'vendors', label: 'সকল ভেন্ডর' },
-              { id: 'offers', label: 'অফার' },
-              { id: 'bestselling', label: 'বেস্ট সেলিং' },
-              { id: 'new', label: 'নতুন পণ্য' },
-              { id: 'orders', label: 'আমার অর্ডার' },
-              { id: 'support', label: 'সাহায্য কেন্দ্র' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => {
-                  if (tab.id === 'support') {
-                    setIsSupportOpen(true);
-                  } else {
-                    setNavTab(tab.id as any);
-                    if (tab.id === 'home') {
-                      setSelectedCategory('all');
-                      setSearchQuery('');
+                    if (tab.id === 'support') {
+                      setIsSupportOpen(true);
+                    } else {
+                      setNavTab(tab.id as any);
+                      if (tab.id === 'home') {
+                        setSelectedCategory('all');
+                        setSearchQuery('');
+                      }
                     }
-                  }
-                }}
-                className={`py-1 cursor-pointer transition relative whitespace-nowrap ${
-                  navTab === tab.id
-                    ? 'text-[#0052cc] font-black after:content-[""] after:absolute after:bottom-[-9px] after:left-0 after:right-0 after:h-[2px] after:bg-[#0052cc]'
-                    : 'text-slate-700 hover:text-[#0052cc]'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+                  }}
+                  className={`py-1 cursor-pointer transition relative shrink-0 ${
+                    navTab === tab.id
+                      ? 'text-[#0052cc] font-black after:content-[""] after:absolute after:bottom-[-9px] after:left-0 after:right-0 after:h-[2px] after:bg-[#0052cc]'
+                      : 'text-slate-700 hover:text-[#0052cc]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-          {/* Dashboard link if available */}
-          {onBackToDashboard && (
-            <button
-              type="button"
-              onClick={onBackToDashboard}
-              className="ml-auto text-xs font-bold text-slate-500 hover:text-slate-800 flex items-center gap-1 py-1 px-2 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-            >
-              <span>দোকানের ড্যাশবোর্ড</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-      </nav>
+            {/* Dashboard link if available */}
+            {onBackToDashboard && (
+              <button
+                type="button"
+                onClick={onBackToDashboard}
+                className="ml-auto text-xs font-bold text-slate-500 hover:text-slate-800 hidden md:flex items-center gap-1 py-1 px-2 rounded-lg hover:bg-slate-100 transition cursor-pointer shrink-0"
+              >
+                <span>দোকানের ড্যাশবোর্ড</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </nav>
+      )}
 
       {/* ========================================================================= */}
       {/* 3. MAIN CONTENT: 3-COLUMN LAYOUT EXACT MATCH */}
       {/* ========================================================================= */}
       <main className="flex-1 max-w-[1400px] mx-auto w-full px-3 sm:px-4 lg:px-8 py-4 sm:py-5 space-y-6 pb-24 md:pb-10">
-        {navTab === 'vendors' ? (
+        {fbTab === 'feed' ? (
+          <FacebookFeedView
+            currentProfile={currentProfile}
+            onViewProfile={(userId) => {
+              setViewingProfileUserId(userId);
+              setFbTab('profile');
+            }}
+            onStartChat={(userId, prod) => {
+              setChatTargetUserId(userId);
+              setChatProductContext(prod);
+              setFbTab('messenger');
+            }}
+            onOpenQuickBuy={(prod) => setQuickBuyProduct(prod)}
+            onOpenSellProductModal={() => setIsSellModalOpen(true)}
+            onShowToast={(msg) => showToast(msg)}
+          />
+        ) : fbTab === 'messenger' ? (
+          <FacebookMessengerView
+            initialTargetUserId={chatTargetUserId}
+            initialProductContext={chatProductContext}
+            onViewProfile={(userId) => {
+              setViewingProfileUserId(userId);
+              setFbTab('profile');
+            }}
+            onClose={() => setFbTab('feed')}
+            onShowToast={(msg) => showToast(msg)}
+          />
+        ) : fbTab === 'profile' ? (
+          (() => {
+            const profileToShow = viewingProfileUserId
+              ? marketplaceSocialService.getProfileById(viewingProfileUserId) || currentProfile
+              : currentProfile;
+            return (
+              <FacebookProfileView
+                profile={profileToShow}
+                isOwnProfile={profileToShow.id === currentProfile.id}
+                onProfileUpdated={(up) => {
+                  setCurrentProfile(up);
+                  setViewingProfileUserId(null);
+                  refreshSocialData();
+                }}
+                onStartChatWithUser={(userId, prod) => {
+                  setChatTargetUserId(userId);
+                  setChatProductContext(prod);
+                  setFbTab('messenger');
+                }}
+                onOpenQuickBuy={(prod) => setQuickBuyProduct(prod)}
+                onOpenSellProductModal={() => setIsSellModalOpen(true)}
+                onShowToast={(msg) => showToast(msg)}
+              />
+            );
+          })()
+        ) : fbTab === 'notifications' ? (
+          <div className="max-w-xl mx-auto py-2">
+            <FacebookNotificationsView
+              notifications={notifications}
+              onRefresh={() => refreshSocialData()}
+              onSelectNotification={(notif) => {
+                if (notif.type === 'message') {
+                  setChatTargetUserId(notif.targetId || null);
+                  setFbTab('messenger');
+                } else if (notif.type === 'friend_request') {
+                  setIsFriendsModalOpen(true);
+                } else if (notif.type === 'friend_accept') {
+                  setViewingProfileUserId(notif.targetId || null);
+                  setFbTab('profile');
+                } else if (notif.targetId) {
+                  setFbTab('feed');
+                }
+              }}
+            />
+          </div>
+        ) : (
+          <>
+            {navTab === 'vendors' ? (
           /* All Verified Twing Hisabi Vendors View */
           <div className="max-w-6xl mx-auto w-full space-y-5">
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
@@ -3199,87 +3200,89 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
             </div>
           </>
         )}
+          </>
+        )}
       </main>
 
       {/* ========================================================================= */}
       {/* 7. FIXED MOBILE BOTTOM NAVIGATION */}
       {/* ========================================================================= */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-3 py-1.5 flex items-center justify-around shadow-lg">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg">
+        <button
+          type="button"
+          onClick={() => setFbTab('feed')}
+          className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition cursor-pointer ${
+            fbTab === 'feed' ? 'text-[#1877F2] font-black' : 'text-slate-500'
+          }`}
+        >
+          <span className="text-lg">📰</span>
+          <span className="text-[10px]">ফিড</span>
+        </button>
+
         <button
           type="button"
           onClick={() => {
-            setMobileBottomTab('home');
+            setFbTab('marketplace');
             setNavTab('home');
-            setSelectedCategory('all');
-          }}
-          className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition ${
-            mobileBottomTab === 'home' && navTab === 'home' ? 'text-[#0052cc] font-black' : 'text-slate-500'
-          }`}
-        >
-          <span className="text-lg">🏠</span>
-          <span className="text-[10px]">হোম</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setMobileBottomTab('categories');
-            setIsMobileCategoriesOpen(true);
           }}
           className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition cursor-pointer ${
-            mobileBottomTab === 'categories' || isMobileCategoriesOpen ? 'text-[#0052cc] font-black' : 'text-slate-500'
+            fbTab === 'marketplace' ? 'text-[#1877F2] font-black' : 'text-slate-500'
           }`}
         >
-          <span className="text-lg">📂</span>
-          <span className="text-[10px]">ক্যাটাগরি</span>
+          <span className="text-lg">🛍️</span>
+          <span className="text-[10px]">মার্কেট</span>
         </button>
 
         <button
           type="button"
-          onClick={() => setIsCartOpen(true)}
-          className="flex flex-col items-center gap-0.5 p-1 rounded-xl text-slate-500 relative cursor-pointer"
+          onClick={() => setFbTab('messenger')}
+          className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition cursor-pointer relative ${
+            fbTab === 'messenger' ? 'text-[#1877F2] font-black' : 'text-slate-500'
+          }`}
         >
-          <span className="text-lg">🛒</span>
-          {cartItemCount > 0 && (
-            <span className="absolute top-0 right-2 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">
-              {cartItemCount}
-            </span>
-          )}
-          <span className="text-[10px]">কার্ট</span>
+          <div className="relative">
+            <span className="text-lg">💬</span>
+            {unreadMessagesCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow-xs">
+                {unreadMessagesCount}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px]">মেসেঞ্জার</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFbTab('notifications')}
+          className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition cursor-pointer relative ${
+            fbTab === 'notifications' ? 'text-[#1877F2] font-black' : 'text-slate-500'
+          }`}
+        >
+          <div className="relative">
+            <span className="text-lg">🔔</span>
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center shadow-xs">
+                {unreadNotificationsCount}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px]">নোটিফিকেশন</span>
         </button>
 
         <button
           type="button"
           onClick={() => {
-            setMobileBottomTab('orders');
-            setNavTab('orders');
-          }}
-          className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition cursor-pointer ${
-            navTab === 'orders' ? 'text-[#0052cc] font-black' : 'text-slate-500'
-          }`}
-        >
-          <span className="text-lg">📦</span>
-          <span className="text-[10px]">আমার অর্ডার</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setMobileBottomTab('account');
-            setCustomerAccountTab(verifiedCustomer ? 'profile' : 'login');
-            setIsCustomerAccountOpen(true);
+            setViewingProfileUserId(null);
+            setFbTab('profile');
           }}
           className={`flex flex-col items-center gap-0.5 p-1 rounded-xl transition cursor-pointer relative ${
-            isCustomerAccountOpen || mobileBottomTab === 'account' ? 'text-[#0052cc] font-black' : 'text-slate-500'
+            fbTab === 'profile' ? 'text-[#1877F2] font-black' : 'text-slate-500'
           }`}
         >
           <div className="relative">
             <span className="text-lg">👤</span>
-            {verifiedCustomer?.isVerified && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
-            )}
           </div>
-          <span className="text-[10px]">{verifiedCustomer ? 'অ্যাকাউন্ট' : 'লগইন'}</span>
+          <span className="text-[10px]">প্রোফাইল</span>
         </button>
       </nav>
 
@@ -3463,6 +3466,48 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         isOpen={isSupportOpen}
         onClose={() => setIsSupportOpen(false)}
         config={supportConfig}
+      />
+
+      {/* Customer Sell Product Modal (STRICTLY NO VIDEOS ALLOWED) */}
+      <CustomerSellProductModal
+        isOpen={isSellModalOpen}
+        onClose={() => setIsSellModalOpen(false)}
+        onSuccess={(product) => {
+          showToast(`"${product.name}" পণ্যটি সফলভাবে প্রকাশিত হয়েছে!`);
+          setFbTab('feed');
+        }}
+      />
+
+      {/* Marketplace Quick Buy Modal */}
+      <MarketplaceQuickBuyModal
+        isOpen={!!quickBuyProduct}
+        onClose={() => setQuickBuyProduct(null)}
+        product={quickBuyProduct}
+        onOrderSuccess={(orderId, message) => {
+          showToast(message);
+          refreshSocialData();
+        }}
+      />
+
+      {/* Facebook Friends Suggestions & Requests Modal */}
+      <FacebookFriendsModal
+        isOpen={isFriendsModalOpen}
+        onClose={() => {
+          setIsFriendsModalOpen(false);
+          refreshSocialData();
+        }}
+        onViewProfile={(uId) => {
+          setViewingProfileUserId(uId);
+          setFbTab('profile');
+        }}
+        onOpenChat={(uId) => {
+          setChatTargetUserId(uId);
+          setFbTab('messenger');
+        }}
+        onShowToast={(msg) => {
+          showToast(msg);
+          refreshSocialData();
+        }}
       />
     </div>
   );

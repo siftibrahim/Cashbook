@@ -171,6 +171,14 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
   const [orders, setOrders] = useState<MarketplaceMasterOrder[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
 
+  useEffect(() => {
+    const handleSync = () => {
+      setCustomer(getStoredCustomer());
+    };
+    window.addEventListener('twing_profile_updated', handleSync);
+    return () => window.removeEventListener('twing_profile_updated', handleSync);
+  }, []);
+
   // Tab State: 'login' | 'register' | 'profile' | 'orders'
   const [activeTab, setActiveTab] = useState<'login' | 'register' | 'profile' | 'orders'>('login');
 
