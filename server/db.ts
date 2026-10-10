@@ -3561,6 +3561,46 @@ export function respondMarketplaceFriendRequest(
   };
 }
 
+export function unfriendMarketplaceUsers(userId: string, targetUserId: string): { success: boolean; message: string } {
+  if (!Array.isArray(inMemoryStore.marketplace_user_friends)) {
+    inMemoryStore.marketplace_user_friends = [];
+  }
+  // Remove bidirectional friendships
+  inMemoryStore.marketplace_user_friends = inMemoryStore.marketplace_user_friends.filter(
+    (f: any) =>
+      !(
+        (f.userId === userId && f.friendId === targetUserId) ||
+        (f.userId === targetUserId && f.friendId === userId)
+      )
+  );
+
+  // Also remove any accepted or pending requests between them so they can send requests again
+  if (Array.isArray(inMemoryStore.marketplace_friend_requests)) {
+    inMemoryStore.marketplace_friend_requests = inMemoryStore.marketplace_friend_requests.filter(
+      (r: any) =>
+        !(
+          (r.senderId === userId && r.receiverId === targetUserId) ||
+          (r.senderId === targetUserId && r.receiverId === userId)
+        )
+    );
+  }
+
+  saveInMemoryStoreToDisk();
+
+  // Async delete from PostgreSQL if pool is active
+  if (pool) {
+    pool
+      .query(
+        `DELETE FROM marketplace_user_friends 
+         WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)`,
+        [userId, targetUserId]
+      )
+      .catch((err: any) => console.warn('unfriendMarketplaceUsers DB sync note:', err?.message));
+  }
+
+  return { success: true, message: 'সফলভাবে আনফ্রেন্ড করা হয়েছে।' };
+}
+
 // Profile update with seller payment settings
 export function updateMarketplaceUserProfile(userId: string, updateData: any): any {
   if (!Array.isArray(inMemoryStore.marketplace_users)) {

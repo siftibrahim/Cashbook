@@ -15,6 +15,7 @@ import {
   UserMinus,
   Sparkles,
   Inbox,
+  Search,
 } from 'lucide-react';
 import { CustomerProfile, FriendRequest } from '../../types/marketplaceSocial';
 import { marketplaceSocialService } from '../../services/marketplaceSocialService';
@@ -39,13 +40,26 @@ export const FacebookFriendsModal: React.FC<FacebookFriendsModalProps> = ({
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [friends, setFriends] = useState<CustomerProfile[]>([]);
   const [sentRequests, setSentRequests] = useState<FriendRequest[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<CustomerProfile[]>([]);
 
   const loadData = () => {
     setSuggestions(marketplaceSocialService.getFriendSuggestions(15));
     setRequests(marketplaceSocialService.getPendingReceivedRequests());
     setFriends(marketplaceSocialService.getFriends());
     setSentRequests(marketplaceSocialService.getPendingSentRequests());
+    if (searchQuery.trim()) {
+      setSearchResults(marketplaceSocialService.searchUsers(searchQuery));
+    }
   };
+
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      setSearchResults(marketplaceSocialService.searchUsers(searchQuery));
+    } else {
+      setSearchResults([]);
+    }
+  }, [searchQuery]);
 
   useEffect(() => {
     if (isOpen) {
@@ -58,7 +72,11 @@ export const FacebookFriendsModal: React.FC<FacebookFriendsModalProps> = ({
       if (isOpen) loadData();
     };
     window.addEventListener('twing_profile_updated', handleSync);
-    return () => window.removeEventListener('twing_profile_updated', handleSync);
+    window.addEventListener('twing_friends_updated', handleSync);
+    return () => {
+      window.removeEventListener('twing_profile_updated', handleSync);
+      window.removeEventListener('twing_friends_updated', handleSync);
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -126,6 +144,30 @@ export const FacebookFriendsModal: React.FC<FacebookFriendsModalProps> = ({
           </button>
         </div>
 
+        {/* Dedicated In-Modal Search Bar (Shows inside Header People/Friends Modal) */}
+        <div className="p-3 bg-slate-50/80 border-b border-slate-200/80">
+          <div className="relative flex items-center bg-white rounded-2xl border border-slate-200 px-3.5 py-2 shadow-2xs focus-within:border-[#1877F2] focus-within:ring-2 focus-within:ring-[#1877F2]/20 transition">
+            <Search className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="বন্ধু ও নতুন ইউজার খুঁজুন..."
+              className="w-full text-xs font-medium text-slate-800 placeholder:text-slate-400 bg-transparent focus:outline-hidden"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-full"
+                title="মুছে ফেলুন"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Navigation Tabs */}
         <div className="flex items-center border-b border-slate-200 px-3 bg-white">
           <button
@@ -178,7 +220,141 @@ export const FacebookFriendsModal: React.FC<FacebookFriendsModalProps> = ({
 
         {/* Tab Content Body */}
         <div className="p-3 sm:p-5 overflow-y-auto flex-1 max-h-[60vh] bg-slate-50/50">
-          {/* TAB 1: SUGGESTIONS */}
+          {/* SEARCH ACTIVE VIEW */}
+          {searchQuery.trim() ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 px-1">
+                <span className="flex items-center gap-1.5">
+                  <Search className="w-3.5 h-3.5 text-[#1877F2]" />
+                  <span>অনুসন্ধান ফলাফল ({searchResults.length})</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="text-xs text-[#1877F2] hover:underline font-bold"
+                >
+                  সার্চ মুছুন ✕
+                </button>
+              </div>
+
+              {searchResults.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 space-y-1">
+                  <p className="font-bold text-sm">কোনো ব্যবহারকারী পাওয়া যায়নি</p>
+                  <p className="text-xs">অন্য নাম বা ইউজারনেম লিখে পুনরায় অনুসন্ধান করুন।</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {searchResults.map((user) => {
+                    const status = marketplaceSocialService.getRelationshipStatus(user.id);
+                    return (
+                      <div
+                        key={user.id}
+                        className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs hover:shadow-sm transition flex flex-col justify-between gap-3"
+                      >
+                        <div
+                          onClick={() => {
+                            onViewProfile(user.id);
+                            onClose();
+                          }}
+                          className="flex items-start gap-3 min-w-0 cursor-pointer group"
+                        >
+                          <img
+                            src={user.avatar}
+                            alt={user.name}
+                            className="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0 group-hover:ring-2 group-hover:ring-blue-500 transition"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1">
+                              <h4 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-blue-600 transition truncate">
+                                {user.name}
+                              </h4>
+                              {user.isVerified && <ShieldCheck className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                            </div>
+                            <span className="text-[11px] font-bold text-slate-400 block truncate">
+                              {user.username}
+                            </span>
+                            {user.location && (
+                              <span className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5 truncate">
+                                <MapPin className="w-3 h-3 text-slate-400" />
+                                {user.location}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="pt-2.5 border-t border-slate-100 flex items-center gap-2">
+                          {status === 'self' ? (
+                            <span className="text-xs text-slate-400 font-bold bg-slate-100 px-3 py-1.5 rounded-xl w-full text-center">
+                              এটি আপনার প্রোফাইল
+                            </span>
+                          ) : status === 'friends' ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onOpenChat(user.id);
+                                  onClose();
+                                }}
+                                className="flex-1 py-1.5 px-3 bg-blue-50 hover:bg-blue-100 text-[#1877F2] text-xs font-bold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                <span>মেসেজ</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleUnfriend(user.id, user.name)}
+                                className="py-1.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs"
+                                title="আনফ্রেন্ড করুন"
+                              >
+                                <UserMinus className="w-3.5 h-3.5" />
+                                <span>আনফ্রেন্ড</span>
+                              </button>
+                            </>
+                          ) : status === 'pending_sent' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelRequest(user.id)}
+                              className="flex-1 py-1.5 px-3 bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-bold rounded-xl border border-amber-200 transition flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <Clock className="w-3.5 h-3.5 text-amber-600" />
+                              <span>অনুরোধ প্রত্যাহার</span>
+                            </button>
+                          ) : status === 'pending_received' ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const req = requests.find((r) => r.senderId === user.id);
+                                if (req) handleAcceptRequest(req);
+                                else {
+                                  marketplaceSocialService.acceptFriendRequest(user.id);
+                                  loadData();
+                                }
+                              }}
+                              className="flex-1 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>গ্রহণ করুন</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleSendRequest(user)}
+                              className="flex-1 py-1.5 px-3 bg-[#1877F2] hover:bg-blue-700 text-white text-xs font-black rounded-xl shadow-2xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <UserPlus className="w-3.5 h-3.5" />
+                              <span>অ্যাড ফ্রেন্ড</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* TAB 1: SUGGESTIONS */}
           {activeTab === 'suggestions' && (
             <div className="space-y-3">
               {suggestions.length === 0 ? (
@@ -375,25 +551,27 @@ export const FacebookFriendsModal: React.FC<FacebookFriendsModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex items-center gap-2 shrink-0">
                         <button
                           type="button"
                           onClick={() => {
                             onOpenChat(friend.id);
                             onClose();
                           }}
-                          className="p-2 bg-blue-50 hover:bg-blue-100 text-[#1877F2] rounded-xl transition cursor-pointer"
+                          className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1877F2] rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1"
                           title="মেসেজ পাঠান"
                         >
-                          <MessageCircle className="w-4 h-4" />
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">মেসেজ</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => handleUnfriend(friend.id, friend.name)}
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1 shadow-2xs"
                           title="আনফ্রেন্ড করুন"
                         >
-                          <UserMinus className="w-4 h-4" />
+                          <UserMinus className="w-3.5 h-3.5" />
+                          <span>আনফ্রেন্ড</span>
                         </button>
                       </div>
                     </div>
@@ -402,6 +580,8 @@ export const FacebookFriendsModal: React.FC<FacebookFriendsModalProps> = ({
               )}
             </div>
           )}
+          </>
+        )}
         </div>
       </motion.div>
     </div>

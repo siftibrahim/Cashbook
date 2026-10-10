@@ -267,39 +267,18 @@ const MarketplaceProductCard: React.FC<MarketplaceProductCardProps> = ({
           )}
         </div>
 
-        {/* ADD Button or Quantity Stepper */}
-        {cartQuantity > 0 ? (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-center border border-[#009b77] rounded-xl overflow-hidden bg-[#009b77]/5"
-          >
-            <button
-              type="button"
-              onClick={(e) => onUpdateQuantity && onUpdateQuantity(product.id, -1, e)}
-              className="px-2.5 py-1 text-[#009b77] hover:bg-[#009b77] hover:text-white font-black text-xs transition cursor-pointer"
-            >
-              −
-            </button>
-            <span className="px-2 text-xs font-bold text-[#009b77]">
-              {cartQuantity}
-            </span>
-            <button
-              type="button"
-              onClick={(e) => onUpdateQuantity && onUpdateQuantity(product.id, 1, e)}
-              className="px-2.5 py-1 text-[#009b77] hover:bg-[#009b77] hover:text-white font-black text-xs transition cursor-pointer"
-            >
-              +
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={(e) => onAddToCart(product, e)}
-            className="border-[1.5px] border-[#009b77] hover:bg-[#009b77] text-[#009b77] hover:text-white font-black text-xs sm:text-sm px-4 py-1.5 rounded-xl transition duration-150 cursor-pointer shadow-2xs active:scale-95 flex items-center justify-center min-w-[64px]"
-          >
-            ADD
-          </button>
-        )}
+        {/* Direct 1-Product Order Button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddToCart(product, e);
+          }}
+          className="bg-[#009b77] hover:bg-[#007f61] text-white font-black text-xs sm:text-sm px-3.5 py-1.5 rounded-xl transition duration-150 cursor-pointer shadow-2xs active:scale-95 flex items-center justify-center min-w-[76px]"
+          title="এই প্রোডাক্টটি সরাসরি অর্ডার করুন"
+        >
+          অর্ডার করুন
+        </button>
       </div>
     </div>
   );
@@ -888,19 +867,13 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     };
   }, []);
 
-  // Cart operations
+  // Cart operations (একক পণ্য সরাসরি অর্ডার পলিসি - একসাথে একাধিক ভেন্ডারের পণ্য নির্বাচন নিষিদ্ধ)
   const addToCart = (product: Product, quantity = 1) => {
     const mktProd = product as MarketplaceProduct;
-    setCart((prev) => {
-      const idx = prev.findIndex((i) => i.product.id === product.id);
-      if (idx !== -1) {
-        const next = [...prev];
-        next[idx] = { ...next[idx], quantity: next[idx].quantity + quantity };
-        return next;
-      }
-      return [...prev, { product: mktProd, quantity }];
-    });
-    showToast(`🛍️ '${product.name}' কার্টে যুক্ত হয়েছে!`);
+    // Policy: One single product at a time per order
+    setCart([{ product: mktProd, quantity }]);
+    setIsCartOpen(true);
+    showToast(`📦 '${product.name}' পণ্যটির সরাসরি অর্ডার ওপেন করা হয়েছে!`);
   };
 
   const updateCartQuantity = (productId: string, delta: number) => {
@@ -917,13 +890,14 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     );
   };
 
-  const removeFromCart = (productId: string) => {
-    setCart((prev) => prev.filter((i) => i.product.id !== productId));
-    showToast('পণ্যটি কার্ট থেকে সরানো হয়েছে');
+  const removeFromCart = (_productId: string) => {
+    setCart([]);
+    showToast('অর্ডার খালি করা হয়েছে');
   };
 
   const handleBuyNow = (product: Product, quantity = 1) => {
-    addToCart(product, quantity);
+    const mktProd = product as MarketplaceProduct;
+    setCart([{ product: mktProd, quantity }]);
     setIsCartOpen(true);
   };
 
@@ -1638,6 +1612,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         onSuccess={(product) => {
           showToast(`"${product.name}" পণ্যটি সফলভাবে প্রকাশিত হয়েছে!`);
           window.dispatchEvent(new CustomEvent('twing_products_updated'));
+          refreshSocialData();
           setFbTab('marketplace');
         }}
       />

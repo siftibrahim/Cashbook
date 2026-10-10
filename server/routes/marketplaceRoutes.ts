@@ -32,6 +32,7 @@ import {
   getMarketplaceFriendsData,
   sendMarketplaceFriendRequest,
   respondMarketplaceFriendRequest,
+  unfriendMarketplaceUsers,
   updateMarketplaceUserProfile,
 } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
@@ -2318,6 +2319,23 @@ router.post('/social/friends/respond', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'রিকোয়েস্ট আইডি ও অ্যাকশন আবশ্যক' });
     }
     const result = respondMarketplaceFriendRequest(requestId, action, responderProfile);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/friends/unfriend
+ * Unfriend a user
+ */
+router.post('/social/friends/unfriend', async (req: Request, res: Response) => {
+  try {
+    const { userId, targetUserId } = req.body;
+    if (!userId || !targetUserId) {
+      return res.status(400).json({ success: false, error: 'ইউজার ও টার্গেট আইডি আবশ্যক' });
+    }
+    const result = unfriendMarketplaceUsers(userId, targetUserId);
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });

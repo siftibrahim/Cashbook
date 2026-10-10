@@ -23,6 +23,9 @@ import {
   LogOut,
   Sparkles,
   Zap,
+  UserMinus,
+  UserPlus,
+  Clock,
 } from 'lucide-react';
 import {
   CustomerProfile,
@@ -63,7 +66,7 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
   onOpenVerification,
   onLogout,
 }) => {
-  const [activeTab, setActiveTab] = useState<'posts' | 'products' | 'orders' | 'blocked'>('posts');
+  const [activeTab, setActiveTab] = useState<'posts' | 'products' | 'friends' | 'orders' | 'blocked'>('posts');
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [bioText, setBioText] = useState(profile.bio || '');
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
@@ -82,9 +85,21 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
 
   const [blockModalOpen, setBlockModalOpen] = useState(false);
   const [boostTargetProduct, setBoostTargetProduct] = useState<CustomerProductItem | null>(null);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const [relationshipStatus, setRelationshipStatus] = useState(() =>
+    marketplaceSocialService.getRelationshipStatus(profile.id)
+  );
+  const [friendsList, setFriendsList] = useState<CustomerProfile[]>(() =>
+    marketplaceSocialService.getFriends(profile.id)
+  );
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // Refresh friends list
+  const refreshFriends = () => {
+    setFriendsList(marketplaceSocialService.getFriends(profile.id));
+  };
 
   // Sync state whenever profile prop updates
   useEffect(() => {
@@ -96,7 +111,60 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
     setEditLocation(profile.location);
     setEditAddress(profile.address);
     setBioText(profile.bio || '');
+    setRelationshipStatus(marketplaceSocialService.getRelationshipStatus(profile.id));
+    setFriendsList(marketplaceSocialService.getFriends(profile.id));
   }, [profile]);
+
+  // Sync relationship status & friends on friend events
+  useEffect(() => {
+    const handleFriendSync = () => {
+      setRelationshipStatus(marketplaceSocialService.getRelationshipStatus(profile.id));
+      setFriendsList(marketplaceSocialService.getFriends(profile.id));
+    };
+    window.addEventListener('twing_friends_updated', handleFriendSync);
+    window.addEventListener('twing_profile_updated', handleFriendSync);
+    return () => {
+      window.removeEventListener('twing_friends_updated', handleFriendSync);
+      window.removeEventListener('twing_profile_updated', handleFriendSync);
+    };
+  }, [profile.id]);
+
+  const handleSendFriendRequest = () => {
+    const res = marketplaceSocialService.sendFriendRequest(profile.id);
+    onShowToast?.(res.message);
+    setRelationshipStatus(marketplaceSocialService.getRelationshipStatus(profile.id));
+    refreshFriends();
+  };
+
+  const handleCancelRequest = () => {
+    const res = marketplaceSocialService.cancelSentFriendRequest(profile.id);
+    onShowToast?.(res.message);
+    setRelationshipStatus(marketplaceSocialService.getRelationshipStatus(profile.id));
+    refreshFriends();
+  };
+
+  const handleAcceptRequest = () => {
+    const res = marketplaceSocialService.acceptFriendRequest(profile.id);
+    onShowToast?.(res.message);
+    setRelationshipStatus(marketplaceSocialService.getRelationshipStatus(profile.id));
+    refreshFriends();
+  };
+
+  const handleUnfriendUser = () => {
+    marketplaceSocialService.unfriend(profile.id);
+    onShowToast?.(`${profile.name}-কে সফলভাবে আনফ্রেন্ড করা হয়েছে।`);
+    setRelationshipStatus(marketplaceSocialService.getRelationshipStatus(profile.id));
+    refreshFriends();
+  };
+
+  const handleUnfriendFromList = (friendId: string, friendName: string) => {
+    marketplaceSocialService.unfriend(friendId);
+    onShowToast?.(`${friendName}-কে সফলভাবে আনফ্রেন্ড করা হয়েছে।`);
+    refreshFriends();
+    if (friendId === profile.id) {
+      setRelationshipStatus(marketplaceSocialService.getRelationshipStatus(profile.id));
+    }
+  };
 
   // Listen to profile updates broadcast
   useEffect(() => {
@@ -134,15 +202,19 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
       return;
     }
 
+    setIsUploadingCover(true);
     try {
-      const base64 = await fileToBase64(validation.imageFiles[0], 1200, 0.78);
+      const base64 = await fileToBase64(validation.imageFiles[0], 800, 0.65);
       setCurrentCover(base64);
       const updated = marketplaceSocialService.updateCurrentProfile({ coverPhoto: base64 });
       onProfileUpdated?.(updated);
-      onShowToast?.('কভার ফটো সফলভাবে পরিবর্তন করা হয়েছে!');
+      onShowToast?.('✅ কভার ফটো সফলভাবে পরিবর্তন ও সেভ হয়েছে!');
     } catch (err: any) {
       console.error('Cover upload error:', err);
       onShowToast?.('ছবি আপলোডে সমস্যা হয়েছে: ' + (err?.message || 'পুনরায় চেষ্টা করুন'));
+    } finally {
+      setIsUploadingCover(false);
+      if (coverInputRef.current) coverInputRef.current.value = '';
     }
   };
 
@@ -159,11 +231,11 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
     }
 
     try {
-      const base64 = await fileToBase64(validation.imageFiles[0], 600, 0.78);
+      const base64 = await fileToBase64(validation.imageFiles[0], 500, 0.70);
       setCurrentAvatar(base64);
       const updated = marketplaceSocialService.updateCurrentProfile({ avatar: base64 });
       onProfileUpdated?.(updated);
-      onShowToast?.('প্রোফাইল ছবি সফলভাবে পরিবর্তন করা হয়েছে!');
+      onShowToast?.('✅ প্রোফাইল ছবি সফলভাবে পরিবর্তন ও সেভ হয়েছে!');
     } catch (err: any) {
       console.error('Avatar upload error:', err);
       onShowToast?.('ছবি আপলোডে সমস্যা হয়েছে: ' + (err?.message || 'পুনরায় চেষ্টা করুন'));
@@ -236,7 +308,7 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
               <input
                 ref={coverInputRef}
                 type="file"
-                accept="image/png, image/jpeg, image/webp"
+                accept="image/*, image/png, image/jpeg, image/jpg, image/webp"
                 onChange={handleCoverUpload}
                 className="hidden"
               />
@@ -268,7 +340,7 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
                     <input
                       ref={avatarInputRef}
                       type="file"
-                      accept="image/png, image/jpeg, image/webp"
+                      accept="image/*, image/png, image/jpeg, image/jpg, image/webp"
                       onChange={handleAvatarUpload}
                       className="hidden"
                     />
@@ -364,13 +436,60 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
                 </>
               ) : (
                 <>
+                  {/* Friend / Unfriend Relationship Action */}
+                  {relationshipStatus === 'friends' ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-xl flex items-center gap-1.5">
+                        <UserCheck className="w-4 h-4 text-emerald-600" />
+                        <span>বন্ধু</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleUnfriendUser}
+                        className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
+                        title="আনফ্রেন্ড করুন"
+                      >
+                        <UserMinus className="w-3.5 h-3.5" />
+                        <span>আনফ্রেন্ড</span>
+                      </button>
+                    </div>
+                  ) : relationshipStatus === 'pending_sent' ? (
+                    <button
+                      type="button"
+                      onClick={handleCancelRequest}
+                      className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
+                      title="অনুরোধ প্রত্যাহার করুন"
+                    >
+                      <Clock className="w-3.5 h-3.5 text-amber-600" />
+                      <span>অনুরোধ পাঠানো হয়েছে</span>
+                    </button>
+                  ) : relationshipStatus === 'pending_received' ? (
+                    <button
+                      type="button"
+                      onClick={handleAcceptRequest}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>রিকোয়েস্ট গ্রহণ করুন</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSendFriendRequest}
+                      className="px-4 py-2 bg-[#1877F2] hover:bg-blue-700 text-white text-xs font-black rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      <span>অ্যাড ফ্রেন্ড</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => onStartChatWithUser?.(profile.id)}
-                    className="px-4 py-2 bg-[#1877F2] hover:bg-blue-700 text-white text-xs font-black rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
                   >
                     <MessageCircle className="w-4 h-4" />
-                    <span>মেসেজ পাঠান</span>
+                    <span>মেসেজ</span>
                   </button>
                   <button
                     type="button"
@@ -378,7 +497,7 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
                     className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-1 transition cursor-pointer border border-rose-200"
                   >
                     <ShieldAlert className="w-4 h-4" />
-                    <span>ব্লক করুন</span>
+                    <span>ব্লক</span>
                   </button>
                 </>
               )}
@@ -478,6 +597,17 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
             }`}
           >
             বিক্রির পণ্য ({profileProducts.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('friends')}
+            className={`py-3 px-3 sm:px-4 cursor-pointer transition border-b-2 ${
+              activeTab === 'friends'
+                ? 'border-[#1877F2] text-[#1877F2] font-black'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            বন্ধু তালিকা ({friendsList.length})
           </button>
           {isOwnProfile && (
             <>
@@ -707,6 +837,77 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
         </div>
       )}
 
+      {/* Friends Tab Content */}
+      {activeTab === 'friends' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-[#1877F2]" />
+              <h3 className="font-black text-sm text-slate-900">
+                {isOwnProfile ? 'আমার বন্ধু তালিকা' : `${profile.name}-এর বন্ধু তালিকা`} ({friendsList.length})
+              </h3>
+            </div>
+            <span className="text-xs text-slate-400 font-bold hidden sm:inline">
+              মেসেজ পাঠান অথবা আনফ্রেন্ড করুন
+            </span>
+          </div>
+
+          {friendsList.length === 0 ? (
+            <div className="p-10 text-center text-slate-400 space-y-2">
+              <Users className="w-10 h-10 mx-auto text-slate-300" />
+              <p className="font-bold text-xs">ফ্রেন্ডলিস্টে এখনও কোনো বন্ধু নেই</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {friendsList.map((f) => (
+                <div key={f.id} className="p-3 bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-2xl flex items-center justify-between gap-3 transition shadow-2xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <img
+                      src={f.avatar}
+                      alt={f.name}
+                      className="w-11 h-11 rounded-full object-cover border border-slate-200 shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1">
+                        <h4 className="font-black text-xs text-slate-900 truncate">{f.name}</h4>
+                        {f.isVerified && <ShieldCheck className="w-3.5 h-3.5 text-blue-500 shrink-0" />}
+                      </div>
+                      <p className="text-[11px] text-slate-400 font-bold truncate">{f.username}</p>
+                      {f.location && (
+                        <p className="text-[10px] text-slate-500 truncate">{f.location}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onStartChatWithUser?.(f.id)}
+                      className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1877F2] text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1"
+                      title="মেসেজ পাঠান"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">মেসেজ</span>
+                    </button>
+                    {isOwnProfile && (
+                      <button
+                        type="button"
+                        onClick={() => handleUnfriendFromList(f.id, f.name)}
+                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1 active:scale-95 shadow-2xs"
+                        title="আনফ্রেন্ড করুন"
+                      >
+                        <UserMinus className="w-3.5 h-3.5" />
+                        <span>আনফ্রেন্ড</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Edit Profile Modal */}
       {isEditProfileOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
@@ -775,13 +976,14 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsEditProfileOpen(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600"
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
                 >
                   বাতিল
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-[#1877F2] text-white text-xs font-black rounded-xl shadow-xs"
+                  onClick={(e) => handleSaveProfileModal(e)}
+                  className="px-5 py-2 bg-[#1877F2] hover:bg-blue-700 active:scale-95 text-white text-xs font-black rounded-xl shadow-xs transition cursor-pointer"
                 >
                   সেভ করুন
                 </button>

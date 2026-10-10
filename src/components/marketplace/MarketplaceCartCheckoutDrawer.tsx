@@ -74,6 +74,7 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
   const [otpSuccessMessage, setOtpSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [selectedCheckoutProductId, setSelectedCheckoutProductId] = useState<string | null>(null);
   const [confirmedOrder, setConfirmedOrder] = useState<MarketplaceMasterOrder | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [autoCloseCountdown, setAutoCloseCountdown] = useState<number>(0);
@@ -183,20 +184,37 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
     return Array.from(map.values());
   }, [cart]);
 
-  // Calculations
+  // Target single item selected for checkout (strictly 1 product per order)
+  const targetCheckoutItem = useMemo(() => {
+    if (selectedCheckoutProductId) {
+      const found = cart.find((i) => i.product.id === selectedCheckoutProductId);
+      if (found) return found;
+    }
+    return cart[0] || null;
+  }, [cart, selectedCheckoutProductId]);
+
+  const deliveryRate = deliveryCity === 'dhaka' ? deliveryFeeDhaka : deliveryFeeOutside;
+
+  // Single-product calculations
+  const singleItemSubtotal = useMemo(() => {
+    return targetCheckoutItem ? targetCheckoutItem.product.salePrice * targetCheckoutItem.quantity : 0;
+  }, [targetCheckoutItem]);
+
+  const singleGrandTotal = useMemo(() => {
+    return targetCheckoutItem ? singleItemSubtotal + deliveryRate : 0;
+  }, [targetCheckoutItem, singleItemSubtotal, deliveryRate]);
+
+  // Overall totals (for cart view info)
   const totalProductsAmount = useMemo(() => {
     return cart.reduce((sum, item) => sum + item.product.salePrice * item.quantity, 0);
   }, [cart]);
 
-  const deliveryRate = deliveryCity === 'dhaka' ? deliveryFeeDhaka : deliveryFeeOutside;
-  // Delivery fee per vendor as each vendor ships from their warehouse
-  const totalDeliveryCharge = useMemo(() => {
-    return vendorGroups.length * deliveryRate;
-  }, [vendorGroups.length, deliveryRate]);
-
-  const grandTotal = totalProductsAmount + totalDeliveryCharge;
-
   const executeOrderPlacement = async () => {
+    if (!targetCheckoutItem) {
+      setSubmitError('অর্ডার করার জন্য অনুগ্রহ করে একটি পণ্য নির্বাচন করুন।');
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitError('');
     try {
@@ -222,6 +240,7 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
         verifiedAt: new Date().toISOString(),
       });
 
+      // STRICT: ONLY the single selected product is sent in the order!
       const payload = {
         customerName: customerName.trim(),
         customerPhone: standardPhone,
@@ -232,15 +251,17 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
         senderPhone: senderPhone.trim() || standardPhone,
         notes: notes.trim(),
         isPhoneVerified: true,
-        items: cart.map((item) => ({
-          productId: item.product.id,
-          vendorId: item.product.vendorId || (item.product as any).userId || 'vendor_official',
-          name: item.product.name,
-          salePrice: item.product.salePrice,
-          quantity: item.quantity,
-          unit: item.product.unit,
-          imageUrl: item.product.imageUrl || '',
-        })),
+        items: [
+          {
+            productId: targetCheckoutItem.product.id,
+            vendorId: targetCheckoutItem.product.vendorId || (targetCheckoutItem.product as any).userId || 'vendor_official',
+            name: targetCheckoutItem.product.name,
+            salePrice: targetCheckoutItem.product.salePrice,
+            quantity: targetCheckoutItem.quantity,
+            unit: targetCheckoutItem.product.unit,
+            imageUrl: targetCheckoutItem.product.imageUrl || '',
+          },
+        ],
       };
 
       const res = await marketplaceApi.checkout(payload);
@@ -248,7 +269,9 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
       if (res?.success && res.masterOrder) {
         setConfirmedOrder(res.masterOrder);
         onOrderSuccess(res.masterOrder);
-        onClearCart();
+        // Remove only this single ordered item from the cart
+        onRemoveFromCart(targetCheckoutItem.product.id);
+        setSelectedCheckoutProductId(null);
         setStep('success');
       } else {
         setSubmitError(res?.error || 'অর্ডার সম্পন্ন করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
@@ -420,18 +443,16 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Notice about multi-vendor delivery */}
-                    {vendorGroups.length > 1 && (
-                      <div className="p-3 bg-white rounded-2xl border border-blue-200 text-xs text-blue-900 flex items-start gap-2 shadow-2xs">
-                        <Truck className="w-4 h-4 text-[#0b63e5] shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-bold">মাল্টি-ভেন্ডর চেকআউট সক্রিয়:</p>
-                          <p className="text-[11px] text-blue-700">
-                            আপনি {vendorGroups.length} টি পৃথক ভেন্ডর থেকে পণ্য কিনেছেন। প্রতিটি ভেন্ডর সরাসরি তাদের নিজস্ব দোকান থেকে নিজস্ব প্যাকিং ও কুরিয়ারে পণ্য সরবরাহ করবে।
-                          </p>
-                        </div>
+                    {/* Single Product Order Policy Notice */}
+                    <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl text-xs text-blue-900 flex items-start gap-2.5 shadow-2xs">
+                      <Store className="w-4 h-4 text-[#0b63e5] shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-black text-slate-900">একক পণ্য অর্ডার নীতি:</p>
+                        <p className="text-[11px] text-blue-800 mt-0.5 leading-relaxed">
+                          একসাথে একাধিক বিক্রেতা/ভেন্ডারের পণ্য মার্ক করে অর্ডার করা যাবে না। আপনার পছন্দের পণ্যের নিচে <strong>&quot;এই প্রোডাক্টটি অর্ডার করুন&quot;</strong> বাটনে ক্লিক করে এককভাবে অর্ডার সম্পন্ন করুন।
+                        </p>
                       </div>
-                    )}
+                    </div>
 
                     {/* Grouped Vendor Sections */}
                     {vendorGroups.map((group) => (
@@ -464,53 +485,69 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
                           {group.items.map((item) => (
                             <div
                               key={item.product.id}
-                              className="bg-white rounded-xl p-2.5 border border-slate-100 flex items-center gap-3 shadow-2xs"
+                              className="bg-white rounded-xl p-3 border border-slate-100 space-y-2.5 shadow-2xs"
                             >
-                              <div className="w-14 h-14 rounded-lg bg-white border border-slate-100 overflow-hidden shrink-0 flex items-center justify-center p-1">
-                                <img
-                                  src={item.product.imageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=100&auto=format&fit=crop&q=80'}
-                                  alt={item.product.name}
-                                  className="w-full h-full object-contain"
-                                />
-                              </div>
-
-                              <div className="flex-1 min-w-0">
-                                <h4 className="text-xs font-bold text-slate-800 line-clamp-1">
-                                  {item.product.name}
-                                </h4>
-                                <div className="text-xs font-black text-[#0b63e5] mt-0.5">
-                                  ৳ {formatMoney(item.product.salePrice)}
+                              <div className="flex items-center gap-3">
+                                <div className="w-14 h-14 rounded-lg bg-white border border-slate-100 overflow-hidden shrink-0 flex items-center justify-center p-1">
+                                  <img
+                                    src={item.product.imageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=100&auto=format&fit=crop&q=80'}
+                                    alt={item.product.name}
+                                    className="w-full h-full object-contain"
+                                  />
                                 </div>
-                              </div>
 
-                              {/* Qty controls */}
-                              <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-1.5 py-0.5 bg-white shadow-2xs">
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="text-xs font-bold text-slate-800 line-clamp-1">
+                                    {item.product.name}
+                                  </h4>
+                                  <div className="text-xs font-black text-[#0b63e5] mt-0.5">
+                                    ৳ {formatMoney(item.product.salePrice)}
+                                  </div>
+                                </div>
+
+                                {/* Qty controls */}
+                                <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-1.5 py-0.5 bg-white shadow-2xs">
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateQuantity(item.product.id, -1)}
+                                    className="text-slate-500 hover:text-slate-800 font-bold px-1 cursor-pointer"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="text-xs font-bold text-slate-800 w-5 text-center">
+                                    {item.quantity}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateQuantity(item.product.id, 1)}
+                                    className="text-slate-500 hover:text-slate-800 font-bold px-1 cursor-pointer"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+
                                 <button
                                   type="button"
-                                  onClick={() => onUpdateQuantity(item.product.id, -1)}
-                                  className="text-slate-500 hover:text-slate-800 font-bold px-1"
+                                  onClick={() => onRemoveFromCart(item.product.id)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-500 transition cursor-pointer"
+                                  title="মুছে ফেলুন"
                                 >
-                                  -
-                                </button>
-                                <span className="text-xs font-bold text-slate-800 w-5 text-center">
-                                  {item.quantity}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => onUpdateQuantity(item.product.id, 1)}
-                                  className="text-slate-500 hover:text-slate-800 font-bold px-1"
-                                >
-                                  +
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
 
+                              {/* Single Item Order Trigger Button */}
                               <button
                                 type="button"
-                                onClick={() => onRemoveFromCart(item.product.id)}
-                                className="p-1.5 text-slate-400 hover:text-rose-500 transition cursor-pointer"
-                                title="মুছে ফেলুন"
+                                onClick={() => {
+                                  setSelectedCheckoutProductId(item.product.id);
+                                  setStep('checkout');
+                                }}
+                                className="w-full py-2 px-3 bg-[#0b63e5] hover:bg-blue-700 active:scale-98 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Package className="w-3.5 h-3.5" />
+                                <span>এই প্রোডাক্টটি অর্ডার করুন (৳ {formatMoney(item.product.salePrice * item.quantity)})</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           ))}
@@ -531,6 +568,42 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
             {/* STEP 2: CHECKOUT FORM */}
             {step === 'checkout' && (
               <form id="marketplace-checkout-form" onSubmit={handleCheckoutSubmit} className="space-y-4">
+                {/* Selected Single Product Header Summary */}
+                {targetCheckoutItem && (
+                  <div className="p-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-14 h-14 rounded-xl bg-white border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center p-1">
+                        <img
+                          src={targetCheckoutItem.product.imageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=100&auto=format&fit=crop&q=80'}
+                          alt={targetCheckoutItem.product.name}
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-[10px] font-black text-[#0b63e5] uppercase tracking-wider block">
+                          নির্বাচিত একক পণ্য
+                        </span>
+                        <h4 className="text-xs font-black text-slate-900 truncate">
+                          {targetCheckoutItem.product.name}
+                        </h4>
+                        <p className="text-[11px] text-slate-600 font-bold">
+                          ভেন্ডর: {targetCheckoutItem.product.vendorShopName || 'ভেরিফাইড শপ'} • {targetCheckoutItem.quantity} টি
+                        </p>
+                        <p className="text-xs font-black text-[#0b63e5] mt-0.5">
+                          মূল্য: ৳ {formatMoney(singleItemSubtotal)}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setStep('cart')}
+                      className="px-2.5 py-1.5 text-[11px] font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl shrink-0 cursor-pointer transition shadow-2xs"
+                    >
+                      পণ্য পরিবর্তন
+                    </button>
+                  </div>
+                )}
+
                 {submitError && (
                   <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-700 font-bold flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
