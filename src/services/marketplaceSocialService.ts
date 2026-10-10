@@ -498,6 +498,226 @@ export const marketplaceSocialService = {
     return list.find((p) => p.id === id) || null;
   },
 
+  // -------------------------------------------------------------
+  // User Authentication & Session Management (Facebook-style)
+  // -------------------------------------------------------------
+  isLoggedIn(): boolean {
+    try {
+      const loggedOut = localStorage.getItem('mkt_fb_logged_out_flag');
+      if (loggedOut === 'true') return false;
+      const stored = localStorage.getItem(PROFILE_KEY);
+      if (stored) return true;
+      const verified = localStorage.getItem('twing_verified_customer_profile');
+      if (verified) return true;
+    } catch (e) {}
+    return false;
+  },
+
+  async login(
+    loginIdentifier: string,
+    password: string,
+    twoFactorPin?: string
+  ): Promise<{ success: boolean; user?: CustomerProfile; error?: string; needs2Fa?: boolean }> {
+    try {
+      const res = await fetch('/api/marketplace/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loginIdentifier, password, twoFactorPin }),
+      });
+      const data = await res.json();
+      if (data.success && data.user) {
+        localStorage.removeItem('mkt_fb_logged_out_flag');
+        localStorage.setItem(PROFILE_KEY, JSON.stringify(data.user));
+        localStorage.setItem('mkt_fb_auth_token_v3', data.token || '');
+        localStorage.setItem(
+          'twing_verified_customer_profile',
+          JSON.stringify({
+            id: data.user.id,
+            name: data.user.name,
+            phone: data.user.phone,
+            address: data.user.address,
+            picture: data.user.avatar,
+            isVerified: data.user.isVerified,
+          })
+        );
+        const directory = this.getProfilesDirectory();
+        const idx = directory.findIndex((p) => p.id === data.user.id);
+        if (idx !== -1) directory[idx] = data.user;
+        else directory.unshift(data.user);
+        localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(directory));
+
+        window.dispatchEvent(new CustomEvent('twing_profile_updated', { detail: data.user }));
+        window.dispatchEvent(
+          new CustomEvent('twing_social_auth_changed', { detail: { isLoggedIn: true, user: data.user } })
+        );
+        return { success: true, user: data.user };
+      }
+      if (data.needs2Fa) {
+        return { success: false, needs2Fa: true, error: data.message };
+      }
+      return { success: false, error: data.error || 'লগইন ব্যর্থ হয়েছে।' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'সার্ভারে সংযোগ করা যায়নি।' };
+    }
+  },
+
+  async sendRegisterOtp(
+    phone: string
+  ): Promise<{ success: boolean; message?: string; otp?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/marketplace/auth/send-register-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        return { success: true, message: data.message, otp: data.otp };
+      }
+      return { success: false, error: data.error || 'ওটিপি পাঠাতে সমস্যা হয়েছে।' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'সার্ভারে সংযোগ করা যায়নি।' };
+    }
+  },
+
+  async register(payload: {
+    name: string;
+    username?: string;
+    phone: string;
+    password: string;
+    address?: string;
+    location?: string;
+    role?: string;
+    avatar?: string;
+    otp?: string;
+  }): Promise<{ success: boolean; user?: CustomerProfile; error?: string }> {
+    try {
+      const res = await fetch('/api/marketplace/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success && data.user) {
+        localStorage.removeItem('mkt_fb_logged_out_flag');
+        localStorage.setItem(PROFILE_KEY, JSON.stringify(data.user));
+        localStorage.setItem('mkt_fb_auth_token_v3', data.token || '');
+        localStorage.setItem(
+          'twing_verified_customer_profile',
+          JSON.stringify({
+            id: data.user.id,
+            name: data.user.name,
+            phone: data.user.phone,
+            address: data.user.address,
+            picture: data.user.avatar,
+            isVerified: data.user.isVerified,
+          })
+        );
+        const directory = this.getProfilesDirectory();
+        directory.unshift(data.user);
+        localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(directory));
+
+        window.dispatchEvent(new CustomEvent('twing_profile_updated', { detail: data.user }));
+        window.dispatchEvent(
+          new CustomEvent('twing_social_auth_changed', { detail: { isLoggedIn: true, user: data.user } })
+        );
+        return { success: true, user: data.user };
+      }
+      return { success: false, error: data.error || 'রেজিস্ট্রেশন ব্যর্থ হয়েছে।' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'সার্ভারে সংযোগ করা যায়নি।' };
+    }
+  },
+
+  async logout(): Promise<void> {
+    const user = this.getCurrentProfile();
+    try {
+      await fetch('/api/marketplace/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user?.id }),
+      });
+    } catch (e) {}
+
+    localStorage.setItem('mkt_fb_logged_out_flag', 'true');
+    localStorage.removeItem(PROFILE_KEY);
+    localStorage.removeItem('mkt_fb_auth_token_v3');
+    localStorage.removeItem('twing_verified_customer_profile');
+    localStorage.removeItem('twing_mkt_cust_name');
+    localStorage.removeItem('twing_mkt_cust_phone');
+
+    window.dispatchEvent(new CustomEvent('twing_profile_updated', { detail: null }));
+    window.dispatchEvent(new CustomEvent('twing_social_auth_changed', { detail: { isLoggedIn: false } }));
+  },
+
+  async changePassword(
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string; message?: string }> {
+    const user = this.getCurrentProfile();
+    try {
+      const res = await fetch('/api/marketplace/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'পাসওয়ার্ড পরিবর্তন ব্যর্থ হয়েছে।' };
+    }
+  },
+
+  async submitIdVerification(data: {
+    docType: string;
+    docNumber?: string;
+    fullName: string;
+    dob?: string;
+    docFront: string;
+    docBack?: string;
+    selfie: string;
+    notes?: string;
+  }): Promise<{ success: boolean; error?: string; message?: string }> {
+    const user = this.getCurrentProfile();
+    try {
+      const res = await fetch('/api/marketplace/auth/verify-id', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, ...data }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        this.updateCurrentProfile({
+          verificationStatus: 'pending',
+          verificationData: {
+            docType: data.docType,
+            docNumber: data.docNumber,
+            fullName: data.fullName,
+            dob: data.dob,
+            submittedAt: new Date().toISOString(),
+            status: 'pending',
+          },
+        });
+      }
+      return json;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'ভেরিফিকেশন জমা দিতে ব্যর্থ হয়েছে।' };
+    }
+  },
+
+  async syncProfileToServer(updates: Partial<CustomerProfile>): Promise<void> {
+    const current = this.getCurrentProfile();
+    try {
+      await fetch('/api/marketplace/auth/update-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: current.id, updates }),
+      });
+    } catch (e) {
+      console.warn('Failed to sync profile to server:', e);
+    }
+  },
+
   // Current Logged-in Customer Profile
   getCurrentProfile(): CustomerProfile {
     try {

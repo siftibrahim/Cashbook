@@ -88,10 +88,15 @@ export interface MarketplaceBannerItem {
 }
 
 export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProps> = ({ isSuperAdmin }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'vendor_balances' | 'profit' | 'payouts' | 'products' | 'categories' | 'banners' | 'settings'>('orders');
+  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'vendor_balances' | 'profit' | 'payouts' | 'products' | 'categories' | 'banners' | 'verifications' | 'settings'>('orders');
   const [isLoading, setIsLoading] = useState(true);
   const [isPaymentSettingsModalOpen, setIsPaymentSettingsModalOpen] = useState(false);
   const [systemPaymentSettings, setSystemPaymentSettings] = useState<SystemPaymentSettings | null>(null);
+
+  // ID Verification Requests State (Meta Blue Badge)
+  const [verificationRequests, setVerificationRequests] = useState<any[]>([]);
+  const [verificationFilter, setVerificationFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('all');
+  const [previewDocModal, setPreviewDocModal] = useState<{ isOpen: boolean; title: string; image: string } | null>(null);
   const [data, setData] = useState<{
     masterOrders: any[];
     subOrders: any[];
@@ -398,11 +403,46 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       } catch (e) {
         console.warn('Vendor balances load notice:', e);
       }
+
+      // Load ID Verification Requests (Meta Blue Badge)
+      try {
+        const verifRes = await fetch('/api/marketplace/admin/verifications').then((r) => r.json());
+        if (verifRes && verifRes.success) {
+          setVerificationRequests(verifRes.requests || []);
+        }
+      } catch (e) {
+        console.warn('Verification requests load notice:', e);
+      }
     } catch (err: any) {
       console.warn('Marketplace admin load error:', err);
       setLoadError(err.message || 'মার্কেটপ্লেস ডাটা লোড হতে সমস্যা হয়েছে');
     } finally {
       if (showSpinner) setIsLoading(false);
+    }
+  };
+
+  const handleReviewVerification = async (id: string, action: 'approve' | 'reject', adminNotes?: string) => {
+    try {
+      const res = await fetch(`/api/marketplace/admin/verifications/${id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, adminNotes }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(action === 'approve' ? '✅ আইডি সফলভাবে ভেরিফাইড ও ব্লু ব্যাজ সক্রিয় করা হয়েছে!' : '⚠️ আবেদনটি প্রত্যাখ্যাত করা হয়েছে।');
+        // Refresh requests
+        try {
+          const verifRes = await fetch('/api/marketplace/admin/verifications').then((r) => r.json());
+          if (verifRes && verifRes.success) {
+            setVerificationRequests(verifRes.requests || []);
+          }
+        } catch (e) {}
+      } else {
+        showToast(data.error || 'অপারেশন ব্যর্থ হয়েছে');
+      }
+    } catch (err: any) {
+      showToast('সার্ভারে সমস্যা হয়েছে');
     }
   };
 
@@ -1414,6 +1454,25 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             ) : (
               <span className="w-2 h-2 rounded-full bg-slate-400" title="অ্যাড নিষ্ক্রিয়" />
             )}
+          </button>
+
+          {/* Subtab: ID Verifications (Meta Blue Badge) */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('verifications')}
+            className={`px-3.5 py-2.5 text-xs font-bold rounded-xl transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeSubTab === 'verifications'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>আইডি ভেরিফিকেশন (Blue Badge)</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              activeSubTab === 'verifications' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-800'
+            }`}>
+              {verificationRequests.filter((r: any) => r.status === 'pending').length}
+            </span>
           </button>
 
           {/* Subtab 6: Settings */}
@@ -3761,6 +3820,287 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
         </div>
       )}
 
+      {/* SUB-TAB: ID VERIFICATIONS (META BLUE BADGE) */}
+      {activeSubTab === 'verifications' && (
+        <div className="space-y-4">
+          {/* Header & KPI Summary */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-blue-600" />
+                  <span>আইডি ভেরিফিকেশন ও মেটা ব্লু ব্যাজ অ্যাডমিন হাব</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  সেন্ট্রাল মার্কেটপ্লেস ও ফেসবুক সোশ্যাল ইউজারদের জাতীয় পরিচয়পত্র, পাসপোর্ট ও লাইভ সেলফি যাচাই করে অফিসিয়াল ব্লু টিক প্রদান করুন।
+                </p>
+              </div>
+
+              {/* Status Filter */}
+              <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold shrink-0">
+                {(['all', 'pending', 'verified', 'rejected'] as const).map((st) => (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() => setVerificationFilter(st)}
+                    className={`px-3 py-1.5 rounded-lg transition cursor-pointer capitalize ${
+                      verificationFilter === st
+                        ? 'bg-white text-blue-600 shadow-xs font-black'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {st === 'all'
+                      ? 'সব'
+                      : st === 'pending'
+                      ? 'অপেক্ষারত'
+                      : st === 'verified'
+                      ? 'ভেরিফাইড'
+                      : 'প্রত্যাখ্যাত'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <span className="text-[10px] text-slate-500 font-bold block">মোট আবেদন</span>
+                <span className="text-lg font-black text-slate-800">{verificationRequests.length}</span>
+              </div>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <span className="text-[10px] text-amber-700 font-bold block">অপেক্ষারত (Pending)</span>
+                <span className="text-lg font-black text-amber-900">
+                  {verificationRequests.filter((r: any) => r.status === 'pending').length}
+                </span>
+              </div>
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                <span className="text-[10px] text-blue-700 font-bold block">সক্রিয় ব্লু ব্যাজ (Verified)</span>
+                <span className="text-lg font-black text-blue-900">
+                  {verificationRequests.filter((r: any) => r.status === 'verified').length}
+                </span>
+              </div>
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl">
+                <span className="text-[10px] text-rose-700 font-bold block">প্রত্যাখ্যাত (Rejected)</span>
+                <span className="text-lg font-black text-rose-900">
+                  {verificationRequests.filter((r: any) => r.status === 'rejected').length}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Verification Requests List */}
+          {(() => {
+            const filtered = verificationRequests.filter((r: any) => {
+              if (verificationFilter === 'all') return true;
+              return r.status === verificationFilter;
+            });
+
+            if (filtered.length === 0) {
+              return (
+                <div className="p-8 text-center bg-white border border-dashed border-slate-300 rounded-2xl text-xs text-slate-400 font-bold">
+                  এই ক্যাটাগরিতে কোনো ভেরিফিকেশন আবেদন পাওয়া যায়নি।
+                </div>
+              );
+            }
+
+            return (
+              <div className="space-y-3">
+                {filtered.map((req: any) => {
+                  const isPending = req.status === 'pending';
+                  const isVerified = req.status === 'verified';
+                  const isRejected = req.status === 'rejected';
+
+                  return (
+                    <div
+                      key={req.id}
+                      className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5 transition hover:border-blue-300"
+                    >
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center font-black">
+                            <ShieldCheck className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <h4 className="text-xs sm:text-sm font-black text-slate-900">{req.fullName || req.userName}</h4>
+                              {isVerified && (
+                                <span className="bg-blue-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase flex items-center gap-0.5">
+                                  <ShieldCheck className="w-2.5 h-2.5" />
+                                  <span>Blue Badge</span>
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              মোবাইল: {req.userPhone} • ইউজার আইডি: {req.userId}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                              isVerified
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : isPending
+                                ? 'bg-amber-100 text-amber-800 animate-pulse'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {isVerified ? 'অনুমোদিত' : isPending ? 'অপেক্ষারত' : 'প্রত্যাখ্যাত'}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {new Date(req.submittedAt).toLocaleDateString('bn-BD')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Details & Images Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {/* Info Column */}
+                        <div className="p-3 bg-slate-50 rounded-xl space-y-1.5 text-[11px] text-slate-700">
+                          <p>
+                            <strong>পরিচয়পত্রের ধরন:</strong>{' '}
+                            <span className="uppercase font-bold text-blue-700">{req.docType}</span>
+                          </p>
+                          <p>
+                            <strong>আইডি নম্বর:</strong>{' '}
+                            <span className="font-bold text-slate-900">{req.docNumber || 'দেওয়া হয়নি'}</span>
+                          </p>
+                          {req.dob && (
+                            <p>
+                              <strong>জন্ম তারিখ:</strong> {req.dob}
+                            </p>
+                          )}
+                          {req.adminNotes && (
+                            <p className="text-[10px] text-slate-500 italic mt-1">
+                              নোট: {req.adminNotes}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Document Images Preview */}
+                        <div className="md:col-span-2 grid grid-cols-3 gap-2">
+                          {/* Front */}
+                          <div
+                            onClick={() =>
+                              req.docFront &&
+                              setPreviewDocModal({
+                                isOpen: true,
+                                title: `${req.userName} - ডকুমেন্টের সামনের ছবি`,
+                                image: req.docFront,
+                              })
+                            }
+                            className="h-24 bg-slate-100 border border-slate-200 rounded-xl overflow-hidden cursor-pointer relative group flex flex-col items-center justify-center p-1"
+                          >
+                            {req.docFront ? (
+                              <>
+                                <img src={req.docFront} alt="Front" className="w-full h-full object-cover rounded-lg" />
+                                <span className="absolute bottom-1 bg-black/60 text-white text-[9px] px-1 rounded font-bold">
+                                  সামনের ছবি
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">সামনে নেই</span>
+                            )}
+                          </div>
+
+                          {/* Back */}
+                          <div
+                            onClick={() =>
+                              req.docBack &&
+                              setPreviewDocModal({
+                                isOpen: true,
+                                title: `${req.userName} - ডকুমেন্টের পেছনের ছবি`,
+                                image: req.docBack,
+                              })
+                            }
+                            className="h-24 bg-slate-100 border border-slate-200 rounded-xl overflow-hidden cursor-pointer relative group flex flex-col items-center justify-center p-1"
+                          >
+                            {req.docBack ? (
+                              <>
+                                <img src={req.docBack} alt="Back" className="w-full h-full object-cover rounded-lg" />
+                                <span className="absolute bottom-1 bg-black/60 text-white text-[9px] px-1 rounded font-bold">
+                                  পেছনের ছবি
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">পেছনে নেই</span>
+                            )}
+                          </div>
+
+                          {/* Selfie */}
+                          <div
+                            onClick={() =>
+                              req.selfie &&
+                              setPreviewDocModal({
+                                isOpen: true,
+                                title: `${req.userName} - লাইভ ফেস সেলফি`,
+                                image: req.selfie,
+                              })
+                            }
+                            className="h-24 bg-slate-100 border border-slate-200 rounded-xl overflow-hidden cursor-pointer relative group flex flex-col items-center justify-center p-1"
+                          >
+                            {req.selfie ? (
+                              <>
+                                <img src={req.selfie} alt="Selfie" className="w-full h-full object-cover rounded-lg" />
+                                <span className="absolute bottom-1 bg-black/60 text-white text-[9px] px-1 rounded font-bold">
+                                  লাইভ সেলফি
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">সেলফি নেই</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons for Pending or Re-Review */}
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
+                        {isPending ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleReviewVerification(req.id, 'reject')}
+                              className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition cursor-pointer border border-rose-200"
+                            >
+                              প্রত্যাখ্যান করুন
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleReviewVerification(req.id, 'approve')}
+                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>অনুমোদন করুন (Blue Badge Active)</span>
+                            </button>
+                          </>
+                        ) : isRejected ? (
+                          <button
+                            type="button"
+                            onClick={() => handleReviewVerification(req.id, 'approve')}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                          >
+                            পুনরায় অনুমোদন করুন
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleReviewVerification(req.id, 'reject')}
+                            className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition cursor-pointer border border-rose-200"
+                          >
+                            ব্লু ব্যাজ প্রত্যাহার করুন
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* SUB-TAB 4: SETTINGS */}
       {activeSubTab === 'settings' && (
         <form onSubmit={handleSaveSettings} className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 space-y-6 max-w-3xl text-xs shadow-xs">
@@ -6000,6 +6340,40 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
               <button
                 type="button"
                 onClick={() => setPreviewingBanner(null)}
+                className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition cursor-pointer"
+              >
+                বন্ধ করুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Verification Document Image Preview Modal */}
+      {previewDocModal && previewDocModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in">
+          <div className="relative max-w-2xl w-full bg-white rounded-3xl p-4 shadow-2xl overflow-hidden space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h4 className="text-xs sm:text-sm font-black text-slate-900">{previewDocModal.title}</h4>
+              <button
+                type="button"
+                onClick={() => setPreviewDocModal(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-auto rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center p-2">
+              <img
+                src={previewDocModal.image}
+                alt="Document Preview"
+                className="max-w-full max-h-[65vh] object-contain rounded-xl shadow-xs"
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPreviewDocModal(null)}
                 className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition cursor-pointer"
               >
                 বন্ধ করুন

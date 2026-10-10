@@ -75,6 +75,10 @@ import { CustomerSellProductModal } from './CustomerSellProductModal';
 import { MarketplaceQuickBuyModal } from './MarketplaceQuickBuyModal';
 import { UserSearchBar } from './UserSearchBar';
 import { FacebookFriendsModal } from './FacebookFriendsModal';
+import { MarketplaceAuthModal } from './MarketplaceAuthModal';
+import { MarketplaceAuthGatekeeper } from './MarketplaceAuthGatekeeper';
+import { FacebookSettingsModal } from './FacebookSettingsModal';
+import { FacebookVerificationModal } from './FacebookVerificationModal';
 import { marketplaceSocialService } from '../../services/marketplaceSocialService';
 import {
   CustomerProfile,
@@ -328,12 +332,26 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     marketplaceSocialService.getPendingReceivedRequests()
   );
 
+  // Authentication & Settings Modal states
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => marketplaceSocialService.isLoggedIn());
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
+
   const pendingFriendRequestsCount = pendingFriendRequests.length;
 
   const refreshSocialData = () => {
     setNotifications(marketplaceSocialService.getNotifications());
     setPendingFriendRequests(marketplaceSocialService.getPendingReceivedRequests());
     setConversations(marketplaceSocialService.getConversations());
+  };
+
+  const handleLogout = async () => {
+    await marketplaceSocialService.logout();
+    setIsLoggedIn(false);
+    setIsSettingsModalOpen(false);
+    setViewingProfileUserId(null);
+    showToast('✅ সফলভাবে লগআউট সম্পন্ন হয়েছে।');
   };
 
   useEffect(() => {
@@ -343,8 +361,37 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       }
       refreshSocialData();
     };
+    const handleAuthSync = (e: any) => {
+      if (e.detail) {
+        setIsLoggedIn(e.detail.isLoggedIn);
+        if (e.detail.user) {
+          setCurrentProfile(e.detail.user);
+        }
+      }
+      refreshSocialData();
+    };
+    const handleThemeSync = (e: any) => {
+      const mode = e.detail || localStorage.getItem('twing_marketplace_theme') || 'light';
+      if (mode === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      document.documentElement.setAttribute('data-theme', mode);
+    };
     window.addEventListener('twing_profile_updated', handleProfileSync);
-    return () => window.removeEventListener('twing_profile_updated', handleProfileSync);
+    window.addEventListener('twing_social_auth_changed', handleAuthSync);
+    window.addEventListener('twing_theme_changed', handleThemeSync);
+
+    const initialTheme = localStorage.getItem('twing_marketplace_theme') || 'light';
+    if (initialTheme === 'dark') document.documentElement.classList.add('dark');
+    document.documentElement.setAttribute('data-theme', initialTheme);
+
+    return () => {
+      window.removeEventListener('twing_profile_updated', handleProfileSync);
+      window.removeEventListener('twing_social_auth_changed', handleAuthSync);
+      window.removeEventListener('twing_theme_changed', handleThemeSync);
+    };
   }, []);
 
   const unreadMessagesCount = conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
@@ -1092,6 +1139,21 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return filteredAllProducts.slice(0, allProductsVisibleCount);
   }, [filteredAllProducts, allProductsVisibleCount]);
 
+  // If not logged in, enforce the authentication gatekeeper!
+  if (!isLoggedIn) {
+    return (
+      <MarketplaceAuthGatekeeper
+        onSuccess={(user) => {
+          setCurrentProfile(user);
+          setIsLoggedIn(true);
+          showToast(`🎉 স্বাগতম ${user.name}! সফলভাবে সেন্ট্রাল মার্কেটপ্লেসে প্রবেশ করেছেন।`);
+          refreshSocialData();
+        }}
+        onBackToDashboard={onBackToDashboard}
+      />
+    );
+  }
+
   return (
     <div className="w-full min-h-screen bg-white flex flex-col font-sans text-slate-800 antialiased selection:bg-[#0052cc] selection:text-white max-w-full overflow-x-clip">
       {/* Toast Alert */}
@@ -1109,7 +1171,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
       </AnimatePresence>
 
       {/* ========================================================================= */}
-      {/* 1. TOP FACEBOOK NAVBAR */}
+      {/* 1. TOP FACEBOOK NAVBAR (UNIFIED CLEAN HEADER WITH INTEGRATED LIVE SEARCH) */}
       {/* ========================================================================= */}
       <FacebookNavbar
         currentTab={fbTab}
@@ -1126,28 +1188,27 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         onOpenFriendsModal={() => setIsFriendsModalOpen(true)}
         searchQuery={searchQuery}
         onSearchChange={(q) => setSearchQuery(q)}
-        onOpenSellModal={() => setIsSellModalOpen(true)}
-        onBackToDashboard={onBackToDashboard}
-        cartItemCount={cartItemCount}
-        onOpenCart={() => setIsCartOpen(true)}
-      />
-
-      {/* ========================================================================= */}
-      {/* 2. USER SEARCH BAR (DIRECTLY BELOW HEADER FOR FINDING PEOPLE & FRIENDS) */}
-      {/* ========================================================================= */}
-      <UserSearchBar
         onSelectUser={(selectedUser) => {
           setViewingProfileUserId(selectedUser.id);
           setFbTab('profile');
         }}
-        onRequestSentToast={(msg) => {
+        onShowToast={(msg) => {
           showToast(msg);
           refreshSocialData();
         }}
+        onOpenSellModal={() => setIsSellModalOpen(true)}
+        onBackToDashboard={onBackToDashboard}
+        cartItemCount={cartItemCount}
+        onOpenCart={() => setIsCartOpen(true)}
+        isLoggedIn={isLoggedIn}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
+        onOpenVerificationModal={() => setIsVerificationModalOpen(true)}
+        onLogout={handleLogout}
       />
 
       {fbTab === 'marketplace' && (
-        <nav className="bg-white border-b border-slate-200 text-xs sm:text-sm font-bold shadow-2xs sticky top-14 sm:top-16 z-30 overflow-x-auto no-scrollbar w-full">
+        <nav className="bg-white border-b border-slate-200 text-xs sm:text-sm font-bold shadow-2xs sticky top-[112px] z-30 overflow-x-auto no-scrollbar w-full">
           <div className="max-w-[1400px] mx-auto px-2 sm:px-4 lg:px-8 flex items-center min-w-0">
             {/* Blue "সব ক্যাটাগরি" Button on Left */}
             <button
@@ -1264,6 +1325,9 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
                 onOpenQuickBuy={(prod) => setQuickBuyProduct(prod)}
                 onOpenSellProductModal={() => setIsSellModalOpen(true)}
                 onShowToast={(msg) => showToast(msg)}
+                onOpenSettings={() => setIsSettingsModalOpen(true)}
+                onOpenVerification={() => setIsVerificationModalOpen(true)}
+                onLogout={handleLogout}
               />
             );
           })()
@@ -3506,6 +3570,42 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         }}
         onShowToast={(msg) => {
           showToast(msg);
+          refreshSocialData();
+        }}
+      />
+
+      {/* Central Marketplace Auth Modal (Mobile Number & Password Login & Register) */}
+      <MarketplaceAuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={(user) => {
+          setIsLoggedIn(true);
+          setCurrentProfile(user);
+          refreshSocialData();
+          showToast(`🎉 স্বাগতম ${user.name}!`);
+        }}
+      />
+
+      {/* Facebook Settings Modal */}
+      <FacebookSettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        currentProfile={currentProfile}
+        onProfileUpdated={(up) => {
+          setCurrentProfile(up);
+          refreshSocialData();
+        }}
+        onOpenVerificationModal={() => setIsVerificationModalOpen(true)}
+        onLogout={handleLogout}
+      />
+
+      {/* Meta Identity Verification Modal */}
+      <FacebookVerificationModal
+        isOpen={isVerificationModalOpen}
+        onClose={() => setIsVerificationModalOpen(false)}
+        currentProfile={currentProfile}
+        onProfileUpdated={(up) => {
+          setCurrentProfile(up);
           refreshSocialData();
         }}
       />

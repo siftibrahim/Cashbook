@@ -93,6 +93,8 @@ export const inMemoryStore: {
   marketplace_categories: any[];
   marketplace_settings: any;
   vendor_payout_requests: any[];
+  marketplace_users: any[];
+  marketplace_verification_requests: any[];
 } = {
   users: [],
   stores: [],
@@ -119,6 +121,8 @@ export const inMemoryStore: {
   marketplace_categories: [],
   marketplace_settings: {},
   vendor_payout_requests: [],
+  marketplace_users: [],
+  marketplace_verification_requests: [],
 };
 
 /**
@@ -1437,6 +1441,65 @@ export async function initializeDatabaseSchema() {
       CREATE INDEX IF NOT EXISTS idx_payout_user ON vendor_payout_requests(user_id);
       CREATE INDEX IF NOT EXISTS idx_payout_status ON vendor_payout_requests(status);
       CREATE INDEX IF NOT EXISTS idx_payout_created ON vendor_payout_requests(created_at DESC);
+
+      -- 7. Central Marketplace Social & Registered Users Table (Persistent User Database)
+      CREATE TABLE IF NOT EXISTS marketplace_users (
+        id VARCHAR(100) PRIMARY KEY,
+        name VARCHAR(150) NOT NULL,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        phone VARCHAR(50) UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        avatar TEXT,
+        cover_photo TEXT,
+        bio TEXT,
+        address TEXT DEFAULT '',
+        location VARCHAR(150) DEFAULT '',
+        role VARCHAR(50) DEFAULT 'customer',
+        joined_date VARCHAR(50),
+        followers_count INT DEFAULT 0,
+        following_count INT DEFAULT 0,
+        friends_count INT DEFAULT 0,
+        rating NUMERIC(3, 1) DEFAULT 5.0,
+        total_sales INT DEFAULT 0,
+        total_orders INT DEFAULT 0,
+        is_verified BOOLEAN DEFAULT FALSE,
+        verification_status VARCHAR(50) DEFAULT 'unverified',
+        verification_data JSONB,
+        two_factor_enabled BOOLEAN DEFAULT FALSE,
+        two_factor_pin VARCHAR(10),
+        privacy_settings JSONB,
+        notification_settings JSONB,
+        blocked_user_ids JSONB DEFAULT '[]',
+        friend_ids JSONB DEFAULT '[]',
+        active_sessions JSONB DEFAULT '[]',
+        last_active_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_mkt_users_phone ON marketplace_users(phone);
+      CREATE INDEX IF NOT EXISTS idx_mkt_users_username ON marketplace_users(username);
+
+      -- 8. Advanced ID Verification Requests Table (Meta Blue Badge System)
+      CREATE TABLE IF NOT EXISTS marketplace_verification_requests (
+        id VARCHAR(100) PRIMARY KEY,
+        user_id VARCHAR(100) NOT NULL,
+        user_name VARCHAR(150) NOT NULL,
+        user_phone VARCHAR(50) NOT NULL,
+        doc_type VARCHAR(50) NOT NULL,
+        doc_number VARCHAR(100),
+        full_name VARCHAR(150) NOT NULL,
+        dob VARCHAR(50),
+        doc_front TEXT NOT NULL,
+        doc_back TEXT,
+        selfie TEXT NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        admin_notes TEXT,
+        submitted_at BIGINT NOT NULL,
+        reviewed_at BIGINT,
+        reviewed_by VARCHAR(100)
+      );
+      CREATE INDEX IF NOT EXISTS idx_mkt_verif_user ON marketplace_verification_requests(user_id);
+      CREATE INDEX IF NOT EXISTS idx_mkt_verif_status ON marketplace_verification_requests(status);
     `);
 
     // Seed default admin and system configs if not present
@@ -2180,3 +2243,520 @@ export async function ensureUserExistsInPostgres(
     return userId;
   }
 }
+
+/**
+ * Seed initial Central Marketplace Social & Commerce Users with password hashes
+ */
+export async function seedDefaultMarketplaceUsers(): Promise<void> {
+  if (!Array.isArray(inMemoryStore.marketplace_users)) {
+    inMemoryStore.marketplace_users = [];
+  }
+
+  const defaultPasswordHash = await bcrypt.hash('123456', 10);
+
+  const defaultUsers = [
+    {
+      id: 'user_current',
+      name: 'সিফাত রায়হান',
+      username: '@sifat_raihan',
+      phone: '01711223344',
+      password_hash: defaultPasswordHash,
+      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80',
+      coverPhoto: 'https://images.unsplash.com/photo-1707343843437-caacff5cfa74?auto=format&fit=crop&w=1200&q=80',
+      bio: 'সেন্ট্রাল মার্কেটপ্লেস ক্রেতা ও প্রযুক্তিপ্রেমী 🛍️ | নতুন গ্যাজেট ও অনলাইন শপিং ভালোবাসি।',
+      address: 'বাড়ি ১২, রোড ৭, সেক্টর ৪, উত্তরা',
+      location: 'উত্তরা, ঢাকা',
+      role: 'customer',
+      joinedDate: 'মার্চ ২০২৪',
+      followersCount: 248,
+      followingCount: 112,
+      friendsCount: 42,
+      friendIds: ['user_tanvir', 'user_nadia'],
+      isVerified: true,
+      verificationStatus: 'verified',
+      verificationData: {
+        docType: 'nid',
+        docNumber: '19951234567890',
+        fullName: 'সিফাত রায়হান',
+        dob: '1995-04-12',
+        submittedAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+        verifiedAt: new Date(Date.now() - 86400000 * 29).toISOString(),
+      },
+      rating: 4.9,
+      totalSales: 18,
+      totalOrders: 34,
+      blockedUserIds: [],
+      twoFactorEnabled: false,
+      privacySettings: { postVisibility: 'public', requestVisibility: 'everyone', showPhone: true },
+      notificationSettings: { messageSound: true, comments: true, orders: true },
+      activeSessions: [
+        { id: 'sess_1', deviceName: 'Chrome / Windows 11', ip: '103.114.98.22', loginAt: new Date().toISOString(), isCurrent: true }
+      ],
+      createdAt: Date.now() - 86400000 * 60,
+      updatedAt: Date.now(),
+    },
+    {
+      id: 'user_tanvir',
+      name: 'তানভীর আহমেদ',
+      username: '@tanvir_gadgets',
+      phone: '01812345678',
+      password_hash: defaultPasswordHash,
+      avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80',
+      coverPhoto: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=80',
+      bio: 'প্রিমিয়াম গ্যাজেট ও ইলেকট্রনিক্স ডিলার 💻✨ | বিশ্বস্ত কেনাকাটায় টুইংহিসাবি মার্কেটপ্লেস।',
+      address: 'দোকান ৪৫, লেভেল ৩, ইসিএস কম্পিউটার সিটি, মাল্টিপ্ল্যান',
+      location: 'নিউ এলিফ্যান্ট রোড, ঢাকা',
+      role: 'seller',
+      joinedDate: 'জানুয়ারি ২০২৪',
+      followersCount: 1250,
+      followingCount: 89,
+      friendsCount: 156,
+      friendIds: ['user_current', 'user_shuvo'],
+      isVerified: true,
+      verificationStatus: 'verified',
+      verificationData: {
+        docType: 'nid',
+        docNumber: '19909876543210',
+        fullName: 'তানভীর আহমেদ',
+        dob: '1990-11-20',
+        submittedAt: new Date(Date.now() - 86400000 * 60).toISOString(),
+        verifiedAt: new Date(Date.now() - 86400000 * 59).toISOString(),
+      },
+      rating: 5.0,
+      totalSales: 142,
+      totalOrders: 12,
+      blockedUserIds: [],
+      twoFactorEnabled: true,
+      privacySettings: { postVisibility: 'public', requestVisibility: 'everyone', showPhone: true },
+      notificationSettings: { messageSound: true, comments: true, orders: true },
+      activeSessions: [
+        { id: 'sess_tanvir', deviceName: 'iPhone 15 Pro / Safari', ip: '103.114.98.45', loginAt: new Date().toISOString(), isCurrent: true }
+      ],
+      createdAt: Date.now() - 86400000 * 90,
+      updatedAt: Date.now(),
+    },
+    {
+      id: 'user_nadia',
+      name: 'নাদিয়া সুলতানা',
+      username: '@nadia_crafts',
+      phone: '01998877665',
+      password_hash: defaultPasswordHash,
+      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
+      coverPhoto: 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=1200&q=80',
+      bio: 'হ্যান্ডমেড হোম ডেকর ও অর্গানিক কিচেন আইটেমস 🌿🏡 | সারা বাংলাদেশে হোম ডেলিভারি!',
+      address: 'ব্লক বি, লালমাটিয়া',
+      location: 'মোহাম্মদপুর, ঢাকা',
+      role: 'seller',
+      joinedDate: 'ফেব্রুয়ারি ২০২৪',
+      followersCount: 890,
+      followingCount: 310,
+      friendsCount: 88,
+      friendIds: ['user_current'],
+      isVerified: true,
+      verificationStatus: 'verified',
+      rating: 4.8,
+      totalSales: 84,
+      totalOrders: 45,
+      blockedUserIds: [],
+      createdAt: Date.now() - 86400000 * 75,
+      updatedAt: Date.now(),
+    },
+    {
+      id: 'user_shuvo',
+      name: 'শুভ রহমান',
+      username: '@shuvo_fashion',
+      phone: '01677889900',
+      password_hash: defaultPasswordHash,
+      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+      coverPhoto: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=80',
+      bio: 'প্রিমিয়াম ড্রপ শোল্ডার টি-শার্ট ও উইন্টার কালেকশন 👕🔥 | ক্যাশ অন ডেলিভারি সুবিধা।',
+      address: 'জিইসি মোড়, চট্টগ্রাম',
+      location: 'চট্টগ্রাম',
+      role: 'seller',
+      joinedDate: 'এপ্রিল ২০২৪',
+      followersCount: 520,
+      followingCount: 140,
+      friendsCount: 35,
+      friendIds: ['user_tanvir'],
+      isVerified: false,
+      verificationStatus: 'pending',
+      rating: 4.7,
+      totalSales: 39,
+      totalOrders: 19,
+      blockedUserIds: [],
+      createdAt: Date.now() - 86400000 * 45,
+      updatedAt: Date.now(),
+    },
+    {
+      id: 'user_ayesha',
+      name: 'আয়েশা খাতুন',
+      username: '@ayesha_kitchen',
+      phone: '01755667788',
+      password_hash: defaultPasswordHash,
+      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=300&q=80',
+      coverPhoto: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=1200&q=80',
+      bio: 'হোমমেড অর্গানিক মশলা ও পিউরিফাইড ঘি 🍯👩‍🍳 | পরিবারের সুস্বাস্থ্য আমাদের অঙ্গীকার।',
+      address: 'মিরপুর ১০, ঢাকা',
+      location: 'মিরপুর, ঢাকা',
+      role: 'seller',
+      joinedDate: 'মে ২০২৪',
+      followersCount: 640,
+      followingCount: 180,
+      friendsCount: 55,
+      friendIds: [],
+      isVerified: true,
+      verificationStatus: 'verified',
+      rating: 4.9,
+      totalSales: 65,
+      totalOrders: 28,
+      blockedUserIds: [],
+      createdAt: Date.now() - 86400000 * 35,
+      updatedAt: Date.now(),
+    },
+    {
+      id: 'user_fahim',
+      name: 'ফাহিম হাসান',
+      username: '@fahim_tech',
+      phone: '01899112233',
+      password_hash: defaultPasswordHash,
+      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80',
+      coverPhoto: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1200&q=80',
+      bio: 'টেক রিভিউয়ার ও স্মার্ট গ্যাজেট কালেক্টর 📱🎧 | সাশ্রয়ী কেনাকাটায় সবসময় পাশে।',
+      address: 'বনানী, ঢাকা',
+      location: 'বনানী, ঢাকা',
+      role: 'customer',
+      joinedDate: 'মার্চ ২০২৪',
+      followersCount: 1100,
+      followingCount: 220,
+      friendsCount: 94,
+      friendIds: [],
+      isVerified: true,
+      verificationStatus: 'verified',
+      rating: 4.8,
+      totalSales: 48,
+      totalOrders: 51,
+      blockedUserIds: [],
+      createdAt: Date.now() - 86400000 * 50,
+      updatedAt: Date.now(),
+    },
+  ];
+
+  for (const user of defaultUsers) {
+    const cleanDigits = user.phone.replace(/[^\d]/g, '').slice(-10);
+    const exists = inMemoryStore.marketplace_users.find(
+      (u: any) => u.phone && u.phone.replace(/[^\d]/g, '').slice(-10) === cleanDigits
+    );
+    if (!exists) {
+      inMemoryStore.marketplace_users.push(user);
+    }
+  }
+
+  // Seed default verification requests if empty
+  if (!Array.isArray(inMemoryStore.marketplace_verification_requests) || inMemoryStore.marketplace_verification_requests.length === 0) {
+    inMemoryStore.marketplace_verification_requests = [
+      {
+        id: 'verif_shuvo_01',
+        userId: 'user_shuvo',
+        userName: 'শুভ রহমান',
+        userPhone: '01677889900',
+        docType: 'nid',
+        docNumber: '19985544332211',
+        fullName: 'শুভ রহমান',
+        dob: '1998-02-14',
+        docFront: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=800&q=80',
+        docBack: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=800&q=80',
+        selfie: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80',
+        status: 'pending',
+        adminNotes: 'কাগজপত্র জমা দেওয়া হয়েছে, এনআইডি এবং সেলফি যাচাই প্রক্রিয়াধীন।',
+        submittedAt: Date.now() - 3600000 * 4,
+      },
+    ];
+  }
+
+  saveInMemoryStoreToDisk();
+}
+
+export function getClean10Digits(phone: string): string {
+  if (!phone) return '';
+  return phone.replace(/[^\d]/g, '').slice(-10);
+}
+
+export async function findMarketplaceUserByPhone(phone: string): Promise<any | null> {
+  const digits = getClean10Digits(phone);
+  if (!digits) return null;
+  if (!Array.isArray(inMemoryStore.marketplace_users)) {
+    inMemoryStore.marketplace_users = [];
+  }
+  const match = inMemoryStore.marketplace_users.find(
+    (u: any) => u.phone && getClean10Digits(u.phone) === digits
+  );
+  if (match) return match;
+
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      const res = await pool.query(
+        `SELECT * FROM marketplace_users WHERE RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = $1 LIMIT 1`,
+        [digits]
+      );
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        const u = {
+          id: row.id,
+          name: row.name,
+          username: row.username,
+          phone: row.phone,
+          password_hash: row.password_hash,
+          avatar: row.avatar,
+          coverPhoto: row.cover_photo,
+          bio: row.bio,
+          address: row.address,
+          location: row.location,
+          role: row.role || 'customer',
+          joinedDate: row.joined_date,
+          followersCount: row.followers_count || 0,
+          followingCount: row.following_count || 0,
+          friendsCount: row.friends_count || 0,
+          rating: Number(row.rating || 5.0),
+          totalSales: row.total_sales || 0,
+          totalOrders: row.total_orders || 0,
+          isVerified: row.is_verified || false,
+          verificationStatus: row.verification_status || 'unverified',
+          verificationData: row.verification_data || null,
+          twoFactorEnabled: row.two_factor_enabled || false,
+          twoFactorPin: row.two_factor_pin,
+          privacySettings: row.privacy_settings,
+          notificationSettings: row.notification_settings,
+          blockedUserIds: row.blocked_user_ids || [],
+          friendIds: row.friend_ids || [],
+          activeSessions: row.active_sessions || [],
+          createdAt: Number(row.created_at || Date.now()),
+          updatedAt: Number(row.updated_at || Date.now()),
+        };
+        inMemoryStore.marketplace_users.push(u);
+        return u;
+      }
+    } catch (e) {
+      console.debug('findMarketplaceUserByPhone DB check:', e);
+    }
+  }
+  return null;
+}
+
+export async function findMarketplaceUserByUsername(username: string): Promise<any | null> {
+  if (!username) return null;
+  const cleanU = username.trim().toLowerCase().replace(/^@/, '');
+  if (!Array.isArray(inMemoryStore.marketplace_users)) {
+    inMemoryStore.marketplace_users = [];
+  }
+  const match = inMemoryStore.marketplace_users.find(
+    (u: any) => u.username && u.username.trim().toLowerCase().replace(/^@/, '') === cleanU
+  );
+  if (match) return match;
+
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      const res = await pool.query(
+        `SELECT * FROM marketplace_users WHERE LOWER(REPLACE(username, '@', '')) = $1 LIMIT 1`,
+        [cleanU]
+      );
+      if (res.rows.length > 0) return res.rows[0];
+    } catch (e) {
+      console.debug('findMarketplaceUserByUsername DB notice:', e);
+    }
+  }
+  return null;
+}
+
+export async function findMarketplaceUserById(id: string): Promise<any | null> {
+  if (!id) return null;
+  if (!Array.isArray(inMemoryStore.marketplace_users)) {
+    inMemoryStore.marketplace_users = [];
+  }
+  const match = inMemoryStore.marketplace_users.find((u: any) => u.id === id);
+  if (match) return match;
+
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      const res = await pool.query(`SELECT * FROM marketplace_users WHERE id = $1 LIMIT 1`, [id]);
+      if (res.rows.length > 0) return res.rows[0];
+    } catch (e) {}
+  }
+  return null;
+}
+
+export async function saveMarketplaceUser(user: any): Promise<any> {
+  if (!Array.isArray(inMemoryStore.marketplace_users)) {
+    inMemoryStore.marketplace_users = [];
+  }
+  const cleanDigits = getClean10Digits(user.phone);
+  const existingIdx = inMemoryStore.marketplace_users.findIndex(
+    (u: any) => u.id === user.id || (u.phone && getClean10Digits(u.phone) === cleanDigits)
+  );
+
+  const merged = {
+    ...user,
+    updatedAt: Date.now(),
+  };
+
+  if (existingIdx >= 0) {
+    inMemoryStore.marketplace_users[existingIdx] = {
+      ...inMemoryStore.marketplace_users[existingIdx],
+      ...merged,
+    };
+  } else {
+    inMemoryStore.marketplace_users.push({
+      ...merged,
+      createdAt: merged.createdAt || Date.now(),
+    });
+  }
+  saveInMemoryStoreToDisk();
+
+  // Also write to Postgres if connected
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO marketplace_users (
+          id, name, username, phone, password_hash, avatar, cover_photo, bio, address, location,
+          role, joined_date, followers_count, following_count, friends_count, rating, total_sales,
+          total_orders, is_verified, verification_status, verification_data, two_factor_enabled,
+          two_factor_pin, privacy_settings, notification_settings, blocked_user_ids, friend_ids,
+          active_sessions, last_active_at, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+          $11, $12, $13, $14, $15, $16, $17,
+          $18, $19, $20, $21, $22,
+          $23, $24, $25, $26, $27,
+          $28, $29, $30, $31
+        ) ON CONFLICT (phone) DO UPDATE SET
+          name = EXCLUDED.name,
+          username = EXCLUDED.username,
+          password_hash = COALESCE(EXCLUDED.password_hash, marketplace_users.password_hash),
+          avatar = COALESCE(EXCLUDED.avatar, marketplace_users.avatar),
+          cover_photo = COALESCE(EXCLUDED.cover_photo, marketplace_users.cover_photo),
+          bio = COALESCE(EXCLUDED.bio, marketplace_users.bio),
+          address = COALESCE(EXCLUDED.address, marketplace_users.address),
+          location = COALESCE(EXCLUDED.location, marketplace_users.location),
+          is_verified = EXCLUDED.is_verified,
+          verification_status = EXCLUDED.verification_status,
+          verification_data = COALESCE(EXCLUDED.verification_data, marketplace_users.verification_data),
+          two_factor_enabled = EXCLUDED.two_factor_enabled,
+          privacy_settings = COALESCE(EXCLUDED.privacy_settings, marketplace_users.privacy_settings),
+          notification_settings = COALESCE(EXCLUDED.notification_settings, marketplace_users.notification_settings),
+          blocked_user_ids = COALESCE(EXCLUDED.blocked_user_ids, marketplace_users.blocked_user_ids),
+          friend_ids = COALESCE(EXCLUDED.friend_ids, marketplace_users.friend_ids),
+          updated_at = EXCLUDED.updated_at`,
+        [
+          merged.id,
+          merged.name,
+          merged.username,
+          merged.phone,
+          merged.password_hash || '',
+          merged.avatar || '',
+          merged.coverPhoto || '',
+          merged.bio || '',
+          merged.address || '',
+          merged.location || '',
+          merged.role || 'customer',
+          merged.joinedDate || 'মার্চ ২০২৪',
+          merged.followersCount || 0,
+          merged.followingCount || 0,
+          merged.friendsCount || 0,
+          merged.rating || 5.0,
+          merged.totalSales || 0,
+          merged.totalOrders || 0,
+          merged.isVerified || false,
+          merged.verificationStatus || 'unverified',
+          JSON.stringify(merged.verificationData || null),
+          merged.twoFactorEnabled || false,
+          merged.twoFactorPin || null,
+          JSON.stringify(merged.privacySettings || {}),
+          JSON.stringify(merged.notificationSettings || {}),
+          JSON.stringify(merged.blockedUserIds || []),
+          JSON.stringify(merged.friendIds || []),
+          JSON.stringify(merged.activeSessions || []),
+          Date.now(),
+          merged.createdAt || Date.now(),
+          Date.now(),
+        ]
+      );
+    } catch (dbErr) {
+      console.warn('saveMarketplaceUser DB error:', dbErr);
+    }
+  }
+
+  return merged;
+}
+
+export function getAllMarketplaceUsersList(): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_users)) {
+    inMemoryStore.marketplace_users = [];
+  }
+  return inMemoryStore.marketplace_users;
+}
+
+export async function saveVerificationRequest(record: any): Promise<any> {
+  if (!Array.isArray(inMemoryStore.marketplace_verification_requests)) {
+    inMemoryStore.marketplace_verification_requests = [];
+  }
+  const existingIdx = inMemoryStore.marketplace_verification_requests.findIndex((r: any) => r.id === record.id);
+  if (existingIdx >= 0) {
+    inMemoryStore.marketplace_verification_requests[existingIdx] = {
+      ...inMemoryStore.marketplace_verification_requests[existingIdx],
+      ...record,
+    };
+  } else {
+    inMemoryStore.marketplace_verification_requests.unshift(record);
+  }
+  saveInMemoryStoreToDisk();
+
+  const pool = getDbPool();
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO marketplace_verification_requests (
+          id, user_id, user_name, user_phone, doc_type, doc_number, full_name, dob,
+          doc_front, doc_back, selfie, status, admin_notes, submitted_at, reviewed_at, reviewed_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ON CONFLICT (id) DO UPDATE SET
+          status = EXCLUDED.status,
+          admin_notes = EXCLUDED.admin_notes,
+          reviewed_at = EXCLUDED.reviewed_at,
+          reviewed_by = EXCLUDED.reviewed_by`,
+        [
+          record.id,
+          record.userId,
+          record.userName,
+          record.userPhone,
+          record.docType,
+          record.docNumber || null,
+          record.fullName,
+          record.dob || null,
+          record.docFront,
+          record.docBack || null,
+          record.selfie,
+          record.status || 'pending',
+          record.adminNotes || null,
+          record.submittedAt || Date.now(),
+          record.reviewedAt || null,
+          record.reviewedBy || null,
+        ]
+      );
+    } catch (e) {
+      console.warn('saveVerificationRequest DB error:', e);
+    }
+  }
+
+  return record;
+}
+
+export function getVerificationRequestsList(): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_verification_requests)) {
+    inMemoryStore.marketplace_verification_requests = [];
+  }
+  return inMemoryStore.marketplace_verification_requests;
+}
+
