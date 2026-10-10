@@ -3567,14 +3567,15 @@ export function updateMarketplaceUserProfile(userId: string, updateData: any): a
     inMemoryStore.marketplace_users = [];
   }
   const idx = inMemoryStore.marketplace_users.findIndex((u: any) => u.id === userId);
+  let updatedUser: any;
   if (idx >= 0) {
     inMemoryStore.marketplace_users[idx] = {
       ...inMemoryStore.marketplace_users[idx],
       ...updateData,
       updatedAt: Date.now(),
     };
+    updatedUser = inMemoryStore.marketplace_users[idx];
     saveInMemoryStoreToDisk();
-    return inMemoryStore.marketplace_users[idx];
   } else {
     const newUser = {
       id: userId,
@@ -3583,9 +3584,39 @@ export function updateMarketplaceUserProfile(userId: string, updateData: any): a
       updatedAt: Date.now(),
     };
     inMemoryStore.marketplace_users.push(newUser);
+    updatedUser = newUser;
     saveInMemoryStoreToDisk();
-    return newUser;
   }
+
+  // Also persist avatar, coverPhoto, name, phone, bio etc. to PostgreSQL if pool is active
+  const pool = getDbPool();
+  if (pool && updatedUser) {
+    pool.query(
+      `UPDATE marketplace_users SET
+        avatar = COALESCE($1, avatar),
+        cover_photo = COALESCE($2, cover_photo),
+        name = COALESCE($3, name),
+        bio = COALESCE($4, bio),
+        location = COALESCE($5, location),
+        address = COALESCE($6, address),
+        updated_at = $7
+      WHERE id = $8`,
+      [
+        updatedUser.avatar || null,
+        updatedUser.coverPhoto || null,
+        updatedUser.name || null,
+        updatedUser.bio || null,
+        updatedUser.location || null,
+        updatedUser.address || null,
+        Date.now(),
+        userId
+      ]
+    ).catch((err) => {
+      console.warn('updateMarketplaceUserProfile DB sync note:', err?.message);
+    });
+  }
+
+  return updatedUser;
 }
 
 

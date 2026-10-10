@@ -187,14 +187,17 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
         {/* ========================================================================= */}
       <div className="w-full max-w-[1440px] mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-4">
         
-        {/* ১ম অংশ: TWING লোগো (পর্যাপ্ত প্যাডিং, কোনো চাপা ভাব ছাড়া, নিচের লেখা রিমুভড) */}
+        {/* ১ম অংশ: TWING লোগো এবং নিচে ছোট করে ইংরেজিতে Central Marketplace */}
         <div
           onClick={() => onTabChange('feed')}
-          className="flex items-center select-none cursor-pointer group shrink-0 justify-center px-3 sm:px-4 py-2 rounded-2xl hover:bg-blue-50/60 transition"
-          title="TWING"
+          className="flex flex-col select-none cursor-pointer group shrink-0 justify-center px-2 sm:px-3 py-1.5 rounded-2xl hover:bg-blue-50/60 transition"
+          title="TWING Central Marketplace"
         >
           <span className="text-2xl sm:text-3xl font-black text-[#1877F2] tracking-tight leading-none group-hover:opacity-95 transition">
             TWING
+          </span>
+          <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-500 leading-tight mt-0.5">
+            Central Marketplace
           </span>
         </div>
 

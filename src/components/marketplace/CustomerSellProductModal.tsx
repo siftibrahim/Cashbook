@@ -66,7 +66,7 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
     try {
       const base64List: string[] = [];
       for (const f of validation.imageFiles) {
-        const b64 = await fileToBase64(f);
+        const b64 = await fileToBase64(f, 800, 0.72);
         base64List.push(b64);
       }
       setImages((prev) => [...prev, ...base64List].slice(0, 4));
@@ -79,7 +79,7 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
     setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -102,12 +102,12 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
     setIsSubmitting(true);
     try {
       const product = marketplaceSocialService.uploadCustomerProduct({
-        name,
+        name: name.trim(),
         category,
         salePrice: priceNum,
         regularPrice: regularPrice ? parseFloat(regularPrice) : undefined,
         condition,
-        description,
+        description: description.trim(),
         images,
       });
 
@@ -115,8 +115,9 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
       onSuccess(product);
       onClose();
     } catch (err: any) {
+      console.error('Upload product failure:', err);
       setIsSubmitting(false);
-      setErrorMsg(err.message || 'পণ্য আপলোড ব্যর্থ হয়েছে।');
+      setErrorMsg(err?.message || 'পণ্য আপলোড করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
     }
   };
 

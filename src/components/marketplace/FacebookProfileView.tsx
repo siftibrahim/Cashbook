@@ -22,6 +22,7 @@ import {
   Settings,
   LogOut,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 import {
   CustomerProfile,
@@ -35,6 +36,7 @@ import {
 } from '../../services/marketplaceSocialService';
 import { formatMoney } from '../../utils/storage';
 import { BlockConfirmModal } from './BlockConfirmModal';
+import { ProductBoostModal } from './ProductBoostModal';
 
 interface FacebookProfileViewProps {
   profile: CustomerProfile;
@@ -79,6 +81,7 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
   const [editError, setEditError] = useState('');
 
   const [blockModalOpen, setBlockModalOpen] = useState(false);
+  const [boostTargetProduct, setBoostTargetProduct] = useState<CustomerProductItem | null>(null);
 
   const coverInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -132,13 +135,14 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
     }
 
     try {
-      const base64 = await fileToBase64(validation.imageFiles[0]);
+      const base64 = await fileToBase64(validation.imageFiles[0], 1200, 0.78);
       setCurrentCover(base64);
       const updated = marketplaceSocialService.updateCurrentProfile({ coverPhoto: base64 });
       onProfileUpdated?.(updated);
       onShowToast?.('কভার ফটো সফলভাবে পরিবর্তন করা হয়েছে!');
     } catch (err: any) {
-      onShowToast?.('ছবি আপলোডে সমস্যা হয়েছে');
+      console.error('Cover upload error:', err);
+      onShowToast?.('ছবি আপলোডে সমস্যা হয়েছে: ' + (err?.message || 'পুনরায় চেষ্টা করুন'));
     }
   };
 
@@ -155,13 +159,14 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
     }
 
     try {
-      const base64 = await fileToBase64(validation.imageFiles[0]);
+      const base64 = await fileToBase64(validation.imageFiles[0], 600, 0.78);
       setCurrentAvatar(base64);
       const updated = marketplaceSocialService.updateCurrentProfile({ avatar: base64 });
       onProfileUpdated?.(updated);
       onShowToast?.('প্রোফাইল ছবি সফলভাবে পরিবর্তন করা হয়েছে!');
     } catch (err: any) {
-      onShowToast?.('ছবি আপলোডে সমস্যা হয়েছে');
+      console.error('Avatar upload error:', err);
+      onShowToast?.('ছবি আপলোডে সমস্যা হয়েছে: ' + (err?.message || 'পুনরায় চেষ্টা করুন'));
     }
   };
 
@@ -596,9 +601,9 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
                   </div>
                 </div>
 
-                <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
+                <div className="p-3 bg-slate-50 border-t border-slate-100 flex flex-col gap-2">
                   {!isOwnProfile ? (
-                    <>
+                    <div className="flex items-center justify-between gap-2">
                       <button
                         type="button"
                         onClick={() => onStartChatWithUser?.(prod.sellerId, prod)}
@@ -613,11 +618,31 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
                       >
                         এখনই কিনুন
                       </button>
-                    </>
+                    </div>
                   ) : (
-                    <span className="text-[11px] font-bold text-emerald-600 w-full text-center py-1">
-                      ✅ আপনার পণ্যটি মার্কেটপ্লেসে সক্রিয় রয়েছে
-                    </span>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className="text-emerald-600 flex items-center gap-1">
+                          ✅ মার্কেটপ্লেসে সক্রিয়
+                        </span>
+                        {prod.isPromoted && (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-black rounded-md flex items-center gap-1">
+                            <Zap className="w-3 h-3 fill-amber-500 text-amber-500" />
+                            <span>বুস্টেড পণ্য</span>
+                          </span>
+                        )}
+                      </div>
+                      {/* শুধুমাত্র পণ্যের মূল মালিকের প্রোফাইলে তার নিজের পণ্যের নিচে প্রমোট অপশন থাকবে */}
+                      <button
+                        type="button"
+                        onClick={() => setBoostTargetProduct(prod)}
+                        className="w-full py-2 px-3 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white font-black text-xs rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-98"
+                        title="সুপার এডমিনের মাধ্যমে আপনার এই পণ্যটি প্রমোট বা বুস্ট করুন"
+                      >
+                        <Zap className="w-3.5 h-3.5 fill-white" />
+                        <span>{prod.isPromoted ? 'পুনরায় বুস্ট করুন' : 'পণ্য প্রমোট / বুস্ট করুন'}</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -773,6 +798,21 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
           onClose={() => setBlockModalOpen(false)}
           targetUserName={profile.name}
           onConfirmBlock={handleConfirmBlock}
+        />
+      )}
+
+      {/* Product Boost Modal (Strictly triggered from owner's profile) */}
+      {boostTargetProduct && (
+        <ProductBoostModal
+          isOpen={true}
+          onClose={() => setBoostTargetProduct(null)}
+          product={boostTargetProduct}
+          currentProfile={profile}
+          onShowToast={onShowToast}
+          onBoostSubmitted={() => {
+            setBoostTargetProduct(null);
+            onShowToast?.('বুস্ট রিকোয়েস্ট সফলভাবে জমা হয়েছে!');
+          }}
         />
       )}
     </div>

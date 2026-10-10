@@ -334,16 +334,18 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
                     </button>
                   </div>
 
-                  {/* Promote & Social Share Row */}
-                  <div className="grid grid-cols-2 gap-2.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setIsBoostModalOpen(true)}
-                      className="py-2.5 px-3 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white font-black text-xs rounded-2xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 fill-white" />
-                      <span>পণ্য প্রমোট / বুস্ট করুন</span>
-                    </button>
+                  {/* Promote & Social Share Row (Promote is strictly for the product owner) */}
+                  <div className={`grid ${currentProfile?.id && (currentProfile.id === (product as any).sellerId || currentProfile.id === (product as any).authorId) ? 'grid-cols-2' : 'grid-cols-1'} gap-2.5 pt-1`}>
+                    {currentProfile?.id && (currentProfile.id === (product as any).sellerId || currentProfile.id === (product as any).authorId) && (
+                      <button
+                        type="button"
+                        onClick={() => setIsBoostModalOpen(true)}
+                        className="py-2.5 px-3 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white font-black text-xs rounded-2xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 fill-white" />
+                        <span>পণ্য প্রমোট / বুস্ট করুন</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setIsShareModalOpen(true)}

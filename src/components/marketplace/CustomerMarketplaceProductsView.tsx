@@ -453,23 +453,12 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {/* Promote / Boost Button */}
-                      <button
-                        type="button"
-                        onClick={() => setBoostProduct(prod)}
-                        className="px-2 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-black text-[10px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs"
-                        title="সুপার এডমিনের মাধ্যমে পণ্যটি প্রমোট বা বুস্ট করুন"
-                      >
-                        <Zap className="w-3 h-3 fill-white" />
-                        <span>{prod.isPromoted ? 'পুনরায় বুস্ট' : 'প্রমোট / বুস্ট'}</span>
-                      </button>
-
-                      {/* Share Button */}
+                    {/* Share Button (Public action) */}
+                    <div>
                       <button
                         type="button"
                         onClick={() => setShareProduct(prod)}
-                        className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
+                        className="w-full px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
                         title="শেয়ার করুন"
                       >
                         <Share2 className="w-3 h-3 text-slate-500" />

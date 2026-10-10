@@ -44,11 +44,51 @@ export function validateImageFiles(files: FileList | File[]): { valid: boolean; 
   return { valid: true, imageFiles: fileArray };
 }
 
-// Convert File to base64
-export function fileToBase64(file: File): Promise<string> {
+// Convert File to compressed base64 image (max 1024px, jpeg quality 0.8) to prevent localStorage quota errors
+export function fileToBase64(file: File, maxWidth = 1000, quality = 0.78): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
+    reader.onload = (readerEvent) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let { width, height } = img;
+          if (width > maxWidth || height > maxWidth) {
+            if (width > height) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            } else {
+              width = Math.round((width * maxWidth) / height);
+              height = maxWidth;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(readerEvent.target?.result as string);
+            return;
+          }
+
+          // Use better image smoothing
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Always compress to JPEG for optimal storage size
+          const compressed = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressed);
+        } catch (e) {
+          resolve(readerEvent.target?.result as string);
+        }
+      };
+      img.onerror = () => {
+        resolve(readerEvent.target?.result as string);
+      };
+      img.src = readerEvent.target?.result as string;
+    };
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
@@ -508,9 +548,15 @@ export const marketplaceSocialService = {
       const loggedOut = localStorage.getItem('mkt_fb_logged_out_flag');
       if (loggedOut === 'true') return false;
       const stored = localStorage.getItem(PROFILE_KEY);
-      if (stored) return true;
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.id && parsed.phone) return true;
+      }
       const verified = localStorage.getItem('twing_verified_customer_profile');
-      if (verified) return true;
+      if (verified) {
+        const parsedV = JSON.parse(verified);
+        if (parsedV && parsedV.phone) return true;
+      }
     } catch (e) {}
     return false;
   },
@@ -753,7 +799,6 @@ export const marketplaceSocialService = {
     } catch (e) {}
 
     const defaultProfile = INITIAL_PROFILES[0];
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(defaultProfile));
     return defaultProfile;
   },
 
@@ -764,7 +809,11 @@ export const marketplaceSocialService = {
       ...updates,
       blockedUserIds: updates.blockedUserIds ?? current.blockedUserIds ?? [],
     };
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(updated));
+    try {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Quota error setting PROFILE_KEY, trying compressed fallback:', e);
+    }
 
     // 1. Update in profiles directory
     const directory = this.getProfilesDirectory();
@@ -774,7 +823,11 @@ export const marketplaceSocialService = {
     } else {
       directory.unshift(updated);
     }
-    localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(directory));
+    try {
+      localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(directory));
+    } catch (e) {
+      console.warn('Quota error setting PROFILES_DIRECTORY_KEY:', e);
+    }
 
     // 2. Cascade avatar & name updates across all POSTS & COMMENTS
     try {
@@ -1461,7 +1514,24 @@ export const marketplaceSocialService = {
     };
 
     const updated = [newProduct, ...products];
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updated));
+    try {
+      localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updated));
+    } catch (quotaErr) {
+      console.warn('LocalStorage quota exceeded on products, trimming older items:', quotaErr);
+      // Prune products or downsize image payloads to fit within quota
+      const lightweightList = updated.slice(0, 30).map((p, idx) => {
+        if (idx > 5 && p.images && p.images.length > 1) {
+          return { ...p, images: [p.images[0]] };
+        }
+        return p;
+      });
+      try {
+        localStorage.setItem(PRODUCTS_KEY, JSON.stringify(lightweightList));
+      } catch (secondErr) {
+        // Fallback: keep top 15
+        localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updated.slice(0, 15)));
+      }
+    }
 
     // Persist user product to backend database
     try {
@@ -2052,6 +2122,25 @@ export const marketplaceSocialService = {
         const data = await usersRes.json();
         if (data.success && Array.isArray(data.users) && data.users.length > 0) {
           localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(data.users));
+          // If the current profile matches an updated user in the directory, sync its avatar/cover if set
+          if (profile?.id) {
+            const serverProfile = data.users.find((u: any) => u.id === profile.id);
+            if (serverProfile) {
+              const localRaw = localStorage.getItem(PROFILE_KEY);
+              if (localRaw) {
+                const localObj = JSON.parse(localRaw);
+                // Only take server values if local doesn't have a fresher custom upload, or merge safely
+                const mergedCurrent = {
+                  ...serverProfile,
+                  avatar: localObj.avatar || serverProfile.avatar,
+                  coverPhoto: localObj.coverPhoto || serverProfile.coverPhoto,
+                  bio: localObj.bio || serverProfile.bio,
+                  name: localObj.name || serverProfile.name,
+                };
+                localStorage.setItem(PROFILE_KEY, JSON.stringify(mergedCurrent));
+              }
+            }
+          }
         }
       }
 

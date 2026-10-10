@@ -641,17 +641,6 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                          {/* Promote / Boost Product Button */}
-                          <button
-                            type="button"
-                            onClick={() => setBoostTargetProduct(post.linkedProduct)}
-                            className="px-2.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1"
-                            title="সুপার এডমিনের মাধ্যমে পণ্যটি প্রমোট বা বুস্ট করুন"
-                          >
-                            <Zap className="w-3 h-3 fill-white" />
-                            <span>প্রমোট</span>
-                          </button>
-
                           {!isOwnPost && (
                             <button
                               type="button"

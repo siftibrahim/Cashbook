@@ -368,6 +368,10 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         if (e.detail.user) {
           setCurrentProfile(e.detail.user);
         }
+        if (e.detail.isLoggedIn) {
+          setFbTab('profile');
+          setViewingProfileUserId(null);
+        }
       }
       refreshSocialData();
     };
@@ -1266,6 +1270,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         onSuccess={(user) => {
           setCurrentProfile(user);
           setIsLoggedIn(true);
+          setFbTab('profile');
+          setViewingProfileUserId(null);
           showToast(`🎉 স্বাগতম ${user.name}! সফলভাবে সেন্ট্রাল মার্কেটপ্লেসে প্রবেশ করেছেন।`);
           refreshSocialData();
         }}
