@@ -1,5 +1,26 @@
 export type SocialReactionType = 'like' | 'love' | 'care' | 'haha' | 'wow' | 'sad' | 'angry';
 
+export interface SellerPaymentSettings {
+  acceptsBkash?: boolean;
+  bkashNumber?: string;
+  bkashType?: 'personal' | 'merchant' | 'agent';
+  acceptsNagad?: boolean;
+  nagadNumber?: string;
+  nagadType?: 'personal' | 'merchant';
+  acceptsRocket?: boolean;
+  rocketNumber?: string;
+  acceptsBank?: boolean;
+  bankName?: string;
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankBranch?: string;
+  bankRoutingNumber?: string;
+  acceptsCod?: boolean;
+  acceptCod?: boolean; // ক্যাশ অন ডেলিভারি
+  instructions?: string;
+  paymentInstructions?: string; // বিশেষ পেমেন্ট নোট / নির্দেশিকা
+}
+
 export type FriendRequestStatus = 'pending' | 'accepted' | 'rejected';
 
 export interface FriendRequest {
@@ -45,6 +66,15 @@ export interface CustomerProfile {
   totalSales: number;
   totalOrders: number;
   blockedUserIds: string[];
+  isBlocked?: boolean;
+  blockReason?: string;
+  blockedAt?: string;
+  isTopRated?: boolean;
+  isModerator?: boolean;
+  canPost?: boolean;
+  canSell?: boolean;
+  feeExempt?: boolean;
+  customPowers?: string[];
   twoFactorEnabled?: boolean;
   twoFactorPin?: string;
   privacySettings?: {
@@ -72,6 +102,7 @@ export interface CustomerProfile {
     fontSize?: 'normal' | 'medium' | 'large';
     language?: 'bn' | 'en';
   };
+  sellerPaymentSettings?: SellerPaymentSettings;
   activeSessions?: Array<{
     id: string;
     deviceName: string;
@@ -135,11 +166,40 @@ export interface SocialPost {
     label: string;
   };
   linkedProduct?: LinkedProduct;
+  sharedPost?: SocialPost;
+  sharedProduct?: LinkedProduct;
+  isShared?: boolean;
+  sharedCaption?: string;
+  originalAuthorName?: string;
   createdAt: string;
   reactions: Record<SocialReactionType, number>;
   userReactions: Record<string, SocialReactionType>; // customerId -> reactionType
   comments: SocialComment[];
   sharesCount: number;
+}
+
+export interface MarketplaceBoostRequest {
+  id: string;
+  productId: string;
+  productName: string;
+  productImage: string;
+  productPrice: number;
+  sellerId: string;
+  sellerName: string;
+  sellerPhone: string;
+  sellerUsername?: string;
+  packageId: 'boost_3d' | 'boost_7d' | 'boost_15d' | 'boost_30d';
+  packageName: string;
+  days: number;
+  amount: number;
+  paymentMethod: 'bkash' | 'nagad' | 'rocket' | 'manual';
+  senderNumber: string;
+  trxId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  adminNotes?: string;
+  requestedAt: string;
+  approvedAt?: string;
+  expiresAt?: string;
 }
 
 export interface CustomerProductItem {
@@ -159,6 +219,12 @@ export interface CustomerProductItem {
   images: string[];
   imageUrl: string;
   inStock: boolean;
+  sellerPaymentSettings?: SellerPaymentSettings;
+  isPromoted?: boolean;
+  promotedBadge?: string;
+  promotedUntil?: string;
+  promotedAt?: string;
+  boostPriority?: number;
   createdAt: string;
 }
 

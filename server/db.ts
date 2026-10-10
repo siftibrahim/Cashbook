@@ -95,6 +95,12 @@ export const inMemoryStore: {
   vendor_payout_requests: any[];
   marketplace_users: any[];
   marketplace_verification_requests: any[];
+  marketplace_posts: any[];
+  marketplace_products: any[];
+  marketplace_chat_messages: any[];
+  marketplace_notifications: any[];
+  marketplace_friend_requests: any[];
+  marketplace_user_friends: any[];
 } = {
   users: [],
   stores: [],
@@ -123,6 +129,12 @@ export const inMemoryStore: {
   vendor_payout_requests: [],
   marketplace_users: [],
   marketplace_verification_requests: [],
+  marketplace_posts: [],
+  marketplace_products: [],
+  marketplace_chat_messages: [],
+  marketplace_notifications: [],
+  marketplace_friend_requests: [],
+  marketplace_user_friends: [],
 };
 
 /**
@@ -1500,6 +1512,105 @@ export async function initializeDatabaseSchema() {
       );
       CREATE INDEX IF NOT EXISTS idx_mkt_verif_user ON marketplace_verification_requests(user_id);
       CREATE INDEX IF NOT EXISTS idx_mkt_verif_status ON marketplace_verification_requests(status);
+
+      -- 9. Marketplace Posts Table
+      CREATE TABLE IF NOT EXISTS marketplace_posts (
+        id VARCHAR(100) PRIMARY KEY,
+        author_id VARCHAR(100) NOT NULL,
+        author_name VARCHAR(150) NOT NULL,
+        author_username VARCHAR(100),
+        author_avatar TEXT,
+        author_verified BOOLEAN DEFAULT false,
+        content TEXT NOT NULL,
+        images JSONB DEFAULT '[]',
+        feeling JSONB,
+        linked_product JSONB,
+        reactions JSONB DEFAULT '{"like":0,"love":0,"care":0,"haha":0,"wow":0,"sad":0,"angry":0}',
+        user_reactions JSONB DEFAULT '{}',
+        comments JSONB DEFAULT '[]',
+        shares_count INT DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_mkt_posts_author ON marketplace_posts(author_id);
+      CREATE INDEX IF NOT EXISTS idx_mkt_posts_created ON marketplace_posts(created_at);
+
+      -- 10. Marketplace Products Table
+      CREATE TABLE IF NOT EXISTS marketplace_products (
+        id VARCHAR(100) PRIMARY KEY,
+        seller_id VARCHAR(100) NOT NULL,
+        seller_name VARCHAR(150) NOT NULL,
+        seller_username VARCHAR(100),
+        seller_avatar TEXT,
+        seller_phone VARCHAR(50),
+        seller_location VARCHAR(150),
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        sale_price NUMERIC NOT NULL,
+        regular_price NUMERIC,
+        category VARCHAR(100),
+        condition VARCHAR(50) DEFAULT 'new',
+        images JSONB DEFAULT '[]',
+        image_url TEXT,
+        in_stock BOOLEAN DEFAULT true,
+        seller_payment_settings JSONB,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_mkt_products_seller ON marketplace_products(seller_id);
+      CREATE INDEX IF NOT EXISTS idx_mkt_products_created ON marketplace_products(created_at);
+
+      -- 11. Marketplace Chat Messages Table
+      CREATE TABLE IF NOT EXISTS marketplace_chat_messages (
+        id VARCHAR(100) PRIMARY KEY,
+        sender_id VARCHAR(100) NOT NULL,
+        receiver_id VARCHAR(100) NOT NULL,
+        text TEXT NOT NULL,
+        timestamp TIMESTAMPTZ DEFAULT NOW(),
+        product_context JSONB,
+        read BOOLEAN DEFAULT false
+      );
+      CREATE INDEX IF NOT EXISTS idx_mkt_chat_sender ON marketplace_chat_messages(sender_id);
+      CREATE INDEX IF NOT EXISTS idx_mkt_chat_receiver ON marketplace_chat_messages(receiver_id);
+
+      -- 12. Marketplace Notifications Table
+      CREATE TABLE IF NOT EXISTS marketplace_notifications (
+        id VARCHAR(100) PRIMARY KEY,
+        recipient_id VARCHAR(100) NOT NULL,
+        sender_id VARCHAR(100) NOT NULL,
+        sender_name VARCHAR(150) NOT NULL,
+        sender_avatar TEXT,
+        type VARCHAR(50) NOT NULL,
+        text TEXT NOT NULL,
+        target_id VARCHAR(100),
+        reaction_type VARCHAR(20),
+        read BOOLEAN DEFAULT false,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_mkt_notif_recipient ON marketplace_notifications(recipient_id);
+
+      -- 13. Marketplace Friend Requests & Friends Table
+      CREATE TABLE IF NOT EXISTS marketplace_friend_requests (
+        id VARCHAR(100) PRIMARY KEY,
+        sender_id VARCHAR(100) NOT NULL,
+        receiver_id VARCHAR(100) NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_mkt_fr_sender ON marketplace_friend_requests(sender_id);
+      CREATE INDEX IF NOT EXISTS idx_mkt_fr_receiver ON marketplace_friend_requests(receiver_id);
+
+      CREATE TABLE IF NOT EXISTS marketplace_user_friends (
+        id VARCHAR(100) PRIMARY KEY,
+        user_id VARCHAR(100) NOT NULL,
+        friend_id VARCHAR(100) NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_mkt_uf_user ON marketplace_user_friends(user_id);
+
+      -- Alter marketplace_users to ensure seller_payment_settings column exists
+      ALTER TABLE marketplace_users ADD COLUMN IF NOT EXISTS seller_payment_settings JSONB;
     `);
 
     // Seed default admin and system configs if not present
@@ -2759,4 +2870,722 @@ export function getVerificationRequestsList(): any[] {
   }
   return inMemoryStore.marketplace_verification_requests;
 }
+
+// =========================================================================
+// MARKETPLACE SOCIAL PERSISTENT DATABASE ENGINE
+// =========================================================================
+
+export function seedDefaultMarketplaceSocialData() {
+  if (!Array.isArray(inMemoryStore.marketplace_users) || inMemoryStore.marketplace_users.length === 0) {
+    inMemoryStore.marketplace_users = [
+      {
+        id: 'user_current',
+        name: 'সিফাত রায়হান',
+        username: '@sifat_raihan',
+        phone: '01306908115',
+        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80',
+        coverPhoto: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1200&q=80',
+        bio: 'সেন্ট্রাল মার্কেটপ্লেস ক্রিয়েটর ও এন্টারপ্রেনার 🚀',
+        location: 'উত্তরা, ঢাকা',
+        address: 'সেক্টর ৪, উত্তরা, ঢাকা',
+        role: 'customer',
+        joinedDate: 'মার্চ ২০২৪',
+        followersCount: 1420,
+        followingCount: 380,
+        friendsCount: 54,
+        rating: 5.0,
+        totalSales: 12,
+        totalOrders: 8,
+        isVerified: true,
+        verificationStatus: 'verified',
+        sellerPaymentSettings: {
+          acceptsBkash: true,
+          bkashNumber: '01306908115',
+          bkashType: 'personal',
+          acceptsNagad: true,
+          nagadNumber: '01306908115',
+          nagadType: 'personal',
+          acceptsRocket: false,
+          acceptsCod: true,
+          instructions: 'বিকাশ বা নগদে সেন্ড মানি করে লাস্ট ৪ ডিজিট চ্যাটে জানান।',
+        },
+      },
+      {
+        id: 'user_tanvir',
+        name: 'তানভীর আহমেদ',
+        username: '@tanvir_gadgets',
+        phone: '01711223344',
+        avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80',
+        coverPhoto: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80',
+        bio: 'অথেনটিক অ্যাপল ও গ্যাজেট রিসেলার 📱✨',
+        location: 'নিউ এলিফ্যান্ট রোড, ঢাকা',
+        address: 'মাল্টিপ্ল্যান সেন্টার, ঢাকা',
+        role: 'seller',
+        joinedDate: 'জানুয়ারি ২০২৪',
+        followersCount: 3200,
+        followingCount: 150,
+        friendsCount: 92,
+        rating: 4.9,
+        totalSales: 84,
+        totalOrders: 15,
+        isVerified: true,
+        verificationStatus: 'verified',
+        sellerPaymentSettings: {
+          acceptsBkash: true,
+          bkashNumber: '01711223344',
+          bkashType: 'merchant',
+          acceptsNagad: true,
+          nagadNumber: '01711223344',
+          acceptsCod: true,
+          instructions: 'সারা দেশে হোম ডেলিভারি ও ক্যাশ অন ডেলিভারি দেওয়া হয়।',
+        },
+      },
+      {
+        id: 'user_nadia',
+        name: 'নাদিয়া সুলতানা',
+        username: '@nadia_crafts',
+        phone: '01998877665',
+        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
+        coverPhoto: 'https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=1200&q=80',
+        bio: 'হ্যান্ডমেড কাঠের কারুশিল্প ও হোম ডেকর 🌿',
+        location: 'মোহাম্মদপুর, ঢাকা',
+        address: 'আসাদ এভিনিউ, ঢাকা',
+        role: 'seller',
+        joinedDate: 'ফেব্রুয়ারি ২০২৪',
+        followersCount: 1850,
+        followingCount: 220,
+        friendsCount: 68,
+        rating: 5.0,
+        totalSales: 45,
+        totalOrders: 20,
+        isVerified: true,
+        verificationStatus: 'verified',
+        sellerPaymentSettings: {
+          acceptsBkash: true,
+          bkashNumber: '01998877665',
+          bkashType: 'personal',
+          acceptsNagad: true,
+          nagadNumber: '01998877665',
+          acceptsCod: true,
+        },
+      },
+      {
+        id: 'user_shuvo',
+        name: 'শুভ রহমান',
+        username: '@shuvo_fashion',
+        phone: '01677889900',
+        avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+        coverPhoto: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=80',
+        bio: 'মিনিমালিস্ট ও ওভারসাইজড স্ট্রিটওয়্যার ফ্যাশন 👕',
+        location: 'জিইসি মোড়, চট্টগ্রাম',
+        address: 'জিইসি সার্কেল, চট্টগ্রাম',
+        role: 'seller',
+        joinedDate: 'এপ্রিল ২০২৪',
+        followersCount: 940,
+        followingCount: 110,
+        friendsCount: 42,
+        rating: 4.8,
+        totalSales: 31,
+        totalOrders: 10,
+        isVerified: true,
+        verificationStatus: 'verified',
+        sellerPaymentSettings: {
+          acceptsBkash: true,
+          bkashNumber: '01677889900',
+          bkashType: 'personal',
+          acceptsNagad: true,
+          nagadNumber: '01677889900',
+          acceptsCod: true,
+        },
+      },
+    ];
+  }
+
+  if (!Array.isArray(inMemoryStore.marketplace_posts) || inMemoryStore.marketplace_posts.length === 0) {
+    inMemoryStore.marketplace_posts = [
+      {
+        id: 'post_1',
+        authorId: 'user_tanvir',
+        authorName: 'তানভীর আহমেদ',
+        authorUsername: '@tanvir_gadgets',
+        authorAvatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80',
+        authorVerified: true,
+        content: 'আসসালামু আলাইকুম সবাইকে! আমার নতুন কেনা AirPods Pro 2nd Gen আপগ্রেডের কারণে সেল করে দিচ্ছি। যারা অথেনটিক অ্যাপল প্রোডাক্ট খুঁজছেন ইনবক্স করতে পারেন অথবা নিচে সরাসরি অর্ডার করতে পারেন। ক্যাশ অন ডেলিভারি সাপোর্ট আছে!',
+        images: [
+          'https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?auto=format&fit=crop&w=800&q=80',
+          'https://images.unsplash.com/photo-1588423771073-b8903fbb85b5?auto=format&fit=crop&w=800&q=80',
+        ],
+        feeling: { emoji: '🎧', label: 'নতুন গ্যাজেট এক্সপ্লোর করছি' },
+        linkedProduct: {
+          id: 'cprod_1',
+          name: 'Apple AirPods Pro 2nd Gen (Type-C) - একদম ফ্রেশ কন্ডিশন',
+          salePrice: 18500,
+          regularPrice: 24500,
+          imageUrl: 'https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?auto=format&fit=crop&w=800&q=80',
+          category: 'ইলেকট্রনিক্স ও গ্যাজেট',
+          condition: 'like_new',
+          location: 'নিউ এলিফ্যান্ট রোড, ঢাকা',
+        },
+        createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+        reactions: { like: 42, love: 28, care: 7, haha: 1, wow: 15, sad: 0, angry: 0 },
+        userReactions: {},
+        comments: [
+          {
+            id: 'comm_1',
+            authorId: 'user_current',
+            authorName: 'সিফাত রায়হান',
+            authorUsername: '@sifat_raihan',
+            authorAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80',
+            content: 'ভাইয়া ব্যাটারি ব্যাকআপ একটানা কতক্ষণ পাওয়া যায়? ঢাকা উত্তরায় কি ক্যাশ অন ডেলিভারি হবে?',
+            createdAt: new Date(Date.now() - 3600000 * 1.5).toISOString(),
+          },
+          {
+            id: 'comm_2',
+            authorId: 'user_tanvir',
+            authorName: 'তানভীর আহমেদ',
+            authorUsername: '@tanvir_gadgets',
+            authorAvatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80',
+            content: '@sifat_raihan হ্যাঁ ভাইয়া! এএনসি অন রেখে একটানা ৬ ঘণ্টা+ এবং বক্সে ৩০ ঘণ্টা থাকে। উত্তরায় কালকেই ক্যাশ অন ডেলিভারি পাবেন। ইনবক্সে মেসেজ পাঠান প্লিজ।',
+            createdAt: new Date(Date.now() - 3600000 * 1.2).toISOString(),
+          },
+        ],
+        sharesCount: 9,
+      },
+      {
+        id: 'post_2',
+        authorId: 'user_nadia',
+        authorName: 'নাদিয়া সুলতানা',
+        authorUsername: '@nadia_crafts',
+        authorAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
+        authorVerified: true,
+        content: 'আজকের তৈরি নতুন হ্যান্ডক্রাফট মেহগনি কাঠের টেবিল ল্যাম্পগুলো কেমন হয়েছে বন্ধুরা? ড্রয়িংরুম বা পড়ার টেবিলে একটি দারুণ উষ্ণ আভা এনে দেবে। সেন্ট্রাল মার্কেটপ্লেসের বন্ধুদের জন্য বিশেষ ২৫% ডিসকাউন্ট চলছে! 🌿💡',
+        images: [
+          'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=800&q=80',
+          'https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=800&q=80',
+        ],
+        feeling: { emoji: '✨', label: 'আনন্দিত ও ক্রিয়েটিভ মুডে আছি' },
+        linkedProduct: {
+          id: 'cprod_2',
+          name: 'হাতে তৈরি কাঠের অ্যান্টিক টেবিল ল্যাম্প (Warm Ambient Light)',
+          salePrice: 1450,
+          regularPrice: 2200,
+          imageUrl: 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=800&q=80',
+          category: 'ঘর সাজানো ও লাইফস্টাইল',
+          condition: 'new',
+          location: 'মোহাম্মদপুর, ঢাকা',
+        },
+        createdAt: new Date(Date.now() - 3600000 * 8).toISOString(),
+        reactions: { like: 65, love: 54, care: 12, haha: 0, wow: 22, sad: 0, angry: 0 },
+        userReactions: {},
+        comments: [],
+        sharesCount: 14,
+      },
+    ];
+  }
+
+  if (!Array.isArray(inMemoryStore.marketplace_products) || inMemoryStore.marketplace_products.length === 0) {
+    inMemoryStore.marketplace_products = [
+      {
+        id: 'cprod_1',
+        sellerId: 'user_tanvir',
+        sellerName: 'তানভীর আহমেদ',
+        sellerUsername: '@tanvir_gadgets',
+        sellerAvatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80',
+        sellerPhone: '01812345678',
+        sellerLocation: 'নিউ এলিফ্যান্ট রোড, ঢাকা',
+        name: 'Apple AirPods Pro 2nd Gen (Type-C) - একদম ফ্রেশ কন্ডিশন',
+        description: 'সম্পূর্ণ নতুনের মতো, মাত্র ২ মাস হালকা ব্যবহার করা হয়েছে। বক্স, অরিজিনাল কেবল ও সব ইয়ারটিপস সাথে আছে। ব্যাটারি ব্যাকআপ অসাধারণ।',
+        salePrice: 18500,
+        regularPrice: 24500,
+        category: 'ইলেকট্রনিক্স ও গ্যাজেট',
+        condition: 'like_new',
+        images: [
+          'https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?auto=format&fit=crop&w=800&q=80',
+          'https://images.unsplash.com/photo-1588423771073-b8903fbb85b5?auto=format&fit=crop&w=800&q=80',
+        ],
+        imageUrl: 'https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?auto=format&fit=crop&w=800&q=80',
+        inStock: true,
+        sellerPaymentSettings: {
+          bkashNumber: '01812345678',
+          bkashType: 'personal',
+          nagadNumber: '01812345678',
+          nagadType: 'personal',
+          acceptCod: true,
+          paymentInstructions: 'অর্ডার কনফার্ম করার পর ডেলিভারি চার্জ বাবদ ১০০ টাকা বিকাশ করুন।',
+        },
+        createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
+      },
+      {
+        id: 'cprod_2',
+        sellerId: 'user_nadia',
+        sellerName: 'নাদিয়া সুলতানা',
+        sellerUsername: '@nadia_crafts',
+        sellerAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
+        sellerPhone: '01998877665',
+        sellerLocation: 'মোহাম্মদপুর, ঢাকা',
+        name: 'হাতে তৈরি কাঠের অ্যান্টিক টেবিল ল্যাম্প (Warm Ambient Light)',
+        description: '১০০% প্রাকৃতিক মেহগনি কাঠে হাতে তৈরি নান্দনিক ল্যাম্প। স্টাডি টেবিল ও ড্রয়িংরুম সাজানোর জন্য উপযুক্ত। সাথে এনার্জি বাল্ব ফ্রি।',
+        salePrice: 1450,
+        regularPrice: 2200,
+        category: 'ঘর সাজানো ও লাইফস্টাইল',
+        condition: 'new',
+        images: [
+          'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=800&q=80',
+          'https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=800&q=80',
+        ],
+        imageUrl: 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=800&q=80',
+        inStock: true,
+        sellerPaymentSettings: {
+          bkashNumber: '01998877665',
+          bkashType: 'personal',
+          nagadNumber: '01998877665',
+          acceptCod: true,
+          paymentInstructions: 'সারা দেশে হোম ডেলিভারি দেওয়া হয়।',
+        },
+        createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
+      },
+      {
+        id: 'cprod_3',
+        sellerId: 'user_shuvo',
+        sellerName: 'শুভ রহমান',
+        sellerUsername: '@shuvo_fashion',
+        sellerAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+        sellerPhone: '01677889900',
+        sellerLocation: 'জিইসি মোড়, চট্টগ্রাম',
+        name: 'হেভি কটন ড্রপ শোল্ডার ওভারসাইজড হুডি (Dark Charcoal, Size L/XL)',
+        description: '৩৫০+ জিএসএম ১০০% অর্গানিক কটন ফ্লিস। শীতের জন্য অত্যন্ত আরামদায়ক ও ট্রেন্ডি লুক। মাত্র ৩ পিস স্টকে আছে।',
+        salePrice: 990,
+        regularPrice: 1650,
+        category: 'ফ্যাশন ও পোশাক',
+        condition: 'new',
+        images: [
+          'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=800&q=80',
+        ],
+        imageUrl: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=800&q=80',
+        inStock: true,
+        sellerPaymentSettings: {
+          bkashNumber: '01677889900',
+          bkashType: 'personal',
+          nagadNumber: '01677889900',
+          acceptCod: true,
+        },
+        createdAt: new Date(Date.now() - 3600000 * 20).toISOString(),
+      },
+    ];
+  }
+
+  saveInMemoryStoreToDisk();
+}
+
+// Ensure default social seeds run at boot
+seedDefaultMarketplaceSocialData();
+
+// Posts API Helpers
+export function getAllMarketplacePosts(): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_posts)) {
+    inMemoryStore.marketplace_posts = [];
+  }
+  return inMemoryStore.marketplace_posts;
+}
+
+export function saveMarketplacePost(post: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_posts)) {
+    inMemoryStore.marketplace_posts = [];
+  }
+  const idx = inMemoryStore.marketplace_posts.findIndex((p: any) => p.id === post.id);
+  if (idx >= 0) {
+    inMemoryStore.marketplace_posts[idx] = { ...inMemoryStore.marketplace_posts[idx], ...post };
+  } else {
+    inMemoryStore.marketplace_posts.unshift(post);
+  }
+  saveInMemoryStoreToDisk();
+  return post;
+}
+
+export function deleteMarketplacePost(id: string): boolean {
+  if (!Array.isArray(inMemoryStore.marketplace_posts)) return false;
+  const initialLen = inMemoryStore.marketplace_posts.length;
+  inMemoryStore.marketplace_posts = inMemoryStore.marketplace_posts.filter((p: any) => p.id !== id);
+  if (inMemoryStore.marketplace_posts.length !== initialLen) {
+    saveInMemoryStoreToDisk();
+    return true;
+  }
+  return false;
+}
+
+export function reactMarketplacePost(postId: string, userId: string, reactionType: string, userProfile: any): { post: any; notification?: any } {
+  const posts = getAllMarketplacePosts();
+  const post = posts.find((p: any) => p.id === postId);
+  if (!post) throw new Error('পোস্ট পাওয়া যায়নি');
+
+  post.reactions = post.reactions || { like: 0, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 };
+  post.userReactions = post.userReactions || {};
+
+  const prevReaction = post.userReactions[userId];
+  let createdNotif = null;
+
+  if (prevReaction === reactionType) {
+    // Toggle off
+    post.reactions[reactionType] = Math.max(0, (post.reactions[reactionType] || 0) - 1);
+    delete post.userReactions[userId];
+  } else {
+    if (prevReaction) {
+      post.reactions[prevReaction] = Math.max(0, (post.reactions[prevReaction] || 0) - 1);
+    }
+    post.reactions[reactionType] = (post.reactions[reactionType] || 0) + 1;
+    post.userReactions[userId] = reactionType;
+
+    // Create persistent notification for post author if not self
+    if (post.authorId && post.authorId !== userId) {
+      const emojiMap: Record<string, string> = {
+        like: '👍',
+        love: '❤️',
+        care: '🥰',
+        haha: '😆',
+        wow: '😮',
+        sad: '😢',
+        angry: '😡',
+      };
+      createdNotif = saveMarketplaceNotification({
+        id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        recipientId: post.authorId,
+        senderId: userId,
+        senderName: userProfile?.name || 'একজন ব্যবহারকারী',
+        senderAvatar: userProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
+        type: 'reaction',
+        text: `${userProfile?.name || 'একজন ব্যবহারকারী'} আপনার পোস্টে ${emojiMap[reactionType] || 'লাইক'} দিয়েছেন`,
+        targetId: postId,
+        reactionType,
+        read: false,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  saveInMemoryStoreToDisk();
+  return { post, notification: createdNotif };
+}
+
+export function commentMarketplacePost(postId: string, comment: any): { post: any; notification?: any } {
+  const posts = getAllMarketplacePosts();
+  const post = posts.find((p: any) => p.id === postId);
+  if (!post) throw new Error('পোস্ট পাওয়া যায়নি');
+
+  post.comments = post.comments || [];
+  post.comments.push(comment);
+
+  let createdNotif = null;
+  // Create persistent notification for post author if not self
+  if (post.authorId && post.authorId !== comment.authorId) {
+    createdNotif = saveMarketplaceNotification({
+      id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      recipientId: post.authorId,
+      senderId: comment.authorId,
+      senderName: comment.authorName,
+      senderAvatar: comment.authorAvatar,
+      type: 'comment',
+      text: `${comment.authorName} আপনার পোস্টে মন্তব্য করেছেন: "${comment.content.slice(0, 40)}"`,
+      targetId: postId,
+      read: false,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  saveInMemoryStoreToDisk();
+  return { post, notification: createdNotif };
+}
+
+// User-Uploaded Products Helpers
+export function getAllMarketplaceProducts(): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_products)) {
+    inMemoryStore.marketplace_products = [];
+  }
+  return inMemoryStore.marketplace_products;
+}
+
+export function saveMarketplaceProduct(product: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_products)) {
+    inMemoryStore.marketplace_products = [];
+  }
+  const idx = inMemoryStore.marketplace_products.findIndex((p: any) => p.id === product.id);
+  if (idx >= 0) {
+    inMemoryStore.marketplace_products[idx] = { ...inMemoryStore.marketplace_products[idx], ...product };
+  } else {
+    inMemoryStore.marketplace_products.unshift(product);
+  }
+  saveInMemoryStoreToDisk();
+  return product;
+}
+
+export function deleteMarketplaceProduct(id: string): boolean {
+  if (!Array.isArray(inMemoryStore.marketplace_products)) return false;
+  const initialLen = inMemoryStore.marketplace_products.length;
+  inMemoryStore.marketplace_products = inMemoryStore.marketplace_products.filter((p: any) => p.id !== id);
+  if (inMemoryStore.marketplace_products.length !== initialLen) {
+    saveInMemoryStoreToDisk();
+    return true;
+  }
+  return false;
+}
+
+// 1-on-1 Messenger Messages
+export function getMarketplaceChatMessages(userId: string, otherUserId?: string): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_chat_messages)) {
+    inMemoryStore.marketplace_chat_messages = [];
+  }
+  if (!otherUserId) {
+    return inMemoryStore.marketplace_chat_messages.filter(
+      (m: any) => m.senderId === userId || m.receiverId === userId
+    );
+  }
+  return inMemoryStore.marketplace_chat_messages.filter(
+    (m: any) =>
+      (m.senderId === userId && m.receiverId === otherUserId) ||
+      (m.senderId === otherUserId && m.receiverId === userId)
+  );
+}
+
+export function saveMarketplaceChatMessage(msg: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_chat_messages)) {
+    inMemoryStore.marketplace_chat_messages = [];
+  }
+  inMemoryStore.marketplace_chat_messages.push(msg);
+
+  // Also create persistent notification for recipient
+  saveMarketplaceNotification({
+    id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    recipientId: msg.receiverId,
+    senderId: msg.senderId,
+    senderName: msg.senderName || 'ব্যবহারকারী',
+    senderAvatar: msg.senderAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
+    type: 'message',
+    text: `${msg.senderName || 'ব্যবহারকারী'} আপনাকে একটি নতুন বার্তা পাঠিয়েছেন: "${msg.text.slice(0, 35)}"`,
+    targetId: msg.senderId,
+    read: false,
+    createdAt: new Date().toISOString(),
+  });
+
+  saveInMemoryStoreToDisk();
+  return msg;
+}
+
+export function markMarketplaceChatMessagesRead(userId: string, senderId: string): void {
+  if (!Array.isArray(inMemoryStore.marketplace_chat_messages)) return;
+  let changed = false;
+  inMemoryStore.marketplace_chat_messages.forEach((m: any) => {
+    if (m.receiverId === userId && m.senderId === senderId && !m.read) {
+      m.read = true;
+      changed = true;
+    }
+  });
+  if (changed) saveInMemoryStoreToDisk();
+}
+
+// Notifications Helpers
+export function getMarketplaceNotifications(userId: string): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_notifications)) {
+    inMemoryStore.marketplace_notifications = [];
+  }
+  return inMemoryStore.marketplace_notifications
+    .filter((n: any) => n.recipientId === userId)
+    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export function saveMarketplaceNotification(notif: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_notifications)) {
+    inMemoryStore.marketplace_notifications = [];
+  }
+  inMemoryStore.marketplace_notifications.unshift(notif);
+  saveInMemoryStoreToDisk();
+  return notif;
+}
+
+export function markMarketplaceNotificationRead(id: string): void {
+  if (!Array.isArray(inMemoryStore.marketplace_notifications)) return;
+  const n = inMemoryStore.marketplace_notifications.find((item: any) => item.id === id);
+  if (n) {
+    n.read = true;
+    saveInMemoryStoreToDisk();
+  }
+}
+
+export function markAllMarketplaceNotificationsRead(userId: string): void {
+  if (!Array.isArray(inMemoryStore.marketplace_notifications)) return;
+  let changed = false;
+  inMemoryStore.marketplace_notifications.forEach((n: any) => {
+    if (n.recipientId === userId && !n.read) {
+      n.read = true;
+      changed = true;
+    }
+  });
+  if (changed) saveInMemoryStoreToDisk();
+}
+
+// Friend Requests & User Friendship Helpers
+export function getMarketplaceFriendsData(userId: string): {
+  friends: any[];
+  sentRequests: any[];
+  receivedRequests: any[];
+} {
+  if (!Array.isArray(inMemoryStore.marketplace_friend_requests)) {
+    inMemoryStore.marketplace_friend_requests = [];
+  }
+  if (!Array.isArray(inMemoryStore.marketplace_user_friends)) {
+    inMemoryStore.marketplace_user_friends = [];
+  }
+
+  const allUsers = inMemoryStore.marketplace_users || [];
+
+  // Friends: users who share a friendship record
+  const friendIds = new Set<string>();
+  inMemoryStore.marketplace_user_friends.forEach((f: any) => {
+    if (f.userId === userId) friendIds.add(f.friendId);
+    if (f.friendId === userId) friendIds.add(f.userId);
+  });
+
+  const friends = allUsers.filter((u: any) => friendIds.has(u.id));
+
+  const sentRequests = inMemoryStore.marketplace_friend_requests.filter(
+    (r: any) => r.senderId === userId && r.status === 'pending'
+  );
+
+  const receivedRequests = inMemoryStore.marketplace_friend_requests.filter(
+    (r: any) => r.receiverId === userId && r.status === 'pending'
+  );
+
+  return { friends, sentRequests, receivedRequests };
+}
+
+export function sendMarketplaceFriendRequest(senderProfile: any, receiverId: string): any {
+  if (!Array.isArray(inMemoryStore.marketplace_friend_requests)) {
+    inMemoryStore.marketplace_friend_requests = [];
+  }
+
+  // Check if request already exists
+  const existing = inMemoryStore.marketplace_friend_requests.find(
+    (r: any) =>
+      ((r.senderId === senderProfile.id && r.receiverId === receiverId) ||
+        (r.senderId === receiverId && r.receiverId === senderProfile.id)) &&
+      r.status === 'pending'
+  );
+  if (existing) return existing;
+
+  const reqObj = {
+    id: `freq_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    senderId: senderProfile.id,
+    senderName: senderProfile.name,
+    senderUsername: senderProfile.username,
+    senderAvatar: senderProfile.avatar,
+    senderLocation: senderProfile.location,
+    receiverId,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+
+  inMemoryStore.marketplace_friend_requests.unshift(reqObj);
+
+  // Send persistent notification to receiver
+  saveMarketplaceNotification({
+    id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    recipientId: receiverId,
+    senderId: senderProfile.id,
+    senderName: senderProfile.name,
+    senderAvatar: senderProfile.avatar,
+    type: 'friend_request',
+    text: `${senderProfile.name} আপনাকে একটি ফ্রেন্ড রিকোয়েস্ট পাঠিয়েছেন`,
+    targetId: reqObj.id,
+    read: false,
+    createdAt: new Date().toISOString(),
+  });
+
+  saveInMemoryStoreToDisk();
+  return reqObj;
+}
+
+export function respondMarketplaceFriendRequest(
+  requestId: string,
+  action: 'accept' | 'reject',
+  responderProfile: any
+): { success: boolean; request: any; message: string } {
+  if (!Array.isArray(inMemoryStore.marketplace_friend_requests)) {
+    inMemoryStore.marketplace_friend_requests = [];
+  }
+  if (!Array.isArray(inMemoryStore.marketplace_user_friends)) {
+    inMemoryStore.marketplace_user_friends = [];
+  }
+
+  const reqIdx = inMemoryStore.marketplace_friend_requests.findIndex((r: any) => r.id === requestId);
+  if (reqIdx === -1) {
+    throw new Error('ফ্রেন্ড রিকোয়েস্ট পাওয়া যায়নি');
+  }
+
+  const req = inMemoryStore.marketplace_friend_requests[reqIdx];
+  req.status = action === 'accept' ? 'accepted' : 'rejected';
+  req.updatedAt = new Date().toISOString();
+
+  if (action === 'accept') {
+    // Add friendship in both directions
+    inMemoryStore.marketplace_user_friends.push({
+      id: `uf_${Date.now()}_1`,
+      userId: req.senderId,
+      friendId: req.receiverId,
+      createdAt: new Date().toISOString(),
+    });
+    inMemoryStore.marketplace_user_friends.push({
+      id: `uf_${Date.now()}_2`,
+      userId: req.receiverId,
+      friendId: req.senderId,
+      createdAt: new Date().toISOString(),
+    });
+
+    // Notify original sender
+    saveMarketplaceNotification({
+      id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      recipientId: req.senderId,
+      senderId: req.receiverId,
+      senderName: responderProfile?.name || 'ব্যবহারকারী',
+      senderAvatar: responderProfile?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
+      type: 'friend_accept',
+      text: `${responderProfile?.name || 'ব্যবহারকারী'} আপনার ফ্রেন্ড রিকোয়েস্ট গ্রহণ করেছেন। আপনারা এখন বন্ধু! 🎉`,
+      targetId: req.receiverId,
+      read: false,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  saveInMemoryStoreToDisk();
+  return {
+    success: true,
+    request: req,
+    message: action === 'accept' ? 'ফ্রেন্ড রিকোয়েস্ট সফলভাবে গ্রহণ করা হয়েছে!' : 'ফ্রেন্ড রিকোয়েস্ট বাতিল করা হয়েছে।',
+  };
+}
+
+// Profile update with seller payment settings
+export function updateMarketplaceUserProfile(userId: string, updateData: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_users)) {
+    inMemoryStore.marketplace_users = [];
+  }
+  const idx = inMemoryStore.marketplace_users.findIndex((u: any) => u.id === userId);
+  if (idx >= 0) {
+    inMemoryStore.marketplace_users[idx] = {
+      ...inMemoryStore.marketplace_users[idx],
+      ...updateData,
+      updatedAt: Date.now(),
+    };
+    saveInMemoryStoreToDisk();
+    return inMemoryStore.marketplace_users[idx];
+  } else {
+    const newUser = {
+      id: userId,
+      ...updateData,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    inMemoryStore.marketplace_users.push(newUser);
+    saveInMemoryStoreToDisk();
+    return newUser;
+  }
+}
+
 

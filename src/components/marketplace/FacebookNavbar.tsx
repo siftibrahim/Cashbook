@@ -180,47 +180,46 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
   const displaySearchResults = localSearch.trim() ? searchResults : suggestedUsers;
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs w-full">
-      {/* ========================================================================= */}
-      {/* 1. TOP HEADER SECTION: BRAND + 5 ORDERED NAV BUTTONS + PROFILE ACTIONS   */}
-      {/* ========================================================================= */}
-      <div className="w-full max-w-[1440px] mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-4">
+    <>
+      <header className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-slate-200 shadow-xs w-full">
+        {/* ========================================================================= */}
+        {/* 1. TOP HEADER SECTION: BRAND + 5 ORDERED NAV BUTTONS + PROFILE ACTIONS   */}
+        {/* ========================================================================= */}
+      <div className="w-full max-w-[1440px] mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-4">
         
-        {/* ১ম অংশ: TWING এবং তার নিচে ছোট করে ইংরেজিতে সেন্ট্রাল মার্কেটপ্লেস */}
+        {/* ১ম অংশ: TWING লোগো (পর্যাপ্ত প্যাডিং, কোনো চাপা ভাব ছাড়া, নিচের লেখা রিমুভড) */}
         <div
           onClick={() => onTabChange('feed')}
-          className="flex flex-col select-none cursor-pointer group shrink-0"
-          title="TWING Central Marketplace"
+          className="flex items-center select-none cursor-pointer group shrink-0 justify-center px-3 sm:px-4 py-2 rounded-2xl hover:bg-blue-50/60 transition"
+          title="TWING"
         >
-          <span className="text-2xl sm:text-3xl font-black text-[#1877F2] tracking-tight leading-none group-hover:opacity-90 transition">
+          <span className="text-2xl sm:text-3xl font-black text-[#1877F2] tracking-tight leading-none group-hover:opacity-95 transition">
             TWING
-          </span>
-          <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wider leading-tight">
-            Central Marketplace
           </span>
         </div>
 
         {/* ========================================================================= */}
         {/* ৫টি বাটন ক্রমানুসারে (ORDERED NAVIGATION BUTTONS)                        */}
-        {/* ২. হোম | ৩. মানুষ আইকন | ৪. মার্কেটপ্লেস ও নোটিফিকেশন | ৫. মেসেঞ্জার         */}
+        {/* ১. হোম | ২. মানুষ (ফ্রেন্ডস) | ৩. মার্কেটপ্লেস | ৪. নোটিফিকেশন | ৫. মেসেঞ্জার */}
+        {/* সুষম সাইজ ও প্রফেশনাল লুক (UNIFORM ICONS & SIZES)                        */}
         {/* ========================================================================= */}
-        <nav className="flex items-center space-x-1 sm:space-x-2 md:space-x-3 h-full">
-          {/* ২য় বাটন: হোম (Home) */}
+        <nav className="flex items-center justify-center flex-1 max-w-2xl mx-1 sm:mx-4 h-full gap-1 xs:gap-1.5 sm:gap-2">
+          {/* ১. হোম (Home) */}
           <button
             type="button"
             onClick={() => onTabChange('feed')}
-            className={`h-16 px-2.5 sm:px-4 md:px-5 flex flex-col items-center justify-center relative cursor-pointer transition gap-0.5 ${
+            className={`h-11 sm:h-14 flex-1 max-w-[80px] sm:max-w-[100px] flex flex-col items-center justify-center relative cursor-pointer transition rounded-xl sm:rounded-none gap-0.5 ${
               currentTab === 'feed'
-                ? 'text-[#1877F2] after:content-[""] after:absolute after:bottom-0 after:left-2 after:right-2 after:h-[3px] after:bg-[#1877F2] after:rounded-t-full font-bold'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                ? 'text-[#1877F2] after:content-[""] after:absolute after:bottom-0 after:left-1 after:right-1 sm:after:left-2 sm:after:right-2 after:h-[3px] after:bg-[#1877F2] after:rounded-t-full font-bold'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/80'
             }`}
             title="হোম ফিড"
           >
-            <Home className="w-5 h-5 sm:w-6 sm:h-6" />
-            <span className="text-[10px] font-bold hidden md:inline">হোম</span>
+            <Home className="w-5 h-5 sm:w-[22px] sm:h-[22px] shrink-0" strokeWidth={currentTab === 'feed' ? 2.5 : 2} />
+            <span className="text-[10px] sm:text-[11px] font-bold hidden md:inline leading-none mt-0.5">হোম</span>
           </button>
 
-          {/* ৩য় বাটন: মানুষ আইকন (Users / Friends) */}
+          {/* ২. মানুষ আইকন (Users / Friends) */}
           <button
             type="button"
             onClick={() => {
@@ -230,93 +229,94 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
                 onTabChange('profile');
               }
             }}
-            className="h-16 px-2.5 sm:px-4 md:px-5 flex flex-col items-center justify-center relative cursor-pointer transition gap-0.5 text-slate-600 hover:text-[#1877F2] hover:bg-slate-50"
+            className={`h-11 sm:h-14 flex-1 max-w-[80px] sm:max-w-[100px] flex flex-col items-center justify-center relative cursor-pointer transition rounded-xl sm:rounded-none gap-0.5 ${
+              currentTab === 'profile'
+                ? 'text-[#1877F2] after:content-[""] after:absolute after:bottom-0 after:left-1 after:right-1 sm:after:left-2 sm:after:right-2 after:h-[3px] after:bg-[#1877F2] after:rounded-t-full font-bold'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/80'
+            }`}
             title="মানুষ আইকন (বন্ধু ও ইউজার)"
           >
-            <div className="relative">
-              <Users className="w-5 h-5 sm:w-6 sm:h-6" />
+            <div className="relative flex items-center justify-center">
+              <Users className="w-5 h-5 sm:w-[22px] sm:h-[22px] shrink-0" strokeWidth={2} />
               {pendingFriendRequestsCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 bg-rose-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs animate-pulse">
-                  {pendingFriendRequestsCount}
+                <span className="absolute -top-1.5 -right-2 bg-rose-600 text-white text-[9px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center shadow-xs animate-pulse ring-2 ring-white">
+                  {pendingFriendRequestsCount > 9 ? '9+' : pendingFriendRequestsCount}
                 </span>
               )}
             </div>
-            <span className="text-[10px] font-bold hidden md:inline">ফ্রেন্ডস</span>
+            <span className="text-[10px] sm:text-[11px] font-bold hidden md:inline leading-none mt-0.5">ফ্রেন্ডস</span>
           </button>
 
-          {/* ৪র্থ বাটন: মার্কেটপ্লেস এবং নোটিফিকেশন বাটন */}
-          <div className="flex items-center space-x-1 sm:space-x-1.5 h-full">
-            {/* ৪ (ক). মার্কেটপ্লেস বাটন */}
-            <button
-              type="button"
-              onClick={() => onTabChange('marketplace')}
-              className={`h-16 px-2.5 sm:px-4 md:px-5 flex flex-col items-center justify-center relative cursor-pointer transition gap-0.5 ${
-                currentTab === 'marketplace'
-                  ? 'text-[#1877F2] after:content-[""] after:absolute after:bottom-0 after:left-2 after:right-2 after:h-[3px] after:bg-[#1877F2] after:rounded-t-full font-bold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-              title="মার্কেটপ্লেস"
-            >
-              <Store className="w-5 h-5 sm:w-6 sm:h-6" />
-              <span className="text-[10px] font-bold hidden md:inline">মার্কেটপ্লেস</span>
-            </button>
+          {/* ৩. মার্কেটপ্লেস বাটন */}
+          <button
+            type="button"
+            onClick={() => onTabChange('marketplace')}
+            className={`h-11 sm:h-14 flex-1 max-w-[80px] sm:max-w-[100px] flex flex-col items-center justify-center relative cursor-pointer transition rounded-xl sm:rounded-none gap-0.5 ${
+              currentTab === 'marketplace'
+                ? 'text-[#1877F2] after:content-[""] after:absolute after:bottom-0 after:left-1 after:right-1 sm:after:left-2 sm:after:right-2 after:h-[3px] after:bg-[#1877F2] after:rounded-t-full font-bold'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/80'
+            }`}
+            title="মার্কেটপ্লেস"
+          >
+            <Store className="w-5 h-5 sm:w-[22px] sm:h-[22px] shrink-0" strokeWidth={currentTab === 'marketplace' ? 2.5 : 2} />
+            <span className="text-[10px] sm:text-[11px] font-bold hidden md:inline leading-none mt-0.5">মার্কেট</span>
+          </button>
 
-            {/* ৪ (খ). নোটিফিকেশন বাটন */}
-            <button
-              type="button"
-              onClick={() => onTabChange('notifications')}
-              className={`h-16 px-2.5 sm:px-3 md:px-4 flex flex-col items-center justify-center relative cursor-pointer transition gap-0.5 ${
-                currentTab === 'notifications'
-                  ? 'text-[#1877F2] after:content-[""] after:absolute after:bottom-0 after:left-2 after:right-2 after:h-[3px] after:bg-[#1877F2] after:rounded-t-full font-bold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-              title="নোটিফিকেশন"
-            >
-              <div className="relative">
-                <Bell className="w-5 h-5 sm:w-6 sm:h-6" />
-                {unreadNotificationsCount > 0 && (
-                  <span className="absolute -top-1.5 -right-2 bg-rose-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs">
-                    {unreadNotificationsCount}
-                  </span>
-                )}
-              </div>
-              <span className="text-[10px] font-bold hidden md:inline">নোটিফিকেশন</span>
-            </button>
-          </div>
+          {/* ৪. নোটিফিকেশন বাটন */}
+          <button
+            type="button"
+            onClick={() => onTabChange('notifications')}
+            className={`h-11 sm:h-14 flex-1 max-w-[80px] sm:max-w-[100px] flex flex-col items-center justify-center relative cursor-pointer transition rounded-xl sm:rounded-none gap-0.5 ${
+              currentTab === 'notifications'
+                ? 'text-[#1877F2] after:content-[""] after:absolute after:bottom-0 after:left-1 after:right-1 sm:after:left-2 sm:after:right-2 after:h-[3px] after:bg-[#1877F2] after:rounded-t-full font-bold'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/80'
+            }`}
+            title="নোটিফিকেশন"
+          >
+            <div className="relative flex items-center justify-center">
+              <Bell className="w-5 h-5 sm:w-[22px] sm:h-[22px] shrink-0" strokeWidth={currentTab === 'notifications' ? 2.5 : 2} />
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute -top-1.5 -right-2 bg-rose-600 text-white text-[9px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white">
+                  {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] sm:text-[11px] font-bold hidden md:inline leading-none mt-0.5">নোটিফিকেশন</span>
+          </button>
 
-          {/* ৫ম বাটন: মেসেঞ্জার */}
+          {/* ৫. মেসেঞ্জার বাটন */}
           <button
             type="button"
             onClick={() => onTabChange('messenger')}
-            className={`h-16 px-2.5 sm:px-4 md:px-5 flex flex-col items-center justify-center relative cursor-pointer transition gap-0.5 ${
+            className={`h-11 sm:h-14 flex-1 max-w-[80px] sm:max-w-[100px] flex flex-col items-center justify-center relative cursor-pointer transition rounded-xl sm:rounded-none gap-0.5 ${
               currentTab === 'messenger'
-                ? 'text-[#1877F2] after:content-[""] after:absolute after:bottom-0 after:left-2 after:right-2 after:h-[3px] after:bg-[#1877F2] after:rounded-t-full font-bold'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                ? 'text-[#1877F2] after:content-[""] after:absolute after:bottom-0 after:left-1 after:right-1 sm:after:left-2 sm:after:right-2 after:h-[3px] after:bg-[#1877F2] after:rounded-t-full font-bold'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/80'
             }`}
             title="মেসেঞ্জার"
           >
-            <div className="relative">
-              <MessageCircle className="w-5 h-5 sm:w-6 sm:h-6" />
+            <div className="relative flex items-center justify-center">
+              <MessageCircle className="w-5 h-5 sm:w-[22px] sm:h-[22px] shrink-0" strokeWidth={currentTab === 'messenger' ? 2.5 : 2} />
               {unreadMessagesCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 bg-rose-600 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs">
-                  {unreadMessagesCount}
+                <span className="absolute -top-1.5 -right-2 bg-rose-600 text-white text-[9px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white">
+                  {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
                 </span>
               )}
             </div>
-            <span className="text-[10px] font-bold hidden md:inline">মেসেঞ্জার</span>
+            <span className="text-[10px] sm:text-[11px] font-bold hidden md:inline leading-none mt-0.5">মেসেঞ্জার</span>
           </button>
         </nav>
 
         {/* ========================================================================= */}
         {/* ডানদিকের একশন: কার্ট + ড্যাশবোর্ড + ইউজার প্রোফাইল মেনু                   */}
         {/* ========================================================================= */}
-        <div className="flex items-center gap-2 relative shrink-0" ref={menuRef}>
+        <div className="flex items-center gap-1.5 sm:gap-2.5 relative shrink-0" ref={menuRef}>
           {/* Dashboard Return Button */}
           {onBackToDashboard && (
             <button
               type="button"
               onClick={onBackToDashboard}
-              className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-full transition cursor-pointer"
+              className="hidden lg:flex items-center gap-1.5 h-9 sm:h-10 px-3 sm:px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-full transition cursor-pointer active:scale-95"
               title="দোকানের ড্যাশবোর্ডে ফিরে যান"
             >
               <span>দোকান ড্যাশবোর্ড</span>
@@ -329,13 +329,13 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
             <button
               type="button"
               onClick={onOpenCart}
-              className="relative p-2 sm:p-2.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+              className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition cursor-pointer active:scale-95"
               title="শপিং কার্ট"
             >
-              <ShoppingCart className="w-5 h-5" />
+              <ShoppingCart className="w-5 h-5 text-slate-700" />
               {cartItemCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-[#1877F2] text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs">
-                  {cartItemCount}
+                <span className="absolute -top-1 -right-1 bg-[#1877F2] text-white text-[9px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white">
+                  {cartItemCount > 9 ? '9+' : cartItemCount}
                 </span>
               )}
             </button>
@@ -344,25 +344,23 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
           {/* User Account / Dropdown */}
           {isLoggedIn ? (
             <>
-              {/* User Avatar with Status Indicator */}
+              {/* User Avatar - Clean & Crystal Clear, Consistent sizing */}
               <div
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
-                className="flex items-center gap-1.5 p-1 rounded-full hover:bg-slate-100 cursor-pointer transition select-none"
+                className="flex items-center gap-1.5 p-1 rounded-full hover:bg-slate-100 cursor-pointer transition select-none shrink-0 active:scale-95"
                 title="অ্যাকাউন্ট মেনু ও সেটিংস"
               >
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border border-slate-200 relative ring-2 ring-slate-100">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border-2 border-slate-200 shadow-2xs shrink-0 bg-slate-100 flex items-center justify-center">
                   <img
-                    src={currentProfile.avatar}
+                    src={currentProfile.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80'}
                     alt={currentProfile.name}
                     className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80';
+                    }}
                   />
-                  {currentProfile.isVerified && (
-                    <div className="absolute -bottom-0.5 -right-0.5 bg-[#1877F2] text-white p-0.5 rounded-full ring-1 ring-white">
-                      <ShieldCheck className="w-2.5 h-2.5" />
-                    </div>
-                  )}
                 </div>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-500 hidden sm:block" />
+                <ChevronDown className="w-4 h-4 text-slate-500 hidden sm:block" />
               </div>
 
               {/* Facebook-style Account Dropdown */}
@@ -576,6 +574,9 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
         </div>
       </div>
     </header>
+    {/* Spacer so that page content never hides under the fixed header & search bar */}
+    <div className="w-full h-[110px] sm:h-[120px] shrink-0" aria-hidden="true" />
+  </>
   );
 };
 

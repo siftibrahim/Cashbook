@@ -58,8 +58,15 @@ import {
   Flame,
   Tag,
   Layers,
+  Users,
+  UserCheck,
+  UserX,
+  Crown,
+  ShieldAlert,
 } from 'lucide-react';
 import { marketplaceAdminApi } from '../../services/marketplaceAdminService';
+import { marketplaceSocialService } from '../../services/marketplaceSocialService';
+import { CustomerProfile, MarketplaceBoostRequest } from '../../types/marketplaceSocial';
 import { MarketplaceOrderInvoiceModal } from '../marketplace/MarketplaceOrderInvoiceModal';
 import { MarketplaceCourierModal } from '../marketplace/MarketplaceCourierModal';
 import { MarketplaceReturnRefundModal } from '../marketplace/MarketplaceReturnRefundModal';
@@ -88,10 +95,30 @@ export interface MarketplaceBannerItem {
 }
 
 export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProps> = ({ isSuperAdmin }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'vendor_balances' | 'profit' | 'payouts' | 'products' | 'categories' | 'banners' | 'verifications' | 'settings'>('orders');
+  const [activeSubTab, setActiveSubTab] = useState<
+    'orders' | 'vendor_balances' | 'profit' | 'payouts' | 'products' | 'promotions' | 'users' | 'categories' | 'banners' | 'verifications' | 'settings'
+  >('orders');
   const [isLoading, setIsLoading] = useState(true);
   const [isPaymentSettingsModalOpen, setIsPaymentSettingsModalOpen] = useState(false);
   const [systemPaymentSettings, setSystemPaymentSettings] = useState<SystemPaymentSettings | null>(null);
+
+  // Boost Requests State (Promotion System)
+  const [boostRequests, setBoostRequests] = useState<MarketplaceBoostRequest[]>(() =>
+    marketplaceSocialService.getBoostRequests()
+  );
+  const [boostFilter, setBoostFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [directBoostProductId, setDirectBoostProductId] = useState<string>('');
+  const [directBoostDays, setDirectBoostDays] = useState<number>(7);
+
+  // Central Marketplace User Management State
+  const [marketplaceUsers, setMarketplaceUsers] = useState<CustomerProfile[]>(() =>
+    marketplaceSocialService.getAllMarketplaceUsers()
+  );
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userFilter, setUserFilter] = useState<'all' | 'active' | 'blocked' | 'verified' | 'top_rated' | 'moderator'>('all');
+  const [userPowersModal, setUserPowersModal] = useState<CustomerProfile | null>(null);
+  const [userBlockModal, setUserBlockModal] = useState<CustomerProfile | null>(null);
+  const [blockReasonInput, setBlockReasonInput] = useState('নিয়ম লঙ্ঘনের কারণে সাময়িক স্থগিত');
 
   // ID Verification Requests State (Meta Blue Badge)
   const [verificationRequests, setVerificationRequests] = useState<any[]>([]);
@@ -563,6 +590,21 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
     return () => {
       clearInterval(interval);
       eventSource?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleSyncBoosts = () => {
+      setBoostRequests(marketplaceSocialService.getBoostRequests());
+    };
+    const handleSyncUsers = () => {
+      setMarketplaceUsers(marketplaceSocialService.getAllMarketplaceUsers());
+    };
+    window.addEventListener('twing_boost_requests_updated', handleSyncBoosts);
+    window.addEventListener('twing_marketplace_users_updated', handleSyncUsers);
+    return () => {
+      window.removeEventListener('twing_boost_requests_updated', handleSyncBoosts);
+      window.removeEventListener('twing_marketplace_users_updated', handleSyncUsers);
     };
   }, []);
 
@@ -1412,6 +1454,44 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
               activeSubTab === 'products' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
             }`}>
               {totalListedProducts}/{totalAllProducts || data.products.length}
+            </span>
+          </button>
+
+          {/* Subtab: Boost & Promotion Requests (User Products Boost) */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('promotions')}
+            className={`px-3.5 py-2.5 text-xs font-bold rounded-xl transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeSubTab === 'promotions'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-xs'
+                : 'text-amber-800 hover:text-amber-950 hover:bg-amber-50'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 fill-current" />
+            <span>🚀 বুস্ট ও প্রমোশন</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              activeSubTab === 'promotions' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-900'
+            }`}>
+              {boostRequests.filter((r) => r.status === 'pending').length}
+            </span>
+          </button>
+
+          {/* Subtab: Marketplace Users & Powers Control */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('users')}
+            className={`px-3.5 py-2.5 text-xs font-bold rounded-xl transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeSubTab === 'users'
+                ? 'bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-xs'
+                : 'text-blue-800 hover:text-blue-950 hover:bg-blue-50'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>👥 ইউজার ও পাওয়ার কন্ট্রোল</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+              activeSubTab === 'users' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-900'
+            }`}>
+              {marketplaceUsers.length}
             </span>
           </button>
 
@@ -4551,6 +4631,868 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
             {isSavingSettings ? 'সংরক্ষণ হচ্ছে...' : 'মার্কেটপ্লেস সেটিংস সংরক্ষণ করুন'}
           </button>
         </form>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SUB-TAB: PROMOTIONS & PRODUCT BOOST CONTROL */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'promotions' && (
+        <div className="space-y-6">
+          {/* Top Banner & KPI Cards */}
+          <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 rounded-3xl p-5 sm:p-6 text-white shadow-md relative overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+              <div className="space-y-1">
+                <span className="px-3 py-1 rounded-full bg-white/20 backdrop-blur-xs text-[11px] font-black uppercase tracking-wider inline-flex items-center gap-1">
+                  <Flame className="w-3.5 h-3.5 fill-white" />
+                  <span>সেন্ট্রাল মার্কেট প্রমোশন কন্ট্রোল</span>
+                </span>
+                <h3 className="text-lg sm:text-2xl font-black">
+                  পণ্য বুস্ট ও স্পনসরড রিকোয়েস্ট ম্যানেজমেন্ট
+                </h3>
+                <p className="text-xs sm:text-sm text-amber-100 max-w-xl">
+                  সেন্ট্রাল মার্কেটপ্লেসের সকল ইউজারের বুস্ট পেমেন্ট ও ট্রানজেকশন যাচাই করে অনুমোদন করুন অথবা যেকোনো পণ্য সরাসরি ফ্রিতে বুস্ট করুন।
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
+                <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] text-amber-200 font-bold block uppercase">মোট আবেদন</span>
+                  <span className="text-xl sm:text-2xl font-black">{boostRequests.length}</span>
+                </div>
+                <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] text-amber-200 font-bold block uppercase">অপেক্ষমাণ</span>
+                  <span className="text-xl sm:text-2xl font-black text-amber-300">
+                    {boostRequests.filter((r) => r.status === 'pending').length}
+                  </span>
+                </div>
+                <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] text-amber-200 font-bold block uppercase">সক্রিয় বুস্ট</span>
+                  <span className="text-xl sm:text-2xl font-black text-emerald-300">
+                    {boostRequests.filter((r) => r.status === 'approved').length}
+                  </span>
+                </div>
+                <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] text-amber-200 font-bold block uppercase">বুস্ট আয়</span>
+                  <span className="text-xl sm:text-2xl font-black text-white">
+                    ৳{boostRequests
+                      .filter((r) => r.status === 'approved')
+                      .reduce((acc, r) => acc + (r.amount || 0), 0)
+                      .toLocaleString('en-US')}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Super Admin Direct Boost Any Product Tool */}
+          <div className="bg-white border border-amber-200 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                  <Zap className="w-4 h-4 fill-amber-600" />
+                </div>
+                <div>
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900">
+                    সুপার এডমিন ডিরেক্ট বুস্ট টুল (যেকোনো পণ্য স্পনসরড করুন)
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    মার্কেটপ্লেসের যেকোনো পণ্য নির্বাচন করে সরাসরি বিনামূল্যে নির্ধারিত মেয়াদে বুস্ট করতে পারেন
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 pt-1">
+              <select
+                value={directBoostProductId}
+                onChange={(e) => setDirectBoostProductId(e.target.value)}
+                className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+              >
+                <option value="">-- বুস্ট করার জন্য একটি পণ্য নির্বাচন করুন --</option>
+                {marketplaceSocialService.getCustomerProducts().map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} (৳{p.salePrice}) - সেলার: {p.sellerName} {p.isPromoted ? '🔥 [ইতিমধ্যে বুস্টেড]' : ''}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={directBoostDays}
+                onChange={(e) => setDirectBoostDays(Number(e.target.value))}
+                className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 w-full sm:w-40"
+              >
+                <option value={3}>৩ দিন মেয়াদের বুস্ট</option>
+                <option value={7}>৭ দিন মেয়াদের বুস্ট</option>
+                <option value={15}>১৫ দিন মেয়াদের বুস্ট</option>
+                <option value={30}>৩০ দিন মেয়াদের বুস্ট</option>
+                <option value={60}>৬০ দিন মেয়াদের বুস্ট</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!directBoostProductId) {
+                    showToast('⚠️ অনুগ্রহ করে একটি পণ্য নির্বাচন করুন');
+                    return;
+                  }
+                  marketplaceSocialService.directBoostProduct(directBoostProductId, directBoostDays);
+                  showToast(`✅ পণ্যটি সফলভাবে ${directBoostDays} দিনের জন্য স্পনসরড বুস্ট হয়েছে!`);
+                  setDirectBoostProductId('');
+                }}
+                className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <Sparkles className="w-4 h-4 fill-white" />
+                <span>সরাসরি বুস্ট সক্রিয় করুন</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Pills */}
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1">
+            {[
+              { id: 'all', label: 'সকল আবেদন', count: boostRequests.length },
+              {
+                id: 'pending',
+                label: 'অপেক্ষমাণ (Pending)',
+                count: boostRequests.filter((r) => r.status === 'pending').length,
+              },
+              {
+                id: 'approved',
+                label: 'অনুমোদিত ও সক্রিয় (Active)',
+                count: boostRequests.filter((r) => r.status === 'approved').length,
+              },
+              {
+                id: 'rejected',
+                label: 'বাতিলকৃত (Rejected)',
+                count: boostRequests.filter((r) => r.status === 'rejected').length,
+              },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setBoostFilter(f.id as any)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  boostFilter === f.id
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span>{f.label}</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  boostFilter === f.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                }`}>
+                  {f.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* Boost Requests List */}
+          {boostRequests.filter((r) => boostFilter === 'all' || r.status === boostFilter).length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {boostRequests
+                .filter((r) => boostFilter === 'all' || r.status === boostFilter)
+                .map((req) => (
+                  <div
+                    key={req.id}
+                    className="bg-white border border-slate-200/90 rounded-3xl p-4 sm:p-5 shadow-2xs space-y-4 hover:border-amber-300 transition"
+                  >
+                    {/* Header: Product Preview & Status */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <img
+                          src={req.productImage || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=200&q=80'}
+                          alt={req.productName}
+                          className="w-14 h-14 rounded-2xl object-cover border border-slate-200 shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 inline-block mb-0.5">
+                            {req.packageName} ({req.days} দিন)
+                          </span>
+                          <h4 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
+                            {req.productName}
+                          </h4>
+                          <p className="text-xs font-black text-[#1877F2]">
+                            ৳{Number(req.productPrice).toLocaleString('en-US')}
+                          </p>
+                        </div>
+                      </div>
+
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-black shrink-0 ${
+                          req.status === 'approved'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : req.status === 'pending'
+                            ? 'bg-amber-100 text-amber-800 animate-pulse'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {req.status === 'approved'
+                          ? '✅ অনুমোদিত'
+                          : req.status === 'pending'
+                          ? '⏳ অপেক্ষমাণ'
+                          : '❌ বাতিল'}
+                      </span>
+                    </div>
+
+                    {/* Seller & Payment Details Box */}
+                    <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500 font-bold">বিক্রেতা:</span>
+                        <span className="font-bold text-slate-900">
+                          {req.sellerName} ({req.sellerPhone})
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500 font-bold">পেমেন্ট মেথড:</span>
+                        <span className="font-black text-amber-700 uppercase">
+                          {req.paymentMethod} • ৳{req.amount}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500 font-bold">প্রেরকের মোবাইল:</span>
+                        <span className="font-mono font-bold text-slate-800">{req.senderNumber}</span>
+                      </div>
+
+                      <div className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block uppercase">TrxID:</span>
+                          <span className="font-mono font-black text-slate-900">{req.trxId}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard?.writeText(req.trxId);
+                            showToast(`TrxID (${req.trxId}) কপি হয়েছে`);
+                          }}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>কপি</span>
+                        </button>
+                      </div>
+
+                      {req.expiresAt && (
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-200 text-[11px]">
+                          <span className="text-slate-500 font-bold">মেয়াদ শেষ:</span>
+                          <span className="text-emerald-700 font-bold">
+                            {new Date(req.expiresAt).toLocaleDateString('bn-BD', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                            })}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Admin Action Buttons */}
+                    <div className="flex items-center gap-2 pt-1">
+                      {req.status === 'pending' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              marketplaceSocialService.approveBoostRequest(req.id);
+                              showToast('✅ বুস্ট সফলভাবে অনুমোদন ও সক্রিয় করা হয়েছে!');
+                            }}
+                            className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>অনুমোদন ও সক্রিয় করুন</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const reason = prompt('বাতিল করার কারণ লিখুন:', 'পেমেন্ট ট্রানজেকশন মেলেনি');
+                              if (reason !== null) {
+                                marketplaceSocialService.rejectBoostRequest(req.id, reason);
+                                showToast('❌ বুস্ট আবেদন বাতিল করা হয়েছে');
+                              }
+                            }}
+                            className="px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl border border-rose-200 transition cursor-pointer"
+                          >
+                            <span>বাতিল</span>
+                          </button>
+                        </>
+                      )}
+
+                      {req.status === 'approved' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            marketplaceSocialService.unboostProduct(req.productId);
+                            showToast('⏹️ পণ্যটির বুস্ট নিষ্ক্রিয় করা হয়েছে');
+                          }}
+                          className="w-full py-2 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <PauseCircle className="w-4 h-4" />
+                          <span>বুস্ট বন্ধ / নিষ্ক্রিয় করুন</span>
+                        </button>
+                      )}
+
+                      {req.status === 'rejected' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            marketplaceSocialService.approveBoostRequest(req.id);
+                            showToast('✅ বুস্ট সক্রিয় করা হয়েছে!');
+                          }}
+                          className="w-full py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>পুনর্বিবেচনা করে অনুমোদন দিন</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center space-y-3">
+              <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto text-2xl">
+                🚀
+              </div>
+              <h4 className="font-black text-sm sm:text-base text-slate-900">
+                কোনো বুস্ট আবেদন পাওয়া যায়নি
+              </h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                ইউজাররা সেন্ট্রাল মার্কেটপ্লেস থেকে পণ্য বুস্ট রিকোয়েস্ট পাঠালে তা এখানে প্রদর্শিত হবে।
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SUB-TAB: CENTRAL MARKETPLACE USERS & POWERS CONTROL */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'users' && (
+        <div className="space-y-6">
+          {/* Header & KPI Summary */}
+          <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-teal-800 rounded-3xl p-5 sm:p-6 text-white shadow-md relative overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+              <div className="space-y-1">
+                <span className="px-3 py-1 rounded-full bg-white/20 backdrop-blur-xs text-[11px] font-black uppercase tracking-wider inline-flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>সেন্ট্রাল মার্কেট অ্যাডমিন কন্ট্রোল</span>
+                </span>
+                <h3 className="text-lg sm:text-2xl font-black">
+                  সকল ইউজার ও বিক্রেতা নিয়ন্ত্রণ এবং বিশেষ ক্ষমতা প্রদান
+                </h3>
+                <p className="text-xs sm:text-sm text-blue-100 max-w-xl">
+                  সেন্ট্রাল মার্কেটপ্লেসের সকল ইউজারদের অ্যাকাউন্ট নিয়ন্ত্রণ করুন, ক্ষতিকারক অ্যাকাউন্ট ব্লক/আনব্লক করুন, ডিলিট করুন এবং ব্লু ভেরিফাইড বা টপ রেটেড পাওয়ার দিন।
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 shrink-0">
+                <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] text-blue-200 font-bold block uppercase">মোট ইউজার</span>
+                  <span className="text-xl sm:text-2xl font-black">{marketplaceUsers.length}</span>
+                </div>
+                <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] text-blue-200 font-bold block uppercase">ভেরিফাইড</span>
+                  <span className="text-xl sm:text-2xl font-black text-sky-300">
+                    {marketplaceUsers.filter((u) => u.isVerified).length}
+                  </span>
+                </div>
+                <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] text-blue-200 font-bold block uppercase">টপ রেটেড</span>
+                  <span className="text-xl sm:text-2xl font-black text-amber-300">
+                    {marketplaceUsers.filter((u) => u.isTopRated).length}
+                  </span>
+                </div>
+                <div className="bg-white/10 backdrop-blur-xs border border-white/20 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] text-blue-200 font-bold block uppercase">ব্লকড</span>
+                  <span className="text-xl sm:text-2xl font-black text-rose-300">
+                    {marketplaceUsers.filter((u) => u.isBlocked).length}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Search & Filter Toolbar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={userSearchQuery}
+                onChange={(e) => setUserSearchQuery(e.target.value)}
+                placeholder="নাম, ইউজারনেম (@username), মোবাইল নম্বর বা ঠিকানা দিয়ে খুঁজুন..."
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/30 font-medium"
+              />
+              {userSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setUserSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin pb-1 sm:pb-0">
+              {[
+                { id: 'all', label: 'সব ইউজার' },
+                { id: 'active', label: 'সক্রিয়' },
+                { id: 'blocked', label: 'ব্লকড 🚫' },
+                { id: 'verified', label: 'ভেরিফাইড 🛡️' },
+                { id: 'top_rated', label: 'টপ রেটেড ⭐' },
+                { id: 'moderator', label: 'মডারেটর ⚡' },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setUserFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                    userFilter === f.id
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* User Cards Grid */}
+          {(() => {
+            const filteredUsers = marketplaceUsers.filter((u) => {
+              if (userFilter === 'blocked' && !u.isBlocked) return false;
+              if (userFilter === 'active' && u.isBlocked) return false;
+              if (userFilter === 'verified' && !u.isVerified) return false;
+              if (userFilter === 'top_rated' && !u.isTopRated) return false;
+              if (userFilter === 'moderator' && !u.isModerator) return false;
+
+              if (userSearchQuery.trim()) {
+                const q = userSearchQuery.toLowerCase().trim();
+                const matchName = u.name?.toLowerCase().includes(q);
+                const matchUser = u.username?.toLowerCase().includes(q);
+                const matchPhone = u.phone?.includes(q);
+                const matchLoc = u.location?.toLowerCase().includes(q) || u.address?.toLowerCase().includes(q);
+                return matchName || matchUser || matchPhone || matchLoc;
+              }
+              return true;
+            });
+
+            if (filteredUsers.length === 0) {
+              return (
+                <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                    <Users className="w-7 h-7" />
+                  </div>
+                  <h4 className="font-black text-sm sm:text-base text-slate-900">
+                    কোনো ইউজার খুঁজে পাওয়া যায়নি
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    অন্য শব্দ বা ফিল্টার দিয়ে পুনরায় চেষ্টা করুন।
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredUsers.map((user) => (
+                  <div
+                    key={user.id}
+                    className={`bg-white rounded-3xl border-2 p-4 sm:p-5 shadow-2xs space-y-4 transition flex flex-col justify-between ${
+                      user.isBlocked
+                        ? 'border-rose-300 bg-rose-50/20'
+                        : 'border-slate-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <div>
+                      {/* Top Row: Avatar & Badges */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="relative shrink-0">
+                            <img
+                              src={user.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80'}
+                              alt={user.name}
+                              className="w-12 h-12 rounded-2xl object-cover border border-slate-200"
+                            />
+                            {user.isVerified && (
+                              <span
+                                className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] ring-2 ring-white"
+                                title="ভেরিফাইড ব্যাজ"
+                              >
+                                ✓
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <h4 className="font-black text-xs sm:text-sm text-slate-900 truncate">
+                                {user.name}
+                              </h4>
+                              {user.isTopRated && (
+                                <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[9px] font-black">
+                                  ⭐ টপ রেটেড
+                                </span>
+                              )}
+                              {user.isModerator && (
+                                <span className="px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-800 text-[9px] font-black">
+                                  ⚡ মডারেটর
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] font-bold text-slate-400 block truncate">
+                              {user.username}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Status Pill */}
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-black shrink-0 ${
+                            user.isBlocked
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {user.isBlocked ? '🚫 ব্লকড' : '🟢 সক্রিয়'}
+                        </span>
+                      </div>
+
+                      {/* Contact & Meta Info */}
+                      <div className="mt-3.5 p-3 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-slate-500 font-bold">ফোন:</span>
+                          <span className="font-mono font-bold text-slate-800">{user.phone || 'তথ্য নেই'}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-slate-500 font-bold">ঠিকানা:</span>
+                          <span className="font-bold text-slate-800 truncate max-w-[170px]">
+                            {user.location || user.address || 'বাংলাদেশ'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-slate-500 font-bold">মোট বিক্রি:</span>
+                          <span className="font-black text-blue-600">
+                            {user.totalSales || 0} টি সম্পন্ন
+                          </span>
+                        </div>
+                        {user.isBlocked && user.blockReason && (
+                          <div className="pt-1.5 border-t border-rose-200 text-rose-700 text-[11px]">
+                            <span className="font-bold">ব্লকের কারণ:</span> {user.blockReason}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Granted Powers Badges */}
+                      <div className="mt-2.5 flex flex-wrap gap-1">
+                        {user.isVerified && (
+                          <span className="px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3" /> ব্লু ব্যাজ
+                          </span>
+                        )}
+                        {user.isTopRated && (
+                          <span className="px-2 py-0.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold flex items-center gap-1">
+                            <Crown className="w-3 h-3" /> টপ রেটেড
+                          </span>
+                        )}
+                        {user.isModerator && (
+                          <span className="px-2 py-0.5 rounded-lg bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-bold flex items-center gap-1">
+                            <Zap className="w-3 h-3" /> মডারেটর
+                          </span>
+                        )}
+                        {user.canPost === false && (
+                          <span className="px-2 py-0.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
+                            পোস্ট নিষিদ্ধ
+                          </span>
+                        )}
+                        {user.feeExempt && (
+                          <span className="px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                            ০% কমিশন ভিআইপি
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Action Controls for Super Admin */}
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-1.5">
+                      {/* Manage Powers Button */}
+                      <button
+                        type="button"
+                        onClick={() => setUserPowersModal(user)}
+                        className="flex-1 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-black text-xs rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
+                        title="বিশেষ ক্ষমতা ও সুবিধা দিন"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>পাওয়ার কন্ট্রোল</span>
+                      </button>
+
+                      {/* Block / Unblock Toggle */}
+                      {user.isBlocked ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            marketplaceSocialService.adminUnblockUser(user.id);
+                            showToast(`✅ ${user.name}-কে সফলভাবে আনব্লক করা হয়েছে`);
+                          }}
+                          className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition flex items-center gap-1 cursor-pointer"
+                          title="ইউজারকে সক্রিয় করুন"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>আনব্লক</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUserBlockModal(user);
+                          }}
+                          className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl transition flex items-center gap-1 cursor-pointer"
+                          title="ইউজারকে ব্লক করুন"
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                          <span>ব্লক</span>
+                        </button>
+                      )}
+
+                      {/* Delete User Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm(`⚠️ আপনি কি নিশ্চিতভাবে "${user.name}"-কে সেন্ট্রাল মার্কেটপ্লেস থেকে স্থায়ীভাবে মুছে ফেলতে চান? তার সকল পণ্য ও পোস্টও মুছে যাবে!`)) {
+                            marketplaceSocialService.adminDeleteUser(user.id);
+                            showToast(`🗑️ ${user.name}-কে স্থায়ীভাবে মুছে ফেলা হয়েছে`);
+                          }
+                        }}
+                        className="p-2 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl transition cursor-pointer"
+                        title="ইউজার স্থায়ীভাবে মুছুন"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Manage User Powers Modal */}
+          {userPowersModal && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200"
+              onClick={() => setUserPowersModal(null)}
+            >
+              <div
+                className="bg-white rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden border border-slate-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="bg-gradient-to-r from-blue-700 to-indigo-800 p-5 text-white flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={userPowersModal.avatar}
+                      alt=""
+                      className="w-10 h-10 rounded-2xl object-cover border border-white/20"
+                    />
+                    <div>
+                      <h4 className="font-black text-sm text-white">
+                        {userPowersModal.name} - বিশেষ ক্ষমতা ও অধিকার
+                      </h4>
+                      <p className="text-[11px] text-blue-200">{userPowersModal.username}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUserPowersModal(null)}
+                    className="p-1 rounded-lg text-white/70 hover:text-white"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-5 space-y-4 text-xs">
+                  {/* Power Option 1: Blue Verified Badge */}
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                    <div className="space-y-0.5">
+                      <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-blue-600" />
+                        <span>ব্লু ভেরিফাইড ব্যাজ (Verified Badge)</span>
+                      </span>
+                      <p className="text-[11px] text-slate-500">নামের পাশে ব্লু টিক ব্যাজ প্রদর্শিত হবে</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={userPowersModal.isVerified || false}
+                      onChange={(e) => {
+                        const updated = { ...userPowersModal, isVerified: e.target.checked };
+                        setUserPowersModal(updated);
+                        marketplaceSocialService.adminUpdateUserPowers(userPowersModal.id, { isVerified: e.target.checked });
+                      }}
+                      className="w-5 h-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Power Option 2: Top Rated Seller */}
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                    <div className="space-y-0.5">
+                      <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <Crown className="w-4 h-4 text-amber-500" />
+                        <span>টপ রেটেড সেলার ব্যাজ (Top Rated Seller)</span>
+                      </span>
+                      <p className="text-[11px] text-slate-500">গোল্ডেন ক্রাউন ব্যাজ ও সার্চে অগ্রাধিকার পাবে</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={userPowersModal.isTopRated || false}
+                      onChange={(e) => {
+                        const updated = { ...userPowersModal, isTopRated: e.target.checked };
+                        setUserPowersModal(updated);
+                        marketplaceSocialService.adminUpdateUserPowers(userPowersModal.id, { isTopRated: e.target.checked });
+                      }}
+                      className="w-5 h-5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Power Option 3: Moderator Power */}
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                    <div className="space-y-0.5">
+                      <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <Zap className="w-4 h-4 text-purple-600" />
+                        <span>সেন্ট্রাল মার্কেট মডারেটর (Moderator)</span>
+                      </span>
+                      <p className="text-[11px] text-slate-500">কমিউনিটি সহায়তা ও পোস্ট মডারেশন ক্ষমতা</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={userPowersModal.isModerator || false}
+                      onChange={(e) => {
+                        const updated = { ...userPowersModal, isModerator: e.target.checked };
+                        setUserPowersModal(updated);
+                        marketplaceSocialService.adminUpdateUserPowers(userPowersModal.id, { isModerator: e.target.checked });
+                      }}
+                      className="w-5 h-5 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Power Option 4: Can Post Products */}
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                    <div className="space-y-0.5">
+                      <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <ShoppingBag className="w-4 h-4 text-emerald-600" />
+                        <span>পণ্য আপলোড করার অনুমতি (Can Post & Sell)</span>
+                      </span>
+                      <p className="text-[11px] text-slate-500">অনুমতি বন্ধ করলে ইউজার নতুন পণ্য আপলোড করতে পারবে না</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={userPowersModal.canPost !== false}
+                      onChange={(e) => {
+                        const updated = { ...userPowersModal, canPost: e.target.checked };
+                        setUserPowersModal(updated);
+                        marketplaceSocialService.adminUpdateUserPowers(userPowersModal.id, { canPost: e.target.checked });
+                      }}
+                      className="w-5 h-5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Power Option 5: 0% Platform Commission VIP */}
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                    <div className="space-y-0.5">
+                      <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-rose-600" />
+                        <span>০% কমিশন ভিআইপি সুবিধা (0% Commission VIP)</span>
+                      </span>
+                      <p className="text-[11px] text-slate-500">এই ইউজারের বিক্রিতে কোনো প্ল্যাটফর্ম ফি কাটা হবে না</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={userPowersModal.feeExempt || false}
+                      onChange={(e) => {
+                        const updated = { ...userPowersModal, feeExempt: e.target.checked };
+                        setUserPowersModal(updated);
+                        marketplaceSocialService.adminUpdateUserPowers(userPowersModal.id, { feeExempt: e.target.checked });
+                      }}
+                      className="w-5 h-5 rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      showToast(`✅ ${userPowersModal.name}-এর ক্ষমতা সফলভাবে আপডেট হয়েছে!`);
+                      setUserPowersModal(null);
+                    }}
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-md transition cursor-pointer text-xs"
+                  >
+                    সম্পন্ন হয়েছে
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Block Reason Modal */}
+          {userBlockModal && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200"
+              onClick={() => setUserBlockModal(null)}
+            >
+              <div
+                className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden border border-slate-200 p-5 space-y-4"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-3 text-rose-600">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-50 flex items-center justify-center">
+                    <Ban className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-sm text-slate-900">
+                      "{userBlockModal.name}"-কে ব্লক করুন
+                    </h4>
+                    <p className="text-[11px] text-slate-500">ইউজার কোনো পোস্ট বা ক্রয়-বিক্রয় করতে পারবে না</p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    ব্লক করার সুনির্দিষ্ট কারণ:
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={blockReasonInput}
+                    onChange={(e) => setBlockReasonInput(e.target.value)}
+                    placeholder="যেমন: নিয়মবহির্ভূত পোস্ট ও ভুয়া পণ্য প্রদর্শনের কারণে সাময়িক স্থগিত"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/30"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setUserBlockModal(null)}
+                    className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                  >
+                    বাতিল
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      marketplaceSocialService.adminBlockUser(userBlockModal.id, blockReasonInput);
+                      showToast(`🚫 ${userBlockModal.name}-কে ব্লক করা হয়েছে`);
+                      setUserBlockModal(null);
+                    }}
+                    className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl transition cursor-pointer shadow-md"
+                  >
+                    নিশ্চিত ব্লক করুন
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* PAYOUT PROCESSING MODAL */}

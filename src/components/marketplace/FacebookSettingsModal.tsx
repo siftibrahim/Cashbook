@@ -29,6 +29,7 @@ import {
   RefreshCw,
   HelpCircle,
   ChevronRight,
+  ChevronLeft,
   Upload,
 } from 'lucide-react';
 import { CustomerProfile } from '../../types/marketplaceSocial';
@@ -53,6 +54,7 @@ type SettingsTab =
   | 'verification'
   | 'security'
   | 'privacy'
+  | 'seller_payment'
   | 'blocking'
   | 'notifications'
   | 'marketplace'
@@ -82,6 +84,7 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  const [mobileView, setMobileView] = useState<'menu' | 'content'>('menu');
 
   // 1. Profile Form
   const [name, setName] = useState(currentProfile.name || '');
@@ -163,6 +166,27 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
     currentProfile.marketplaceSettings?.riderDeliveryNote || ''
   );
 
+  // 7.1 Seller Product Payment Settings
+  const [sellerPayments, setSellerPayments] = useState(
+    currentProfile.sellerPaymentSettings || {
+      acceptsBkash: true,
+      bkashNumber: currentProfile.phone || '',
+      bkashType: 'personal' as 'personal' | 'merchant',
+      acceptsNagad: true,
+      nagadNumber: currentProfile.phone || '',
+      nagadType: 'personal' as 'personal' | 'merchant',
+      acceptsRocket: false,
+      rocketNumber: '',
+      acceptsBank: false,
+      bankName: '',
+      bankBranch: '',
+      bankAccountName: currentProfile.name || '',
+      bankAccountNumber: '',
+      acceptsCod: true,
+      instructions: 'বিকাশ বা নগদে সেন্ড মানি করার পর রেফারেন্সে আপনার নাম বা মোবাইল নম্বর দিন।',
+    }
+  );
+
   // 8. Appearance & Theme
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'blue'>(() => {
     return (localStorage.getItem('twing_marketplace_theme') as any) || currentProfile.appearanceSettings?.theme || 'light';
@@ -229,6 +253,7 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
 
       setFeedbackError('');
       setFeedbackSuccess('');
+      setMobileView('menu');
     }
   }, [isOpen, currentProfile]);
 
@@ -549,6 +574,26 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
     }
   };
 
+  // 9.1 SAVE SELLER PAYMENT SETTINGS
+  const handleSaveSellerPayment = async () => {
+    setIsSaving(true);
+    try {
+      const updated = marketplaceSocialService.updateCurrentProfile({
+        sellerPaymentSettings: sellerPayments,
+      });
+      await marketplaceSocialService.syncProfileToServer({
+        sellerPaymentSettings: sellerPayments,
+      });
+      onProfileUpdated(updated);
+      playPaymentChime();
+      showSuccess('🎉 পণ্য বিক্রয়ের পেমেন্ট মেথড সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
+    } catch (err: any) {
+      showError(err.message || 'পেমেন্ট মেথড সেভ ব্যর্থ হয়েছে');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // 10. DOWNLOAD DATA BACKUP
   const handleDownloadBackup = () => {
     const fullBackup = {
@@ -582,7 +627,13 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
     },
     { id: 'security', label: 'পাসওয়ার্ড ও নিরাপত্তা (2FA)', icon: Lock },
     { id: 'privacy', label: 'গোপনীয়তা সেটিংস', icon: Eye },
-    { id: 'marketplace', label: 'মার্কেটপ্লেস ও পেমেন্ট প্রেফারেন্স', icon: Store },
+    {
+      id: 'seller_payment',
+      label: 'পণ্য বিক্রয় ও পেমেন্ট মেথড',
+      icon: CreditCard,
+      badge: 'পেমেন্ট গ্রহণ',
+    },
+    { id: 'marketplace', label: 'মার্কেটপ্লেস ও ডেলিভারি প্রেফারেন্স', icon: Store },
     { id: 'notifications', label: 'নোটিফিকেশন ও সাউন্ড', icon: Bell },
     { id: 'blocking', label: 'ব্লকলিস্ট', icon: UserX },
     { id: 'appearance', label: 'থিম ও ডিসপ্লে (Dark/Light)', icon: Palette },
@@ -602,7 +653,9 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
         {/* ======================================================== */}
         {/* LEFT SETTINGS SIDEBAR                                    */}
         {/* ======================================================== */}
-        <div className="w-full md:w-72 bg-slate-50 border-r border-slate-200 flex flex-col shrink-0">
+        <div className={`w-full md:w-72 bg-slate-50 border-r border-slate-200 flex-col shrink-0 ${
+          mobileView === 'menu' ? 'flex flex-1' : 'hidden md:flex'
+        }`}>
           
           {/* Header Brand: TWING Central Marketplace (No 'T' logo) */}
           <div className="p-4 border-b border-slate-200 flex items-center justify-between">
@@ -637,6 +690,7 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
                   type="button"
                   onClick={() => {
                     setActiveTab(item.id as any);
+                    setMobileView('content');
                     setFeedbackError('');
                     setFeedbackSuccess('');
                   }}
@@ -654,17 +708,20 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
                     <Icon className="w-4 h-4 shrink-0" />
                     <span className="truncate">{item.label}</span>
                   </div>
-                  {item.badge && (
-                    <span
-                      className={`text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase ${
-                        isActive
-                          ? 'bg-white text-blue-700'
-                          : 'bg-blue-100 text-[#1877F2]'
-                      }`}
-                    >
-                      {item.badge}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {item.badge && (
+                      <span
+                        className={`text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase ${
+                          isActive
+                            ? 'bg-white text-blue-700'
+                            : 'bg-blue-100 text-[#1877F2]'
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
+                    <ChevronRight className={`w-4 h-4 md:hidden ${isActive ? 'text-white/80' : 'text-slate-400'}`} />
+                  </div>
                 </button>
               );
             })}
@@ -690,22 +747,35 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
         {/* ======================================================== */}
         {/* RIGHT SETTINGS PANEL CONTENT                             */}
         {/* ======================================================== */}
-        <div className="flex-1 flex flex-col bg-white overflow-hidden">
+        <div className={`flex-1 flex-col bg-white overflow-hidden ${
+          mobileView === 'content' ? 'flex w-full' : 'hidden md:flex'
+        }`}>
           
           {/* Header */}
-          <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between shrink-0">
-            <div>
-              <h2 className="text-base sm:text-lg font-black text-slate-800">
-                {navItems.find((n) => n.id === activeTab)?.label}
-              </h2>
-              <p className="text-[11px] text-slate-400 font-medium">
-                সেন্ট্রাল মার্কেটপ্লেস ও প্রোফাইল সেটিংস সক্রিয় করুন
-              </p>
+          <div className="p-3.5 sm:p-5 border-b border-slate-100 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button
+                type="button"
+                onClick={() => setMobileView('menu')}
+                className="md:hidden px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer flex items-center gap-1 text-xs font-black shrink-0"
+                title="তালিকায় ফিরে যান"
+              >
+                <ChevronLeft className="w-4 h-4 text-[#1877F2]" />
+                <span className="text-[11px]">মেনু</span>
+              </button>
+              <div className="min-w-0">
+                <h2 className="text-sm sm:text-lg font-black text-slate-800 truncate">
+                  {navItems.find((n) => n.id === activeTab)?.label}
+                </h2>
+                <p className="text-[10px] sm:text-[11px] text-slate-400 font-medium truncate">
+                  সেন্ট্রাল মার্কেটপ্লেস ও প্রোফাইল সেটিংস সক্রিয় করুন
+                </p>
+              </div>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition cursor-pointer"
+              className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition cursor-pointer shrink-0 ml-2"
             >
               <X className="w-4 h-4" />
             </button>
@@ -1184,6 +1254,242 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
                   className="px-6 py-2.5 bg-[#1877F2] text-white font-black text-xs rounded-2xl shadow-sm transition cursor-pointer"
                 >
                   গোপনীয়তা সেটিংস সেভ করুন
+                </button>
+              </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* 4.1 TAB: SELLER PAYMENT METHODS (পণ্য বিক্রয় পেমেন্ট)    */}
+            {/* ======================================================== */}
+            {activeTab === 'seller_payment' && (
+              <div className="space-y-4">
+                <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-3xl space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-[#1877F2] text-white flex items-center justify-center">
+                      <CreditCard className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-slate-900">
+                        পণ্য বিক্রয়ের পেমেন্ট মেথড সেটিংস
+                      </h4>
+                      <p className="text-xs text-slate-600">
+                        সেন্ট্রাল মার্কেটপ্লেসে আপনার আপলোডকৃত পণ্যের টাকা ক্রেতার থেকে সরাসরি গ্রহণ করুন
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 1. বিকাশ (bKash) Settings */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-3xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-pink-100 text-pink-700 flex items-center justify-center font-black text-xs">
+                        বি
+                      </div>
+                      <div>
+                        <span className="text-xs font-black text-slate-800 block">বিকাশ (bKash) পেমেন্ট</span>
+                        <span className="text-[11px] text-slate-500">ক্রেতা সরাসরি আপনার বিকাশ নম্বরে টাকা পাঠাতে পারবে</span>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={sellerPayments.acceptsBkash !== false}
+                        onChange={(e) =>
+                          setSellerPayments((prev: any) => ({ ...prev, acceptsBkash: e.target.checked }))
+                        }
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-600"></div>
+                    </label>
+                  </div>
+
+                  {sellerPayments.acceptsBkash !== false && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                          বিকাশ মোবাইল নম্বর *
+                        </label>
+                        <input
+                          type="tel"
+                          value={sellerPayments.bkashNumber || ''}
+                          onChange={(e) =>
+                            setSellerPayments((prev: any) => ({ ...prev, bkashNumber: e.target.value }))
+                          }
+                          placeholder="০১৭xxxxxxxx"
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-hidden focus:ring-2 focus:ring-pink-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                          অ্যাকাউন্টের ধরন
+                        </label>
+                        <select
+                          value={sellerPayments.bkashType || 'personal'}
+                          onChange={(e) =>
+                            setSellerPayments((prev: any) => ({ ...prev, bkashType: e.target.value }))
+                          }
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-hidden focus:ring-2 focus:ring-pink-500 cursor-pointer"
+                        >
+                          <option value="personal">পার্সোনাল (Personal / Send Money)</option>
+                          <option value="merchant">মার্চেন্ট (Merchant / Payment)</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. নগদ (Nagad) Settings */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-3xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-black text-xs">
+                        ন
+                      </div>
+                      <div>
+                        <span className="text-xs font-black text-slate-800 block">নগদ (Nagad) পেমেন্ট</span>
+                        <span className="text-[11px] text-slate-500">ক্রেতা আপনার নগদ অ্যাকাউন্টে টাকা পাঠাতে পারবে</span>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={sellerPayments.acceptsNagad !== false}
+                        onChange={(e) =>
+                          setSellerPayments((prev: any) => ({ ...prev, acceptsNagad: e.target.checked }))
+                        }
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                    </label>
+                  </div>
+
+                  {sellerPayments.acceptsNagad !== false && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                          নগদ মোবাইল নম্বর *
+                        </label>
+                        <input
+                          type="tel"
+                          value={sellerPayments.nagadNumber || ''}
+                          onChange={(e) =>
+                            setSellerPayments((prev: any) => ({ ...prev, nagadNumber: e.target.value }))
+                          }
+                          placeholder="০১৮xxxxxxxx"
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                          অ্যাকাউন্টের ধরন
+                        </label>
+                        <select
+                          value={sellerPayments.nagadType || 'personal'}
+                          onChange={(e) =>
+                            setSellerPayments((prev: any) => ({ ...prev, nagadType: e.target.value }))
+                          }
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-hidden focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                        >
+                          <option value="personal">পার্সোনাল (Personal / Send Money)</option>
+                          <option value="merchant">মার্চেন্ট (Merchant / Payment)</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. রকেট (Rocket) Settings */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-3xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-black text-xs">
+                        র
+                      </div>
+                      <div>
+                        <span className="text-xs font-black text-slate-800 block">রকেট (Rocket) পেমেন্ট</span>
+                        <span className="text-[11px] text-slate-500">ডাচ-বাংলা ব্যাংক রকেট ওয়ালেট নম্বর</span>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={sellerPayments.acceptsRocket === true}
+                        onChange={(e) =>
+                          setSellerPayments((prev: any) => ({ ...prev, acceptsRocket: e.target.checked }))
+                        }
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                    </label>
+                  </div>
+
+                  {sellerPayments.acceptsRocket && (
+                    <div className="pt-2 border-t border-slate-200">
+                      <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                        রকেট ১২-ডিজিট নম্বর *
+                      </label>
+                      <input
+                        type="tel"
+                        value={sellerPayments.rocketNumber || ''}
+                        onChange={(e) =>
+                          setSellerPayments((prev: any) => ({ ...prev, rocketNumber: e.target.value }))
+                        }
+                        placeholder="০১৯xxxxxxxxx"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. ক্যাশ অন ডেলিভারি (Cash on Delivery) */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-3xl flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-black text-slate-800 block">
+                      ক্যাশ অন ডেলিভারি (Cash On Delivery)
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      ক্রেতা পণ্য হাতে পেয়ে কুরিয়ার বা আপনার কাছে সরাসরি নগদ টাকা দিতে পারবে
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={sellerPayments.acceptsCod !== false}
+                    onChange={(e) =>
+                      setSellerPayments((prev: any) => ({ ...prev, acceptsCod: e.target.checked }))
+                    }
+                    className="w-5 h-5 rounded text-[#1877F2] cursor-pointer"
+                  />
+                </div>
+
+                {/* 5. ক্রেতাদের জন্য পেমেন্ট নির্দেশাবলী */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-3xl space-y-2">
+                  <label className="text-xs font-black text-slate-800 block">
+                    ক্রেতাদের জন্য পেমেন্ট নির্দেশাবলী (Payment Instructions)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={sellerPayments.instructions || ''}
+                    onChange={(e) =>
+                      setSellerPayments((prev: any) => ({ ...prev, instructions: e.target.value }))
+                    }
+                    placeholder="যেমন: টাকা পাঠানোর পর লাস্ট ৪ ডিজিট মেসেঞ্জারে চ্যাট বক্সে লিখে পাঠান..."
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-[#1877F2]"
+                  />
+                  <p className="text-[11px] text-slate-400">
+                    এই নির্দেশাবলী আপনার আপলোডকৃত পণ্যের বিস্তারিত পেইজে ক্রেতারা দেখতে পাবেন।
+                  </p>
+                </div>
+
+                {/* Save Button */}
+                <button
+                  type="button"
+                  onClick={handleSaveSellerPayment}
+                  disabled={isSaving}
+                  className="px-6 py-3 bg-[#1877F2] hover:bg-blue-600 active:scale-95 text-white font-black text-xs rounded-2xl shadow-md transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{isSaving ? 'সংরক্ষণ করা হচ্ছে...' : 'পেমেন্ট মেথড সেটিংস সেভ করুন'}</span>
                 </button>
               </div>
             )}

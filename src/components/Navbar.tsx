@@ -169,16 +169,16 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Right: Clean & Elegant Action Bar */}
-        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* Quick QR Code Button (When available) */}
           {onOpenQrCode && (
             <button
               type="button"
               onClick={onOpenQrCode}
               title="দোকানের পেমেন্ট ও কিউআর কোড"
-              className="hidden sm:flex w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl bg-white/10 hover:bg-white/20 active:scale-90 border border-white/10 text-teal-100 hover:text-white items-center justify-center transition cursor-pointer"
+              className="hidden sm:flex w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 border border-white/10 text-teal-100 hover:text-white items-center justify-center transition cursor-pointer"
             >
-              <QrCode className="w-4 h-4" />
+              <QrCode className="w-4.5 h-4.5" />
             </button>
           )}
 
@@ -189,7 +189,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={onOpenNotifications}
               id="nav-notifications-btn"
               title="বিজ্ঞপ্তি ও নোটিফিকেশন"
-              className="relative w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl bg-white/10 hover:bg-white/20 active:scale-90 border border-white/10 text-teal-100 hover:text-white flex items-center justify-center transition cursor-pointer"
+              className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 border border-white/10 text-teal-100 hover:text-white flex items-center justify-center transition cursor-pointer"
             >
               <Bell className="w-4.5 h-4.5" />
               {unreadNotificationsCount > 0 && (
@@ -206,7 +206,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={() => setIsMenuOpen(true)}
             id="nav-main-menu-btn"
             title="মেনু ও সেটিংস"
-            className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl bg-white/10 hover:bg-white/20 active:scale-90 border border-white/10 text-white flex items-center justify-center transition cursor-pointer"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 border border-white/10 text-white flex items-center justify-center transition cursor-pointer"
           >
             <Menu className="w-4.5 h-4.5 text-white" />
           </button>

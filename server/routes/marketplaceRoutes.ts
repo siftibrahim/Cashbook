@@ -14,6 +14,25 @@ import {
   saveVerificationRequest,
   getVerificationRequestsList,
   getClean10Digits,
+  getAllMarketplacePosts,
+  saveMarketplacePost,
+  deleteMarketplacePost,
+  reactMarketplacePost,
+  commentMarketplacePost,
+  getAllMarketplaceProducts,
+  saveMarketplaceProduct,
+  deleteMarketplaceProduct,
+  getMarketplaceChatMessages,
+  saveMarketplaceChatMessage,
+  markMarketplaceChatMessagesRead,
+  getMarketplaceNotifications,
+  saveMarketplaceNotification,
+  markMarketplaceNotificationRead,
+  markAllMarketplaceNotificationsRead,
+  getMarketplaceFriendsData,
+  sendMarketplaceFriendRequest,
+  respondMarketplaceFriendRequest,
+  updateMarketplaceUserProfile,
 } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { PaymentlyService } from '../services/paymentlyService';
@@ -1959,19 +1978,452 @@ router.post('/auth/verify-id', async (req: Request, res: Response) => {
 });
 
 /**
+ * =========================================================================
+ * MARKETPLACE SOCIAL REST API (POSTS, PRODUCTS, MESSAGES, NOTIFS, FRIENDS)
+ * =========================================================================
+ */
+
+/**
+ * GET /api/marketplace/social/posts
+ * Fetch all social posts in real time from persistent database
+ */
+router.get('/social/posts', async (_req: Request, res: Response) => {
+  try {
+    const posts = getAllMarketplacePosts();
+    return res.json({ success: true, posts });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/posts
+ * Publish a new social post with images/product to database
+ */
+router.post('/social/posts', async (req: Request, res: Response) => {
+  try {
+    const { authorId, authorName, authorUsername, authorAvatar, authorVerified, content, images, feeling, linkedProduct } = req.body;
+    if (!content && (!images || images.length === 0) && !linkedProduct) {
+      return res.status(400).json({ success: false, error: 'পোস্টের বিবরণ বা ছবি প্রদান করুন' });
+    }
+
+    const newPost = {
+      id: req.body.id || `post_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      authorId: authorId || 'user_current',
+      authorName: authorName || 'সিফাত রায়হান',
+      authorUsername: authorUsername || '@user',
+      authorAvatar: authorAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80',
+      authorVerified: Boolean(authorVerified),
+      content: (content || '').trim(),
+      images: Array.isArray(images) ? images : [],
+      feeling: feeling || null,
+      linkedProduct: linkedProduct || null,
+      createdAt: new Date().toISOString(),
+      reactions: { like: 0, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
+      userReactions: {},
+      comments: [],
+      sharesCount: 0,
+    };
+
+    const saved = saveMarketplacePost(newPost);
+    return res.json({ success: true, post: saved });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/posts/:id/react
+ * React to a post (like, love, etc.) & create persistent notification
+ */
+router.post('/social/posts/:id/react', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { userId, reactionType, userProfile } = req.body;
+    if (!userId || !reactionType) {
+      return res.status(400).json({ success: false, error: 'ইউজার ও রিঅ্যাকশন টাইপ আবশ্যক' });
+    }
+
+    const result = reactMarketplacePost(id, userId, reactionType, userProfile);
+    return res.json({ success: true, post: result.post });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/posts/:id/comment
+ * Comment on a post & create persistent notification
+ */
+router.post('/social/posts/:id/comment', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { authorId, authorName, authorUsername, authorAvatar, content } = req.body;
+    if (!content || !content.trim()) {
+      return res.status(400).json({ success: false, error: 'মন্তব্য খালি হতে পারে না' });
+    }
+
+    const comment = {
+      id: `comm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      authorId: authorId || 'user_current',
+      authorName: authorName || 'ব্যবহারকারী',
+      authorUsername: authorUsername || '@user',
+      authorAvatar: authorAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80',
+      content: content.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = commentMarketplacePost(id, comment);
+    return res.json({ success: true, post: result.post, comment });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/marketplace/social/posts/:id
+ * Delete a post
+ */
+router.delete('/social/posts/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ok = deleteMarketplacePost(id);
+    return res.json({ success: ok });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/marketplace/social/products
+ * Fetch all user-uploaded products from persistent database
+ */
+router.get('/social/products', async (_req: Request, res: Response) => {
+  try {
+    const products = getAllMarketplaceProducts();
+    return res.json({ success: true, products });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/products
+ * Upload a new user product to Central Marketplace
+ */
+router.post('/social/products', async (req: Request, res: Response) => {
+  try {
+    const {
+      name,
+      description,
+      salePrice,
+      regularPrice,
+      category,
+      condition,
+      images,
+      sellerId,
+      sellerName,
+      sellerUsername,
+      sellerAvatar,
+      sellerPhone,
+      sellerLocation,
+      sellerPaymentSettings,
+    } = req.body;
+
+    if (!name || !salePrice) {
+      return res.status(400).json({ success: false, error: 'পণ্যের নাম ও বিক্রয় মূল্য আবশ্যক' });
+    }
+
+    const newProd = {
+      id: req.body.id || `cprod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      sellerId: sellerId || 'user_current',
+      sellerName: sellerName || 'ব্যবহারকারী',
+      sellerUsername: sellerUsername || '@user',
+      sellerAvatar: sellerAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80',
+      sellerPhone: sellerPhone || '',
+      sellerLocation: sellerLocation || 'বাংলাদেশ',
+      name: name.trim(),
+      description: (description || '').trim(),
+      salePrice: Number(salePrice),
+      regularPrice: regularPrice ? Number(regularPrice) : undefined,
+      category: category || 'অন্যান্য পণ্য',
+      condition: condition || 'new',
+      images: Array.isArray(images) && images.length > 0 ? images : ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80'],
+      imageUrl: (Array.isArray(images) && images[0]) || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80',
+      inStock: true,
+      sellerPaymentSettings: sellerPaymentSettings || null,
+      createdAt: new Date().toISOString(),
+    };
+
+    const savedProd = saveMarketplaceProduct(newProd);
+
+    // Also automatically publish an announcement post to feed so community sees it!
+    const autoPost = {
+      id: `post_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      authorId: newProd.sellerId,
+      authorName: newProd.sellerName,
+      authorUsername: newProd.sellerUsername,
+      authorAvatar: newProd.sellerAvatar,
+      authorVerified: true,
+      content: `🛍️ সেন্ট্রাল মার্কেটপ্লেসে নতুন পণ্য আপলোড করেছি: "${newProd.name}"। দাম ৳${newProd.salePrice}। আগ্রহী ক্রেতারা সরাসরি মার্কেটপ্লেস থেকে অর্ডার করতে পারেন অথবা মেসেঞ্জারে ইনবক্স করুন! 📦✨`,
+      images: newProd.images,
+      feeling: { emoji: '🏷️', label: 'নতুন পণ্য বিক্রি করছি' },
+      linkedProduct: {
+        id: newProd.id,
+        name: newProd.name,
+        salePrice: newProd.salePrice,
+        regularPrice: newProd.regularPrice,
+        imageUrl: newProd.imageUrl,
+        category: newProd.category,
+        condition: newProd.condition,
+        location: newProd.sellerLocation,
+      },
+      createdAt: new Date().toISOString(),
+      reactions: { like: 0, love: 0, care: 0, haha: 0, wow: 0, sad: 0, angry: 0 },
+      userReactions: {},
+      comments: [],
+      sharesCount: 0,
+    };
+    saveMarketplacePost(autoPost);
+
+    return res.json({ success: true, product: savedProd });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/marketplace/social/products/:id
+ * Delete a user product
+ */
+router.delete('/social/products/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ok = deleteMarketplaceProduct(id);
+    return res.json({ success: ok });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * GET /api/marketplace/social/users
- * Directory of registered marketplace users
+ * Search or list all registered marketplace users
  */
 router.get('/social/users', async (req: Request, res: Response) => {
   try {
+    const q = (req.query.q as string || '').trim().toLowerCase();
     const all = getAllMarketplaceUsersList();
-    const safeList = all.map((u: any) => {
+    let filtered = all;
+
+    if (q) {
+      filtered = all.filter((u: any) =>
+        (u.name && u.name.toLowerCase().includes(q)) ||
+        (u.username && u.username.toLowerCase().includes(q)) ||
+        (u.phone && u.phone.includes(q)) ||
+        (u.location && u.location.toLowerCase().includes(q))
+      );
+    }
+
+    const safeList = filtered.map((u: any) => {
       const copy = { ...u };
       delete copy.password_hash;
       delete copy.verification_data;
       return copy;
     });
+
     return res.json({ success: true, users: safeList });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/marketplace/social/users/:id
+ * Fetch profile with seller payment settings
+ */
+router.get('/social/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const user = await findMarketplaceUserById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'ইউজার পাওয়া যায়নি' });
+    }
+    const safeUser = { ...user };
+    delete safeUser.password_hash;
+    return res.json({ success: true, user: safeUser });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/users/profile
+ * Update user profile and seller payment settings
+ */
+router.post('/social/users/profile', async (req: Request, res: Response) => {
+  try {
+    const { userId, ...data } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'ইউজার আইডি আবশ্যক' });
+    }
+    const updated = updateMarketplaceUserProfile(userId, data);
+    const safeUser = { ...updated };
+    delete safeUser.password_hash;
+    return res.json({ success: true, user: safeUser });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/marketplace/social/friends/:userId
+ * Fetch friends and pending requests
+ */
+router.get('/social/friends/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const data = getMarketplaceFriendsData(userId);
+    return res.json({ success: true, ...data });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/friends/request
+ * Send friend request
+ */
+router.post('/social/friends/request', async (req: Request, res: Response) => {
+  try {
+    const { senderProfile, receiverId } = req.body;
+    if (!senderProfile || !receiverId) {
+      return res.status(400).json({ success: false, error: 'অনুরোধের তথ্য অসম্পূর্ণ' });
+    }
+    const request = sendMarketplaceFriendRequest(senderProfile, receiverId);
+    return res.json({ success: true, request, message: 'ফ্রেন্ড রিকোয়েস্ট পাঠানো হয়েছে!' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/friends/respond
+ * Accept or reject friend request
+ */
+router.post('/social/friends/respond', async (req: Request, res: Response) => {
+  try {
+    const { requestId, action, responderProfile } = req.body;
+    if (!requestId || !action) {
+      return res.status(400).json({ success: false, error: 'রিকোয়েস্ট আইডি ও অ্যাকশন আবশ্যক' });
+    }
+    const result = respondMarketplaceFriendRequest(requestId, action, responderProfile);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/marketplace/social/messages/:userId
+ * Get chat messages and conversations for user
+ */
+router.get('/social/messages/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const otherUserId = req.query.otherUserId as string | undefined;
+    const messages = getMarketplaceChatMessages(userId, otherUserId);
+    return res.json({ success: true, messages });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/messages
+ * Send 1-on-1 chat message
+ */
+router.post('/social/messages', async (req: Request, res: Response) => {
+  try {
+    const { senderId, senderName, senderAvatar, receiverId, text, productContext } = req.body;
+    if (!senderId || !receiverId || (!text && !productContext)) {
+      return res.status(400).json({ success: false, error: 'মেসেজ প্রেরক, প্রাপক ও টেক্সট আবশ্যক' });
+    }
+
+    const msg = {
+      id: req.body.id || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      senderId,
+      senderName: senderName || 'ব্যবহারকারী',
+      senderAvatar: senderAvatar || '',
+      receiverId,
+      text: (text || '').trim(),
+      productContext: productContext || null,
+      timestamp: new Date().toISOString(),
+      read: false,
+    };
+
+    const saved = saveMarketplaceChatMessage(msg);
+    return res.json({ success: true, message: saved });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/messages/read
+ * Mark chat messages as read
+ */
+router.post('/social/messages/read', async (req: Request, res: Response) => {
+  try {
+    const { userId, senderId } = req.body;
+    if (userId && senderId) {
+      markMarketplaceChatMessagesRead(userId, senderId);
+    }
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/marketplace/social/notifications/:userId
+ * Fetch notifications for user
+ */
+router.get('/social/notifications/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const notifications = getMarketplaceNotifications(userId);
+    return res.json({ success: true, notifications });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/notifications/:id/read
+ * Mark notification as read
+ */
+router.post('/social/notifications/:id/read', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    markMarketplaceNotificationRead(id);
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/marketplace/social/notifications/read-all
+ * Mark all notifications as read
+ */
+router.post('/social/notifications/read-all', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.body;
+    if (userId) {
+      markAllMarketplaceNotificationsRead(userId);
+    }
+    return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }

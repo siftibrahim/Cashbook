@@ -25,7 +25,10 @@ import {
 import { MarketplaceProduct } from '../../types';
 import { formatMoney } from '../../utils/storage';
 import { marketplaceApi } from '../../services/marketplaceService';
+import { marketplaceSocialService } from '../../services/marketplaceSocialService';
 import { triggerConfettiCelebration } from '../../utils/audio';
+import { ShareModal } from './ShareModal';
+import { ProductBoostModal } from './ProductBoostModal';
 
 interface MarketplaceProductDetailModalProps {
   product: MarketplaceProduct | null;
@@ -58,7 +61,10 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
   const [activeTab, setActiveTab] = useState<'desc' | 'specs' | 'reviews'>('desc');
   const [isCopied, setIsCopied] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isBoostModalOpen, setIsBoostModalOpen] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState(() => product?.imageUrl || '');
+  const currentProfile = marketplaceSocialService.getCurrentProfile();
 
   React.useEffect(() => {
     if (product) {
@@ -78,24 +84,7 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
   };
 
   const handleShare = () => {
-    const canonicalUrl = getProductCanonicalUrl();
-    if (navigator.share) {
-      navigator.share({
-        title: product.name,
-        text: `${product.name} - TWING Central Marketplace-এ মাত্র ৳${formatMoney(product.salePrice)} টাকায়!`,
-        url: canonicalUrl,
-      }).catch(() => {
-        if (navigator.clipboard) {
-          navigator.clipboard.writeText(canonicalUrl);
-          setIsCopied(true);
-          setTimeout(() => setIsCopied(false), 2500);
-        }
-      });
-    } else if (navigator.clipboard) {
-      navigator.clipboard.writeText(canonicalUrl);
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2500);
-    }
+    setIsShareModalOpen(true);
   };
 
   return (
@@ -344,6 +333,26 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
                       <span>এখনই কিনুন</span>
                     </button>
                   </div>
+
+                  {/* Promote & Social Share Row */}
+                  <div className="grid grid-cols-2 gap-2.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsBoostModalOpen(true)}
+                      className="py-2.5 px-3 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white font-black text-xs rounded-2xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 fill-white" />
+                      <span>পণ্য প্রমোট / বুস্ট করুন</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsShareModalOpen(true)}
+                      className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-2xl border border-slate-200 transition cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>শেয়ার করুন</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -502,6 +511,27 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
               <p className="text-xs text-white/70">৳ {formatMoney(product.salePrice)} • ফুল স্ক্রিন প্রিভিউ</p>
             </div>
           </div>
+        )}
+        {/* Share Modal */}
+        {isShareModalOpen && (
+          <ShareModal
+            isOpen={true}
+            onClose={() => setIsShareModalOpen(false)}
+            product={product}
+            currentProfile={currentProfile}
+            onShowToast={onShowToast || (() => {})}
+          />
+        )}
+
+        {/* Boost Modal */}
+        {isBoostModalOpen && (
+          <ProductBoostModal
+            isOpen={true}
+            onClose={() => setIsBoostModalOpen(false)}
+            product={product}
+            currentProfile={currentProfile}
+            onShowToast={onShowToast || (() => {})}
+          />
         )}
       </div>
     </AnimatePresence>

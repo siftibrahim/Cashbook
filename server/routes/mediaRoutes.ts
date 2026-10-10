@@ -1,5 +1,5 @@
 import express, { Response } from 'express';
-import { getDbPool } from '../db';
+import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk } from '../db';
 import { authenticateUser, AuthenticatedRequest } from '../authMiddleware';
 
 const router = express.Router();
@@ -45,8 +45,11 @@ router.post('/upload', authenticateUser, async (req: AuthenticatedRequest, res: 
         [mediaId, userId, detectedMime, fileName || 'upload.jpg', base64Data, sizeBytes, now]
       );
     } else {
-      // Store in memory cache
+      // Store in memory cache & disk persistent store
       localMediaCache.set(mediaId, { mimeType: detectedMime, data: base64Data });
+      if (!(inMemoryStore as any).media) (inMemoryStore as any).media = {};
+      (inMemoryStore as any).media[mediaId] = { mimeType: detectedMime, data: base64Data };
+      saveInMemoryStoreToDisk();
     }
 
     const permanentUrl = `/api/media/${mediaId}`;
@@ -87,6 +90,10 @@ router.get('/:id', async (req, res) => {
     if (!rawBase64 && localMediaCache.has(id)) {
       const cached = localMediaCache.get(id)!;
       mimeType = cached.mimeType;
+      rawBase64 = cached.data;
+    } else if (!rawBase64 && (inMemoryStore as any).media?.[id]) {
+      const cached = (inMemoryStore as any).media[id];
+      mimeType = cached.mimeType || 'image/jpeg';
       rawBase64 = cached.data;
     }
 

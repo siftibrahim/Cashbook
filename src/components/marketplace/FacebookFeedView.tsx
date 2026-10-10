@@ -21,6 +21,8 @@ import {
   Layers,
   ChevronRight,
   TrendingUp,
+  Zap,
+  Flame,
 } from 'lucide-react';
 import {
   CustomerProfile,
@@ -35,6 +37,8 @@ import {
 } from '../../services/marketplaceSocialService';
 import { formatMoney } from '../../utils/storage';
 import { BlockConfirmModal } from './BlockConfirmModal';
+import { ShareModal } from './ShareModal';
+import { ProductBoostModal } from './ProductBoostModal';
 
 interface FacebookFeedViewProps {
   currentProfile?: CustomerProfile;
@@ -85,6 +89,10 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
 
   // Block modal state
   const [blockTarget, setBlockTarget] = useState<{ id: string; name: string } | null>(null);
+
+  // Share and Boost modal states
+  const [shareTarget, setShareTarget] = useState<{ post?: SocialPost | null; product?: any | null } | null>(null);
+  const [boostTargetProduct, setBoostTargetProduct] = useState<any | null>(null);
 
   // Active 3-dot dropdown
   const [activeMenuPostId, setActiveMenuPostId] = useState<string | null>(null);
@@ -195,14 +203,15 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
     }
   };
 
-  const handleShare = (postId: string) => {
-    try {
-      marketplaceSocialService.sharePost(postId);
-      refreshPosts();
-      navigator.clipboard?.writeText(window.location.href);
-      onShowToast('পোস্ট শেয়ার করা হয়েছে ও লিঙ্ক কপি করা হয়েছে!');
-    } catch (err: any) {
-      onShowToast(err.message);
+  const handleShare = (postOrId: SocialPost | string) => {
+    let targetPost: SocialPost | undefined;
+    if (typeof postOrId === 'string') {
+      targetPost = posts.find((p) => p.id === postOrId);
+    } else {
+      targetPost = postOrId;
+    }
+    if (targetPost) {
+      setShareTarget({ post: targetPost });
     }
   };
 
@@ -631,7 +640,18 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                          {/* Promote / Boost Product Button */}
+                          <button
+                            type="button"
+                            onClick={() => setBoostTargetProduct(post.linkedProduct)}
+                            className="px-2.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1"
+                            title="সুপার এডমিনের মাধ্যমে পণ্যটি প্রমোট বা বুস্ট করুন"
+                          >
+                            <Zap className="w-3 h-3 fill-white" />
+                            <span>প্রমোট</span>
+                          </button>
+
                           {!isOwnPost && (
                             <button
                               type="button"
@@ -956,6 +976,31 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
           onClose={() => setBlockTarget(null)}
           targetUserName={blockTarget.name}
           onConfirmBlock={handleConfirmBlock}
+        />
+      )}
+
+      {/* Share Modal (Interactive Social & Profile Share) */}
+      {shareTarget && (
+        <ShareModal
+          isOpen={true}
+          onClose={() => setShareTarget(null)}
+          post={shareTarget.post}
+          product={shareTarget.product}
+          currentProfile={currentProfile}
+          onShowToast={onShowToast}
+          onSharedSuccess={refreshPosts}
+        />
+      )}
+
+      {/* Product Boost & Promotion Modal */}
+      {boostTargetProduct && (
+        <ProductBoostModal
+          isOpen={true}
+          onClose={() => setBoostTargetProduct(null)}
+          product={boostTargetProduct}
+          currentProfile={currentProfile}
+          onShowToast={onShowToast}
+          onBoostSubmitted={refreshPosts}
         />
       )}
     </div>
