@@ -78,4 +78,4 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         </div>
       </div>
     </div>
- ðI
+ ï¿½I

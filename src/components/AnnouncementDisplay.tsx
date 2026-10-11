@@ -151,4 +151,4 @@ export const AnnouncementDisplay: React.FC<AnnouncementDisplayProps> = ({ announ
       )}
     </>
   );
-Pö
+Pï¿½

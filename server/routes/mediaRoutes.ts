@@ -121,4 +121,4 @@ router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-export default r°Û
+export default rï¿½ï¿½

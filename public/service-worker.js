@@ -102,4 +102,4 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
-¦•à 
+ï¿½ï¿½ï¿½

@@ -244,4 +244,3 @@ export function initTvRemoteNavigation(): () => void {
     window.removeEventListener('keydown', handleKeyDown, { capture: true });
   };
 }
-ÃÃ

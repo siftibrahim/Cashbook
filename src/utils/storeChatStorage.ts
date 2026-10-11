@@ -157,4 +157,4 @@ export function getTotalUnreadVendorMessages(): number {
   return threads.reduce((sum, t) => sum + (t.unreadByVendor || 0), 0);
 }
 
-export { CHAT_SYNC_EVENTÀê
+export { CHAT_SYNC_EVENTï¿½ï¿½

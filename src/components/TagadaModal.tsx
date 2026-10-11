@@ -377,4 +377,4 @@ export const TagadaModal: React.FC<TagadaModalProps> = ({
     </div>
   );
 };
-p®
+pï¿½

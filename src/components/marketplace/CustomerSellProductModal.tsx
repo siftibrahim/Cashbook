@@ -380,4 +380,4 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
         </motion.div>
       </div>
     </AnimatePresence>
-°²
+ï¿½ï¿½

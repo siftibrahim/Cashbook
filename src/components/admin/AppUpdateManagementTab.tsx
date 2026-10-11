@@ -206,4 +206,4 @@ export const AppUpdateManagementTab: React.FC<AppUpdateManagementTabProps> = ({
         </div>
       </form>
     </div>
- àc
+ ï¿½c

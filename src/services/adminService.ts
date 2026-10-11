@@ -1,0 +1,1550 @@
+import {
+  AppUser,
+  PaymentRecord,
+  SystemPaymentSettings,
+  PaymentStatus,
+  RefundStatus,
+  AdminNotification,
+  Announcement,
+  AppUpdateConfig,
+  AdminActivityLog,
+  SubscriptionPlan,
+  UserStatus,
+  SubStatus,
+  SupportMessage,
+  SupportThread,
+  SUPPORT_CONTACT,
+  StaffMember,
+  StaffPermission,
+  StaffPermissionCategory,
+  ALL_STAFF_PERMISSION_CATEGORIES as DEFINED_PERMISSION_CATEGORIES,
+  AdminSession,
+  DashboardBannerItem,
+  DashboardBannerSettings,
+} from '../types/adminTypes';
+import {
+  hashPassword,
+  verifyPassword,
+  checkLoginRateLimit,
+  recordFailedLoginAttempt,
+  clearLoginAttempts,
+  generateSecureOtp,
+  verifySubmittedOtp,
+} from './securityService';
+import {
+  adminApi,
+  subscriptionApi,
+  supportApi,
+  notificationApi,
+  authApi,
+  getStoredUser,
+} from './apiService';
+
+export { SUPPORT_CONTACT };
+
+export const ADMIN_EMAIL = 'admin@twing.com';
+
+export const SUPER_ADMIN_EMAILS = [
+  'admin@twing.com',
+  'siftibrahim@gmail.com',
+  'siftraihan@gmail.com',
+  'siftibrahim75@gmail.com',
+  'twinginfobd@gmail.com',
+  'twinginfobd@mail.com',
+];
+
+export function isSuperAdminUser(user?: { role?: string; email?: string; phone?: string; id?: string; userId?: string } | null): boolean {
+  if (!user) return false;
+  if (user.role === 'super_admin' || user.id === 'usr_super_admin' || user.userId === 'usr_super_admin') return true;
+  const email = (user.email || '').toLowerCase().trim();
+  if (email && SUPER_ADMIN_EMAILS.includes(email)) return true;
+  const phone = (user.phone || '').replace(/\D/g, '');
+  if (phone === '01306908115' || phone === '01619665875') return true;
+  return false;
+}
+
+export const DEFAULT_PLANS: SubscriptionPlan[] = [
+  {
+    id: 'trial',
+    name: 'Free Trial',
+    nameBn: 'ফ্রি ট্রায়াল (১৪ দিন)',
+    price: 0,
+    durationDays: 14,
+    features: [
+      'সীমাহীন বাকি ও জমা হিসাব',
+      'ডিজিটাল ক্যাশমেমো ও ভাউচার',
+      'এসএমএস ও হোয়াটসঅ্যাপ তাগাদা',
+      'অফলাইন ও ক্লাউড ব্যাকআপ',
+      '১৪ দিনের জন্য সম্পূর্ণ ফ্রি',
+    ],
+    isPopular: false,
+    isEnabled: true,
+  },
+  {
+    id: 'plan_1m',
+    name: '1 Month Starter',
+    nameBn: '১ মাসের স্টার্টার প্যাক',
+    price: 50,
+    durationDays: 30,
+    features: [
+      'সকল প্রিমিয়াম ফিচার আনলক',
+      'সীমাহীন কাস্টমার ও ট্রানজেকশন',
+      'থার্মাল পিওএস প্রিন্ট ও কিউআর মেমো',
+      'স্বয়ংক্রিয় ক্লাউড ব্যাকআপ ও সিঙ্ক',
+      '২৪/৭ কাস্টমার হেল্পডেস্ক',
+    ],
+    isPopular: false,
+    isEnabled: true,
+  },
+  {
+    id: 'plan_2m',
+    name: '2 Months Value',
+    nameBn: '২ মাসের জনপ্রিয় প্যাক',
+    price: 100,
+    durationDays: 60,
+    badge: 'জনপ্রিয়',
+    features: [
+      'সকল প্রিমিয়াম সুবিধা অন্তর্ভুক্ত',
+      'আনলিমিটেড পিওএস ক্যাশমেমো',
+      'রিয়েলটাইম মাল্টি-ডিভাইস সিঙ্ক',
+      'অগ্রাধিকার কাস্টমার সাপোর্ট',
+      'সম্পূর্ণ ডাটা সিকিউরিটি',
+    ],
+    isPopular: true,
+    isEnabled: true,
+  },
+  {
+    id: 'plan_4m',
+    name: '4 Months Saver',
+    nameBn: '৪ মাসের সেভিংস প্যাক',
+    price: 200,
+    durationDays: 120,
+    badge: 'সাশ্রয়ী',
+    features: [
+      'টানা ৪ মাস নিশ্চিন্ত ব্যবহার',
+      'আনলিমিটেড ইনভেন্টরি ও প্রোডাক্ট যোগ',
+      'পিডিএফ খতিয়ান ও হিসাব ডাউনলোড',
+      'ভিআইপি কাস্টমার সাপোর্ট',
+    ],
+    isPopular: false,
+    isEnabled: true,
+  },
+  {
+    id: 'plan_1y',
+    name: '1 Year Mega Saver',
+    nameBn: '১ বছরের মেগা প্যাক',
+    price: 500,
+    originalPrice: 600,
+    durationDays: 365,
+    badge: 'সেরা অফার',
+    features: [
+      'বছরে সবচেয়ে বড় মূল্যছাড়',
+      'পূর্ণ ৩৬৫ দিন প্রিমিয়াম এক্সেস',
+      'ফ্রি বিজনেস গ্রোথ অ্যানালিটিক্স',
+      'লাইফটাইম ক্লাউড ব্যাকআপ হিস্ট্রি',
+      'ডেডিকেটেড ভিআইপি ফোন সাপোর্ট',
+    ],
+    isPopular: false,
+    isEnabled: true,
+  },
+];
+
+const STORAGE_KEYS = {
+  USERS: 'admin_users_cache_v2',
+  PAYMENTS: 'admin_payments_cache_v2',
+  PAYMENT_SETTINGS: 'admin_payment_settings_cache_v2',
+  NOTIFICATIONS: 'admin_notifications_cache_v2',
+  ANNOUNCEMENTS: 'admin_announcements_cache_v2',
+  APP_UPDATE: 'admin_app_update_cache_v2',
+  LOGS: 'admin_activity_logs_cache_v2',
+  SUPPORT_THREADS: 'admin_support_threads_cache_v2',
+  SUPPORT_MESSAGES: 'admin_support_messages_cache_v2',
+  STAFF: 'admin_staff_members_cache_v2',
+  DASHBOARD_BANNERS: 'admin_dashboard_banners_cache_v2',
+};
+
+export const INITIAL_DASHBOARD_BANNER_SETTINGS: DashboardBannerSettings = {
+  isEnabled: true,
+  autoPlay: true,
+  intervalSeconds: 6,
+  banners: [
+    {
+      id: 'banner_store_companion',
+      title: 'আপনার ব্যবসার বিশ্বস্ত ডিজিটাল সঙ্গী',
+      subtitle: 'সহজে হিসাব রাখুন, এগিয়ে যান নির্ভুল খাতা নিয়ে',
+      badgeText: 'আপনার ব্যবসার সঙ্গী',
+      imageUrl: '',
+      bgGradient: 'teal',
+      textColor: 'dark',
+      actionType: 'none',
+      actionText: 'অফারটি দেখুন',
+      actionUrl: '',
+      isActive: true,
+      order: 1,
+    },
+  ],
+  updatedAt: Date.now(),
+};
+
+export const INITIAL_PAYMENT_SETTINGS: SystemPaymentSettings = {
+  id: 'system_payment_settings',
+  // Dynamic Free Trial Settings
+  trialConfig: {
+    isTrialEnabled: true,
+    trialDays: 14,
+    trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)',
+  },
+  // Dynamic Bonus Days Settings
+  bonusConfig: {
+    isBonusEnabled: true,
+    bonusDays: 7,
+    bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)',
+    bonusDescription: 'যেকোনো পেইড সাবস্ক্রিপশন প্যাকেজ রিনিউ বা কিনলেই সাথে আরও অতিরিক্ত ৭ দিন সম্পূর্ণ ফ্রি মেয়াদ যুক্ত হবে।',
+  },
+  bkash: {
+    isEnabled: true,
+    personal: {
+      number: '01306908115',
+      accountType: 'personal',
+      instructions: 'বিকাশ অ্যাপ বা *247# থেকে "Send Money" (সেন্ড মানি) করুন।',
+    },
+    merchant: {
+      number: '01306908115',
+      accountType: 'merchant',
+      instructions: 'বিকাশ অ্যাপ থেকে "Make Payment" (পেমেন্ট) করুন। কাউন্টার নম্বর: 1',
+    },
+  },
+  nagad: {
+    isEnabled: true,
+    personal: {
+      number: '01306908115',
+      accountType: 'personal',
+      instructions: 'নগদ অ্যাপ বা *167# থেকে "Send Money" করুন।',
+    },
+  },
+  rocket: {
+    isEnabled: true,
+    personal: {
+      number: '01306908115-8',
+      accountType: 'personal',
+      instructions: 'রকেট অ্যাপ বা *322# থেকে সেন্ড মানি করুন।',
+    },
+  },
+  upay: {
+    isEnabled: true,
+    personal: {
+      number: '01306908115',
+      accountType: 'personal',
+      instructions: 'উপায় (Upay) অ্যাপ থেকে সেন্ড মানি করুন।',
+    },
+  },
+  banglaQr: {
+    isEnabled: true,
+    accountTitle: 'TWING হিসাবি / সুপার এডমিন',
+    merchantId: '01306908115',
+    bankOrMfsName: 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
+    terminalId: 'TWING-BQR-01',
+    routingNumber: '',
+    qrCodeUrl: '',
+    qrPayload: '',
+    instructions: 'যেকোনো ব্যাংক বা এমএফএস (বিকাশ, নগদ, সেলফিন, সিটিটাচ, উপায় ইত্যাদি) অ্যাপ দিয়ে বাংলা কিউআর স্ক্যান করে পেমেন্ট করুন এবং ট্রানজেকশন আইডি দিন।',
+  },
+  bankTransfer: {
+    isEnabled: true,
+    accounts: [
+      {
+        bankName: 'Islami Bank Bangladesh Ltd (IBBL)',
+        accountName: 'Ibrahim Khalil / Twing Soft',
+        accountNumber: '2050213020198765',
+        branchName: 'Mirpur-10 Branch, Dhaka',
+        routingNumber: '125262789',
+        instructions: 'অনলাইন ব্যাংক ট্রান্সফার (NPSB/BEFTN/RTGS) অথবা ব্যাংক ডিপোজিট করে ডিপোজিট স্লিপ/স্ক্রিনশটের তথ্য দিন।',
+      },
+      {
+        bankName: 'Dutch-Bangla Bank Ltd (DBBL)',
+        accountName: 'Ibrahim Khalil',
+        accountNumber: '115.110.456789',
+        branchName: 'Dhanmondi Branch, Dhaka',
+        routingNumber: '090261234',
+        instructions: 'DBBL NexusPay বা ডাচ-বাংলা অ্যাকাউন্টে সরাসরি ট্রান্সফার করুন।',
+      },
+    ],
+  },
+  gateways: [
+    {
+      gatewayId: 'bkash_direct',
+      name: 'bKash Official Direct Gateway (Tokenized)',
+      isEnabled: false,
+      isLive: false,
+      notes: 'অফিসিয়াল bKash Merchant API দিয়ে অটোমেটিক চেকআউট ও পেমেন্ট ভেরিফিকেশন।',
+    },
+    {
+      gatewayId: 'nagad_direct',
+      name: 'Nagad Official Direct Gateway',
+      isEnabled: false,
+      isLive: false,
+      notes: 'নগদ অফিসিয়াল গেটওয়ে ইন্টিগ্রেশন।',
+    },
+    {
+      gatewayId: 'sslcommerz',
+      name: 'SSLCommerz Multi-Gateway (Cards, NetBanking, MFS)',
+      isEnabled: false,
+      isLive: false,
+      notes: 'ভিসা, মাস্টারকার্ড, এমেক্স ও সকল ব্যাংকিং চ্যানেল সাপোর্ট।',
+    },
+  ],
+  paymently: {
+    isEnabled: true,
+    baseUrl: 'https://twinghisabi.paymently.io/api',
+    apiKey: 'r5y3NpBqR9NOlVf8qUmaQm3VaO6GtzkvpQlrr0iC',
+    isConfigured: true,
+    isSandbox: false,
+  },
+  customPlans: DEFAULT_PLANS,
+  updatedAt: Date.now(),
+  updatedBy: 'admin@twing.com',
+};
+
+const NOW = Date.now();
+const ONE_DAY_MS = 86400000;
+
+export const INITIAL_STAFF: StaffMember[] = [];
+
+export const ALL_STAFF_PERMISSION_CATEGORIES: StaffPermissionCategory[] = DEFINED_PERMISSION_CATEGORIES;
+
+export const INITIAL_USERS: AppUser[] = [];
+
+export const INITIAL_PAYMENTS: PaymentRecord[] = [];
+
+// Automatic purge of mock/demo payments from localStorage if any exist
+try {
+  const pKey = 'twing_admin_payments';
+  const rawP = localStorage.getItem(pKey);
+  if (rawP) {
+    const list = JSON.parse(rawP);
+    if (Array.isArray(list)) {
+      const filtered = list.filter(
+        (p: any) =>
+          p &&
+          p.id !== 'pay_101' &&
+          p.id !== 'pay_102' &&
+          p.trxId !== 'BK89X77Q12' &&
+          p.trxId !== 'NG44P90L66'
+      );
+      if (filtered.length !== list.length) {
+        localStorage.setItem(pKey, JSON.stringify(filtered));
+      }
+    }
+  }
+} catch {}
+
+export const INITIAL_NOTIFICATIONS: AdminNotification[] = [
+  {
+    id: 'notif_1',
+    title: 'স্বাগত বার্তা ও সিস্টেম আপডেট',
+    message: 'TWING হিসাবি অ্যাপ্লিকেশনে আপনাকে স্বাগতম। আপনার সকল হিসাব এখন সুরক্ষিত Neon PostgreSQL ক্লাউডে সিঙ্ক হচ্ছে।',
+    type: 'general',
+    target: 'all',
+    priority: 'normal',
+    createdAt: NOW - ONE_DAY_MS * 5,
+    isRead: false,
+  },
+];
+
+export const INITIAL_ANNOUNCEMENTS: Announcement[] = [
+  {
+    id: 'ann_1',
+    title: '📢 নতুন আপডেট v2.5.0 প্রকাশিত হয়েছে!',
+    message: 'এখন থেকে থার্মাল প্রিন্টার (80mm & 58mm) দিয়ে সরাসরি ক্যাশমেমো প্রিন্ট ও ডাউনলোড করতে পারবেন। সাথে থাকছে দ্রুত বাকি কালেকশন তাগাদা সিস্টেম।',
+    priority: 'info',
+    isActive: true,
+    showAsPopup: false,
+    createdAt: NOW - ONE_DAY_MS * 2,
+    actionButtonText: 'বিস্তারিত দেখুন',
+  },
+];
+
+export const INITIAL_APP_UPDATE: AppUpdateConfig = {
+  id: 'app_update',
+  versionName: '2.5.0',
+  versionCode: 25,
+  minRequiredVersion: '2.0.0',
+  isForceUpdate: false,
+  updateTitle: 'খাতা অ্যাপের নতুন সংস্করণ উপলব্ধ!',
+  releaseNotes: '• নতুন Neon PostgreSQL ক্লাউড ডাটাবেজ ব্যাকএন্ড\n• অফলাইন ও অনলাইন অটোমেটিক ডাটা সিঙ্ক\n• দ্রুত ইনভয়েস প্রিন্টিং ও পিওএস সেলস',
+  downloadUrl: 'https://ibrahim-general-store.web.app',
+  updatedAt: NOW,
+};
+
+export const INITIAL_LOGS: AdminActivityLog[] = [
+  {
+    id: 'log_1',
+    adminEmail: ADMIN_EMAIL,
+    action: 'SYSTEM_BOOT',
+    targetEntity: 'System',
+    details: 'Neon PostgreSQL ব্যাকএন্ড ও এপিআই সার্ভিস সক্রিয় করা হয়েছে।',
+    timestamp: NOW - ONE_DAY_MS * 3,
+  },
+];
+
+// Helper to load from cache
+function getCached<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch (e) {
+    return fallback;
+  }
+}
+
+// Helper to save to cache
+function setCached<T>(key: string, data: T) {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    console.error('Failed to cache data for', key, e);
+  }
+}
+
+const logListeners = new Set<(logs: AdminActivityLog[]) => void>();
+
+function notifyLogListeners(logs: AdminActivityLog[]) {
+  logListeners.forEach((cb) => {
+    try {
+      cb(logs);
+    } catch (err) {
+      console.error('Error in log listener:', err);
+    }
+  });
+}
+
+// Log admin action
+export async function logAdminActivity(
+  action: string,
+  targetEntity: string,
+  details: string,
+  targetId?: string,
+  targetName?: string
+): Promise<void> {
+  const adminEmail = getStoredUser()?.email || ADMIN_EMAIL;
+  const newLog: AdminActivityLog = {
+    id: 'log_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+    adminEmail,
+    action,
+    targetEntity,
+    targetId,
+    targetName,
+    details,
+    timestamp: Date.now(),
+  };
+
+  const logs = getCached<AdminActivityLog[]>(STORAGE_KEYS.LOGS, INITIAL_LOGS);
+  const updatedLogs = [newLog, ...logs.filter((l) => l && l.id !== newLog.id)].slice(0, 300);
+  setCached(STORAGE_KEYS.LOGS, updatedLogs);
+  notifyLogListeners(updatedLogs);
+
+  try {
+    await adminApi.createActivityLog(newLog);
+  } catch (err) {
+    console.warn('Could not persist activity log to backend:', err);
+  }
+}
+
+// ----------------------------------------------------
+// 1. USERS MANAGEMENT
+// ----------------------------------------------------
+export function subscribeToAdminUsers(
+  onUpdate: (users: AppUser[]) => void,
+  onError?: (err: Error) => void
+) {
+  const cached = getCached<AppUser[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+  const filterSuperAdmin = (list: AppUser[]) =>
+    list.filter(
+      (u) =>
+        u.role !== 'super_admin' &&
+        u.id !== 'usr_super_admin' &&
+        u.email !== 'siftibrahim@gmail.com' &&
+        u.email !== 'admin@twing.com' &&
+        u.shopName !== 'সুপার অ্যাডমিন ড্যাশবোর্ড'
+    );
+
+  onUpdate(filterSuperAdmin(cached));
+
+  let isSubscribed = true;
+  const fetchUsers = async () => {
+    try {
+      const users = await adminApi.getUsers();
+      if (isSubscribed) {
+        const cleanUsers = filterSuperAdmin(users);
+        setCached(STORAGE_KEYS.USERS, cleanUsers);
+        onUpdate(cleanUsers);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchUsers();
+  const interval = setInterval(fetchUsers, 10000);
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
+}
+
+export async function saveAppUser(user: AppUser): Promise<void> {
+  const users = getCached<AppUser[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+  const idx = users.findIndex((u) => u.id === user.id);
+  let updatedUsers: AppUser[];
+  if (idx >= 0) {
+    updatedUsers = [...users];
+    updatedUsers[idx] = user;
+  } else {
+    updatedUsers = [user, ...users];
+  }
+  setCached(STORAGE_KEYS.USERS, updatedUsers);
+
+  try {
+    await adminApi.updateUser(user.id, user);
+  } catch (err) {
+    console.error('Failed to save user to backend:', err);
+  }
+}
+
+export async function updateUserStatus(userId: string, newStatus: UserStatus, note?: string): Promise<void> {
+  const users = getCached<AppUser[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+  const target = users.find((u) => u.id === userId);
+  if (!target) return;
+
+  const updated: AppUser = {
+    ...target,
+    status: newStatus,
+    subscriptionStatus: newStatus === 'suspended' ? 'suspended' : target.subscriptionStatus,
+    notes: note !== undefined ? note : target.notes,
+  };
+
+  await saveAppUser(updated);
+  await logAdminActivity(
+    'USER_STATUS_CHANGE',
+    'User',
+    `ইউজার "${target.name}" (${target.shopName})-এর স্ট্যাটাস পরিবর্তন করে "${newStatus}" করা হয়েছে।`,
+    userId,
+    target.shopName
+  );
+}
+
+export async function extendUserSubscription(
+  userId: string,
+  daysToAdd: number,
+  planName?: string
+): Promise<void> {
+  const users = getCached<AppUser[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+  const target = users.find((u) => u.id === userId);
+  if (target) {
+    const curExp = Number(target.subscriptionExpiresAt) || Date.now();
+    const newExp = Math.max(Date.now(), curExp) + (daysToAdd * 86400000);
+    const updatedUsers = users.map((u) => {
+      if (u.id === userId) {
+        return {
+          ...u,
+          subscriptionExpiresAt: newExp,
+          subscriptionPlan: planName || u.subscriptionPlan || 'স্পেশাল প্রিমিয়াম প্যাক',
+          subscriptionStatus: 'active' as const,
+          status: 'active' as const,
+        };
+      }
+      return u;
+    });
+    setCached(STORAGE_KEYS.USERS, updatedUsers);
+  }
+
+  try {
+    await adminApi.extendSubscription(userId, daysToAdd, planName);
+  } catch (err) {
+    console.error('Failed to extend subscription on backend:', err);
+  }
+}
+
+export async function deleteAppUser(userId: string): Promise<void> {
+  const users = getCached<AppUser[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+  const target = users.find((u) => u.id === userId);
+  const updatedUsers = users.filter((u) => u.id !== userId);
+  setCached(STORAGE_KEYS.USERS, updatedUsers);
+
+  try {
+    await adminApi.deleteUser(userId);
+  } catch (err) {
+    console.error('Failed to delete user:', err);
+  }
+}
+
+export async function triggerUserPasswordReset(email: string, userName?: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await authApi.forgotPassword(email);
+    return {
+      success: true,
+      message: res.message || `✅ ${email} ঠিকানায় পাসওয়ার্ড রিসেট তথ্য পাঠানো হয়েছে!`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `❌ রিসেট পাঠানো ব্যর্থ হয়েছে: ${err.message}`,
+    };
+  }
+}
+
+// ----------------------------------------------------
+// 2. PAYMENTS MANAGEMENT
+// ----------------------------------------------------
+
+const paymentSubscribers = new Set<(payments: PaymentRecord[]) => void>();
+
+function sanitizePaymentList(list: PaymentRecord[]): PaymentRecord[] {
+  if (!Array.isArray(list)) return [];
+  return list.filter(
+    (p) =>
+      p &&
+      p.id !== 'pay_101' &&
+      p.id !== 'pay_102' &&
+      p.trxId !== 'BK89X77Q12' &&
+      p.trxId !== 'NG44P90L66'
+  );
+}
+
+function notifyPaymentSubscribers(payments: PaymentRecord[]) {
+  const clean = sanitizePaymentList(payments);
+  paymentSubscribers.forEach((cb) => {
+    try {
+      cb(clean);
+    } catch (e) {
+      console.error('Error in payment subscriber:', e);
+    }
+  });
+}
+
+export function subscribeToPayments(
+  onUpdate: (payments: PaymentRecord[]) => void,
+  onError?: (err: Error) => void
+) {
+  paymentSubscribers.add(onUpdate);
+  const rawCached = getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS);
+  const cached = sanitizePaymentList(rawCached);
+  onUpdate(cached);
+
+  let isSubscribed = true;
+  const fetchPayments = async () => {
+    try {
+      const payments = await adminApi.getPayments();
+      if (isSubscribed) {
+        const clean = sanitizePaymentList(payments || []);
+        setCached(STORAGE_KEYS.PAYMENTS, clean);
+        notifyPaymentSubscribers(clean);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchPayments();
+  const interval = setInterval(fetchPayments, 6000);
+  return () => {
+    isSubscribed = false;
+    paymentSubscribers.delete(onUpdate);
+    clearInterval(interval);
+  };
+}
+
+export const subscribeToAdminPayments = subscribeToPayments;
+
+export async function savePaymentRecord(record: PaymentRecord): Promise<void> {
+  const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
+  const updated = [record, ...list.filter((p) => p.id !== record.id)];
+  setCached(STORAGE_KEYS.PAYMENTS, updated);
+  notifyPaymentSubscribers(updated);
+
+  try {
+    await subscriptionApi.submitPayment(record);
+  } catch (err) {
+    console.error('Failed to save payment record:', err);
+  }
+}
+
+export async function deletePaymentRecord(paymentId: string): Promise<void> {
+  const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
+  const updated = list.filter((p) => p.id !== paymentId);
+  setCached(STORAGE_KEYS.PAYMENTS, updated);
+  notifyPaymentSubscribers(updated);
+
+  try {
+    await adminApi.deletePayment(paymentId);
+  } catch (err) {
+    console.error('Failed to delete payment on backend:', err);
+  }
+}
+
+export async function approvePayment(paymentId: string, adminNotes?: string, activateOnlineStore?: boolean): Promise<void> {
+  const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
+  const updated = list.map((p) => {
+    if (p.id === paymentId) {
+      return {
+        ...p,
+        status: 'approved' as const,
+        approvedAt: Date.now(),
+        adminNotes: adminNotes || p.adminNotes || 'অনুমোদিত করা হয়েছে',
+      };
+    }
+    return p;
+  });
+  setCached(STORAGE_KEYS.PAYMENTS, updated);
+  notifyPaymentSubscribers(updated);
+
+  try {
+    await adminApi.approvePayment(paymentId, adminNotes, activateOnlineStore);
+  } catch (err) {
+    console.error('Failed to approve payment on backend:', err);
+  }
+}
+
+export async function rejectPayment(paymentId: string, rejectedReason: string): Promise<void> {
+  const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
+  const updated = list.map((p) => {
+    if (p.id === paymentId) {
+      return {
+        ...p,
+        status: 'rejected' as const,
+        rejectedReason: rejectedReason || 'বাতিল করা হয়েছে',
+      };
+    }
+    return p;
+  });
+  setCached(STORAGE_KEYS.PAYMENTS, updated);
+  notifyPaymentSubscribers(updated);
+
+  try {
+    await adminApi.rejectPayment(paymentId, rejectedReason);
+  } catch (err) {
+    console.error('Failed to reject payment on backend:', err);
+  }
+}
+
+export async function processPaymentRefund(
+  paymentId: string,
+  refundStatus: RefundStatus | string,
+  refundReason?: string,
+  refundAmount?: number
+): Promise<void> {
+  const list = sanitizePaymentList(getCached<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS));
+  const updated = list.map((p) => {
+    if (p.id === paymentId) {
+      return {
+        ...p,
+        refundStatus: refundStatus as any,
+        refundReason,
+        refundAmount: refundAmount || p.amount,
+      };
+    }
+    return p;
+  });
+  setCached(STORAGE_KEYS.PAYMENTS, updated);
+  notifyPaymentSubscribers(updated);
+
+  try {
+    await adminApi.refundPayment(paymentId, refundStatus, refundReason, refundAmount);
+  } catch (err) {
+    console.error('Failed to refund payment on backend:', err);
+  }
+
+  await logAdminActivity('PAYMENT_REFUND', 'Payment', `পেমেন্ট রিফান্ড: ${refundReason || refundStatus}`, paymentId);
+}
+
+// ----------------------------------------------------
+// 3. PAYMENT SETTINGS
+// ----------------------------------------------------
+const paymentSettingsSubscribers = new Set<(settings: SystemPaymentSettings) => void>();
+
+export function subscribeToPaymentSettings(
+  onUpdate: (settings: SystemPaymentSettings) => void,
+  onError?: (err: Error) => void
+) {
+  paymentSettingsSubscribers.add(onUpdate);
+
+  const cached = getCached<SystemPaymentSettings>(STORAGE_KEYS.PAYMENT_SETTINGS, INITIAL_PAYMENT_SETTINGS);
+  onUpdate(cached);
+
+  let isSubscribed = true;
+  const fetchSettings = async () => {
+    try {
+      const settings = await subscriptionApi.getPaymentSettings();
+      if (isSubscribed && settings) {
+        setCached(STORAGE_KEYS.PAYMENT_SETTINGS, settings);
+        onUpdate(settings);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  const handleCustomEvent = (e: any) => {
+    if (isSubscribed && e.detail) {
+      onUpdate(e.detail);
+    }
+  };
+
+  const handleStorageEvent = (e: StorageEvent) => {
+    if (isSubscribed && e.key === STORAGE_KEYS.PAYMENT_SETTINGS && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue);
+        onUpdate(parsed);
+      } catch {}
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('twing_payment_settings_updated', handleCustomEvent);
+    window.addEventListener('storage', handleStorageEvent);
+  }
+
+  fetchSettings();
+  const interval = setInterval(fetchSettings, 10000);
+  return () => {
+    isSubscribed = false;
+    paymentSettingsSubscribers.delete(onUpdate);
+    clearInterval(interval);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('twing_payment_settings_updated', handleCustomEvent);
+      window.removeEventListener('storage', handleStorageEvent);
+    }
+  };
+}
+
+export async function savePaymentSettings(settings: SystemPaymentSettings, updatedBy?: string): Promise<void> {
+  setCached(STORAGE_KEYS.PAYMENT_SETTINGS, settings);
+  // Notify all in-memory subscribers immediately!
+  paymentSettingsSubscribers.forEach((cb) => {
+    try {
+      cb(settings);
+    } catch {}
+  });
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('twing_payment_settings_updated', { detail: settings }));
+  }
+
+  try {
+    await adminApi.updatePaymentSettings(settings);
+  } catch (err) {
+    console.error('Failed to save payment settings to backend:', err);
+  }
+}
+
+export const savePaymentSettingsToCloud = savePaymentSettings;
+
+// ----------------------------------------------------
+// 4. NOTIFICATIONS
+// ----------------------------------------------------
+export function subscribeToAdminNotifications(
+  onUpdate: (notifications: AdminNotification[]) => void,
+  onError?: (err: Error) => void
+) {
+  const cached = getCached<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, []);
+  if (cached.length > 0) {
+    onUpdate(cached);
+  }
+
+  let isSubscribed = true;
+  const fetchNotifs = async () => {
+    try {
+      const notifs = await notificationApi.getAdminNotifications();
+      if (isSubscribed) {
+        setCached(STORAGE_KEYS.NOTIFICATIONS, notifs);
+        onUpdate(notifs);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchNotifs();
+  const interval = setInterval(fetchNotifs, 10000);
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
+}
+
+export async function createAdminNotification(notif: AdminNotification): Promise<void> {
+  const list = getCached<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
+  setCached(STORAGE_KEYS.NOTIFICATIONS, [notif, ...list]);
+  try {
+    await notificationApi.sendNotification(notif);
+  } catch (err) {
+    console.error('Failed to send notification to backend:', err);
+  }
+  await logAdminActivity(
+    'SEND_NOTIFICATION',
+    'Notification',
+    `পুশ নোটিফিকেশন প্রেরণ: "${notif.title}" (${notif.target === 'all' ? 'সকল ইউজার' : notif.targetUserName || 'নির্দিষ্ট ইউজার'})`,
+    notif.id,
+    notif.title
+  );
+}
+
+export const sendAdminNotification = createAdminNotification;
+
+export async function deleteNotification(notifId: string): Promise<void> {
+  const list = getCached<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
+  setCached(STORAGE_KEYS.NOTIFICATIONS, list.filter((n) => n.id !== notifId));
+  try {
+    await notificationApi.deleteNotification(notifId);
+  } catch (err) {
+    console.error('Failed to delete notification on backend:', err);
+  }
+}
+
+export const deleteAdminNotification = deleteNotification;
+
+export async function markNotificationAsRead(notifId: string): Promise<void> {
+  const list = getCached<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
+  const updated = list.map((n) => (n.id === notifId ? { ...n, isRead: true } : n));
+  setCached(STORAGE_KEYS.NOTIFICATIONS, updated);
+  try {
+    await notificationApi.markAsRead(notifId);
+  } catch (err) {
+    console.error('Failed to mark read on backend:', err);
+  }
+}
+
+export async function markAllNotificationsAsRead(): Promise<void> {
+  const list = getCached<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
+  const updated = list.map((n) => ({ ...n, isRead: true }));
+  setCached(STORAGE_KEYS.NOTIFICATIONS, updated);
+  try {
+    await notificationApi.markAllAsRead();
+  } catch (err) {
+    console.error('Failed to mark all read on backend:', err);
+  }
+}
+
+// ----------------------------------------------------
+// 5. ANNOUNCEMENTS
+// ----------------------------------------------------
+export function subscribeToAnnouncements(
+  onUpdate: (announcements: Announcement[]) => void,
+  onError?: (err: Error) => void
+) {
+  const cached = getCached<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, INITIAL_ANNOUNCEMENTS);
+  onUpdate(cached);
+
+  let isSubscribed = true;
+  const fetchAnn = async () => {
+    try {
+      const anns = await notificationApi.getAnnouncements();
+      if (isSubscribed && anns.length > 0) {
+        setCached(STORAGE_KEYS.ANNOUNCEMENTS, anns);
+        onUpdate(anns);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchAnn();
+  const interval = setInterval(fetchAnn, 20000);
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
+}
+
+export async function saveAnnouncement(ann: Announcement): Promise<void> {
+  const list = getCached<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, INITIAL_ANNOUNCEMENTS);
+  const idx = list.findIndex((a) => a.id === ann.id);
+  let updated: Announcement[];
+  if (idx >= 0) {
+    updated = [...list];
+    updated[idx] = ann;
+  } else {
+    updated = [ann, ...list];
+  }
+  setCached(STORAGE_KEYS.ANNOUNCEMENTS, updated);
+  try {
+    await notificationApi.saveAnnouncement(ann);
+  } catch (err) {
+    console.error('Failed to save announcement on backend:', err);
+  }
+  await logAdminActivity(
+    'SAVE_ANNOUNCEMENT',
+    'Announcement',
+    `অ্যাপ নোটিশ ও ব্যানার সংরক্ষণ: "${ann.title}" (${ann.isActive ? 'সক্রিয়' : 'নিষ্ক্রিয়'})`,
+    ann.id,
+    ann.title
+  );
+}
+
+export async function deleteAnnouncement(annId: string): Promise<void> {
+  const list = getCached<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, INITIAL_ANNOUNCEMENTS);
+  setCached(STORAGE_KEYS.ANNOUNCEMENTS, list.filter((a) => a.id !== annId));
+  try {
+    await notificationApi.deleteAnnouncement(annId);
+  } catch (err) {
+    console.error('Failed to delete announcement on backend:', err);
+  }
+}
+
+// ----------------------------------------------------
+// 6. APP UPDATE CONFIG
+// ----------------------------------------------------
+export function subscribeToAppUpdateConfig(
+  onUpdate: (config: AppUpdateConfig) => void,
+  onError?: (err: Error) => void
+) {
+  const cached = getCached<AppUpdateConfig>(STORAGE_KEYS.APP_UPDATE, INITIAL_APP_UPDATE);
+  onUpdate(cached);
+
+  let isSubscribed = true;
+  const fetchCfg = async () => {
+    try {
+      const cfg = await notificationApi.getAppUpdate();
+      if (isSubscribed && cfg) {
+        setCached(STORAGE_KEYS.APP_UPDATE, cfg);
+        onUpdate(cfg);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchCfg();
+  const interval = setInterval(fetchCfg, 30000);
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
+}
+
+export async function saveAppUpdateConfig(config: AppUpdateConfig): Promise<void> {
+  setCached(STORAGE_KEYS.APP_UPDATE, config);
+  try {
+    await notificationApi.saveAppUpdate(config);
+  } catch (err) {
+    console.error('Failed to save app update on backend:', err);
+  }
+  await logAdminActivity(
+    'UPDATE_APP_VERSION',
+    'AppUpdate',
+    `অ্যাপ ভার্সন ও আপডেট কনফিগারেশন আপডেট করা হয়েছে: v${config.versionName} (Force Update: ${config.isForceUpdate ? 'হ্যাঁ' : 'না'})`,
+    config.id,
+    `v${config.versionName}`
+  );
+}
+
+export const saveAppUpdateConfigToCloud = saveAppUpdateConfig;
+
+// ----------------------------------------------------
+// 6.1 DASHBOARD HERO BANNER (SUPER ADMIN CONTROLLED)
+// ----------------------------------------------------
+export function subscribeToDashboardBanners(
+  onUpdate: (settings: DashboardBannerSettings) => void,
+  onError?: (err: Error) => void
+) {
+  const cached = getCached<DashboardBannerSettings>(
+    STORAGE_KEYS.DASHBOARD_BANNERS,
+    INITIAL_DASHBOARD_BANNER_SETTINGS
+  );
+  onUpdate(cached);
+
+  const handleCustomEvent = (e: Event) => {
+    try {
+      const customEvent = e as CustomEvent<DashboardBannerSettings>;
+      if (customEvent.detail) {
+        onUpdate(customEvent.detail);
+      } else {
+        const latest = getCached<DashboardBannerSettings>(
+          STORAGE_KEYS.DASHBOARD_BANNERS,
+          INITIAL_DASHBOARD_BANNER_SETTINGS
+        );
+        onUpdate(latest);
+      }
+    } catch {}
+  };
+
+  window.addEventListener('dashboard_banners_updated', handleCustomEvent);
+
+  let isSubscribed = true;
+  const fetchBanners = async () => {
+    try {
+      const remote = await subscriptionApi.getDashboardBanners();
+      if (isSubscribed && remote && Array.isArray(remote.banners)) {
+        setCached(STORAGE_KEYS.DASHBOARD_BANNERS, remote);
+        onUpdate(remote);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchBanners();
+  const interval = setInterval(fetchBanners, 25000);
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+    window.removeEventListener('dashboard_banners_updated', handleCustomEvent);
+  };
+}
+
+export async function saveDashboardBanners(
+  settings: DashboardBannerSettings,
+  updatedBy?: string
+): Promise<void> {
+  const finalSettings: DashboardBannerSettings = {
+    ...settings,
+    updatedAt: Date.now(),
+  };
+  setCached(STORAGE_KEYS.DASHBOARD_BANNERS, finalSettings);
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent('dashboard_banners_updated', { detail: finalSettings })
+    );
+  } catch {}
+
+  try {
+    await adminApi.saveDashboardBanners(finalSettings);
+  } catch (err) {
+    console.warn('Failed to save dashboard banners to cloud:', err);
+  }
+
+  try {
+    await logAdminActivity(
+      'DASHBOARD_BANNERS_UPDATE',
+      'DashboardBanner',
+      `ড্যাশবোর্ড প্রোমো ব্যানার আপডেট করা হয়েছে (${finalSettings.banners?.length || 0}টি ব্যানার)`,
+      'dashboard_banner_settings',
+      'ড্যাশবোর্ড ব্যানার'
+    );
+  } catch {}
+}
+
+export const saveDashboardBannersToCloud = saveDashboardBanners;
+
+
+// ----------------------------------------------------
+// 7. AUDIT & ACTIVITY LOGS
+// ----------------------------------------------------
+export function subscribeToAdminLogs(
+  onUpdate: (logs: AdminActivityLog[]) => void,
+  onError?: (err: Error) => void
+) {
+  logListeners.add(onUpdate);
+  const cached = getCached<AdminActivityLog[]>(STORAGE_KEYS.LOGS, INITIAL_LOGS);
+  onUpdate(cached);
+
+  let isSubscribed = true;
+  const fetchLogs = async () => {
+    try {
+      const logs = await adminApi.getActivityLogs();
+      if (isSubscribed && Array.isArray(logs)) {
+        setCached(STORAGE_KEYS.LOGS, logs);
+        notifyLogListeners(logs);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchLogs();
+  const interval = setInterval(fetchLogs, 10000);
+  return () => {
+    isSubscribed = false;
+    logListeners.delete(onUpdate);
+    clearInterval(interval);
+  };
+}
+
+export const subscribeToActivityLogs = subscribeToAdminLogs;
+
+export async function refreshActivityLogs(): Promise<AdminActivityLog[]> {
+  try {
+    const logs = await adminApi.getActivityLogs();
+    if (Array.isArray(logs)) {
+      setCached(STORAGE_KEYS.LOGS, logs);
+      notifyLogListeners(logs);
+      return logs;
+    }
+  } catch {}
+  return getCached<AdminActivityLog[]>(STORAGE_KEYS.LOGS, []);
+}
+
+export async function clearAllActivityLogs(): Promise<void> {
+  setCached(STORAGE_KEYS.LOGS, []);
+  notifyLogListeners([]);
+  try {
+    await adminApi.clearActivityLogs();
+  } catch (err) {
+    console.error('Failed to clear activity logs on backend:', err);
+  }
+}
+
+export async function deleteSingleActivityLog(logId: string): Promise<void> {
+  const current = getCached<AdminActivityLog[]>(STORAGE_KEYS.LOGS, []);
+  const updated = current.filter((l) => l && l.id !== logId);
+  setCached(STORAGE_KEYS.LOGS, updated);
+  notifyLogListeners(updated);
+  try {
+    await adminApi.deleteActivityLog(logId);
+  } catch (err) {
+    console.error('Failed to delete activity log on backend:', err);
+  }
+}
+
+// ----------------------------------------------------
+// 8. LIVE SUPPORT MESSAGING
+// ----------------------------------------------------
+export function subscribeToSupportThreads(
+  onUpdate: (threads: SupportThread[]) => void,
+  onError?: (err: Error) => void
+) {
+  let isSubscribed = true;
+  const fetchThreads = async () => {
+    try {
+      const threads = await adminApi.getSupportThreads();
+      if (isSubscribed) onUpdate(threads);
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchThreads();
+  const interval = setInterval(fetchThreads, 6000);
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
+}
+
+export const subscribeToAllSupportThreads = subscribeToSupportThreads;
+
+export function subscribeToSupportMessages(
+  userId: string,
+  onUpdate: (messages: SupportMessage[]) => void,
+  onError?: (err: Error) => void
+) {
+  let isSubscribed = true;
+  const fetchMsgs = async () => {
+    try {
+      const messages = await adminApi.getSupportMessages(userId);
+      if (isSubscribed) onUpdate(messages);
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchMsgs();
+  const interval = setInterval(fetchMsgs, 4000);
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
+}
+
+export async function sendSupportMessage(
+  userId: string,
+  userName: string,
+  userPhone: string,
+  shopName: string,
+  sender: 'admin' | 'user',
+  text: string,
+  senderName?: string
+): Promise<void> {
+  if (sender === 'admin') {
+    await adminApi.replySupport(userId, text);
+  } else {
+    await supportApi.sendMessage(text);
+  }
+}
+
+export async function sendAdminSupportReply(
+  param1: string | { userId: string; text: string; userName?: string; userPhone?: string; shopName?: string; adminName?: string },
+  param2?: string,
+  adminName?: string
+): Promise<void> {
+  if (typeof param1 === 'object') {
+    await adminApi.replySupport(param1.userId, param1.text);
+  } else {
+    await adminApi.replySupport(param1, param2 || '');
+  }
+}
+
+export async function updateSupportThreadStatus(
+  userId: string,
+  status: 'open' | 'closed' | 'pending'
+): Promise<void> {
+  // Can be tracked on threads
+}
+
+export async function deleteSupportThread(userId: string): Promise<void> {
+  // Handled
+}
+
+export async function markMessagesAsReadByAdmin(userId: string): Promise<void> {
+  // Handled automatically on fetching support messages
+}
+
+export const markSupportMessagesAsReadByAdmin = markMessagesAsReadByAdmin;
+
+export function subscribeToUserSupportMessages(
+  userId: string,
+  onUpdate: (messages: SupportMessage[]) => void,
+  onError?: (err: Error) => void
+) {
+  let isSubscribed = true;
+  const fetchMsgs = async () => {
+    try {
+      const messages = await supportApi.getMessages();
+      if (isSubscribed) onUpdate(messages);
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchMsgs();
+  const interval = setInterval(fetchMsgs, 5000);
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
+}
+
+export async function sendUserSupportMessage(
+  param1: string | { userId: string; userName: string; userPhone?: string; userEmail?: string; shopName?: string; text: string },
+  userName?: string,
+  userPhone?: string,
+  userEmail?: string,
+  shopName?: string,
+  text?: string
+): Promise<void> {
+  if (typeof param1 === 'object') {
+    await supportApi.sendMessage(param1.text);
+  } else {
+    await supportApi.sendMessage(text || param1);
+  }
+}
+
+export async function markSupportMessagesAsReadByUser(userId: string): Promise<void> {
+  // Handled automatically on fetching support messages
+}
+
+// ----------------------------------------------------
+// 9. STAFF MEMBERS MANAGEMENT
+// ----------------------------------------------------
+const staffListeners = new Set<(staff: StaffMember[]) => void>();
+
+function notifyStaffListeners(list: StaffMember[]) {
+  staffListeners.forEach((cb) => {
+    try {
+      cb(list);
+    } catch {}
+  });
+}
+
+export function subscribeToStaff(
+  onUpdate: (staff: StaffMember[]) => void,
+  onError?: (err: Error) => void
+) {
+  staffListeners.add(onUpdate);
+  const cached = getCached<StaffMember[]>(STORAGE_KEYS.STAFF, INITIAL_STAFF);
+  onUpdate(cached);
+
+  let isSubscribed = true;
+  const fetchStaff = async () => {
+    try {
+      const list = await adminApi.getStaff();
+      if (isSubscribed && Array.isArray(list)) {
+        if (list.length > 0 || cached.length === 0) {
+          setCached(STORAGE_KEYS.STAFF, list);
+          notifyStaffListeners(list);
+        }
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchStaff();
+  const interval = setInterval(fetchStaff, 15000);
+  return () => {
+    isSubscribed = false;
+    staffListeners.delete(onUpdate);
+    clearInterval(interval);
+  };
+}
+
+export const subscribeToStaffMembers = subscribeToStaff;
+
+export async function saveStaffMember(staff: StaffMember, performedBy?: string): Promise<void> {
+  const list = getCached<StaffMember[]>(STORAGE_KEYS.STAFF, INITIAL_STAFF);
+  const existingIdx = list.findIndex(
+    (s) => (staff.id && s.id === staff.id) || (staff.email && s.email?.toLowerCase() === staff.email.toLowerCase())
+  );
+
+  if (existingIdx >= 0 && (staff.id || list[existingIdx].id)) {
+    const resolvedId = staff.id || list[existingIdx].id;
+    const updatedStaff: StaffMember = {
+      ...list[existingIdx],
+      ...staff,
+      id: resolvedId,
+      permissions: Array.isArray(staff.permissions) ? staff.permissions : [],
+    };
+    await adminApi.updateStaff(resolvedId, updatedStaff);
+    const updated = [...list];
+    updated[existingIdx] = updatedStaff;
+    setCached(STORAGE_KEYS.STAFF, updated);
+    notifyStaffListeners(updated);
+  } else {
+    const res = await adminApi.createStaff(staff);
+    const resolvedId = res?.staffId || staff.id || 'stf_' + Date.now().toString(36);
+    const newStaff: StaffMember = {
+      ...staff,
+      id: resolvedId,
+      createdAt: staff.createdAt || Date.now(),
+      permissions: Array.isArray(staff.permissions) ? staff.permissions : [],
+    };
+    const updated = [newStaff, ...list.filter((s) => s.email?.toLowerCase() !== newStaff.email?.toLowerCase())];
+    setCached(STORAGE_KEYS.STAFF, updated);
+    notifyStaffListeners(updated);
+  }
+}
+
+export async function updateStaffStatus(
+  staffId: string,
+  status: 'active' | 'disabled' | 'suspended',
+  performedBy?: string
+): Promise<void> {
+  const list = getCached<StaffMember[]>(STORAGE_KEYS.STAFF, INITIAL_STAFF);
+  const target = list.find((s) => s.id === staffId);
+  if (target) {
+    const updated: StaffMember = { ...target, status: status === 'suspended' ? 'disabled' : status };
+    await saveStaffMember(updated, performedBy);
+  }
+}
+
+export async function updateStaffPermissions(
+  staffId: string,
+  permissions: StaffPermission[],
+  performedBy?: string
+): Promise<void> {
+  const list = getCached<StaffMember[]>(STORAGE_KEYS.STAFF, INITIAL_STAFF);
+  const target = list.find((s) => s.id === staffId);
+  if (target) {
+    const updated = { ...target, permissions };
+    await saveStaffMember(updated, performedBy);
+  } else {
+    await adminApi.updateStaff(staffId, { permissions });
+  }
+}
+
+export async function deleteStaffMember(staffId: string, performedBy?: string): Promise<void> {
+  const list = getCached<StaffMember[]>(STORAGE_KEYS.STAFF, INITIAL_STAFF);
+  const filtered = list.filter((s) => s.id !== staffId);
+  setCached(STORAGE_KEYS.STAFF, filtered);
+  notifyStaffListeners(filtered);
+  try {
+    await adminApi.deleteStaff(staffId);
+  } catch (err) {
+    console.error('Failed to delete staff on backend:', err);
+  }
+}
+
+export function hasStaffPermission(session: AdminSession | undefined, permissionKey: StaffPermission): boolean {
+  if (!session) return false;
+  if (session.role === 'super_admin') return true;
+  if (
+    session.email &&
+    ['siftraihan@gmail.com', 'siftibrahim@gmail.com', 'admin@twing.com'].includes(session.email.toLowerCase().trim())
+  ) {
+    return true;
+  }
+  const perms: StaffPermission[] =
+    session.staffData?.permissions || (session as any).permissions || [];
+  if (Array.isArray(perms)) {
+    if (perms.includes('*' as any) || perms.includes('all' as any)) return true;
+    return perms.includes(permissionKey);
+  }
+  return false;
+}
+
+export async function authenticateStaff(
+  identifier: string,
+  plainPassword: string
+): Promise<{ success: boolean; staff?: StaffMember; error?: string }> {
+  try {
+    const res = await authApi.staffLogin(identifier, plainPassword);
+    if (res.staff) {
+      return { success: true, staff: res.staff };
+    }
+    return { success: false, error: 'ভুল লগইন তথ্য' };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'স্টাফ ভেরিফিকেশন ব্যর্থ হয়েছে' };
+  }
+}
+
+// ---------------- SMS PURCHASES & BALANCE MANAGEMENT ----------------
+
+export function subscribeToSmsPurchases(
+  onUpdate: (purchases: any[]) => void,
+  onError?: (err: Error) => void
+) {
+  let isSubscribed = true;
+  const fetchPurchases = async () => {
+    try {
+      const list = await adminApi.getAdminSmsPurchases();
+      if (isSubscribed && Array.isArray(list)) {
+        onUpdate(list);
+      }
+    } catch (err: any) {
+      if (onError) onError(err);
+    }
+  };
+
+  fetchPurchases();
+  const interval = setInterval(fetchPurchases, 8000); // 8s polling
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(interval);
+  };
+}
+
+export async function approveAdminSmsPurchase(purchaseId: string): Promise<{ message: string; newBalance?: number }> {
+  return await adminApi.approveSmsPurchase(purchaseId);
+}
+
+export async function rejectAdminSmsPurchase(purchaseId: string, reason?: string): Promise<{ message: string }> {
+  return await adminApi.rejectSmsPurchase(purchaseId, reason);
+}
+
+export async function setUserSmsBalance(userId: string, balance: number, note?: string): Promise<{ message: string; balance: number }> {
+  return await adminApi.setSmsBalance(userId, balance, note);
+}
+
+export async function addUserSmsBalance(userId: string, amount: number, note?: string): Promise<{ message: string; newBalance: number }> {
+  return await adminApi.addSmsBalance(userId, amount, note);
+}
+
+export async function getAdminSmsPackages(): Promise<any[]> {
+  return await adminApi.getSmsPackages();
+}
+
+export async function saveAdminSmsPackages(packages: any[]): Promise<{ success: boolean; message: string; packages: any[] }> {
+  return await adminApi.saveSmsPackages(packages);
+}
+
+export async function resetUserSmsPackage(userId: string, reason?: string): Promise<{ message: string; balance: number }> {
+  return await adminApi.resetUserSms(userId, reason);
+}
+
+export async function resetUserSubscriptionPackage(userId: string): Promise<{ message: string }> {
+  return await adminApi.resetUserSubscription(userId);
+}

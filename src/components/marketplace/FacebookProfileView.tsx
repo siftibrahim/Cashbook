@@ -26,6 +26,7 @@ import {
   UserMinus,
   UserPlus,
   Clock,
+  Users,
 } from 'lucide-react';
 import {
   CustomerProfile,

@@ -3199,6 +3199,40 @@ export function saveMarketplacePost(post: any): any {
     inMemoryStore.marketplace_posts.unshift(post);
   }
   saveInMemoryStoreToDisk();
+
+  // Async persist to PostgreSQL if pool is active
+  if (pool) {
+    pool
+      .query(
+        `INSERT INTO marketplace_posts (id, author_id, author_name, author_username, author_avatar, author_verified, content, images, feeling, linked_product, reactions, user_reactions, comments, shares_count, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           reactions = EXCLUDED.reactions,
+           user_reactions = EXCLUDED.user_reactions,
+           comments = EXCLUDED.comments,
+           shares_count = EXCLUDED.shares_count,
+           updated_at = NOW()`,
+        [
+          post.id,
+          post.authorId,
+          post.authorName,
+          post.authorUsername,
+          post.authorAvatar,
+          Boolean(post.authorVerified),
+          post.content,
+          JSON.stringify(post.images || []),
+          post.feeling ? JSON.stringify(post.feeling) : null,
+          post.linkedProduct ? JSON.stringify(post.linkedProduct) : null,
+          JSON.stringify(post.reactions || {}),
+          JSON.stringify(post.userReactions || {}),
+          JSON.stringify(post.comments || []),
+          post.sharesCount || 0,
+          post.createdAt || new Date().toISOString(),
+        ]
+      )
+      .catch((err: any) => console.warn('saveMarketplacePost DB sync note:', err?.message));
+  }
+
   return post;
 }
 
@@ -3208,6 +3242,11 @@ export function deleteMarketplacePost(id: string): boolean {
   inMemoryStore.marketplace_posts = inMemoryStore.marketplace_posts.filter((p: any) => p.id !== id);
   if (inMemoryStore.marketplace_posts.length !== initialLen) {
     saveInMemoryStoreToDisk();
+    if (pool) {
+      pool.query(`DELETE FROM marketplace_posts WHERE id = $1`, [id]).catch((err: any) =>
+        console.warn('deleteMarketplacePost DB sync note:', err?.message)
+      );
+    }
     return true;
   }
   return false;
@@ -3262,7 +3301,7 @@ export function reactMarketplacePost(postId: string, userId: string, reactionTyp
     }
   }
 
-  saveInMemoryStoreToDisk();
+  saveMarketplacePost(post);
   return { post, notification: createdNotif };
 }
 
@@ -3291,7 +3330,7 @@ export function commentMarketplacePost(postId: string, comment: any): { post: an
     });
   }
 
-  saveInMemoryStoreToDisk();
+  saveMarketplacePost(post);
   return { post, notification: createdNotif };
 }
 
@@ -3350,22 +3389,29 @@ export function saveMarketplaceChatMessage(msg: any): any {
     inMemoryStore.marketplace_chat_messages = [];
   }
   inMemoryStore.marketplace_chat_messages.push(msg);
-
-  // Also create persistent notification for recipient
-  saveMarketplaceNotification({
-    id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    recipientId: msg.receiverId,
-    senderId: msg.senderId,
-    senderName: msg.senderName || 'ব্যবহারকারী',
-    senderAvatar: msg.senderAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
-    type: 'message',
-    text: `${msg.senderName || 'ব্যবহারকারী'} আপনাকে একটি নতুন বার্তা পাঠিয়েছেন: "${msg.text.slice(0, 35)}"`,
-    targetId: msg.senderId,
-    read: false,
-    createdAt: new Date().toISOString(),
-  });
-
   saveInMemoryStoreToDisk();
+
+  // Async persist to PostgreSQL if pool is active
+  if (pool) {
+    pool
+      .query(
+        `INSERT INTO marketplace_chat_messages (id, sender_id, receiver_id, text, timestamp, product_context, read)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO UPDATE SET
+           read = EXCLUDED.read`,
+        [
+          msg.id,
+          msg.senderId,
+          msg.receiverId,
+          msg.text,
+          msg.timestamp || new Date().toISOString(),
+          msg.productContext ? JSON.stringify(msg.productContext) : null,
+          Boolean(msg.read),
+        ]
+      )
+      .catch((err: any) => console.warn('saveMarketplaceChatMessage DB sync note:', err?.message));
+  }
+
   return msg;
 }
 
@@ -3378,7 +3424,19 @@ export function markMarketplaceChatMessagesRead(userId: string, senderId: string
       changed = true;
     }
   });
-  if (changed) saveInMemoryStoreToDisk();
+  if (changed) {
+    saveInMemoryStoreToDisk();
+    if (pool) {
+      pool
+        .query(
+          `UPDATE marketplace_chat_messages
+           SET read = true
+           WHERE receiver_id = $1 AND sender_id = $2 AND read = false`,
+          [userId, senderId]
+        )
+        .catch((err: any) => console.warn('markMarketplaceChatMessagesRead DB sync note:', err?.message));
+    }
+  }
 }
 
 // Notifications Helpers
@@ -3397,6 +3455,31 @@ export function saveMarketplaceNotification(notif: any): any {
   }
   inMemoryStore.marketplace_notifications.unshift(notif);
   saveInMemoryStoreToDisk();
+
+  if (pool) {
+    pool
+      .query(
+        `INSERT INTO marketplace_notifications (id, recipient_id, sender_id, sender_name, sender_avatar, type, text, target_id, reaction_type, read, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (id) DO UPDATE SET
+           read = EXCLUDED.read`,
+        [
+          notif.id,
+          notif.recipientId,
+          notif.senderId,
+          notif.senderName,
+          notif.senderAvatar,
+          notif.type,
+          notif.text,
+          notif.targetId || null,
+          notif.reactionType || null,
+          Boolean(notif.read),
+          notif.createdAt || new Date().toISOString(),
+        ]
+      )
+      .catch((err: any) => console.warn('saveMarketplaceNotification DB sync note:', err?.message));
+  }
+
   return notif;
 }
 
@@ -3406,6 +3489,11 @@ export function markMarketplaceNotificationRead(id: string): void {
   if (n) {
     n.read = true;
     saveInMemoryStoreToDisk();
+    if (pool) {
+      pool.query(`UPDATE marketplace_notifications SET read = true WHERE id = $1`, [id]).catch((err: any) =>
+        console.warn('markMarketplaceNotificationRead DB sync note:', err?.message)
+      );
+    }
   }
 }
 
@@ -3418,7 +3506,14 @@ export function markAllMarketplaceNotificationsRead(userId: string): void {
       changed = true;
     }
   });
-  if (changed) saveInMemoryStoreToDisk();
+  if (changed) {
+    saveInMemoryStoreToDisk();
+    if (pool) {
+      pool
+        .query(`UPDATE marketplace_notifications SET read = true WHERE recipient_id = $1`, [userId])
+        .catch((err: any) => console.warn('markAllMarketplaceNotificationsRead DB sync note:', err?.message));
+    }
+  }
 }
 
 // Friend Requests & User Friendship Helpers
@@ -3485,7 +3580,7 @@ export function sendMarketplaceFriendRequest(senderProfile: any, receiverId: str
   inMemoryStore.marketplace_friend_requests.unshift(reqObj);
 
   // Send persistent notification to receiver
-  saveMarketplaceNotification({
+  const notif = saveMarketplaceNotification({
     id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     recipientId: receiverId,
     senderId: senderProfile.id,
@@ -3499,7 +3594,21 @@ export function sendMarketplaceFriendRequest(senderProfile: any, receiverId: str
   });
 
   saveInMemoryStoreToDisk();
-  return reqObj;
+
+  if (pool) {
+    pool
+      .query(
+        `INSERT INTO marketplace_friend_requests (id, sender_id, receiver_id, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           updated_at = NOW()`,
+        [reqObj.id, reqObj.senderId, reqObj.receiverId, reqObj.status, reqObj.createdAt]
+      )
+      .catch((err: any) => console.warn('sendMarketplaceFriendRequest DB sync note:', err?.message));
+  }
+
+  return { ...reqObj, notification: notif };
 }
 
 export function respondMarketplaceFriendRequest(
@@ -3524,19 +3633,27 @@ export function respondMarketplaceFriendRequest(
   req.updatedAt = new Date().toISOString();
 
   if (action === 'accept') {
-    // Add friendship in both directions
-    inMemoryStore.marketplace_user_friends.push({
-      id: `uf_${Date.now()}_1`,
-      userId: req.senderId,
-      friendId: req.receiverId,
-      createdAt: new Date().toISOString(),
-    });
-    inMemoryStore.marketplace_user_friends.push({
-      id: `uf_${Date.now()}_2`,
-      userId: req.receiverId,
-      friendId: req.senderId,
-      createdAt: new Date().toISOString(),
-    });
+    // Add friendship in both directions (guard against duplicates)
+    const alreadyFriends = inMemoryStore.marketplace_user_friends.some(
+      (f: any) =>
+        (f.userId === req.senderId && f.friendId === req.receiverId) ||
+        (f.userId === req.receiverId && f.friendId === req.senderId)
+    );
+
+    if (!alreadyFriends) {
+      inMemoryStore.marketplace_user_friends.push({
+        id: `uf_${Date.now()}_1`,
+        userId: req.senderId,
+        friendId: req.receiverId,
+        createdAt: new Date().toISOString(),
+      });
+      inMemoryStore.marketplace_user_friends.push({
+        id: `uf_${Date.now()}_2`,
+        userId: req.receiverId,
+        friendId: req.senderId,
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     // Notify original sender
     saveMarketplaceNotification({
@@ -3551,9 +3668,32 @@ export function respondMarketplaceFriendRequest(
       read: false,
       createdAt: new Date().toISOString(),
     });
+
+    if (pool) {
+      pool
+        .query(
+          `INSERT INTO marketplace_user_friends (id, user_id, friend_id, created_at)
+           VALUES ($1, $2, $3, NOW()), ($4, $5, $6, NOW())
+           ON CONFLICT (id) DO NOTHING`,
+          [`uf_${Date.now()}_1`, req.senderId, req.receiverId, `uf_${Date.now()}_2`, req.receiverId, req.senderId]
+        )
+        .catch((err: any) => console.warn('respondMarketplaceFriendRequest DB friends note:', err?.message));
+    }
   }
 
   saveInMemoryStoreToDisk();
+
+  if (pool) {
+    pool
+      .query(
+        `UPDATE marketplace_friend_requests
+         SET status = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [action === 'accept' ? 'accepted' : 'rejected', req.id]
+      )
+      .catch((err: any) => console.warn('respondMarketplaceFriendRequest DB sync note:', err?.message));
+  }
+
   return {
     success: true,
     request: req,

@@ -226,4 +226,4 @@ export const PWAInstallGuideModal: React.FC<PWAInstallGuideModalProps> = ({
         </div>
       </div>
     </div>
- °‹
+ ï¿½ï¿½

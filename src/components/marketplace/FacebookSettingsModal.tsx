@@ -1997,4 +1997,4 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
         </div>
       )}
     </div>
-  )€P
+  )ï¿½P

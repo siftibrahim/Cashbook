@@ -1208,4 +1208,224 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       </>
                     ) : (
                       <>
-                        <Smartphone className="w-4 h-4 t
+                        <Smartphone className="w-4 h-4 text-slate-950" />
+                        <span>SMS OTP পাঠান</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+
+              {/* STEP 2: OTP VERIFICATION */}
+              {resetStep === 'otp' && (
+                <form onSubmit={handleVerifyResetOtp} className="space-y-4">
+                  <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-3.5 text-xs text-slate-300">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-emerald-400 flex items-center gap-1.5">
+                        <Smartphone className="w-4 h-4" />
+                        <span>SMS প্রেরিত নম্বর:</span>
+                      </span>
+                      <span className="font-mono text-white font-bold text-sm bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700">
+                        {resetMaskedPhone || resetTarget}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      মোবাইলের SMS ইনবক্স চেক করে ৬-সংখ্যার OTP কোডটি নিচে দিন।
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5 text-center">
+                      ৬-সংখ্যার OTP কোড লিখুন <span className="text-emerald-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-emerald-400 absolute left-3.5 top-3.5" />
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        autoFocus
+                        value={resetOtp}
+                        onFocus={handleInputFocus}
+                        onChange={(e) => setResetOtp(e.target.value)}
+                        placeholder="••••••"
+                        className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-emerald-500/50 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetStep('phone');
+                        setResetOtp('');
+                        setErrorMsg('');
+                        setSuccessMsg('');
+                      }}
+                      className="text-slate-400 hover:text-slate-200 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>নম্বর পরিবর্তন</span>
+                    </button>
+
+                    {resetCountdown > 0 ? (
+                      <span className="text-slate-400 text-[11px] font-mono">
+                        পুনরায় কোড: {resetCountdown} সেকেন্ড
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleSendResetOtp()}
+                        className="text-emerald-400 hover:underline font-bold flex items-center gap-1 cursor-pointer text-[11px]"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>পুনরায় OTP পাঠান</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading || resetOtp.length < 6}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                        <span>যাচাই করা হচ্ছে...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                        <span>OTP কোড যাচাই করুন</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+
+              {/* STEP 3: NEW PASSWORD / PIN */}
+              {resetStep === 'new_password' && (
+                <form onSubmit={handleSaveNewPassword} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      নতুন গোপন পিন (ন্যূনতম ৪ ডিজিট) <span className="text-emerald-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                      <input
+                        type={showResetNewPass ? 'text' : 'password'}
+                        required
+                        value={resetNewPass}
+                        onFocus={handleInputFocus}
+                        onChange={(e) => setResetNewPass(e.target.value)}
+                        placeholder="নতুন পিন লিখুন"
+                        className="w-full pl-10 pr-11 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 tracking-wider transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowResetNewPass(!showResetNewPass)}
+                        className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+                      >
+                        {showResetNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      পুনরায় নতুন পিন নিশ্চিত করুন <span className="text-emerald-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                      <input
+                        type={showResetConfirmPass ? 'text' : 'password'}
+                        required
+                        value={resetConfirmPass}
+                        onFocus={handleInputFocus}
+                        onChange={(e) => setResetConfirmPass(e.target.value)}
+                        placeholder="একই পিন আবার লিখুন"
+                        className="w-full pl-10 pr-11 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 tracking-wider transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowResetConfirmPass(!showResetConfirmPass)}
+                        className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+                      >
+                        {showResetConfirmPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                        <span>সংরক্ষণ করা হচ্ছে...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                        <span>নতুন পিন সেভ করুন</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+
+              {/* STEP 4: SUCCESS */}
+              {resetStep === 'success' && (
+                <div className="text-center py-6 space-y-4">
+                  <div className="w-14 h-14 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/30">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-black text-white">পিন সফলভাবে পরিবর্তন হয়েছে!</h4>
+                    <p className="text-xs text-slate-400 mt-1">এখন আপনার নতুন পিন দিয়ে অ্যাকাউন্টে লগইন করতে পারেন।</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('login');
+                      setResetStep('phone');
+                      setResetOtp('');
+                      setResetNewPass('');
+                      setResetConfirmPass('');
+                      setErrorMsg('');
+                    }}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-black rounded-2xl shadow-lg transition text-xs sm:text-sm cursor-pointer"
+                  >
+                    লগইন পেজে ফিরে যান
+                  </button>
+                </div>
+              )}
+
+              {/* Back to Login Footer */}
+              {resetStep !== 'success' && (
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('login');
+                      setErrorMsg('');
+                      setSuccessMsg('');
+                    }}
+                    className="text-xs text-slate-400 hover:text-white font-bold flex items-center justify-center gap-1.5 mx-auto cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>লগইন পেজে ফিরে যান</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

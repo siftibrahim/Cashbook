@@ -1439,4 +1439,4 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </div>
       </div>
     </div>
-  </div€W
+  </divï¿½W

@@ -209,6 +209,14 @@ export const MarketplaceCartCheckoutDrawer: React.FC<MarketplaceCartCheckoutDraw
     return cart.reduce((sum, item) => sum + item.product.salePrice * item.quantity, 0);
   }, [cart]);
 
+  const totalDeliveryCharge = useMemo(() => {
+    return (vendorGroups.length || 1) * deliveryRate;
+  }, [vendorGroups.length, deliveryRate]);
+
+  const grandTotal = useMemo(() => {
+    return totalProductsAmount + totalDeliveryCharge;
+  }, [totalProductsAmount, totalDeliveryCharge]);
+
   const executeOrderPlacement = async () => {
     if (!targetCheckoutItem) {
       setSubmitError('অর্ডার করার জন্য অনুগ্রহ করে একটি পণ্য নির্বাচন করুন।');

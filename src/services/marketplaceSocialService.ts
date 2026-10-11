@@ -11,6 +11,11 @@ import {
   FriendRequestStatus,
   MarketplaceBoostRequest,
 } from '../types/marketplaceSocial';
+import {
+  playMessageAlertTone,
+  playNotificationAlertTone,
+  playMessageSentTone,
+} from '../utils/audio';
 
 const PROFILE_KEY = 'mkt_fb_current_profile_v2';
 const POSTS_KEY = 'mkt_fb_feed_posts_v2';
