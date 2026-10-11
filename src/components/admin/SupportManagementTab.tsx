@@ -564,5 +564,4 @@ export const SupportManagementTab: React.FC<SupportManagementTabProps> = ({
         </div>
       )}
     </div>
-  );
-};
+à<

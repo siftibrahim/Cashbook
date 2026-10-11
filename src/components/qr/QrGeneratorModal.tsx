@@ -871,4 +871,4 @@ export const QrGeneratorModal: React.FC<QrGeneratorModalProps> = ({
       </div>
     </div>
   );
-};
+`7

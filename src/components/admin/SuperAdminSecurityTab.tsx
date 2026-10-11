@@ -250,5 +250,4 @@ export const SuperAdminSecurityTab: React.FC<SuperAdminSecurityTabProps> = ({
         </div>
       </form>
     </div>
-  );
-};
+  );Ð3

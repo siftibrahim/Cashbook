@@ -922,4 +922,4 @@ export const PaymentSettingsModal: React.FC<PaymentSettingsModalProps> = ({
       </div>
     </div>
   );
-};
+}ð–

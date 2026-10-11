@@ -582,6 +582,4 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
     {/* Spacer so that page content never hides under the fixed header & search bar */}
     <div className={`w-full shrink-0 ${currentTab === 'feed' ? 'h-[110px] sm:h-[120px]' : 'h-14 sm:h-16'}`} aria-hidden="true" />
   </>
-  );
-};
-
+  @h

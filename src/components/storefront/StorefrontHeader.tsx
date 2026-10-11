@@ -229,3 +229,4 @@ export const StorefrontHeader: React.FC<StorefrontHeaderProps> = ({
     </div>
   );
 };
+P’

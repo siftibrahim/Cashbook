@@ -1,117 +1,124 @@
-import express, { Response } from 'express';
-import { getDbPool, inMemoryStore, saveInMemoryStoreToDisk } from '../db';
-import { authenticateUser, AuthenticatedRequest } from '../authMiddleware';
+import { Router, Response } from 'express';
+import { getDbPool, inMemoryStore } from '../db';
+import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 
-const router = express.Router();
-
-// Fallback in-memory media cache for when database pool is not connected
-const localMediaCache = new Map<string, { mimeType: string; data: string }>();
+const router = Router();
+router.use(authenticateUser);
 
 /**
- * POST /api/media/upload - Upload an image permanently to PostgreSQL or local storage
+ * GET /api/support/messages - Get support message history for logged-in user
  */
-router.post('/upload', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/messages', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'অননুমোদিত অ্যাক্সেস' });
-    }
-
-    const { data, fileName, mimeType } = req.body;
-    if (!data || typeof data !== 'string') {
-      return res.status(400).json({ error: 'ছবির ডাটা প্রদান করুন' });
-    }
-
-    // Determine mime type and pure base64
-    let detectedMime = mimeType || 'image/jpeg';
-    let base64Data = data;
-    if (data.startsWith('data:')) {
-      const match = data.match(/^data:([^;]+);base64,(.+)$/);
-      if (match) {
-        detectedMime = match[1];
-        base64Data = match[2];
-      }
-    }
-
-    const mediaId = `med_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    const sizeBytes = Math.round((base64Data.length * 3) / 4);
-    const now = Date.now();
     const pool = getDbPool();
-
-    if (pool) {
-      await pool.query(
-        `INSERT INTO media_storage (id, user_id, mime_type, file_name, data, size_bytes, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [mediaId, userId, detectedMime, fileName || 'upload.jpg', base64Data, sizeBytes, now]
-      );
-    } else {
-      // Store in memory cache & disk persistent store
-      localMediaCache.set(mediaId, { mimeType: detectedMime, data: base64Data });
-      if (!(inMemoryStore as any).media) (inMemoryStore as any).media = {};
-      (inMemoryStore as any).media[mediaId] = { mimeType: detectedMime, data: base64Data };
-      saveInMemoryStoreToDisk();
-    }
-
-    const permanentUrl = `/api/media/${mediaId}`;
-    return res.json({
-      success: true,
-      mediaId,
-      url: permanentUrl,
-      sizeBytes,
-    });
-  } catch (err: any) {
-    console.error('Media upload error:', err);
-    return res.status(500).json({ error: 'ছবি আপলোড করতে ব্যর্থ হয়েছে: ' + (err?.message || err) });
-  }
-});
-
-/**
- * GET /api/media/:id - Fetch permanently stored image
- */
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const pool = getDbPool();
-
-    let mimeType = 'image/jpeg';
-    let rawBase64 = '';
 
     if (pool) {
       const result = await pool.query(
-        `SELECT mime_type, data FROM media_storage WHERE id = $1 LIMIT 1`,
-        [id]
+        'SELECT * FROM support_messages WHERE user_id = $1 ORDER BY created_at ASC',
+        [userId]
       );
-      if (result.rows.length > 0) {
-        mimeType = result.rows[0].mime_type || 'image/jpeg';
-        rawBase64 = result.rows[0].data;
-      }
+      const messages = result.rows.map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        userName: row.user_name,
+        userPhone: row.user_phone,
+        shopName: row.shop_name,
+        sender: row.sender,
+        senderName: row.sender_name,
+        text: row.text,
+        createdAt: Number(row.created_at),
+        isReadByAdmin: row.is_read_by_admin,
+        isReadByUser: row.is_read_by_user,
+      }));
+
+      // Mark messages as read by user
+      await pool.query('UPDATE support_messages SET is_read_by_user = TRUE WHERE user_id = $1', [userId]);
+
+      return res.json({ messages });
+    } else {
+      const list = inMemoryStore.support_messages
+        .filter(m => m.userId === userId)
+        .sort((a, b) => a.createdAt - b.createdAt);
+      list.forEach(m => { m.isReadByUser = true; });
+      return res.json({ messages: list });
     }
-
-    if (!rawBase64 && localMediaCache.has(id)) {
-      const cached = localMediaCache.get(id)!;
-      mimeType = cached.mimeType;
-      rawBase64 = cached.data;
-    } else if (!rawBase64 && (inMemoryStore as any).media?.[id]) {
-      const cached = (inMemoryStore as any).media[id];
-      mimeType = cached.mimeType || 'image/jpeg';
-      rawBase64 = cached.data;
-    }
-
-    if (!rawBase64) {
-      return res.status(404).send('Media not found');
-    }
-
-    const imageBuffer = Buffer.from(rawBase64, 'base64');
-
-    res.setHeader('Content-Type', mimeType || 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    res.setHeader('Content-Length', imageBuffer.length);
-
-    return res.send(imageBuffer);
   } catch (err: any) {
-    console.error('Media fetch error:', err);
-    return res.status(500).send('Error serving media');
+    return res.status(500).json({ error: err.message });
   }
 });
 
-export default router;
+/**
+ * POST /api/support/send - Send a support message from user
+ */
+router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { text } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'মেসেজের বিবরণ লিখুন' });
+    }
+
+    const msgId = 'msg_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    const now = Date.now();
+    const cleanText = text.trim();
+
+    const pool = getDbPool();
+    let userName = req.user?.email || 'User';
+    let userPhone = '';
+    let shopName = req.user?.shopName || 'Shop';
+
+    if (pool) {
+      const uRes = await pool.query('SELECT name, phone, shop_name FROM users WHERE id = $1', [userId]);
+      if (uRes.rows.length > 0) {
+        userName = uRes.rows[0].name;
+        userPhone = uRes.rows[0].phone;
+        shopName = uRes.rows[0].shop_name;
+      }
+
+      await pool.query(`
+        INSERT INTO support_messages (
+          id, user_id, user_name, user_phone, shop_name, sender, sender_name, text,
+          is_read_by_admin, is_read_by_user, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `, [
+        msgId, userId, userName, userPhone, shopName, 'user', userName, cleanText,
+        false, true, now
+      ]);
+    } else {
+      inMemoryStore.support_messages.push({
+        id: msgId,
+        userId,
+        userName,
+        userPhone,
+        shopName,
+        sender: 'user',
+        senderName: userName,
+        text: cleanText,
+        isReadByAdmin: false,
+        isReadByUser: true,
+        createdAt: now,
+      });
+    }
+
+    return res.json({
+      message: '✅ মেসেজ পাঠানো হয়েছে',
+      supportMessage: {
+        id: msgId,
+        userId,
+        userName,
+        userPhone,
+        shopName,
+        sender: 'user',
+        senderName: userName,
+        text: cleanText,
+        createdAt: now,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+export default r��

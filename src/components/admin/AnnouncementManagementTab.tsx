@@ -313,5 +313,4 @@ export const AnnouncementManagementTab: React.FC<AnnouncementManagementTabProps>
         </div>
       )}
     </div>
-  );
-};
+ Љ

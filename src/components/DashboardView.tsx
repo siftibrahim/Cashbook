@@ -1,1112 +1,1259 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { Customer, Transaction, StoreProfile, DailyExpense, Product, OnlineStoreConfig } from '../types';
-import { formatMoney, getTodayDateString, formatBanglaDate } from '../utils/storage';
-import { DateWiseReportModal } from './DateWiseReportModal';
-import { InventoryReportModal } from './InventoryReportModal';
-import heroBannerImg from '../assets/images/store_banner_hero_1788852324640.jpg';
+import React, { useState, useEffect } from 'react';
+import { StoreProfile, Customer, Transaction, DailyExpense, PrintPaperSize, ThemeColor } from '../types';
+import { authApi, getStoredUser } from '../services/apiService';
 import {
-  TopUpIcon,
-  DueBookIcon,
-  CashBookIcon,
-  AccountsBookIcon,
-  BillPayIcon,
-  OnlineStoreIcon,
-  SaleCoinsIcon,
-  SalesPrinterIcon,
-  CustomerDirectoryIcon,
-  StockCalculationIcon,
-  ReportAnalyticsIcon,
-  ShopSettingsIcon,
-} from './ServiceIcons';
-import {
+  X,
   Store,
-  UserPlus,
-  ShoppingCart,
-  ArrowUp,
-  ArrowDown,
-  ArrowUpRight,
-  Wallet,
-  Users,
-  Calendar,
-  ChevronRight,
-  ChevronDown,
-  FileText,
-  Receipt,
-  Landmark,
-  Package,
+  MessageSquare,
+  AlertTriangle,
+  Database,
+  ShieldCheck,
+  Save,
+  Download,
+  Upload,
+  RefreshCw,
+  Phone,
+  MapPin,
+  User,
+  Key,
+  CheckCircle,
+  HelpCircle,
+  Lock,
   Smartphone,
-  CircleDollarSign,
-  TrendingUp,
-  Settings,
-  Boxes,
-  Truck,
-  PackagePlus,
-  BarChart3,
-  LayoutGrid,
-  Plus,
+  Printer,
+  Volume2,
+  Sliders,
+  Palette,
+  Headphones,
+  Mail,
+  Sparkles,
+  CreditCard,
 } from 'lucide-react';
-import { DashboardBannerSettings, DashboardBannerItem } from '../types/adminTypes';
-import { subscribeToDashboardBanners, INITIAL_DASHBOARD_BANNER_SETTINGS } from '../services/adminService';
-import { BANNER_GRADIENTS } from './admin/DashboardBannersTab';
+import { playPaymentChime } from '../utils/audio';
+import { SUPPORT_CONTACT } from '../types/adminTypes';
+import { ProfilePictureUploader } from './profile/ProfilePictureUploader';
 
-
-interface DashboardViewProps {
+interface SettingsModalProps {
+  isOpen: boolean;
+  store: StoreProfile;
   customers: Customer[];
   transactions: Record<string, Transaction[]>;
-  store: StoreProfile;
   expenses?: DailyExpense[];
-  products?: Product[];
-  onOpenNewCustomer: () => void;
-  onNavigateToTab: (tab: 'customers' | 'pos' | 'inventory' | 'cashbook') => void;
-  onOpenAnalytics: () => void;
-  onOpenCashbook: () => void;
-  onOpenReport: () => void;
-  onOpenInventoryReport?: () => void;
-  onOpenSalesHistory?: () => void;
+  onClose: () => void;
+  onSaveStore: (updatedStore: StoreProfile) => Promise<void> | void;
+  onRestoreData: (customers: Customer[], txs: Record<string, Transaction[]>, expenses?: DailyExpense[]) => Promise<void>;
+  onResetData: () => void;
+  onShowToast: (msg: string) => void;
+  onOpenAdmin?: () => void;
+  onOpenSupport?: () => void;
   onOpenSubscription?: () => void;
-  onOpenSettings?: () => void;
-  onOpenOnlineStore?: () => void;
-  onlineStoreConfig?: OnlineStoreConfig;
-  onOpenNewProduct?: () => void;
-  onOpenSms?: () => void;
-  smsBalance?: number;
-  pendingSmsPurchaseInfo?: { hasPending: boolean; record?: any; latestConfirmed?: any };
-  onRefreshSmsStatus?: () => void | Promise<any>;
-  isSubscriptionSystemEnabled?: boolean;
-  pendingPaymentInfo?: { hasPending: boolean; record?: any };
-  onRefreshSubscriptionStatus?: () => void | Promise<any>;
-  onSelectCustomer: (customerId: string) => void;
+  onOpenPermissions?: () => void;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({
+type TabType = 'store' | 'subscription' | 'mfs' | 'tagada' | 'print' | 'limits_sound' | 'backup' | 'security';
+
+export const SettingsModal: React.FC<SettingsModalProps> = ({
+  isOpen,
+  store,
   customers,
   transactions,
-  store,
   expenses = [],
-  products = [],
-  onOpenNewCustomer,
-  onNavigateToTab,
-  onOpenCashbook,
-  onOpenReport,
-  onOpenInventoryReport,
-  onOpenSalesHistory,
-  onOpenSettings,
-  onOpenOnlineStore,
-  onlineStoreConfig,
-  onOpenSms,
+  onClose,
+  onSaveStore,
+  onRestoreData,
+  onResetData,
+  onShowToast,
+  onOpenAdmin,
+  onOpenSupport,
   onOpenSubscription,
+  onOpenPermissions,
 }) => {
-  const isOnlineStoreAllowed = onlineStoreConfig?.isStoreAllowedByAdmin === true && onlineStoreConfig?.adminStoreStatus === 'active';
-  const isOnlineStorePending = onlineStoreConfig?.adminStoreStatus === 'requested';
-  const onlineStoreBadge = isOnlineStorePending ? 'পেন্ডিং' : isOnlineStoreAllowed ? 'সক্রিয়' : 'অনুমতি';
-  const onlineStoreBadgeClass = isOnlineStorePending
-    ? 'bg-amber-400 text-slate-950 font-black animate-pulse'
-    : isOnlineStoreAllowed
-    ? 'bg-emerald-500 text-white font-bold'
-    : 'bg-rose-500 text-white font-bold';
+  const [activeTab, setActiveTab] = useState<TabType>('store');
 
-  const today = getTodayDateString();
-  const [isDateReportModalOpen, setIsDateReportModalOpen] = useState(false);
-  const [isInventoryReportOpen, setIsInventoryReportOpen] = useState(false);
-  const [metricViewMode, setMetricViewMode] = useState<'today' | 'date_range'>('today');
+  // Form states
+  const [name, setName] = useState(store.name || '');
+  const [owner, setOwner] = useState(store.owner || '');
+  const [phone, setPhone] = useState(store.phone || '');
+  const [address, setAddress] = useState(store.address || '');
+  const [footerNote, setFooterNote] = useState(
+    store.footerNote || 'আমাদের সাথে থাকার জন্য ধন্যবাদ! আবার আসবেন।'
+  );
+  const [currencySymbol, setCurrencySymbol] = useState(store.currencySymbol || '৳');
+  const [highDueLimit, setHighDueLimit] = useState(store.highDueLimit || 5000);
+  const [defaultCreditLimit, setDefaultCreditLimit] = useState(store.defaultCreditLimit || 10000);
+  const [tagadaTemplate, setTagadaTemplate] = useState(
+    store.tagadaTemplate ||
+      'আসসালামু আলাইকুম {customer} ভাই, {store}-এ আপনার বর্তমান বকেয়া বাকি {currency} {amount}। সুবিধাজনক সময়ে পরিশোধ করার জন্য অনুরোধ রইল।\n\nধন্যবাদ,\n{store}\nযোগাযোগ: {phone}'
+  );
+  const [bkashNumber, setBkashNumber] = useState(store.bkashNumber || '');
+  const [nagadNumber, setNagadNumber] = useState(store.nagadNumber || '');
+  const [rocketNumber, setRocketNumber] = useState(store.rocketNumber || '');
+  const [themeColor, setThemeColor] = useState<ThemeColor>(store.themeColor || 'teal');
+  const [enableSoundEffects, setEnableSoundEffects] = useState<boolean>(
+    store.enableSoundEffects !== false
+  );
+  const [printPaperSize, setPrintPaperSize] = useState<PrintPaperSize>(
+    store.printPaperSize || 'thermal_80'
+  );
+  const [showQrOnInvoice, setShowQrOnInvoice] = useState<boolean>(
+    store.showQrOnInvoice !== false
+  );
+  const [logoUrl, setLogoUrl] = useState(store.logoUrl || '');
 
-  // Super Admin controlled dashboard promo banner subscription
-  const [dashboardBanners, setDashboardBanners] = useState<DashboardBannerSettings>(INITIAL_DASHBOARD_BANNER_SETTINGS);
-  const [activeBannerIndex, setActiveBannerIndex] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   useEffect(() => {
-    const unsub = subscribeToDashboardBanners((settings) => {
-      if (settings && Array.isArray(settings.banners)) {
-        setDashboardBanners(settings);
-      }
-    });
-    return () => unsub();
-  }, []);
+    if (isOpen) {
+      setName(store.name || '');
+      setOwner(store.owner || '');
+      setPhone(store.phone || '');
+      setAddress(store.address || '');
+      setFooterNote(store.footerNote || 'আমাদের সাথে থাকার জন্য ধন্যবাদ! আবার আসবেন।');
+      setCurrencySymbol(store.currencySymbol || '৳');
+      setHighDueLimit(store.highDueLimit || 5000);
+      setDefaultCreditLimit(store.defaultCreditLimit || 10000);
+      setTagadaTemplate(
+        store.tagadaTemplate ||
+          'আসসালামু আলাইকুম {customer} ভাই, {store}-এ আপনার বর্তমান বকেয়া বাকি {currency} {amount}। সুবিধাজনক সময়ে পরিশোধ করার জন্য অনুরোধ রইল।\n\nধন্যবাদ,\n{store}\nযোগাযোগ: {phone}'
+      );
+      setBkashNumber(store.bkashNumber || '');
+      setNagadNumber(store.nagadNumber || '');
+      setRocketNumber(store.rocketNumber || '');
+      setThemeColor(store.themeColor || 'teal');
+      setEnableSoundEffects(store.enableSoundEffects !== false);
+      setPrintPaperSize(store.printPaperSize || 'thermal_80');
+      setShowQrOnInvoice(store.showQrOnInvoice !== false);
+      setLogoUrl(store.logoUrl || '');
+    }
+  }, [isOpen, store]);
 
-  const activeBanners = (dashboardBanners?.banners || []).filter((b) => b.isActive !== false);
-  const currentBanner: DashboardBannerItem =
-    activeBanners[activeBannerIndex] ||
-    activeBanners[0] ||
-    INITIAL_DASHBOARD_BANNER_SETTINGS.banners[0];
+  if (!isOpen) return null;
 
-  useEffect(() => {
-    if (!dashboardBanners?.autoPlay || activeBanners.length <= 1) return;
-    const interval = setInterval(() => {
-      setActiveBannerIndex((prev) => (prev + 1) % activeBanners.length);
-    }, (dashboardBanners.intervalSeconds || 6) * 1000);
-    return () => clearInterval(interval);
-  }, [dashboardBanners?.autoPlay, dashboardBanners?.intervalSeconds, activeBanners.length]);
-
-  const handleBannerAction = (banner: DashboardBannerItem) => {
-    if (!banner.actionType || banner.actionType === 'none') {
-      if (banner.actionUrl) {
-        window.open(banner.actionUrl, '_blank', 'noopener,noreferrer');
-      }
+  const handleSaveAll = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      onShowToast('দোকানের নাম খালি রাখা যাবে না!');
       return;
     }
-    if (banner.actionType === 'url' && banner.actionUrl) {
-      window.open(banner.actionUrl, '_blank', 'noopener,noreferrer');
-    } else if (banner.actionType === 'tel' && banner.actionUrl) {
-      window.location.href = banner.actionUrl.startsWith('tel:') ? banner.actionUrl : `tel:${banner.actionUrl}`;
-    } else if (banner.actionType === 'subscription') {
-      if (onOpenSubscription) onOpenSubscription();
-    } else if (banner.actionType === 'sms') {
-      if (onOpenSms) onOpenSms();
-    } else if (banner.actionType === 'support') {
-      const supportBtn = document.getElementById('floating-support-btn') || document.querySelector('[data-tab="support"]');
-      if (supportBtn) (supportBtn as HTMLElement).click();
+
+    setSaving(true);
+    try {
+      const updated: StoreProfile = {
+        name: name.trim(),
+        owner: owner.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        footerNote: footerNote.trim(),
+        currencySymbol: currencySymbol.trim() || '৳',
+        highDueLimit: Number(highDueLimit) || 5000,
+        defaultCreditLimit: Number(defaultCreditLimit) || 10000,
+        tagadaTemplate: tagadaTemplate.trim(),
+        bkashNumber: bkashNumber.trim(),
+        nagadNumber: nagadNumber.trim(),
+        rocketNumber: rocketNumber.trim(),
+        themeColor,
+        enableSoundEffects,
+        printPaperSize,
+        showQrOnInvoice,
+        logoUrl: logoUrl.trim() || undefined,
+      };
+
+      await onSaveStore(updated);
+      onClose();
+    } catch (err) {
+      console.error(err);
+      onShowToast('সংরক্ষণে সমস্যা হয়েছে!');
+    } finally {
+      setSaving(false);
     }
   };
 
-
-  // Helper to normalize any date format to YYYY-MM-DD
-  const normalizeToISO = (d: string): string => {
-    if (!d) return '';
-    const clean = d.trim();
-    if (clean.includes('/') || (clean.includes('-') && clean.split('-')[0].length <= 2)) {
-      const parts = clean.includes('/') ? clean.split('/') : clean.split('-');
-      if (parts.length === 3) {
-        const day = parts[0].padStart(2, '0');
-        const month = parts[1].padStart(2, '0');
-        const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
-        return `${year}-${month}-${day}`;
-      }
-    }
-    return clean;
-  };
-
-  const isDateInRange = (dateStr: string, start: string, end: string): boolean => {
-    if (!dateStr) return false;
-    const iso = normalizeToISO(dateStr);
-    const s = normalizeToISO(start);
-    const e = normalizeToISO(end);
-    if (!iso) return false;
-    if (s && iso < s) return false;
-    if (e && iso > e) return false;
-    return true;
-  };
-
-  // Date formatting helpers
-  const formatHyphenDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-      return `${parts[2]}-${parts[1]}-${parts[0]}`;
-    }
-    return dateStr;
-  };
-
-  const formatSlashDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-      return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    }
-    return dateStr;
-  };
-
-  // Date range filter state (default: 1st of current month to today)
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  });
-  const [endDate, setEndDate] = useState(today);
-
-  // Quick preset helper
-  const handleSetPreset = (preset: 'today' | 'yesterday' | '7days' | 'thisMonth' | 'lastMonth') => {
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const toStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
-    if (preset === 'today') {
-      const todayStr = toStr(now);
-      setStartDate(todayStr);
-      setEndDate(todayStr);
-    } else if (preset === 'yesterday') {
-      const y = new Date(now);
-      y.setDate(y.getDate() - 1);
-      const yStr = toStr(y);
-      setStartDate(yStr);
-      setEndDate(yStr);
-    } else if (preset === '7days') {
-      const past = new Date(now);
-      past.setDate(past.getDate() - 6);
-      setStartDate(toStr(past));
-      setEndDate(toStr(now));
-    } else if (preset === 'thisMonth') {
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-      setStartDate(toStr(firstDay));
-      setEndDate(toStr(now));
-    } else if (preset === 'lastMonth') {
-      const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
-      setStartDate(toStr(firstDay));
-      setEndDate(toStr(lastDay));
-    }
-  };
-
-  const safeCustomers = Array.isArray(customers) ? customers : [];
-  const safeTransactions = transactions && typeof transactions === 'object' ? transactions : {};
-
-  // Compute real today metrics
-  const todayMetrics = useMemo(() => {
-    let income = 0;
-    let expense = 0;
-    let totalVolume = 0;
-    const todayIso = normalizeToISO(today);
-
-    Object.values(safeTransactions).forEach((txList) => {
-      if (!Array.isArray(txList)) return;
-      txList.forEach((tx) => {
-        if (tx && normalizeToISO(tx.date) === todayIso) {
-          totalVolume += Number(tx.amount || 0);
-          if (tx.type === 'payment') {
-            income += Number(tx.amount || 0);
-          } else if (tx.type === 'sale') {
-            if (tx.paidAmount) {
-              income += Number(tx.paidAmount || 0);
-            }
-          }
-        }
-      });
-    });
-
-    (expenses || []).forEach((exp) => {
-      if (exp && normalizeToISO(exp.date) === todayIso) {
-        totalVolume += Number(exp.amount || 0);
-        if (exp.type === 'expense') {
-          expense += Number(exp.amount || 0);
-        } else if (exp.type === 'income') {
-          income += Number(exp.amount || 0);
-        }
-      }
-    });
-
-    const totalCustomers = safeCustomers.filter((c) => c && c.id !== 'cust_counter_cash').length;
-
-    return {
-      income,
-      expense,
-      totalVolume,
-      totalCustomers: totalCustomers || safeCustomers.length,
-    };
-  }, [safeTransactions, expenses, safeCustomers, today]);
-
-  // Overall customer dues (মোট বাকি পাওনা)
-  const totalDue = useMemo(() => {
-    return safeCustomers.reduce((acc, c) => {
-      if (!c) return acc;
-      const bal = Number(c.balance || 0);
-      return bal > 0 ? acc + bal : acc;
-    }, 0);
-  }, [safeCustomers]);
-
-  // Overall total collection (মোট আদায়)
-  const totalCollected = useMemo(() => {
-    let collected = 0;
-    Object.values(safeTransactions).forEach((txList) => {
-      if (!Array.isArray(txList)) return;
-      txList.forEach((tx) => {
-        if (!tx) return;
-        if (tx.type === 'payment') {
-          collected += Number(tx.amount || 0);
-        } else if (tx.type === 'sale') {
-          if (tx.paidAmount) {
-            collected += Number(tx.paidAmount || 0);
-          }
-        }
-      });
-    });
-    return collected;
-  }, [safeTransactions]);
-
-  // Compute comprehensive Date Range metrics based on startDate and endDate
-  const dateRangeMetrics = useMemo(() => {
-    let income = 0; // cash in (payment received + paid portion of sales + other income)
-    let expense = 0; // cash out (expenses)
-    let totalSales = 0; // all product sales (both cash and due)
-    let cashSales = 0;
-    let dueSales = 0;
-    let txCount = 0;
-    let totalVolume = 0;
-
-    Object.values(safeTransactions).forEach((txList) => {
-      if (!Array.isArray(txList)) return;
-      txList.forEach((tx) => {
-        if (!tx || !tx.date) return;
-        if (isDateInRange(tx.date, startDate, endDate)) {
-          txCount++;
-          const amt = Number(tx.amount || 0);
-          totalVolume += amt;
-
-          if (tx.type === 'payment') {
-            income += amt;
-          } else if (tx.type === 'sale') {
-            totalSales += amt;
-            const paid = Number(tx.paidAmount || 0);
-            const due = amt > paid ? amt - paid : 0;
-            cashSales += paid;
-            dueSales += due;
-            if (paid > 0) {
-              income += paid;
-            }
-          }
-        }
-      });
-    });
-
-    (expenses || []).forEach((exp) => {
-      if (!exp || !exp.date) return;
-      if (isDateInRange(exp.date, startDate, endDate)) {
-        txCount++;
-        const amt = Number(exp.amount || 0);
-        totalVolume += amt;
-        if (exp.type === 'expense') {
-          expense += amt;
-        } else if (exp.type === 'income') {
-          income += amt;
-        }
-      }
-    });
-
-    const netProfit = income - expense;
-
-    return {
-      income,
-      expense,
-      totalSales,
-      cashSales,
-      dueSales,
-      netProfit,
-      totalVolume,
-      txCount,
-    };
-  }, [safeTransactions, expenses, startDate, endDate]);
-
-  // 12 Service Items matching the uploaded screenshot
-  const serviceItems = [
-    {
-      id: 'top_up',
-      title: 'টপ আপ',
-      icon: TopUpIcon,
-      action: onOpenSms ? onOpenSms : () => {},
-    },
-    {
-      id: 'due_book',
-      title: 'বাকির খাতা',
-      icon: DueBookIcon,
-      action: () => onNavigateToTab('customers'),
-    },
-    {
-      id: 'cash_book',
-      title: 'বুক',
-      icon: CashBookIcon,
-      action: onOpenCashbook,
-    },
-    {
-      id: 'accounts_book',
-      title: 'হিসাব খাতা',
-      icon: AccountsBookIcon,
-      action: () => setIsDateReportModalOpen(true),
-    },
-    {
-      id: 'bill_pay',
-      title: 'বিল পে',
-      icon: BillPayIcon,
-      action: onOpenCashbook,
-    },
-    {
-      id: 'online_store',
-      title: 'অনলাইন স্টোর',
-      icon: OnlineStoreIcon,
-      action: onOpenOnlineStore ? onOpenOnlineStore : () => onNavigateToTab('inventory'),
-      badge: onlineStoreBadge,
-      badgeClass: onlineStoreBadgeClass,
-    },
-    {
-      id: 'pos_sale',
-      title: 'বেচা-বিক্রি',
-      icon: SaleCoinsIcon,
-      action: () => onNavigateToTab('pos'),
-    },
-    {
-      id: 'sales_book',
-      title: 'বিক্রির খাতা',
-      icon: SalesPrinterIcon,
-      action: onOpenSalesHistory ? onOpenSalesHistory : () => onNavigateToTab('pos'),
-    },
-    {
-      id: 'customer_list',
-      title: 'গ্রাহক তালিকা',
-      icon: CustomerDirectoryIcon,
-      action: () => onNavigateToTab('customers'),
-    },
-    {
-      id: 'stock_calc',
-      title: 'স্টকের হিসাব',
-      icon: StockCalculationIcon,
-      action: () => onNavigateToTab('inventory'),
-    },
-    {
-      id: 'inventory_report',
-      title: 'ইনভেন্টরি রিপোর্ট',
-      icon: ReportAnalyticsIcon,
-      action: () => {
-        if (onOpenInventoryReport) {
-          onOpenInventoryReport();
-        } else {
-          setIsInventoryReportOpen(true);
-        }
+  // Download complete JSON backup
+  const handleDownloadBackup = () => {
+    const backupData = {
+      version: '2.0',
+      exportedAt: new Date().toISOString(),
+      store: {
+        name,
+        owner,
+        phone,
+        address,
+        footerNote,
+        currencySymbol,
+        highDueLimit,
+        defaultCreditLimit,
+        tagadaTemplate,
+        bkashNumber,
+        nagadNumber,
+        rocketNumber,
+        themeColor,
+        enableSoundEffects,
+        printPaperSize,
+        showQrOnInvoice,
       },
-    },
-    {
-      id: 'shop_settings',
-      title: 'সেটিংস',
-      icon: ShopSettingsIcon,
-      action: onOpenSettings ? onOpenSettings : () => {},
-    },
-  ];
+      customers,
+      transactions,
+      expenses,
+    };
 
-  const currentTheme = BANNER_GRADIENTS[currentBanner.bgGradient || 'teal'] || BANNER_GRADIENTS.teal;
-  const hasBannerAction = Boolean(
-    (currentBanner.actionType && currentBanner.actionType !== 'none') ||
-    currentBanner.actionUrl ||
-    currentBanner.actionText
-  );
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `digital_khata_backup_v2_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    onShowToast('সম্পূর্ণ ব্যাকআপ ফাইল ডাউনলোড সম্পন্ন হয়েছে!');
+  };
+
+  // Restore backup from JSON
+  const handleFileRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+
+        if (!parsed.customers || !Array.isArray(parsed.customers)) {
+          onShowToast('ভুল ফাইল! কাস্টমার ডাটা পাওয়া যায়নি।');
+          return;
+        }
+
+        if (parsed.store) {
+          await onSaveStore({ ...store, ...parsed.store });
+        }
+
+        await onRestoreData(
+          parsed.customers,
+          parsed.transactions || {},
+          parsed.expenses || []
+        );
+        onClose();
+      } catch (err) {
+        console.error(err);
+        onShowToast('ফাইলটি পড়া সম্ভব হয়নি। সঠিক JSON ফাইল নির্বাচন করুন।');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Direct PIN change
+  const handleChangePasswordDirect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword.trim()) {
+      onShowToast('নতুন গোপন পিন (PIN) লিখুন!');
+      return;
+    }
+    if (newPassword.length < 4) {
+      onShowToast('গোপন পিন কমপক্ষে ৪ সংখ্যার হতে হবে!');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      onShowToast('উভয় গোপন পিন হুবহু এক নয়!');
+      return;
+    }
+
+    const userEmail = getStoredUser()?.email || '';
+    if (!userEmail) {
+      onShowToast('লগইনকৃত অ্যাকাউন্ট পাওয়া যায়নি!');
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      const res = await authApi.changePassword(userEmail, newPassword.trim());
+      onShowToast(res.message || '✅ গোপন পিন (PIN) সফলভাবে পরিবর্তিত হয়েছে!');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      console.error(err);
+      onShowToast(`গোপন পিন পরিবর্তন করা যায়নি: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  // Password / PIN reset email
+  const handlePasswordReset = async () => {
+    const userEmail = getStoredUser()?.email || '';
+    if (!userEmail) {
+      onShowToast('লগইনকৃত ইমেইল পাওয়া যায়নি!');
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      const res = await authApi.forgotPassword(userEmail);
+      onShowToast(res.message || `পিন রিসেট লিংক ${userEmail} ইমেইলে পাঠানো হয়েছে!`);
+    } catch (err: any) {
+      console.error(err);
+      onShowToast(`পিন রিসেট পাঠানো যায়নি: ${err.message || 'Error'}`);
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
+  const insertTag = (tag: string) => {
+    setTagadaTemplate((prev) => prev + tag);
+  };
+
+  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    setTimeout(() => {
+      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+  };
 
   return (
-    <div
-      id="dashboard-root-view"
-      className="w-full flex flex-col gap-2 sm:gap-2.5 select-none text-slate-800"
-    >
-      {/* 1. Super Admin Controlled Promo Hero Banner */}
-      {dashboardBanners?.isEnabled !== false && (
-        <section
-          id="dashboard-promo-banner"
-          onClick={() => hasBannerAction ? handleBannerAction(currentBanner) : undefined}
-          className={`${currentTheme.bg} ${currentTheme.border} border rounded-2xl p-2.5 sm:p-3 flex items-center justify-between shadow-2xs overflow-hidden shrink-0 h-[78px] sm:h-[90px] ${
-            hasBannerAction ? 'cursor-pointer hover:shadow-xs transition' : ''
-          }`}
-        >
-          <div className="flex flex-col justify-between h-full py-0.5 min-w-0 flex-1 pr-1.5">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-white shadow-2xs border border-white flex items-center justify-center text-[#064e3b] shrink-0">
-                <Store className="w-4 h-4 text-[#064e3b]" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <p className={`text-[10px] sm:text-[11px] font-bold ${currentTheme.sub} leading-none truncate`}>
-                    {currentBanner.badgeText || 'আপনার ব্যবসার সঙ্গী'}
-                  </p>
-                  {hasBannerAction && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleBannerAction(currentBanner);
-                      }}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/95 hover:bg-white text-[9.5px] sm:text-[10px] font-black text-emerald-950 border border-emerald-300/80 shadow-2xs cursor-pointer active:scale-95 transition-all"
-                    >
-                      <span>{currentBanner.actionText || 'অফারটি দেখুন'}</span>
-                      <ArrowUpRight className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-emerald-700" />
-                    </button>
-                  )}
-                </div>
-                <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-tight mt-0.5 truncate">
-                  {currentBanner.title || 'আপনার ব্যবসার বিশ্বস্ত ডিজিটাল সঙ্গী'}
-                </h2>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-3 mt-auto">
-              <p className={`text-[10px] sm:text-xs ${currentTheme.sub} font-medium leading-none truncate`}>
-                {currentBanner.subtitle || 'সহজে হিসাব রাখুন, এগিয়ে যান'}
-              </p>
-              {/* Pagination Dots */}
-              <div className="flex items-center gap-1 shrink-0">
-                {activeBanners.length > 1 ? (
-                  activeBanners.map((_, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveBannerIndex(idx);
-                      }}
-                      aria-label={`স্লাইড ${idx + 1}`}
-                      className={`transition-all duration-300 cursor-pointer ${
-                        idx === activeBannerIndex
-                          ? `w-2.5 h-1.5 rounded-full ${currentTheme.dotActive}`
-                          : `w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive} hover:opacity-80`
-                      }`}
-                    />
-                  ))
-                ) : (
-                  <>
-                    <span className={`w-2.5 h-1.5 rounded-full ${currentTheme.dotActive}`} />
-                    <span className={`w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive}`} />
-                    <span className={`w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive}`} />
-                    <span className={`w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive}`} />
-                    <span className={`w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive}`} />
-                    <span className={`w-1.5 h-1.5 rounded-full ${currentTheme.dotInactive}`} />
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Right side retail grocery illustration or Super Admin uploaded image */}
-          <div className="h-full shrink-0 flex items-center pl-2">
-            <img
-              src={currentBanner.imageUrl || heroBannerImg}
-              alt="Promo Banner"
-              className="w-24 xs:w-28 sm:w-36 h-full object-cover rounded-xl shadow-2xs border border-white/95 bg-white"
-              referrerPolicy="no-referrer"
-            />
-          </div>
-        </section>
-      )}
-
-      {/* 2. Store Profile & Quick Action Bar */}
-      <section
-        id="dashboard-store-profile-bar"
-        className="bg-white rounded-xl p-2 sm:p-2.5 border border-[#e2ede8] shadow-2xs flex items-center justify-between gap-2 shrink-0"
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-[#e8f7f2] border border-[#d2efe6] text-[#064e3b] flex items-center justify-center shrink-0">
-            <Store className="w-4.5 h-4.5 text-[#064e3b]" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap leading-tight">
-              <h3 className="text-xs sm:text-sm font-black text-slate-900 truncate">
-                {store.name || 'আমার দোকান'}
-              </h3>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#e6f7f0] text-[#065f46] text-[9.5px] font-bold border border-[#bbf0da] leading-none">
-                <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-                <span>সক্রিয় খাতা</span>
-              </span>
-            </div>
-            <p className="text-[10px] text-slate-500 font-medium leading-none mt-1 truncate">
-              প্রোপাইটার: <strong className="text-slate-700">{store.owner || 'দোকান মালিক'}</strong> &nbsp;|&nbsp; 📅 {formatSlashDate(today)}
-            </p>
-          </div>
-        </div>
-
-        {/* 2 Action Buttons with animated spring taps */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <motion.button
-            type="button"
-            id="quick-add-customer-btn"
-            onClick={onOpenNewCustomer}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.94 }}
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#c8f0e5] hover:bg-[#b8e8db] text-[#053d33] font-black text-[10.5px] sm:text-xs flex items-center gap-1 transition cursor-pointer shadow-2xs border border-[#aee2d4]"
-          >
-            <UserPlus className="w-3.5 h-3.5 text-[#064e3b]" />
-            <span>+ নতুন কাস্টমার</span>
-          </motion.button>
-          <motion.button
-            type="button"
-            id="quick-pos-sale-btn"
-            onClick={() => onNavigateToTab('pos')}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.94 }}
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#c8f0e5] hover:bg-[#b8e8db] text-[#053d33] font-black text-[10.5px] sm:text-xs flex items-center gap-1 transition cursor-pointer shadow-2xs border border-[#aee2d4]"
-          >
-            <ShoppingCart className="w-3.5 h-3.5 text-[#064e3b]" />
-            <span>পণ্য বিক্রয়</span>
-          </motion.button>
-        </div>
-      </section>
-
-      {/* 3. The 4 Metric Cards Grid with Mode Toggle */}
-      <section id="dashboard-metric-cards-section" className="space-y-1.5 shrink-0">
-        <div className="flex items-center justify-between px-0.5">
-          <span className="text-[11px] font-bold text-slate-600">
-            {metricViewMode === 'today' ? 'আজকের সার্বিক হিসাব' : `হিসাব (${formatHyphenDate(startDate)} হতে ${formatHyphenDate(endDate)})`}
-          </span>
-          <div className="flex items-center gap-1 bg-[#e4f2ed] p-0.5 rounded-lg border border-[#cbe6dd]">
-            <button
-              type="button"
-              onClick={() => setMetricViewMode('today')}
-              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
-                metricViewMode === 'today'
-                  ? 'bg-[#004D40] text-white shadow-2xs'
-                  : 'text-[#064e3b] hover:text-slate-900'
-              }`}
-            >
-              আজকের হিসাব
-            </button>
-            <button
-              type="button"
-              onClick={() => setMetricViewMode('date_range')}
-              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer ${
-                metricViewMode === 'date_range'
-                  ? 'bg-[#004D40] text-white shadow-2xs'
-                  : 'text-[#064e3b] hover:text-slate-900'
-              }`}
-            >
-              তারিখ অনুযায়ী
-            </button>
-          </div>
-        </div>
-
-        <div id="dashboard-metric-cards-grid" className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-2">
-          {metricViewMode === 'today' ? (
-            <>
-              {/* Card 1: মোট বাকি (Total Due) */}
-              <div
-                onClick={() => onNavigateToTab('customers')}
-                className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] hover:border-rose-300 shadow-xs hover:shadow-md transition flex flex-col justify-between text-center cursor-pointer group"
-                title="বকেয়া বাকি দেখতে ক্লিক করুন"
-              >
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-amber-300 group-hover:scale-105 transition flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <CircleDollarSign className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-700 leading-tight truncate">মোট বাকি</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-rose-700 tracking-tight mt-0.5 leading-tight">
-                    ৳ {formatMoney(totalDue)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-rose-600 font-bold leading-none mt-0.5 truncate">
-                    বকেয়া পাওনা
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 2: মোট আদায় (Total Collected) */}
-              <div
-                onClick={onOpenCashbook}
-                className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] hover:border-emerald-300 shadow-xs hover:shadow-md transition flex flex-col justify-between text-center cursor-pointer group"
-                title="ক্যাশবুকে আদায়ের হিসাব দেখতে ক্লিক করুন"
-              >
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-emerald-300 group-hover:scale-105 transition flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-700 leading-tight truncate">মোট আদায়</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-emerald-700 tracking-tight mt-0.5 leading-tight">
-                    ৳ {formatMoney(totalCollected)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-emerald-700 font-bold leading-none mt-0.5 truncate">
-                    সর্বমোট ক্যাশ ইন
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 3: আজকের আয় */}
-              <div
-                onClick={onOpenCashbook}
-                className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] hover:border-emerald-300 shadow-xs hover:shadow-md transition flex flex-col justify-between text-center cursor-pointer group"
-                title="আজকের আয় দেখতে ক্লিক করুন"
-              >
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white group-hover:scale-105 transition flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <ArrowUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-700 leading-tight truncate">আজকের আয়</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-slate-900 tracking-tight mt-0.5 leading-tight">
-                    ৳ {formatMoney(todayMetrics.income)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-emerald-700 font-bold leading-none mt-0.5 truncate">
-                    ক্যাশ ইন / আদায়
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 4: আজকের ব্যয় */}
-              <div
-                onClick={onOpenCashbook}
-                className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] hover:border-rose-300 shadow-xs hover:shadow-md transition flex flex-col justify-between text-center cursor-pointer group"
-                title="আজকের খরচ দেখতে ক্লিক করুন"
-              >
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white group-hover:scale-105 transition flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <ArrowDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-700 leading-tight truncate">আজকের ব্যয়</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-slate-900 tracking-tight mt-0.5 leading-tight">
-                    ৳ {formatMoney(todayMetrics.expense)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-rose-700 font-bold leading-none mt-0.5 truncate">
-                    দোকান খরচ
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 5: মোট লেনদেন */}
-              <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-700 leading-tight truncate">মোট লেনদেন</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-slate-900 tracking-tight mt-0.5 leading-tight">
-                    ৳ {formatMoney(todayMetrics.totalVolume)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-emerald-700 font-bold leading-none mt-0.5 truncate">
-                    আজকের ভলিউম
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 6: সর্বমোট খাতা */}
-              <div
-                onClick={() => onNavigateToTab('customers')}
-                className="bg-white rounded-xl p-1.5 sm:p-2 border border-[#d2e8de] hover:border-teal-300 shadow-xs hover:shadow-md transition flex flex-col justify-between text-center cursor-pointer group"
-                title="কাস্টমার তালিকা দেখতে ক্লিক করুন"
-              >
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-white group-hover:scale-105 transition flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-700 leading-tight truncate">সর্বমোট খাতা</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-slate-900 tracking-tight mt-0.5 leading-tight">
-                    {todayMetrics.totalCustomers}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-emerald-700 font-bold leading-none mt-0.5 truncate">
-                    কাস্টমার সংখ্যা
-                  </p>
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Mode: Date Range Metrics */}
-              {/* Card 1: মোট বাকি */}
-              <div
-                onClick={() => onNavigateToTab('customers')}
-                className="bg-white rounded-xl p-1.5 sm:p-2 border border-rose-200 shadow-xs flex flex-col justify-between text-center cursor-pointer"
-              >
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#004D40] text-amber-300 flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <CircleDollarSign className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-700 leading-tight truncate">মোট বাকি</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-rose-700 tracking-tight mt-0.5 leading-tight">
-                    ৳ {formatMoney(totalDue)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-rose-600 font-bold leading-none mt-0.5 truncate">
-                    বকেয়া পাওনা
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 2: মোট আদায় (Date range collected) */}
-              <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-emerald-200 shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-emerald-800 leading-tight truncate">মোট আদায়</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-emerald-800 tracking-tight mt-0.5 leading-tight">
-                    ৳ {formatMoney(dateRangeMetrics.income)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-emerald-600 font-bold leading-none mt-0.5 truncate">
-                    উক্ত তারিখে আদায়
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 3: মোট আয় */}
-              <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-emerald-300 shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <ArrowUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-emerald-800 leading-tight truncate">মোট আয়</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-emerald-900 tracking-tight mt-0.5 leading-tight">
-                    ৳ {formatMoney(dateRangeMetrics.income)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-emerald-700 font-bold leading-none mt-0.5 truncate">
-                    আদায় ও ক্যাশ
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 4: মোট ব্যয় */}
-              <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-rose-300 shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-rose-700 text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <ArrowDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-rose-800 leading-tight truncate">মোট ব্যয়</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-rose-900 tracking-tight mt-0.5 leading-tight">
-                    ৳ {formatMoney(dateRangeMetrics.expense)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-rose-700 font-bold leading-none mt-0.5 truncate">
-                    দোকান খরচ
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 5: নিট লাভ / ক্যাশ */}
-              <div
-                className={`rounded-xl p-1.5 sm:p-2 border shadow-xs flex flex-col justify-between text-center ${
-                  dateRangeMetrics.netProfit >= 0 ? 'bg-emerald-50/70 border-emerald-400' : 'bg-rose-50/70 border-rose-400'
-                }`}
-              >
-                <div
-                  className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs ${
-                    dateRangeMetrics.netProfit >= 0 ? 'bg-emerald-800' : 'bg-rose-800'
-                  }`}
-                >
-                  <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-slate-800 leading-tight truncate">নিট উদ্বৃত্ত</p>
-                  <p
-                    className={`text-xs sm:text-sm md:text-base font-black tracking-tight mt-0.5 leading-tight ${
-                      dateRangeMetrics.netProfit >= 0 ? 'text-emerald-900' : 'text-rose-900'
-                    }`}
-                  >
-                    ৳ {formatMoney(dateRangeMetrics.netProfit)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-slate-600 font-bold leading-none mt-0.5 truncate">
-                    হাতে ক্যাশ
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 6: মোট পণ্য বিক্রি */}
-              <div className="bg-white rounded-xl p-1.5 sm:p-2 border border-teal-300 shadow-xs flex flex-col justify-between text-center">
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-teal-800 text-white flex items-center justify-center font-black mx-auto mb-1 shadow-xs">
-                  <BarChart3 className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.4]" />
-                </div>
-                <div>
-                  <p className="text-[9.5px] sm:text-[10.5px] font-bold text-teal-800 leading-tight truncate">মোট বিক্রি</p>
-                  <p className="text-xs sm:text-sm md:text-base font-black text-teal-900 tracking-tight mt-0.5 leading-tight">
-                    ৳ {formatMoney(dateRangeMetrics.totalSales)}
-                  </p>
-                  <p className="text-[8.5px] sm:text-[9.5px] text-teal-700 font-bold leading-none mt-0.5 truncate">
-                    {dateRangeMetrics.txCount} টি লেনদেন
-                  </p>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </section>
-
-      {/* 4. তারিখ অনুযায়ী হিসাব (Interactive Range Calculator & Reporter) */}
-      <section
-        id="dashboard-date-range-section"
-        className="bg-white rounded-xl p-2.5 sm:p-3 border border-[#d3ebe0] shadow-xs shrink-0 space-y-2.5"
-      >
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[#004D40] text-white flex items-center justify-center shrink-0 shadow-2xs">
-              <Calendar className="w-4 h-4 text-emerald-300" />
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex flex-col items-center justify-start sm:justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain animate-in fade-in">
+      <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col my-1 sm:my-auto max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] overflow-hidden animate-in zoom-in-95">
+        {/* Modal Top Banner */}
+        <div className="bg-[#004D40] text-white px-4 sm:px-6 py-4 flex items-center justify-between shadow-md shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-teal-300 shadow-inner">
+              <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="text-xs sm:text-[13px] font-black text-slate-900 leading-tight">
-                তারিখ অনুযায়ী হিসাব
-              </h4>
-              <p className="text-[10px] text-slate-500 font-medium leading-none mt-0.5">
-                তারিখ পরিবর্তন করলেই স্বয়ংক্রিয় হিসাব আপডেট হবে
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <span>অ্যাপ সেটিংস ও কনফিগারেশন</span>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-teal-800/80 border border-teal-600 text-teal-200">
+                  Version 2.0
+                </span>
+              </h2>
+              <p className="text-xs text-teal-100 font-medium">
+                দোকান প্রোফাইল, MFS পেমেন্ট, তাগাদা টেমপ্লেট ও প্রিন্ট লেআউট
               </p>
             </div>
           </div>
-
-          {/* Quick Presets */}
-          <div className="flex items-center gap-1 flex-wrap">
-            <button
-              type="button"
-              onClick={() => handleSetPreset('today')}
-              className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#f0f8f5] hover:bg-teal-100 text-[#064e3b] transition cursor-pointer"
-            >
-              আজ
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetPreset('yesterday')}
-              className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#f0f8f5] hover:bg-teal-100 text-[#064e3b] transition cursor-pointer"
-            >
-              গতকাল
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetPreset('7days')}
-              className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#f0f8f5] hover:bg-teal-100 text-[#064e3b] transition cursor-pointer"
-            >
-              গত ৭ দিন
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetPreset('thisMonth')}
-              className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#f0f8f5] hover:bg-teal-100 text-[#064e3b] transition cursor-pointer"
-            >
-              এই মাস
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetPreset('lastMonth')}
-              className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#f0f8f5] hover:bg-teal-100 text-[#064e3b] transition cursor-pointer"
-            >
-              গত মাস
-            </button>
-          </div>
-        </div>
-
-        {/* Date Inputs row + Action Button */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
-          {/* Start Date */}
-          <div className="relative bg-[#edf7f4] border border-[#cbe6dd] rounded-lg px-2.5 py-1.5 flex items-center justify-between cursor-pointer hover:border-teal-400 transition">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 pointer-events-none truncate">
-              <Calendar className="w-3.5 h-3.5 text-[#064e3b] shrink-0" />
-              <div>
-                <span className="text-[9px] text-slate-400 block leading-none">শুরু</span>
-                <span className="truncate leading-tight">{formatHyphenDate(startDate)}</span>
-              </div>
-            </div>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 pointer-events-none shrink-0" />
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-            />
-          </div>
-
-          {/* End Date */}
-          <div className="relative bg-[#edf7f4] border border-[#cbe6dd] rounded-lg px-2.5 py-1.5 flex items-center justify-between cursor-pointer hover:border-teal-400 transition">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 pointer-events-none truncate">
-              <Calendar className="w-3.5 h-3.5 text-[#064e3b] shrink-0" />
-              <div>
-                <span className="text-[9px] text-slate-400 block leading-none">শেষ</span>
-                <span className="truncate leading-tight">{formatHyphenDate(endDate)}</span>
-              </div>
-            </div>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 pointer-events-none shrink-0" />
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-            />
-          </div>
-
-          {/* Action Button */}
           <button
             type="button"
-            onClick={() => setIsDateReportModalOpen(true)}
-            className="w-full py-2 px-3 rounded-lg bg-[#004D40] hover:bg-[#00382E] active:scale-98 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
+            onClick={onClose}
+            className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-teal-100 transition cursor-pointer"
           >
-            <BarChart3 className="w-4 h-4 text-emerald-300" />
-            <span>বিস্তারিত বিবরণী দেখুন →</span>
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Live Calculation Results Strip */}
-        <div className="bg-[#f7faf8] rounded-lg p-2 border border-[#e1ede6] grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
-          <div className="p-1">
-            <span className="text-[10px] text-slate-500 font-bold block">মোট আয় (ক্যাশ ইন)</span>
-            <span className="font-black text-emerald-800 text-xs sm:text-sm">৳ {formatMoney(dateRangeMetrics.income)}</span>
-          </div>
-          <div className="p-1">
-            <span className="text-[10px] text-slate-500 font-bold block">মোট খরচ</span>
-            <span className="font-black text-rose-800 text-xs sm:text-sm">৳ {formatMoney(dateRangeMetrics.expense)}</span>
-          </div>
-          <div className="p-1">
-            <span className="text-[10px] text-slate-500 font-bold block">নিট উদ্বৃত্ত</span>
-            <span className={`font-black text-xs sm:text-sm ${dateRangeMetrics.netProfit >= 0 ? 'text-emerald-900' : 'text-rose-900'}`}>
-              ৳ {formatMoney(dateRangeMetrics.netProfit)}
-            </span>
-          </div>
-          <div className="p-1">
-            <span className="text-[10px] text-slate-500 font-bold block">মোট বিক্রি ({dateRangeMetrics.txCount}টি)</span>
-            <span className="font-black text-teal-900 text-xs sm:text-sm">৳ {formatMoney(dateRangeMetrics.totalSales)}</span>
-          </div>
+        {/* Tab Navigation Header */}
+        <div className="flex border-b border-slate-200 bg-slate-50 px-3 sm:px-6 overflow-x-auto gap-1 py-1.5 shrink-0 scrollbar-none">
+          <button
+            type="button"
+            onClick={() => setActiveTab('store')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'store'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Store className="w-4 h-4" />
+            <span>দোকান প্রোফাইল</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('subscription')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'subscription'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'text-amber-700 bg-amber-50 hover:bg-amber-100/80 border border-amber-200/60'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>প্যাকেজ ও সাবস্ক্রিপশন</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('mfs')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'mfs'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Smartphone className="w-4 h-4" />
+            <span>MFS ও কিউআর</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('tagada')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'tagada'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>তাগাদা মেসেজ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('print')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'print'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Printer className="w-4 h-4" />
+            <span>রসিদ ও প্রিন্ট</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('limits_sound')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'limits_sound'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Volume2 className="w-4 h-4" />
+            <span>লিমিট ও সাউন্ড</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('backup')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'backup'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <Database className="w-4 h-4" />
+            <span>ব্যাকআপ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('security')}
+            className={`px-3 py-2 text-xs font-bold rounded-xl transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              activeTab === 'security'
+                ? 'bg-[#00695C] text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>নিরাপত্তা</span>
+          </button>
         </div>
-      </section>
 
-      {/* 5. প্রয়োজনীয় সেবা - 3-Column Grid Matching the Uploaded Screenshot */}
-      <section
-        id="dashboard-services-grid"
-        className="bg-white rounded-2xl border border-slate-200/80 shadow-[0_2px_12px_rgba(0,0,0,0.04)] overflow-hidden"
-      >
-        <div className="px-3.5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/40">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-[#e8f7f2] text-[#064e3b] flex items-center justify-center border border-[#bcebda]">
-              <LayoutGrid className="w-3.5 h-3.5 text-[#064e3b]" />
-            </div>
-            <h3 className="text-xs sm:text-sm font-black text-slate-800 leading-none tracking-tight">
-              প্রয়োজনীয় সেবা
-            </h3>
-          </div>
-          <span className="text-[10.5px] font-bold text-[#064e3b] bg-[#e4f7f1] px-2.5 py-0.5 rounded-full border border-[#b8edd9]">
-            ১২টি সেবা
-          </span>
-        </div>
+        {/* Tab Body Form */}
+        <form onSubmit={handleSaveAll} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+          {/* TAB 1: STORE PROFILE */}
+          {activeTab === 'store' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-3 bg-teal-50/70 rounded-2xl border border-teal-100 text-xs text-teal-800 flex items-center gap-2">
+                <Store className="w-4 h-4 text-teal-700 shrink-0" />
+                <span>এখানে প্রদত্ত তথ্য সকল রসিদ, হেডার ও তাগাদা মেসেজে প্রদর্শিত হবে।</span>
+              </div>
 
-        {/* Responsive Service Grid: 3 cols on mobile, 4 cols on tablet, 6 cols on desktop/Smart TV */}
-        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 border-t border-slate-100">
-          {serviceItems.map((item) => {
-            const IconComponent = item.icon;
+              {/* Vendor & Store Profile Picture Uploader */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  দোকান লোগো ও ভেন্ডার প্রোফাইল ছবি
+                </label>
+                <ProfilePictureUploader
+                  currentPhotoUrl={logoUrl}
+                  vendorName={owner || name}
+                  shopName={name}
+                  onPhotoUpdated={(newUrl) => {
+                    setLogoUrl(newUrl);
+                    if (onSaveStore) {
+                      const updated: StoreProfile = {
+                        ...store,
+                        name: name.trim() || store.name,
+                        owner: owner.trim() || store.owner,
+                        logoUrl: newUrl || undefined,
+                      };
+                      onSaveStore(updated);
+                    }
+                  }}
+                  onShowToast={onShowToast}
+                />
+              </div>
 
-            return (
-              <motion.button
-                key={item.id}
-                type="button"
-                id={`service-btn-${item.id}`}
-                onClick={item.action}
-                whileHover={{ scale: 1.04, y: -2 }}
-                whileTap={{ scale: 0.90 }}
-                transition={{ type: 'spring', stiffness: 450, damping: 22 }}
-                className="relative flex flex-col items-center justify-center p-3 sm:p-4 text-center cursor-pointer transition-colors duration-150 hover:bg-[#f7faf8] active:bg-[#edf5f1] border-r border-b border-slate-100"
-              >
-                {item.badge && (
-                  <span
-                    className={`absolute top-2 right-2 text-[9.5px] font-black px-1.5 py-0.5 rounded-full shadow-2xs leading-none z-10 ${
-                      (item as any).badgeClass || 'bg-amber-400 text-slate-950'
-                    }`}
-                  >
-                    {item.badge}
-                  </span>
-                )}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  দোকানের নাম <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="যেমন: TWING হিসাবি"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-bold text-slate-800"
+                />
+              </div>
 
-                {/* Center Icon Illustration */}
-                <div className="relative flex items-center justify-center transition-transform group-hover:scale-105">
-                  <IconComponent className="w-12 h-12 sm:w-14 sm:h-14 drop-shadow-xs" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    প্রোপাইটর / মালিকের নাম
+                  </label>
+                  <input
+                    type="text"
+                    value={owner}
+                    onChange={(e) => setOwner(e.target.value)}
+                    placeholder="যেমন: ইব্রাহিম"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-medium text-slate-800"
+                  />
                 </div>
 
-                {/* Center Bengali Label */}
-                <span className="mt-2 text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight leading-snug">
-                  {item.title}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    দোকানের মোবাইল নম্বর
+                  </label>
+                  <input
+                    type="text"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="যেমন: ০১৩০৬৯০৮১১৫"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-medium text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  দোকানের ঠিকানা / লোকেশন
+                </label>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="যেমন: বাজার রোড, দোকান নং ১২"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-medium text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  রসিদ ও মেমোর নিচের শুভেচ্ছা বার্তা (Footer Note)
+                </label>
+                <input
+                  type="text"
+                  value={footerNote}
+                  onChange={(e) => setFooterNote(e.target.value)}
+                  placeholder="যেমন: আমাদের সাথে কেনাকাটা করার জন্য ধন্যবাদ! আবার আসবেন।"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-medium text-slate-800"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* TAB: SUBSCRIPTION & PACKAGES */}
+          {activeTab === 'subscription' && (
+            <div className="space-y-5 animate-in fade-in">
+              <div className="p-4 bg-gradient-to-r from-amber-500/15 via-teal-500/10 to-emerald-500/15 rounded-2xl border border-amber-300/60 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-700 flex items-center justify-center font-bold border border-amber-400/40 shrink-0">
+                    <Sparkles className="w-6 h-6 text-amber-600 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-black text-slate-900">
+                        বর্তমান প্ল্যান: <span className="text-teal-800">{(store as any)?.subscriptionPlan || '১৪ দিনের ফ্রি ট্রায়াল'}</span>
+                      </h4>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        সক্রিয়
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1">
+                      মেয়াদ শেষ হবে: <span className="font-bold text-slate-800">
+                        {new Date((store as any)?.subscriptionExpiresAt || (Date.now() + 14 * 86400000)).toLocaleDateString('bn-BD', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                {onOpenSubscription && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenSubscription();
+                    }}
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-95 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md transition cursor-pointer shrink-0"
+                  >
+                    <CreditCard className="w-4 h-4 text-amber-200" />
+                    <span>প্যাকেজ রিনিউ ও পেমেন্ট পেজ খুলুন</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">প্যাক ১</span>
+                    <h5 className="text-sm font-black text-slate-800 mt-0.5">২ মাসের স্টার্টার প্যাক</h5>
+                    <p className="text-lg font-black text-teal-800 my-1.5">৳ ১০০ <span className="text-[10px] font-normal text-slate-500">/ ৬০ দিন</span></p>
+                    <ul className="text-[11px] text-slate-600 space-y-1">
+                      <li>• আনলিমিটেড কাস্টমার ও বাকি খাতা</li>
+                      <li>• পিওএস ক্যাশ ও সেলস ইনভয়েস</li>
+                      <li>• ফ্রি এসএমএস ও তাগাদা মেমো</li>
+                    </ul>
+                  </div>
+                  {onOpenSubscription && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSubscription();
+                      }}
+                      className="mt-3 w-full py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-xs font-bold text-slate-700 transition"
+                    >
+                      পেমেন্ট করুন
+                    </button>
+                  )}
+                </div>
+
+                <div className="bg-teal-50/50 p-4 rounded-2xl border-2 border-teal-500/40 relative flex flex-col justify-between shadow-xs">
+                  <span className="absolute -top-2.5 right-3 text-[9px] font-black px-2 py-0.5 bg-[#004D40] text-white rounded-full">জনপ্রিয় অফার</span>
+                  <div>
+                    <span className="text-[11px] font-bold text-teal-700 uppercase tracking-wider">প্যাক ২</span>
+                    <h5 className="text-sm font-black text-slate-900 mt-0.5">৬ মাসের বিজনেস প্রিমিয়াম</h5>
+                    <p className="text-lg font-black text-teal-800 my-1.5">৳ ২৬০ <span className="text-[10px] font-normal text-slate-500">/ ১৮০ দিন</span></p>
+                    <ul className="text-[11px] text-slate-600 space-y-1">
+                      <li>• সকল স্টার্টার ফিচারসহ দ্রুত ক্লাউড ব্যাকআপ</li>
+                      <li>• মাল্টি-ডিভাইস ও ফুল অ্যানালিটিক্স</li>
+                      <li>• ডেডিকেটেড ভিআইপি সাপোর্ট</li>
+                    </ul>
+                  </div>
+                  {onOpenSubscription && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSubscription();
+                      }}
+                      className="mt-3 w-full py-1.5 rounded-lg bg-[#004D40] hover:bg-[#00382E] text-white text-xs font-bold transition shadow-xs"
+                    >
+                      পেমেন্ট করুন
+                    </button>
+                  )}
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">প্যাক ৩</span>
+                    <h5 className="text-sm font-black text-slate-800 mt-0.5">১ বছরের আনলিমিটেড এন্টারপ্রাইজ</h5>
+                    <p className="text-lg font-black text-teal-800 my-1.5">৳ ৫০০ <span className="text-[10px] font-normal text-slate-500">/ ৩৬৫ দিন</span></p>
+                    <ul className="text-[11px] text-slate-600 space-y-1">
+                      <li>• সম্পূর্ণ আনলিমিটেড ১ বছর নিশ্চিন্ত ব্যবহার</li>
+                      <li>• কাস্টম ব্রান্ডিং ও অটো হোয়াটসঅ্যাপ অ্যালার্ট</li>
+                      <li>• প্রায় ৫৮% সাশ্রয়ী বার্ষিক প্যাক</li>
+                    </ul>
+                  </div>
+                  {onOpenSubscription && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSubscription();
+                      }}
+                      className="mt-3 w-full py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-xs font-bold text-slate-700 transition"
+                    >
+                      পেমেন্ট করুন
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-pink-600 shrink-0" />
+                  <span>পেমেন্ট মেথড: bKash (বিকাশ), Nagad (নগদ), Rocket (রকেট) ও ব্যাংক ট্রান্সফার সাপোর্টেড।</span>
+                </div>
+                {onOpenSubscription && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenSubscription();
+                    }}
+                    className="text-teal-700 font-bold hover:underline shrink-0 text-xs"
+                  >
+                    বিস্তারিত দেখুন →
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: MFS & QR */}
+          {activeTab === 'mfs' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-3 bg-indigo-50/70 rounded-2xl border border-indigo-100 text-xs text-indigo-800 flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-indigo-700 shrink-0" />
+                <span>
+                  এখানে আপনার বিকাশ ও নগদ নম্বর সেট করলে কাস্টমার মেমো ও রসিদে স্বয়ংক্রিয় কিউআর (QR Code) যুক্ত হবে।
                 </span>
-              </motion.button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-pink-700 mb-1">বিকাশ (bKash) নম্বর</label>
+                  <input
+                    type="tel"
+                    value={bkashNumber}
+                    onChange={(e) => setBkashNumber(e.target.value)}
+                    placeholder="যেমন: 017XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-pink-200 focus:ring-2 focus:ring-pink-500 text-xs sm:text-sm font-bold text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-orange-700 mb-1">নগদ (Nagad) নম্বর</label>
+                  <input
+                    type="tel"
+                    value={nagadNumber}
+                    onChange={(e) => setNagadNumber(e.target.value)}
+                    placeholder="যেমন: 018XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-orange-200 focus:ring-2 focus:ring-orange-500 text-xs sm:text-sm font-bold text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-purple-700 mb-1">রকেট (Rocket) নম্বর</label>
+                  <input
+                    type="tel"
+                    value={rocketNumber}
+                    onChange={(e) => setRocketNumber(e.target.value)}
+                    placeholder="যেমন: 019XXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-purple-200 focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <input
+                  type="checkbox"
+                  id="showQr"
+                  checked={showQrOnInvoice}
+                  onChange={(e) => setShowQrOnInvoice(e.target.checked)}
+                  className="w-4 h-4 text-teal-600 rounded-md focus:ring-teal-500"
+                />
+                <label htmlFor="showQr" className="text-xs font-bold text-slate-700 cursor-pointer">
+                  প্রিন্ট রসিদে অনলাইন পেমেন্ট কিউআর কোড (Payment QR) প্রদর্শন করুন
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: TAGADA TEMPLATE */}
+          {activeTab === 'tagada' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-xs text-emerald-800 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span>
+                  WhatsApp বা SMS তাগাদার জন্য নিজের মনমতো মেসেজ ফরম্যাট সাজিয়ে নিন।
+                </span>
+              </div>
+
+              {/* Tags Quick Insert */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  ডায়নামিক ট্যাগ বোতাম (ক্লিক করলেই মেসেজে যুক্ত হবে):
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: '+ কাস্টমার নাম', tag: '{customer}' },
+                    { label: '+ বাকি টাকা', tag: '{amount}' },
+                    { label: '+ কারেন্সি চিহ্ন', tag: '{currency}' },
+                    { label: '+ দোকানের নাম', tag: '{store}' },
+                    { label: '+ দোকানের মোবাইল', tag: '{phone}' },
+                  ].map((btn) => (
+                    <button
+                      key={btn.tag}
+                      type="button"
+                      onClick={() => insertTag(btn.tag)}
+                      className="px-2.5 py-1 bg-white hover:bg-teal-50 text-teal-800 border border-teal-200 rounded-lg text-xs font-bold shadow-2xs transition cursor-pointer"
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  তাগাদা বার্তা টেমপ্লেট
+                </label>
+                <textarea
+                  rows={4}
+                  value={tagadaTemplate}
+                  onChange={(e) => setTagadaTemplate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-mono text-slate-800"
+                />
+              </div>
+
+              {/* Preview */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                  লাইভ প্রিভিউ (উদাহরণ কাস্টমার: রহিম)
+                </span>
+                <p className="text-xs text-slate-700 whitespace-pre-line leading-relaxed">
+                  {tagadaTemplate
+                    .replace(/{customer}/g, 'রহিম')
+                    .replace(/{amount}/g, '১,৪৫০')
+                    .replace(/{currency}/g, currencySymbol)
+                    .replace(/{store}/g, name || 'TWING হিসাবি')
+                    .replace(/{phone}/g, phone || '০১৩০৬৯০৮১১৫')}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: PRINT & RECEIPT LAYOUT */}
+          {activeTab === 'print' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-3 bg-teal-50 rounded-2xl border border-teal-100 text-xs text-teal-800 flex items-center gap-2">
+                <Printer className="w-4 h-4 text-teal-700 shrink-0" />
+                <span>আপনার দোকানের প্রিন্টার অনুযায়ী ডিফল্ট পেপার সাইজ ও লেআউট নির্ধারণ করুন।</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  ডিফল্ট প্রিন্টার ফরম্যাট
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div
+                    onClick={() => setPrintPaperSize('thermal_80')}
+                    className={`p-3 rounded-2xl border-2 cursor-pointer transition flex flex-col items-center text-center ${
+                      printPaperSize === 'thermal_80'
+                        ? 'border-[#00695C] bg-teal-50/50 text-[#00695C]'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Printer className="w-6 h-6 mb-1" />
+                    <span className="text-xs font-bold">80mm POS থার্মাল স্লিপ</span>
+                    <span className="text-[10px] text-slate-500">মিনি স্লিপ প্রিন্টার</span>
+                  </div>
+
+                  <div
+                    onClick={() => setPrintPaperSize('thermal_58')}
+                    className={`p-3 rounded-2xl border-2 cursor-pointer transition flex flex-col items-center text-center ${
+                      printPaperSize === 'thermal_58'
+                        ? 'border-[#00695C] bg-teal-50/50 text-[#00695C]'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Printer className="w-6 h-6 mb-1" />
+                    <span className="text-xs font-bold">58mm POS ছোট স্লিপ</span>
+                    <span className="text-[10px] text-slate-500">পোর্টেবল ব্লুটুথ প্রিন্টার</span>
+                  </div>
+
+                  <div
+                    onClick={() => setPrintPaperSize('a4')}
+                    className={`p-3 rounded-2xl border-2 cursor-pointer transition flex flex-col items-center text-center ${
+                      printPaperSize === 'a4'
+                        ? 'border-[#00695C] bg-teal-50/50 text-[#00695C]'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Printer className="w-6 h-6 mb-1" />
+                    <span className="text-xs font-bold">A4 অফিশিয়াল মেমো</span>
+                    <span className="text-[10px] text-slate-500">স্ট্যান্ডার্ড ডেস্কটপ প্রিন্টার</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: LIMITS & SOUND */}
+          {activeTab === 'limits_sound' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    মুদ্রা প্রতীক (Currency Symbol)
+                  </label>
+                  <select
+                    value={currencySymbol}
+                    onChange={(e) => setCurrencySymbol(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-bold text-slate-800"
+                  >
+                    <option value="৳">৳ (টাকা)</option>
+                    <option value="TK">TK</option>
+                    <option value="BDT">BDT</option>
+                    <option value="$">$ (USD)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    উচ্চ বকেয়া সতর্কতা সীমা (High Due Limit)
+                  </label>
+                  <input
+                    type="number"
+                    min="1000"
+                    step="500"
+                    value={highDueLimit}
+                    onChange={(e) => setHighDueLimit(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  কাস্টমারদের ডিফল্ট বাকি লিমিট (Credit Limit ৳)
+                </label>
+                <input
+                  type="number"
+                  min="1000"
+                  step="1000"
+                  value={defaultCreditLimit}
+                  onChange={(e) => setDefaultCreditLimit(Number(e.target.value))}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm font-bold text-slate-800"
+                />
+              </div>
+
+              {/* Sound Effect Switch */}
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                    <Volume2 className="w-4 h-4 text-teal-700" />
+                    <span>ক্যাশিয়ার সাউন্ড এফেক্ট (Sound Chimes)</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    টাকা জমা ও বিক্রির সময় বাস্তবসম্মত ক্যাশ রেজিস্টার ঘণ্টা বাজবে।
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => playPaymentChime()}
+                    className="px-2 py-1 text-[11px] font-bold bg-teal-100 text-teal-800 rounded-lg hover:bg-teal-200 transition cursor-pointer"
+                  >
+                    টেস্ট সাউন্ড
+                  </button>
+                  <input
+                    type="checkbox"
+                    checked={enableSoundEffects}
+                    onChange={(e) => setEnableSoundEffects(e.target.checked)}
+                    className="w-5 h-5 text-teal-600 rounded-md focus:ring-teal-500 cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: BACKUP & RESTORE */}
+          {activeTab === 'backup' && (
+            <div className="space-y-4 animate-in fade-in">
+              <div className="p-4 bg-teal-50/80 rounded-2xl border border-teal-200 flex items-start gap-3">
+                <Database className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-teal-900">
+                    অফলাইন ও ক্লাউড ব্যাকআপ ব্যবস্থাপনা
+                  </h4>
+                  <p className="text-xs text-teal-700 mt-0.5">
+                    আপনার দোকানের সমস্ত কাস্টমার ({customers.length} জন) এবং সকল লেনদেন ও ক্যাশ খাতা অফলাইনে সংরক্ষণ করুন।
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <button
+                  type="button"
+                  onClick={handleDownloadBackup}
+                  className="p-4 bg-slate-50 hover:bg-teal-50/50 border border-slate-200 rounded-2xl flex flex-col items-center text-center transition group cursor-pointer shadow-xs"
+                >
+                  <Download className="w-6 h-6 text-teal-700 mb-2 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-bold text-slate-800">সম্পূর্ণ ব্যাকআপ ডাউনলোড</span>
+                  <span className="text-[11px] text-slate-500 mt-0.5">JSON ফাইল আকারে সেভ হবে</span>
+                </button>
+
+                <label className="p-4 bg-slate-50 hover:bg-teal-50/50 border border-slate-200 rounded-2xl flex flex-col items-center text-center transition group cursor-pointer shadow-xs">
+                  <Upload className="w-6 h-6 text-indigo-600 mb-2 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-bold text-slate-800">ব্যাকআপ ফাইল রিস্টোর</span>
+                  <span className="text-[11px] text-slate-500 mt-0.5">পূর্বের সেভ করা ফাইল আপলোড</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleFileRestore}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
+                <div>
+                  <h5 className="text-xs font-bold text-slate-700">ডেমো ডাটা রিসেট</h5>
+                  <p className="text-[11px] text-slate-500">প্রয়োজনে পরীক্ষামূলক ডাটাতে ফিরে যান</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onResetData}
+                  className="px-3.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 inline mr-1" />
+                  রিসেট করুন
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: SECURITY & ADMIN */}
+          {activeTab === 'security' && (() => {
+            const currentUser = getStoredUser();
+            const isSuperAdmin = Boolean(
+              currentUser?.role === 'super_admin' && (
+                currentUser?.id === 'usr_super_admin' ||
+                currentUser?.email?.toLowerCase() === 'siftibrahim@gmail.com' ||
+                currentUser?.email?.toLowerCase() === 'admin@twing.com' ||
+                currentUser?.phone?.replace(/\D/g, '') === '01306908115' ||
+                currentUser?.phone?.replace(/\D/g, '') === '01619665875'
+              )
             );
-          })}
-        </div>
-      </section>
+            
+            return (
+              <div className="space-y-4 animate-in fade-in">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                    <h4 className="text-sm font-bold text-slate-800">
+                      {isSuperAdmin ? 'সুপার অ্যাডমিন প্রোফাইল ও সিকিউরিটি' : 'দোকানদার প্রোফাইল ও সিকিউরিটি'}
+                    </h4>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    লগইনকৃত মোবাইল/ইমেইল: <span className="font-bold text-slate-900">{currentUser?.phone || currentUser?.email || store.phone || 'দোকান একাউন্ট'}</span>
+                  </p>
+                  <p className="text-xs text-slate-600 mt-1">
+                    রোল:{' '}
+                    <span className="font-bold text-[#00695C]">
+                      {isSuperAdmin ? 'প্রধান সুপার অ্যাডমিন' : 'দোকান মালিক (দোকানদার)'}
+                    </span>
+                  </p>
+                  {(currentUser?.shopName || store.name) && (
+                    <p className="text-xs text-slate-600 mt-1">
+                      দোকান: <span className="font-bold text-slate-800">{currentUser?.shopName || store.name}</span>
+                    </p>
+                  )}
+                </div>
 
-      {/* Date-wise Detailed Business Report Modal */}
-      <DateWiseReportModal
-        isOpen={isDateReportModalOpen}
-        startDate={startDate}
-        endDate={endDate}
-        onStartDateChange={setStartDate}
-        onEndDateChange={setEndDate}
-        customers={safeCustomers}
-        transactions={safeTransactions}
-        expenses={expenses || []}
-        store={store}
-        onClose={() => setIsDateReportModalOpen(false)}
-      />
+                {/* Master Admin Management System Entry - ONLY FOR SUPER ADMIN */}
+                {isSuperAdmin && onOpenAdmin && (
+                  <div className="p-4 bg-gradient-to-r from-[#004D40]/10 via-[#00695C]/5 to-transparent rounded-2xl border-2 border-teal-600 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-teal-800" />
+                        <h5 className="text-xs sm:text-sm font-black text-slate-900">
+                          সম্পূর্ণ অ্যাডমিন ম্যানেজমেন্ট কনসোল
+                        </h5>
+                        <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-amber-400 text-teal-950">
+                          SUPER ADMIN
+                        </span>
+                      </div>
+                      <p className="text-[11.5px] text-slate-600 mt-0.5">
+                        ইউজার তালিকা, সাবস্ক্রিপশন প্ল্যান, পেমেন্ট অনুমোদন, ইন-অ্যাপ নোটিফিকেশন, অ্যাপ আপডেট ও অডিট লগ পরিচালনা করুন।
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenAdmin();
+                      }}
+                      className="px-4 py-2 bg-[#004D40] hover:bg-[#00332c] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer shrink-0"
+                    >
+                      <span>অ্যাডমিন প্যানেল খুলুন</span>
+                    </button>
+                  </div>
+                )}
 
-      {/* Inventory & Stock Report Modal */}
-      <InventoryReportModal
-        isOpen={isInventoryReportOpen}
-        onClose={() => setIsInventoryReportOpen(false)}
-        products={products || []}
-        store={store}
-        onNavigateToInventory={() => onNavigateToTab('inventory')}
-      />
+                {/* Support & Help Desk */}
+                <div className="p-4 bg-teal-50/70 rounded-2xl border border-teal-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h5 className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
+                        <Headphones className="w-4 h-4 text-teal-800" />
+                        <span>সরাসরি সাপোর্ট ও চ্যাট ডেস্ক</span>
+                      </h5>
+                      <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-teal-200 text-teal-900">
+                        LIVE
+                      </span>
+                    </div>
+                    <p className="text-[11.5px] text-slate-600 mt-1">
+                      যেকোনো জিজ্ঞাসা বা সহায়তার জন্য অ্যাডমিনের সাথে সরাসরি টেক্সট চ্যাট করুন। ছবি বা স্ক্রিনশটের জন্য{' '}
+                      <span className="font-bold text-teal-900">{SUPPORT_CONTACT.email}</span> অথবা{' '}
+                      <span className="font-bold text-teal-900">{SUPPORT_CONTACT.phone}</span>।
+                    </p>
+                  </div>
+                  {onOpenSupport && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSupport();
+                      }}
+                      id="settings-open-support-btn"
+                      className="px-4 py-2 bg-[#004D40] hover:bg-[#00382f] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                    >
+                      <Headphones className="w-3.5 h-3.5" />
+                      <span>সাপোর্ট চ্যাট খুলুন</span>
+                    </button>
+                  )}
+                </div>
+
+              {/* Direct PIN Change Box */}
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Lock className="w-4 h-4 text-[#00695C]" />
+                  <h5 className="text-xs sm:text-sm font-bold text-slate-800">
+                    গোপন পিন (PIN) পরিবর্তন করুন (সরাসরি)
+                  </h5>
+                </div>
+                <p className="text-[11.5px] text-slate-500 mb-3">
+                  আপনার নতুন ৪-৬ সংখ্যার গোপন পিন (PIN) টাইপ করে সরাসরি PostgreSQL ক্লাউড ডেটাবেজে সংরক্ষণ করুন।
+                </p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      নতুন গোপন পিন (কমপক্ষে ৪-৬ সংখ্যা বা অক্ষর)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="যেমন: ১২৩৪ বা নতুন গোপন পিন"
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-[#00695C] focus:border-transparent outline-none pr-10 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showPassword ? <Lock className="w-3.5 h-3.5 text-teal-700" /> : <Key className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      নতুন পিন নিশ্চিত করুন
+                    </label>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="নতুন পিনটি পুনরায় লিখুন"
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-[#00695C] focus:border-transparent outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      disabled={isChangingPassword || !newPassword}
+                      onClick={handleChangePasswordDirect}
+                      className="px-4 py-2 bg-[#00695C] hover:bg-[#004D40] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      <span>{isChangingPassword ? 'সংরক্ষণ হচ্ছে...' : 'গোপন পিন আপডেট করুন'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Email PIN Reset Link */}
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Mail className="w-4 h-4 text-teal-700" />
+                    <span>ইমেইলে পিন রিসেট লিংক</span>
+                  </h5>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    আপনার রেজিস্টার্ড ইমেইল <span className="font-bold text-slate-700">{getStoredUser()?.email || 'অ্যাকাউন্ট ইমেইল'}</span>-এ পিন রিসেট তথ্য পাঠানো হবে।
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={resettingPassword}
+                  onClick={handlePasswordReset}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  <span>{resettingPassword ? 'পাঠানো হচ্ছে...' : 'রিসেট লিংক পাঠান'}</span>
+                </button>
+              </div>
+
+              {/* Google Play Privacy Policy & App Permissions Manager */}
+              <div className="p-4 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-2xl border border-teal-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <h5 className="text-xs font-bold text-teal-950 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-teal-700" />
+                    <span>অ্যাপ পারমিশন ও গুগল প্রাইভেসি পলিসি</span>
+                  </h5>
+                  <p className="text-[11px] text-teal-800/90 mt-0.5">
+                    স্টোরেজ ও বকেয়া নোটিফিকেশন অ্যালার্ট পারমিশন ব্যবস্থাপনা এবং গুগল নীতিমালা।
+                  </p>
+                </div>
+                {onOpenPermissions && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenPermissions();
+                    }}
+                    className="px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs shrink-0"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-teal-300" />
+                    <span>পারমিশন দেখুন</span>
+                  </button>
+                )}
+              </div>
+            </div>
+            );
+          })()}
+
+          {/* Bottom Save Action Bar */}
+          <div className="pt-4 border-t border-slate-200 flex justify-between items-center sticky bottom-0 bg-white">
+            <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
+              পরিবর্তনগুলো সাথে সাথে ক্লাউডে আপডেট হবে।
+            </span>
+
+            <div className="flex gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                বাতিল
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex-1 sm:flex-none px-6 py-2.5 bg-[#00695C] hover:bg-[#004D40] text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md active:scale-95 cursor-pointer disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                <span>{saving ? 'সংরক্ষণ হচ্ছে...' : 'সেটিংস সংরক্ষণ করুন'}</span>
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };

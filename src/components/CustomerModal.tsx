@@ -1,345 +1,454 @@
-import React, { useState, useEffect } from 'react';
-import { Customer, CustomerCategory } from '../types';
-import { UserPlus, UserCheck, X, Phone, AlertCircle, CheckCircle2, Tag, ShieldAlert } from 'lucide-react';
+import React, { useState } from 'react';
+import { Customer, Transaction, StoreProfile } from '../types';
+import { formatMoney, formatBanglaDate, getPaymentMethodLabel } from '../utils/storage';
+import { executeSafePrint, downloadReceiptPDF, downloadReceiptImage } from '../utils/printHelper';
+import {
+  X,
+  Printer,
+  Share2,
+  Check,
+  Receipt,
+  Download,
+  Loader2,
+  FileDown,
+  FileText,
+  Image as ImageIcon,
+} from 'lucide-react';
 
-interface CustomerModalProps {
+interface InvoicePrintModalProps {
   isOpen: boolean;
+  customer: Customer | null;
+  transaction: Transaction | null;
+  store: StoreProfile;
   onClose: () => void;
-  onSave: (data: {
-    name: string;
-    phone: string;
-    address: string;
-    openingBalance: number;
-    category?: CustomerCategory;
-    creditLimit?: number;
-    notes?: string;
-  }) => void;
-  editCustomer: Customer | null;
-  existingCustomers: Customer[];
+  onShowToast: (msg: string) => void;
 }
 
-// Convert Bangla numerals (০-৯) to English (0-9)
-export const normalizeToEnglishDigits = (str: string): string => {
-  if (!str) return '';
-  const banglaDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
-  return str.replace(/[০-৯]/g, (d) => banglaDigits.indexOf(d).toString());
-};
-
-// Utility to normalize 11-digit phone numbers for accurate comparison
-export const normalizePhoneNumber = (phoneStr: string): string => {
-  if (!phoneStr) return '';
-  const eng = normalizeToEnglishDigits(phoneStr);
-  let cleaned = eng.replace(/[^0-9]/g, '');
-  if (cleaned.startsWith('8801') && cleaned.length >= 13) {
-    cleaned = cleaned.substring(2);
-  }
-  return cleaned;
-};
-
-export const CustomerModal: React.FC<CustomerModalProps> = ({
+export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
   isOpen,
+  customer,
+  transaction,
+  store,
   onClose,
-  onSave,
-  editCustomer: initialEditCustomer,
-  existingCustomers,
+  onShowToast,
 }) => {
-  const [currentEditCustomer, setCurrentEditCustomer] = useState<Customer | null>(initialEditCustomer);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [address, setAddress] = useState('');
-  const [openingBalance, setOpeningBalance] = useState('0');
-  const [category, setCategory] = useState<CustomerCategory>('regular');
-  const [creditLimit, setCreditLimit] = useState('10000');
-  const [notes, setNotes] = useState('');
-  const [phoneError, setPhoneError] = useState<string | null>(null);
-  const [duplicateCustomer, setDuplicateCustomer] = useState<Customer | null>(null);
+  const [printFormat, setPrintFormat] = useState<'thermal' | 'a4'>(
+    store.printPaperSize === 'a4' ? 'a4' : 'thermal'
+  );
+  const [copied, setCopied] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [isPdfDownloading, setIsPdfDownloading] = useState(false);
+  const [isImgDownloading, setIsImgDownloading] = useState(false);
 
-  useEffect(() => {
-    setCurrentEditCustomer(initialEditCustomer);
-  }, [initialEditCustomer, isOpen]);
+  if (!isOpen || !customer || !transaction) return null;
 
-  useEffect(() => {
-    if (currentEditCustomer) {
-      setName(currentEditCustomer.name || '');
-      setPhone(currentEditCustomer.phone || '');
-      setAddress(currentEditCustomer.address || '');
-      setCategory(currentEditCustomer.category || 'regular');
-      setCreditLimit(currentEditCustomer.creditLimit?.toString() || '10000');
-      setNotes(currentEditCustomer.notes || '');
-      setOpeningBalance('0');
-    } else {
-      setName('');
-      setPhone('');
-      setAddress('');
-      setCategory('regular');
-      setCreditLimit('10000');
-      setNotes('');
-      setOpeningBalance('0');
-    }
-    setPhoneError(null);
-    setDuplicateCustomer(null);
-  }, [currentEditCustomer, isOpen]);
+  const currency = store.currencySymbol || '৳';
+  const voucherNo = transaction.receiptNo || `REC-${transaction.createdAt.toString().slice(-6)}`;
+  const isSale = transaction.type === 'sale';
+  const isPayment = transaction.type === 'payment';
 
-  // Real-time 11-digit & duplicate validation
-  useEffect(() => {
-    const rawPhone = phone.trim();
-    if (!rawPhone) {
-      setPhoneError('কাস্টমারের ১১ ডিজিটের মোবাইল নম্বর প্রদান বাধ্যতামূলক');
-      setDuplicateCustomer(null);
-      return;
-    }
+  // Financial Breakdown calculations
+  const subtotal = transaction.subtotal !== undefined ? transaction.subtotal : transaction.amount;
+  const discount = transaction.discount || 0;
+  const netBill = transaction.netAmount !== undefined ? transaction.netAmount : (subtotal - discount);
+  const paidAmount = transaction.paidAmount !== undefined ? transaction.paidAmount : (isPayment ? transaction.amount : 0);
+  const dueAmount = transaction.dueAmount !== undefined ? transaction.dueAmount : (isSale ? (netBill - paidAmount) : 0);
 
-    const normPhone = normalizePhoneNumber(rawPhone);
+  // Status classification
+  const isFullyPaid = isPayment || (isSale && dueAmount <= 0 && paidAmount >= netBill) || (isSale && customer.balance <= 0 && dueAmount <= 0);
+  const isPartialPaid = isSale && paidAmount > 0 && dueAmount > 0;
+  const isFullyDue = isSale && (paidAmount === 0 || paidAmount === undefined) && dueAmount > 0;
 
-    // Check duplicate phone in existing customer list
-    const dup = existingCustomers.find((c) => {
-      if (currentEditCustomer && c.id === currentEditCustomer.id) return false;
-      const cNorm = normalizePhoneNumber(c.phone || '');
-      return cNorm.length === 11 && cNorm === normPhone;
-    });
+  // Direct Non-Crashing Safe Print
+  const handlePrint = () => {
+    setIsPrinting(true);
+    onShowToast('🖨️ প্রিন্ট ডায়ালগ প্রস্তুত করা হচ্ছে...');
 
-    if (dup) {
-      setDuplicateCustomer(dup);
-      setPhoneError(`❌ এই ১১ ডিজিটের মোবাইল নম্বরটি (${dup.name}) কাস্টমারের জন্য ব্যবহৃত হয়েছে। একটি মোবাইল নম্বর দিয়ে কেবল ১ জন কাস্টমার অ্যাড করা যাবে।`);
-    } else {
-      setDuplicateCustomer(null);
-      if (normPhone.length !== 11 || !normPhone.startsWith('01')) {
-        setPhoneError('মোবাইল নম্বরটি অবশ্যই সঠিক ১১ ডিজিটের হতে হবে (যেমন: 017XXXXXXXX)');
-      } else {
-        setPhoneError(null);
-      }
-    }
-  }, [phone, existingCustomers, currentEditCustomer]);
-
-  if (!isOpen) return null;
-
-  const rawPhone = phone.trim();
-  const normPhone = normalizePhoneNumber(rawPhone);
-  const isPhoneValid = normPhone.length === 11 && normPhone.startsWith('01') && !duplicateCustomer;
-  const isFormValid = name.trim().length > 0 && isPhoneValid;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isFormValid) return;
-
-    onSave({
-      name: name.trim(),
-      phone: rawPhone,
-      address: address.trim(),
-      openingBalance: parseFloat(openingBalance) || 0,
-      category,
-      creditLimit: parseFloat(creditLimit) || 10000,
-      notes: notes.trim(),
-    });
-  };
-
-  const handlePhoneChange = (val: string) => {
-    const eng = normalizeToEnglishDigits(val);
-    const cleaned = eng.replace(/[^0-9]/g, '').slice(0, 11);
-    setPhone(cleaned);
-  };
-
-  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
     setTimeout(() => {
-      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      executeSafePrint(() => {
+        setIsPrinting(false);
+      });
     }, 150);
   };
 
+  // Safe High-Res PDF Download
+  const handleDownloadPDF = async () => {
+    setIsPdfDownloading(true);
+    const filename = `Memo_${customer.name.replace(/\s+/g, '_')}_${voucherNo}`;
+    await downloadReceiptPDF('printable-invoice', filename, onShowToast);
+    setIsPdfDownloading(false);
+  };
+
+  // Safe PNG Image Download
+  const handleDownloadImage = async () => {
+    setIsImgDownloading(true);
+    const filename = `Memo_${customer.name.replace(/\s+/g, '_')}_${voucherNo}`;
+    await downloadReceiptImage('printable-invoice', filename, onShowToast);
+    setIsImgDownloading(false);
+  };
+
+  const handleShare = () => {
+    let text = `*${store.name}*\nরসিদ নং: ${voucherNo}\nকাস্টমার: ${customer.name}\n`;
+    
+    if (isFullyPaid) {
+      text += `মেমো ধরন: নগদ পরিশোধিত মেমো (PAID CASH MEMO)\nমোট বিল: ${currency} ${formatMoney(netBill)}\nপরিশোধ: ${currency} ${formatMoney(paidAmount || netBill)}\nঅবশিষ্ট বাকি: ${currency} 0 (পরিশোধিত)\n`;
+    } else if (isPartialPaid) {
+      text += `মেমো ধরন: আংশিক বাকি বিক্রয় মেমো (PARTIAL)\nমোট বিল: ${currency} ${formatMoney(netBill)}\nনগদ জমা: ${currency} ${formatMoney(paidAmount)}\nএই মেমোর বাকি: ${currency} ${formatMoney(dueAmount)}\nসর্বমোট অবশিষ্ট বাকি: ${currency} ${formatMoney(customer.balance)}\n`;
+    } else if (isFullyDue) {
+      text += `মেমো ধরন: বাকি বিক্রয় মেমো (DUE MEMO)\nবাকির পরিমাণ: ${currency} ${formatMoney(dueAmount)}\nসর্বমোট অবশিষ্ট বাকি: ${currency} ${formatMoney(customer.balance)}\n`;
+    } else {
+      text += `লেনদেন: টাকা জমা রসিদ (MONEY RECEIPT)\nজমা পরিমাণ: ${currency} ${formatMoney(transaction.amount)}\nঅবশিষ্ট বাকি: ${currency} ${formatMoney(customer.balance)}\n`;
+    }
+
+    text += `তারিখ: ${formatBanglaDate(transaction.date)} (${transaction.time})\n\n${store.footerNote || 'ধন্যবাদ!'}`;
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopied(true);
+      onShowToast('রসিদের সারাংশ কপি হয়েছে!');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      onShowToast('কপি করতে সমস্যা হয়েছে।');
+    }
+  };
+
+  // Generate dynamic QR Code url for store's bKash or phone
+  const qrTarget = store.bkashNumber || store.phone || '01306908115';
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(
+    `Payment to ${store.name}, Mobile: ${qrTarget}, Voucher: ${voucherNo}, Amount: ${customer.balance > 0 ? customer.balance : dueAmount}`
+  )}`;
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-start sm:justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain animate-in fade-in">
-      <div className="bg-white w-full max-w-lg rounded-2xl p-4 sm:p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 my-1 sm:my-auto max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] overflow-y-auto overscroll-contain flex flex-col">
-        <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex flex-col items-center justify-start sm:justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain animate-in fade-in">
+      <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-300 flex flex-col my-1 sm:my-auto max-h-[calc(100dvh-1rem)] sm:max-h-[95vh] overflow-hidden animate-in zoom-in-95">
+        {/* Header - Screen only */}
+        <div className="bg-[#004D40] text-white px-4 sm:px-6 py-3 flex items-center justify-between shadow-md shrink-0 no-print">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-teal-50 text-[#00695C] flex items-center justify-center">
-              {currentEditCustomer ? <UserCheck className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
+            <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center text-teal-200">
+              <Receipt className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-800">
-                {currentEditCustomer ? 'কাস্টমার তথ্য সংশোধন' : 'নতুন কাস্টমার যোগ করুন'}
+              <h3 className="text-sm font-bold text-white">
+                {isFullyPaid
+                  ? 'পরিশোধিত ক্যাশ মেমো'
+                  : isPayment
+                  ? 'টাকা জমা রসিদ'
+                  : 'বিক্রয় রসিদ'}
               </h3>
-              <p className="text-[11px] text-slate-500 font-medium">
-                ১১ ডিজিট মোবাইল নম্বর যাচাইকৃত খাতা এন্ট্রি
-              </p>
+              <p className="text-[11px] text-teal-100 font-mono">{voucherNo}</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center font-bold text-xs transition cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4 pb-36 sm:pb-2 flex-1">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              কাস্টমারের নাম <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              required
-              value={name}
-              onFocus={handleInputFocus}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="যেমন: আব্দুর রহিম"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm text-slate-800 font-medium bg-white"
-            />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-bold text-slate-700">
-                ১১ ডিজিটের মোবাইল নম্বর <span className="text-red-500">*</span>
-              </label>
-              {normPhone && (
-                <span
-                  className={`text-[11px] font-bold ${
-                    normPhone.length === 11 ? 'text-emerald-700' : 'text-amber-700'
-                  }`}
-                >
-                  {normPhone.length}/11 ডিজিট
-                </span>
-              )}
-            </div>
-
-            <div className="relative">
-              <input
-                type="tel"
-                required
-                maxLength={11}
-                value={phone}
-                onFocus={handleInputFocus}
-                onChange={(e) => handlePhoneChange(e.target.value)}
-                placeholder="যেমন: 01711223344"
-                className={`w-full pl-9 pr-10 py-2.5 rounded-xl border text-xs sm:text-sm font-bold tracking-wider ${
-                  duplicateCustomer
-                    ? 'border-red-500 bg-red-50/50 text-red-900 focus:ring-red-500'
-                    : isPhoneValid
-                    ? 'border-emerald-500 bg-emerald-50/30 text-slate-800 focus:ring-emerald-500'
-                    : 'border-slate-200 bg-white text-slate-800 focus:ring-teal-500'
-                } focus:outline-none focus:ring-2`}
-              />
-              <Phone className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-              <div className="absolute right-3 top-3">
-                {duplicateCustomer ? (
-                  <AlertCircle className="w-4 h-4 text-red-600" />
-                ) : isPhoneValid ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                ) : null}
-              </div>
-            </div>
-
-            {phoneError && (
-              <div
-                className={`mt-1.5 p-2 rounded-xl text-xs font-semibold flex items-start gap-1.5 ${
-                  duplicateCustomer
-                    ? 'bg-red-100 text-red-800 border border-red-200'
-                    : 'bg-amber-50 text-amber-800 border border-amber-200'
+          <div className="flex items-center gap-1.5">
+            {/* Format Toggle */}
+            <div className="flex bg-teal-900/80 p-0.5 rounded-lg border border-teal-600/80 text-xs font-bold mr-1 sm:mr-2">
+              <button
+                type="button"
+                onClick={() => setPrintFormat('thermal')}
+                className={`px-2.5 py-1 rounded-md transition cursor-pointer text-[11px] sm:text-xs font-bold ${
+                  printFormat === 'thermal' ? 'bg-teal-500 text-white shadow-xs' : 'text-teal-200 hover:text-white'
                 }`}
               >
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>{phoneError}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">কাস্টমার শ্রেণি / ক্যাটাগরি</label>
-              <select
-                value={category}
-                onFocus={handleInputFocus}
-                onChange={(e) => setCategory(e.target.value as CustomerCategory)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm text-slate-800 font-bold bg-white"
+                POS স্লিপ
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintFormat('a4')}
+                className={`px-2.5 py-1 rounded-md transition cursor-pointer text-[11px] sm:text-xs font-bold ${
+                  printFormat === 'a4' ? 'bg-teal-500 text-white shadow-xs' : 'text-teal-200 hover:text-white'
+                }`}
               >
-                <option value="regular">নিয়মিত (Regular)</option>
-                <option value="vip">ভিআইপি (VIP)</option>
-                <option value="retail">খুচরা কাস্টমার</option>
-                <option value="wholesale">পাইকারি কাস্টমার</option>
-              </select>
+                A4 মেমো
+              </button>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">সর্বোচ্চ বাকি সীমা (Credit Limit)</label>
-              <input
-                type="number"
-                min="0"
-                step="500"
-                value={creditLimit}
-                onFocus={handleInputFocus}
-                onChange={(e) => setCreditLimit(e.target.value)}
-                placeholder="যেমন: 10000"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm text-slate-800 font-bold bg-white"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">ঠিকানা / গ্রাম / এলাকা</label>
-            <input
-              type="text"
-              value={address}
-              onFocus={handleInputFocus}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="যেমন: উত্তর পাড়া, মাস্টার বাড়ি"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm text-slate-800 font-medium bg-white"
-            />
-          </div>
-
-          {!currentEditCustomer && (
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                পূর্বের বকেয়া বাকি (যদি থাকে ৳)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={openingBalance}
-                onFocus={handleInputFocus}
-                onChange={(e) => setOpeningBalance(e.target.value)}
-                placeholder="0"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm text-slate-800 font-bold bg-white"
-              />
-              <span className="text-[11px] text-slate-500 mt-1 block">
-                নতুন কাস্টমারের ক্ষেত্রে আগের কোনো বাকি থাকলে এখানে লিখুন।
-              </span>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">কাস্টমার সম্পর্কে বিশেষ নোট (ঐচ্ছিক)</label>
-            <input
-              type="text"
-              value={notes}
-              onFocus={handleInputFocus}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="যেমন: মাসের ১০ তারিখে বেতন পেলে পরিশোধ করেন"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/40 text-xs sm:text-sm text-slate-800 font-medium bg-white"
-            />
-          </div>
-
-          <div className="flex gap-2.5 pt-3 sticky bottom-0 bg-white/95 backdrop-blur-xs py-2 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer"
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-teal-100 transition cursor-pointer"
             >
-              বাতিল
-            </button>
-            <button
-              type="submit"
-              disabled={!isFormValid}
-              className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold shadow-md transition cursor-pointer ${
-                isFormValid
-                  ? 'bg-[#00695C] hover:bg-[#004D40] text-white active:scale-95'
-                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-              }`}
-            >
-              {currentEditCustomer ? 'তথ্য আপডেট করুন' : 'কাস্টমার সংরক্ষণ করুন'}
+              <X className="w-4 h-4" />
             </button>
           </div>
-        </form>
+        </div>
+
+        {/* Invoice Viewable Paper Area */}
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-slate-200/90 flex justify-center items-start">
+          {/* Paper Canvas */}
+          <div
+            id="printable-invoice"
+            className={`bg-white text-slate-900 shadow-md border border-slate-300 transition-all ${
+              printFormat === 'thermal'
+                ? 'w-full max-w-[340px] p-4 text-xs font-mono rounded-xl my-1'
+                : 'w-full max-w-[500px] p-6 text-sm rounded-xl my-2'
+            }`}
+          >
+            {/* Store Branding Header */}
+            <div className="text-center pb-3 border-b-2 border-dashed border-slate-800">
+              {store.logoUrl && (
+                <div className="flex justify-center mb-1.5">
+                  <img
+                    src={store.logoUrl}
+                    alt={store.name}
+                    className="w-12 h-12 rounded-xl object-cover border border-slate-300 shadow-2xs"
+                  />
+                </div>
+              )}
+              <h2 className="text-lg sm:text-xl font-black tracking-tight text-slate-900">
+                {store.name}
+              </h2>
+              <p className="text-[11px] text-slate-800 font-sans font-medium mt-0.5">{store.address}</p>
+              <p className="text-[11px] text-slate-900 font-sans font-bold">মোবাইল: {store.phone}</p>
+
+              {/* High Contrast Clean Badge Stamp */}
+              <div
+                className={`inline-block mt-2 px-3 py-0.5 rounded-full font-black text-[11px] tracking-wider uppercase border-2 ${
+                  isFullyPaid
+                    ? 'bg-emerald-50 text-emerald-900 border-emerald-700'
+                    : isPayment
+                    ? 'bg-teal-50 text-teal-900 border-teal-700'
+                    : dueAmount > 0
+                    ? 'bg-red-50 text-red-900 border-red-700'
+                    : 'bg-slate-100 text-slate-900 border-slate-800'
+                }`}
+              >
+                {isFullyPaid
+                  ? 'পরিশোধিত রসিদ (PAID SLIP)'
+                  : isPayment
+                  ? 'টাকা জমা রসিদ (MONEY RECEIPT)'
+                  : 'বিক্রয় রসিদ (DEBIT SLIP)'}
+              </div>
+            </div>
+
+            {/* Voucher and Customer Meta */}
+            <div className="py-2.5 border-b border-dashed border-slate-600 space-y-1 font-sans text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-700 font-semibold">রসিদ নং:</span>
+                <span className="font-black text-slate-900 font-mono">{voucherNo}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-700 font-semibold">তারিখ ও সময়:</span>
+                <span className="font-bold text-slate-900">
+                  {formatBanglaDate(transaction.date)} | {transaction.time}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-700 font-semibold">কাস্টমার নাম:</span>
+                <span className="font-black text-slate-900">{customer.name}</span>
+              </div>
+              {customer.phone && (
+                <div className="flex justify-between">
+                  <span className="text-slate-700 font-semibold">মোবাইল:</span>
+                  <span className="font-bold text-slate-900 font-mono">{customer.phone}</span>
+                </div>
+              )}
+              {customer.address && (
+                <div className="flex justify-between">
+                  <span className="text-slate-700 font-semibold">ঠিকানা:</span>
+                  <span className="font-bold text-slate-900">{customer.address}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Itemized List / Transaction Detail */}
+            <div className="py-3 border-b border-dashed border-slate-600">
+              {transaction.items && transaction.items.length > 0 ? (
+                <div className="space-y-1.5 font-sans">
+                  <div className="flex justify-between font-black text-[11px] text-slate-900 pb-1 border-b border-slate-400">
+                    <span>পণ্যের বিবরণ</span>
+                    <span>মোট</span>
+                  </div>
+                  {transaction.items.map((it, idx) => (
+                    <div key={idx} className="flex justify-between text-xs py-0.5">
+                      <div>
+                        <span className="font-bold text-slate-950">{it.name}</span>
+                        <div className="text-[10px] text-slate-700 font-medium">
+                          {it.quantity} {it.unit} × {currency}{it.price}
+                        </div>
+                      </div>
+                      <span className="font-black text-slate-950">
+                        {currency} {formatMoney(it.total)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="font-sans space-y-1">
+                  <span className="text-xs text-slate-700 font-semibold">লেনদেনের বিবরণ:</span>
+                  <p className="text-xs font-bold text-slate-950 bg-slate-100 p-2 rounded-lg border border-slate-300">
+                    {transaction.description || (isSale ? 'পণ্য বাকি ক্রয়' : 'নগদ জমা পরিশোধ')}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Financial Summary Calculation */}
+            <div className="py-3 border-b-2 border-dashed border-slate-800 space-y-1.5 font-sans">
+              {transaction.items && transaction.items.length > 0 ? (
+                <>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-700 font-semibold">মোট বিল:</span>
+                    <span className="font-black text-slate-900">
+                      {currency} {formatMoney(subtotal)}
+                    </span>
+                  </div>
+
+                  {discount > 0 && (
+                    <div className="flex justify-between items-center text-xs text-amber-900 font-bold">
+                      <span>ছাড় / ডিসকাউন্ট:</span>
+                      <span>
+                        - {currency} {formatMoney(discount)}
+                      </span>
+                    </div>
+                  )}
+
+                  {paidAmount > 0 && (
+                    <div className="flex justify-between items-center text-xs font-bold">
+                      <span className="text-slate-700">নগদ পরিশোধ:</span>
+                      <span className="text-emerald-800 font-black">
+                        {currency} {formatMoney(paidAmount)}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-700 font-semibold">
+                      {isFullyPaid ? 'বাকি:' : 'বর্তমান বিল / বাকির পরিমাণ:'}
+                    </span>
+                    <span className={`font-black text-sm ${dueAmount > 0 ? 'text-red-700' : 'text-slate-900'}`}>
+                      {dueAmount > 0 ? `+ ${currency} ${formatMoney(dueAmount)}` : `${currency} 0`}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-700 font-semibold">
+                    {isSale ? 'বর্তমান বিল / বাকির পরিমাণ:' : 'টাকা পরিশোধের পরিমাণ:'}
+                  </span>
+                  <span className={`font-black text-sm ${isSale ? 'text-red-700' : 'text-emerald-800'}`}>
+                    {isSale ? '+' : '-'} {currency} {formatMoney(transaction.amount)}
+                  </span>
+                </div>
+              )}
+
+              {transaction.paymentMethod && (
+                <div className="flex justify-between items-center text-xs pt-0.5">
+                  <span className="text-slate-700 font-semibold">পরিশোধ মাধ্যম:</span>
+                  <span className="font-black text-slate-900">
+                    {getPaymentMethodLabel(transaction.paymentMethod)}
+                  </span>
+                </div>
+              )}
+
+              {/* Total Remaining Due */}
+              <div className="flex justify-between items-center pt-2 border-t border-slate-400 text-xs sm:text-sm">
+                <span className="font-black text-slate-950">সর্বমোট অবশিষ্ট বাকি:</span>
+                <span
+                  className={`font-black text-base sm:text-lg ${
+                    customer.balance > 0 ? 'text-red-700' : 'text-emerald-800'
+                  }`}
+                >
+                  {customer.balance > 0 ? `${currency} ${formatMoney(customer.balance)}` : `${currency} 0`}
+                </span>
+              </div>
+            </div>
+
+            {/* QR Code and MFS Payment Prompt if customer has due */}
+            {customer.balance > 0 && store.showQrOnInvoice !== false && (store.bkashNumber || store.nagadNumber) && (
+              <div className="py-3 border-b border-dashed border-slate-600 flex items-center justify-between gap-3">
+                <div className="text-left font-sans">
+                  <p className="text-[11px] font-black text-slate-900">অনলাইনে বাকি পরিশোধ করুন:</p>
+                  {store.bkashNumber && (
+                    <p className="text-[10px] text-pink-800 font-bold">বিকাশ: {store.bkashNumber}</p>
+                  )}
+                  {store.nagadNumber && (
+                    <p className="text-[10px] text-orange-800 font-bold">নগদ: {store.nagadNumber}</p>
+                  )}
+                  <p className="text-[9px] text-slate-700 font-semibold mt-0.5">কিউআর কোড স্ক্যান করে পে করুন</p>
+                </div>
+                <img
+                  src={qrUrl}
+                  alt="Payment QR"
+                  className="w-14 h-14 rounded-lg border border-slate-400 p-0.5 bg-white shrink-0"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            )}
+
+            {/* Signature Area */}
+            <div className="pt-6 pb-2 flex justify-between items-end text-[11px] font-sans text-slate-800 font-bold">
+              <div className="text-center">
+                <div className="w-20 border-t border-slate-600 mb-1" />
+                <span>কাস্টমারের স্বাক্ষর</span>
+              </div>
+              <div className="text-center">
+                <div className="w-20 border-t border-slate-600 mb-1" />
+                <span>কর্তৃপক্ষের স্বাক্ষর</span>
+              </div>
+            </div>
+
+            {/* Footer Note */}
+            <div className="text-center pt-3 text-[10px] text-slate-700 font-sans border-t border-dashed border-slate-400 font-medium">
+              <p>{store.footerNote || 'আমাদের সাথে থাকার জন্য ধন্যবাদ! আবার আসবেন।'}</p>
+              <p className="text-[9px] text-slate-600 font-bold mt-0.5">ডিজিটাল খাতা ও ক্যাশ মেমো সিস্টেম</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Action Bar - Screen Only */}
+        <div className="bg-slate-50 px-3 sm:px-6 py-3 border-t border-slate-300 flex flex-col sm:flex-row justify-between items-center gap-2.5 no-print">
+          <button
+            type="button"
+            onClick={handleShare}
+            className="w-full sm:w-auto px-3.5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5" />}
+            <span>{copied ? 'কপি হয়েছে!' : 'মেসেজ কপি'}</span>
+          </button>
+
+          <div className="flex w-full sm:w-auto gap-2">
+            <button
+              type="button"
+              onClick={handleDownloadPDF}
+              disabled={isPdfDownloading}
+              title="পরিষ্কার ও স্পষ্ট PDF ফাইল ডাউনলোড করুন"
+              className="flex-1 sm:flex-none px-3.5 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              {isPdfDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5 text-teal-200" />}
+              <span>{isPdfDownloading ? 'তৈরি হচ্ছে...' : '📄 PDF ডাউনলোড'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadImage}
+              disabled={isImgDownloading}
+              title="মেমো ছবি হিসেবে গ্যালারিতে সেভ করুন"
+              className="flex-1 sm:flex-none px-3 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              {isImgDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5 text-slate-300" />}
+              <span>{isImgDownloading ? '...' : '🖼️ ছবি'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrint}
+              disabled={isPrinting}
+              className="flex-1 sm:flex-none px-4 py-2.5 bg-[#004D40] hover:bg-[#00382e] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer border border-teal-700 disabled:opacity-50"
+            >
+              {isPrinting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Printer className="w-3.5 h-3.5 text-teal-200" />}
+              <span>{isPrinting ? 'প্রিন্ট হচ্ছে...' : '🖨️ প্রিন্ট'}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

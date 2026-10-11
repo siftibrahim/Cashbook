@@ -3,12 +3,10 @@ import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStore
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 
 const router = Router();
-
-// Protect all customer routes with user authentication
 router.use(authenticateUser);
 
 /**
- * GET /api/customers - List all customers for logged in user
+ * GET /api/expenses
  */
 router.get('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -17,148 +15,99 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
 
     if (pool) {
       const result = await pool.query(
-        'SELECT * FROM customers WHERE user_id = $1 ORDER BY updated_at DESC',
+        'SELECT * FROM expenses WHERE user_id = $1 ORDER BY created_at DESC',
         [userId]
       );
-      const customers = result.rows.map(row => ({
+      const expenses = result.rows.map(row => ({
         id: row.id,
-        name: row.name,
-        phone: row.phone || '',
-        address: row.address || '',
-        balance: parseFloat(row.balance) || 0,
-        category: row.category || 'regular',
-        creditLimit: parseFloat(row.credit_limit) || 10000,
-        notes: row.notes || '',
+        type: row.type,
+        category: row.category,
+        amount: parseFloat(row.amount) || 0,
+        description: row.description || '',
+        date: row.date,
+        time: row.time,
         createdAt: Number(row.created_at),
-        updatedAt: Number(row.updated_at),
       }));
-      return res.json({ customers });
+      return res.json({ expenses });
     } else {
-      const list = inMemoryStore.customers
-        .filter(c => c.userId === userId)
-        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-      return res.json({ customers: list });
+      const list = inMemoryStore.expenses
+        .filter(e => e.userId === userId)
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      return res.json({ expenses: list });
     }
   } catch (err: any) {
-    console.error('Error fetching customers:', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * POST /api/customers - Add or Update Customer
+ * POST /api/expenses - Add or update expense
  */
 router.post('/', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
-    const { id, name, phone, address, balance, category, creditLimit, notes } = req.body;
+    const { id, type, category, amount, description, date, time } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ error: 'কাস্টমারের নাম আবশ্যক' });
-    }
-
-    const customerId = id || 'cust_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    const expId = id || 'exp_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
     const now = Date.now();
-    const cleanBalance = parseFloat(balance) || 0;
-    const cleanCreditLimit = parseFloat(creditLimit) || 10000;
+    const cleanAmount = parseFloat(amount) || 0;
 
     const pool = getDbPool();
     if (pool) {
       const validUserId = await ensureUserExistsInPostgres(pool, userId, req.user);
       await pool.query(`
-        INSERT INTO customers (
-          id, user_id, name, phone, address, balance, category, credit_limit, notes, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        INSERT INTO expenses (id, user_id, type, category, amount, description, date, time, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          phone = EXCLUDED.phone,
-          address = EXCLUDED.address,
-          balance = EXCLUDED.balance,
+          type = EXCLUDED.type,
           category = EXCLUDED.category,
-          credit_limit = EXCLUDED.credit_limit,
-          notes = EXCLUDED.notes,
-          updated_at = EXCLUDED.updated_at
-      `, [
-        customerId, validUserId, name.trim(), phone || '', address || '',
-        cleanBalance, category || 'regular', cleanCreditLimit, notes || '',
-        now, now
-      ]);
-
-      // Update total customers count on user
-      const countRes = await pool.query('SELECT COUNT(*) FROM customers WHERE user_id = $1', [validUserId]);
-      const totalCust = parseInt(countRes.rows[0].count, 10);
-      await pool.query('UPDATE users SET total_customers = $1 WHERE id = $2', [totalCust, validUserId]);
+          amount = EXCLUDED.amount,
+          description = EXCLUDED.description,
+          date = EXCLUDED.date,
+          time = EXCLUDED.time
+      `, [expId, validUserId, type, category, cleanAmount, description || '', date, time, now]);
     } else {
-      const idx = inMemoryStore.customers.findIndex(c => c.id === customerId);
-      const custObj = {
-        id: customerId,
+      const newExp = {
+        id: expId,
         userId,
-        name: name.trim(),
-        phone: phone || '',
-        address: address || '',
-        balance: cleanBalance,
-        category: category || 'regular',
-        creditLimit: cleanCreditLimit,
-        notes: notes || '',
-        createdAt: idx >= 0 ? inMemoryStore.customers[idx].createdAt : now,
-        updatedAt: now,
+        type,
+        category,
+        amount: cleanAmount,
+        description: description || '',
+        date,
+        time,
+        createdAt: now,
       };
-
-      if (idx >= 0) {
-        inMemoryStore.customers[idx] = custObj;
-      } else {
-        inMemoryStore.customers.push(custObj);
-      }
+      const idx = inMemoryStore.expenses.findIndex(e => e.id === expId);
+      if (idx >= 0) inMemoryStore.expenses[idx] = newExp;
+      else inMemoryStore.expenses.push(newExp);
       saveInMemoryStoreToDisk();
     }
 
-    return res.json({
-      message: '✅ কাস্টমার তথ্য সংরক্ষিত হয়েছে',
-      customer: {
-        id: customerId,
-        name: name.trim(),
-        phone: phone || '',
-        address: address || '',
-        balance: cleanBalance,
-        category: category || 'regular',
-        creditLimit: cleanCreditLimit,
-        notes: notes || '',
-        createdAt: now,
-        updatedAt: now,
-      },
-    });
+    return res.json({ message: '✅ খরচ/আয় সংরক্ষিত হয়েছে', id: expId });
   } catch (err: any) {
-    console.error('Error saving customer:', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * DELETE /api/customers/:id - Delete Customer and their transactions
+ * DELETE /api/expenses/:id
  */
 router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
-    const customerId = req.params.id;
-
+    const expId = req.params.id;
     const pool = getDbPool();
+
     if (pool) {
-      // Cascading delete deletes transactions automatically
-      await pool.query('DELETE FROM customers WHERE id = $1 AND user_id = $2', [customerId, userId]);
-      await pool.query('DELETE FROM transactions WHERE customer_id = $1 AND user_id = $2', [customerId, userId]);
-      
-      const countRes = await pool.query('SELECT COUNT(*) FROM customers WHERE user_id = $1', [userId]);
-      const totalCust = parseInt(countRes.rows[0].count, 10);
-      await pool.query('UPDATE users SET total_customers = $1 WHERE id = $2', [totalCust, userId]);
+      await pool.query('DELETE FROM expenses WHERE id = $1 AND user_id = $2', [expId, userId]);
     } else {
-      inMemoryStore.customers = inMemoryStore.customers.filter(c => !(c.id === customerId && (c.userId === userId || !c.userId)));
-      inMemoryStore.transactions = inMemoryStore.transactions.filter(t => !(t.customerId === customerId && (t.userId === userId || !t.userId)));
+      inMemoryStore.expenses = inMemoryStore.expenses.filter(e => !(e.id === expId && (e.userId === userId || !e.userId)));
       saveInMemoryStoreToDisk();
     }
 
-    return res.json({ message: '✅ কাস্টমার এবং তার সকল লেনদেন ডিলিট করা হয়েছে' });
+    return res.json({ message: '✅ এন্ট্রি মুছে ফেলা হয়েছে' });
   } catch (err: any) {
-    console.error('Error deleting customer:', err);
     return res.status(500).json({ error: err.message });
   }
 });

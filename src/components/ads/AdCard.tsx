@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { publicAdApi } from '../../services/apiService';
 import { SystemAdSettings, CustomAdItem } from '../../types/adminTypes';
 import { Megaphone, ExternalLink, X } from 'lucide-react';
@@ -78,5 +78,4 @@ export const AdCard: React.FC<AdCardProps> = ({ className = '' }) => {
         <ExternalLink className="w-3.5 h-3.5" />
       </a>
     </div>
-  );
-};
+  );p

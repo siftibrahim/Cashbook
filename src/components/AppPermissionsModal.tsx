@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   Bell,
   HardDrive,
@@ -341,4 +341,4 @@ export const AppPermissionsModal: React.FC<AppPermissionsModalProps> = ({
     </div>
   );
 };
-
+`8

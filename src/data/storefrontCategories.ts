@@ -1,14 +1,3 @@
-export interface StorefrontCategoryItem {
-  id: string;
-  name: string;
-  englishName?: string;
-  iconImage: string;
-  bgColor: string;
-  borderColor: string;
-  textColor: string;
-  badge?: string;
-}
-
 export const STOREFRONT_CATEGORIES: StorefrontCategoryItem[] = [
   {
     id: 'rice_flour',

@@ -606,6 +606,4 @@ export class SubscriptionEngine {
         scope: 'USER',
         createdAt: now,
       });
-    }
-  }
-}
+    }Àt

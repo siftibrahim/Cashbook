@@ -120,3 +120,4 @@ export const StorefrontSearchBar: React.FC<StorefrontSearchBarProps> = ({
     </div>
   );
 };
+Pñ
