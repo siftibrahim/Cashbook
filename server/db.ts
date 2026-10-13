@@ -101,6 +101,10 @@ export const inMemoryStore: {
   marketplace_notifications: any[];
   marketplace_friend_requests: any[];
   marketplace_user_friends: any[];
+  marketplace_stories: any[];
+  marketplace_groups: any[];
+  marketplace_pages: any[];
+  marketplace_chat_groups: any[];
 } = {
   users: [],
   stores: [],
@@ -135,6 +139,10 @@ export const inMemoryStore: {
   marketplace_notifications: [],
   marketplace_friend_requests: [],
   marketplace_user_friends: [],
+  marketplace_stories: [],
+  marketplace_groups: [],
+  marketplace_pages: [],
+  marketplace_chat_groups: [],
 };
 
 /**
@@ -3586,6 +3594,352 @@ export function updateMarketplaceUserProfile(userId: string, updateData: any): a
     saveInMemoryStoreToDisk();
     return newUser;
   }
+}
+
+// -------------------------------------------------------------
+// Stories Helpers (Auto-expires after 24 hours)
+// -------------------------------------------------------------
+export function getMarketplaceStories(): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_stories)) {
+    inMemoryStore.marketplace_stories = [];
+  }
+  const now = Date.now();
+  // Filter stories that have not expired (within 24 hours)
+  const validStories = inMemoryStore.marketplace_stories.filter((s: any) => {
+    const exp = new Date(s.expiresAt || 0).getTime();
+    return exp > now;
+  });
+  if (validStories.length !== inMemoryStore.marketplace_stories.length) {
+    inMemoryStore.marketplace_stories = validStories;
+    saveInMemoryStoreToDisk();
+  }
+  return validStories.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export function saveMarketplaceStory(story: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_stories)) {
+    inMemoryStore.marketplace_stories = [];
+  }
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const newStory = {
+    id: story.id || `story_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    authorId: story.authorId,
+    authorName: story.authorName,
+    authorUsername: story.authorUsername,
+    authorAvatar: story.authorAvatar,
+    mediaUrl: story.mediaUrl,
+    mediaType: story.mediaType || 'image',
+    caption: story.caption || '',
+    createdAt: now.toISOString(),
+    expiresAt,
+    viewedByUserIds: [],
+  };
+  inMemoryStore.marketplace_stories.unshift(newStory);
+  saveInMemoryStoreToDisk();
+  return newStory;
+}
+
+export function deleteMarketplaceStory(id: string): boolean {
+  if (!Array.isArray(inMemoryStore.marketplace_stories)) return false;
+  const initial = inMemoryStore.marketplace_stories.length;
+  inMemoryStore.marketplace_stories = inMemoryStore.marketplace_stories.filter((s: any) => s.id !== id);
+  if (inMemoryStore.marketplace_stories.length !== initial) {
+    saveInMemoryStoreToDisk();
+    return true;
+  }
+  return false;
+}
+
+// -------------------------------------------------------------
+// Groups Helpers
+// -------------------------------------------------------------
+export function getMarketplaceGroups(): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_groups)) {
+    inMemoryStore.marketplace_groups = [];
+  }
+  return inMemoryStore.marketplace_groups;
+}
+
+export function createMarketplaceGroup(group: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_groups)) {
+    inMemoryStore.marketplace_groups = [];
+  }
+  const newGroup = {
+    id: group.id || `grp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    name: group.name,
+    description: group.description || '',
+    coverImage: group.coverImage || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1200&q=80',
+    privacy: group.privacy || 'public',
+    creatorId: group.creatorId,
+    membersCount: 1,
+    memberIds: [group.creatorId],
+    createdAt: new Date().toISOString(),
+  };
+  inMemoryStore.marketplace_groups.unshift(newGroup);
+  saveInMemoryStoreToDisk();
+  return newGroup;
+}
+
+export function joinMarketplaceGroup(groupId: string, userId: string): any {
+  if (!Array.isArray(inMemoryStore.marketplace_groups)) return null;
+  const grp = inMemoryStore.marketplace_groups.find((g: any) => g.id === groupId);
+  if (!grp) throw new Error('গ্রুপ পাওয়া যায়নি');
+  grp.memberIds = grp.memberIds || [];
+  if (!grp.memberIds.includes(userId)) {
+    grp.memberIds.push(userId);
+    grp.membersCount = grp.memberIds.length;
+    saveInMemoryStoreToDisk();
+  }
+  return grp;
+}
+
+export function leaveMarketplaceGroup(groupId: string, userId: string): any {
+  if (!Array.isArray(inMemoryStore.marketplace_groups)) return null;
+  const grp = inMemoryStore.marketplace_groups.find((g: any) => g.id === groupId);
+  if (!grp) throw new Error('গ্রুপ পাওয়া যায়নি');
+  grp.memberIds = (grp.memberIds || []).filter((id: string) => id !== userId);
+  grp.membersCount = Math.max(0, grp.memberIds.length);
+  saveInMemoryStoreToDisk();
+  return grp;
+}
+
+// -------------------------------------------------------------
+// Pages Helpers
+// -------------------------------------------------------------
+export function getMarketplacePages(): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_pages)) {
+    inMemoryStore.marketplace_pages = [];
+  }
+  return inMemoryStore.marketplace_pages;
+}
+
+export function createMarketplacePage(page: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_pages)) {
+    inMemoryStore.marketplace_pages = [];
+  }
+  const newPage = {
+    id: page.id || `page_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    name: page.name,
+    category: page.category || 'ব্যবসা ও শপ',
+    bio: page.bio || '',
+    avatar: page.avatar || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=300&q=80',
+    coverImage: page.coverImage || 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=80',
+    creatorId: page.creatorId,
+    followersCount: 1,
+    followerIds: [page.creatorId],
+    createdAt: new Date().toISOString(),
+  };
+  inMemoryStore.marketplace_pages.unshift(newPage);
+  saveInMemoryStoreToDisk();
+  return newPage;
+}
+
+export function followMarketplacePage(pageId: string, userId: string): any {
+  if (!Array.isArray(inMemoryStore.marketplace_pages)) return null;
+  const page = inMemoryStore.marketplace_pages.find((p: any) => p.id === pageId);
+  if (!page) throw new Error('পেজ পাওয়া যায়নি');
+  page.followerIds = page.followerIds || [];
+  const idx = page.followerIds.indexOf(userId);
+  if (idx >= 0) {
+    page.followerIds.splice(idx, 1);
+  } else {
+    page.followerIds.push(userId);
+  }
+  page.followersCount = page.followerIds.length;
+  saveInMemoryStoreToDisk();
+  return page;
+}
+
+// -------------------------------------------------------------
+// Social Posts Edit, Save, Reply Helpers
+// -------------------------------------------------------------
+export function editMarketplacePost(postId: string, userId: string, updateData: any): any {
+  const posts = getAllMarketplacePosts();
+  const post = posts.find((p: any) => p.id === postId);
+  if (!post) throw new Error('পোস্ট পাওয়া যায়নি');
+  if (post.authorId !== userId) {
+    throw new Error('শুধুমাত্র পোস্টের লেখক এটি সম্পাদনা করতে পারবেন');
+  }
+  if (updateData.content !== undefined) post.content = updateData.content;
+  if (updateData.images !== undefined) post.images = updateData.images;
+  if (updateData.videos !== undefined) post.videos = updateData.videos;
+  if (updateData.videoUrl !== undefined) post.videoUrl = updateData.videoUrl;
+  if (updateData.location !== undefined) post.location = updateData.location;
+  if (updateData.linkUrl !== undefined) post.linkUrl = updateData.linkUrl;
+  if (updateData.privacy !== undefined) post.privacy = updateData.privacy;
+  if (updateData.feeling !== undefined) post.feeling = updateData.feeling;
+  post.isEdited = true;
+  post.editedAt = new Date().toISOString();
+  saveInMemoryStoreToDisk();
+  return post;
+}
+
+export function toggleSaveMarketplacePost(postId: string, userId: string): { post: any; isSaved: boolean } {
+  const posts = getAllMarketplacePosts();
+  const post = posts.find((p: any) => p.id === postId);
+  if (!post) throw new Error('পোস্ট পাওয়া যায়নি');
+  post.savedByUserIds = post.savedByUserIds || [];
+  const idx = post.savedByUserIds.indexOf(userId);
+  let isSaved = false;
+  if (idx >= 0) {
+    post.savedByUserIds.splice(idx, 1);
+    isSaved = false;
+  } else {
+    post.savedByUserIds.push(userId);
+    isSaved = true;
+  }
+  saveInMemoryStoreToDisk();
+  return { post, isSaved };
+}
+
+export function replyMarketplaceComment(postId: string, commentId: string, reply: any): { post: any; reply: any } {
+  const posts = getAllMarketplacePosts();
+  const post = posts.find((p: any) => p.id === postId);
+  if (!post) throw new Error('পোস্ট পাওয়া যায়নি');
+  const comment = (post.comments || []).find((c: any) => c.id === commentId);
+  if (!comment) throw new Error('কমেন্ট পাওয়া যায়নি');
+  comment.replies = comment.replies || [];
+  const replyObj = {
+    id: reply.id || `reply_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    authorId: reply.authorId,
+    authorName: reply.authorName,
+    authorUsername: reply.authorUsername,
+    authorAvatar: reply.authorAvatar,
+    content: (reply.content || '').trim(),
+    createdAt: new Date().toISOString(),
+  };
+  comment.replies.push(replyObj);
+
+  // Notify original comment author if not self
+  if (comment.authorId && comment.authorId !== reply.authorId) {
+    saveMarketplaceNotification({
+      id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      recipientId: comment.authorId,
+      senderId: reply.authorId,
+      senderName: reply.authorName,
+      senderAvatar: reply.authorAvatar,
+      type: 'comment',
+      text: `${reply.authorName} আপনার মন্তব্যে উত্তর দিয়েছেন: "${replyObj.content.slice(0, 35)}"`,
+      targetId: postId,
+      read: false,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  saveInMemoryStoreToDisk();
+  return { post, reply: replyObj };
+}
+
+// -------------------------------------------------------------
+// Messenger Unsend & Group Chat Helpers
+// -------------------------------------------------------------
+export function unsendMarketplaceChatMessage(messageId: string, userId: string, forEveryone: boolean = true): boolean {
+  if (!Array.isArray(inMemoryStore.marketplace_chat_messages)) return false;
+  const msg = inMemoryStore.marketplace_chat_messages.find((m: any) => m.id === messageId);
+  if (!msg) return false;
+  if (msg.senderId !== userId && forEveryone) {
+    throw new Error('শুধুমাত্র প্রেরক সবার জন্য মেসেজ আনসেন্ড করতে পারবেন');
+  }
+  if (forEveryone) {
+    msg.isDeleted = true;
+    msg.deletedForEveryone = true;
+    msg.text = '⚠️ এই বার্তাটি আনসেন্ড (মুছে ফেলা) হয়েছে।';
+    msg.mediaUrl = undefined;
+  } else {
+    msg.deletedForUserIds = msg.deletedForUserIds || [];
+    if (!msg.deletedForUserIds.includes(userId)) {
+      msg.deletedForUserIds.push(userId);
+    }
+  }
+  saveInMemoryStoreToDisk();
+  return true;
+}
+
+export function createMarketplaceChatGroup(group: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_chat_groups)) {
+    inMemoryStore.marketplace_chat_groups = [];
+  }
+  const newChatGroup = {
+    id: group.id || `cgrp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    name: group.name,
+    avatar: group.avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=300&q=80',
+    memberIds: Array.isArray(group.memberIds) ? group.memberIds : [group.creatorId],
+    creatorId: group.creatorId,
+    createdAt: new Date().toISOString(),
+  };
+  inMemoryStore.marketplace_chat_groups.unshift(newChatGroup);
+  saveInMemoryStoreToDisk();
+  return newChatGroup;
+}
+
+export function getMarketplaceChatGroups(userId: string): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_chat_groups)) {
+    inMemoryStore.marketplace_chat_groups = [];
+  }
+  return inMemoryStore.marketplace_chat_groups.filter(
+    (g: any) => Array.isArray(g.memberIds) && g.memberIds.includes(userId)
+  );
+}
+
+// -------------------------------------------------------------
+// User Follow / Unfriend Helpers
+// -------------------------------------------------------------
+export function toggleFollowMarketplaceUser(currentUserId: string, targetUserId: string): { isFollowing: boolean } {
+  const users = getAllMarketplaceUsersList();
+  const currentUser = users.find((u: any) => u.id === currentUserId);
+  const targetUser = users.find((u: any) => u.id === targetUserId);
+  if (!currentUser) throw new Error('বর্তমান ব্যবহারকারী পাওয়া যায়নি');
+
+  currentUser.followingUserIds = currentUser.followingUserIds || [];
+  const idx = currentUser.followingUserIds.indexOf(targetUserId);
+  let isFollowing = false;
+  if (idx >= 0) {
+    currentUser.followingUserIds.splice(idx, 1);
+    currentUser.followingCount = Math.max(0, (currentUser.followingCount || 1) - 1);
+    if (targetUser) {
+      targetUser.followersCount = Math.max(0, (targetUser.followersCount || 1) - 1);
+    }
+    isFollowing = false;
+  } else {
+    currentUser.followingUserIds.push(targetUserId);
+    currentUser.followingCount = (currentUser.followingCount || 0) + 1;
+    if (targetUser) {
+      targetUser.followersCount = (targetUser.followersCount || 0) + 1;
+      saveMarketplaceNotification({
+        id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        recipientId: targetUserId,
+        senderId: currentUserId,
+        senderName: currentUser.name,
+        senderAvatar: currentUser.avatar,
+        type: 'page_follow',
+        text: `${currentUser.name} আপনাকে ফলো করা শুরু করেছেন`,
+        targetId: currentUserId,
+        read: false,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    isFollowing = true;
+  }
+  saveInMemoryStoreToDisk();
+  return { isFollowing };
+}
+
+export function unfriendMarketplaceUser(userId: string, targetUserId: string): boolean {
+  if (!Array.isArray(inMemoryStore.marketplace_user_friends)) return false;
+  const initial = inMemoryStore.marketplace_user_friends.length;
+  inMemoryStore.marketplace_user_friends = inMemoryStore.marketplace_user_friends.filter(
+    (f: any) =>
+      !(
+        (f.userId === userId && f.friendId === targetUserId) ||
+        (f.userId === targetUserId && f.friendId === userId)
+      )
+  );
+  if (inMemoryStore.marketplace_user_friends.length !== initial) {
+    saveInMemoryStoreToDisk();
+    return true;
+  }
+  return false;
 }
 
 

@@ -103,6 +103,10 @@ export interface CustomerProfile {
     language?: 'bn' | 'en';
   };
   sellerPaymentSettings?: SellerPaymentSettings;
+  followingUserIds?: string[];
+  savedPostIds?: string[];
+  mutedConversationIds?: string[];
+  archivedConversationIds?: string[];
   activeSessions?: Array<{
     id: string;
     deviceName: string;
@@ -131,6 +135,16 @@ export interface VerificationRequest {
   reviewedBy?: string;
 }
 
+export interface SocialCommentReply {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorUsername: string;
+  authorAvatar: string;
+  content: string;
+  createdAt: string;
+}
+
 export interface SocialComment {
   id: string;
   authorId: string;
@@ -139,6 +153,7 @@ export interface SocialComment {
   authorAvatar: string;
   content: string;
   createdAt: string;
+  replies?: SocialCommentReply[];
 }
 
 export interface LinkedProduct {
@@ -161,6 +176,11 @@ export interface SocialPost {
   authorVerified?: boolean;
   content: string;
   images: string[];
+  videos?: string[];
+  videoUrl?: string;
+  location?: string;
+  linkUrl?: string;
+  privacy?: 'public' | 'friends' | 'only_me';
   feeling?: {
     emoji: string;
     label: string;
@@ -176,6 +196,48 @@ export interface SocialPost {
   userReactions: Record<string, SocialReactionType>; // customerId -> reactionType
   comments: SocialComment[];
   sharesCount: number;
+  savedByUserIds?: string[];
+  isEdited?: boolean;
+  editedAt?: string;
+}
+
+export interface SocialStory {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorUsername: string;
+  authorAvatar: string;
+  mediaUrl: string;
+  mediaType: 'image' | 'video';
+  caption?: string;
+  createdAt: string;
+  expiresAt: string; // ISO string 24 hours after creation
+  viewedByUserIds?: string[];
+}
+
+export interface SocialGroup {
+  id: string;
+  name: string;
+  description: string;
+  coverImage: string;
+  privacy: 'public' | 'private';
+  creatorId: string;
+  membersCount: number;
+  memberIds: string[];
+  createdAt: string;
+}
+
+export interface SocialPage {
+  id: string;
+  name: string;
+  category: string;
+  bio: string;
+  avatar: string;
+  coverImage: string;
+  creatorId: string;
+  followersCount: number;
+  followerIds: string[];
+  createdAt: string;
 }
 
 export interface MarketplaceBoostRequest {
@@ -231,8 +293,16 @@ export interface CustomerProductItem {
 export interface ChatMessage {
   id: string;
   senderId: string;
-  receiverId: string;
+  receiverId?: string; // 1-on-1 recipient
+  groupId?: string; // group chat target
+  isGroup?: boolean;
+  senderName?: string;
+  senderAvatar?: string;
   text: string;
+  mediaUrl?: string;
+  mediaType?: 'image' | 'video' | 'file';
+  fileName?: string;
+  fileSize?: string;
   timestamp: string;
   productContext?: {
     id: string;
@@ -241,6 +311,9 @@ export interface ChatMessage {
     imageUrl?: string;
   };
   read: boolean;
+  status?: 'sent' | 'delivered' | 'seen';
+  isDeleted?: boolean;
+  deletedForEveryone?: boolean;
 }
 
 export interface ChatConversation {
@@ -250,12 +323,20 @@ export interface ChatConversation {
   participantAvatar: string;
   participantUsername: string;
   participantPhone?: string;
+  isGroup?: boolean;
+  groupId?: string;
+  memberIds?: string[];
+  memberCount?: number;
   lastMessage: string;
   lastMessageTime: string;
   unreadCount: number;
+  isMuted?: boolean;
+  isArchived?: boolean;
+  isOnline?: boolean;
+  isTyping?: boolean;
 }
 
-export type NotificationType = 'comment' | 'reaction' | 'message' | 'order' | 'share' | 'system' | 'friend_request' | 'friend_accept';
+export type NotificationType = 'comment' | 'reaction' | 'message' | 'order' | 'share' | 'system' | 'friend_request' | 'friend_accept' | 'group_invite' | 'page_follow';
 
 export interface SocialNotification {
   id: string;
@@ -265,7 +346,7 @@ export interface SocialNotification {
   senderAvatar: string;
   type: NotificationType;
   text: string;
-  targetId?: string; // postId or conversationId or orderId
+  targetId?: string; // postId or conversationId or orderId or groupId
   reactionType?: SocialReactionType;
   createdAt: string;
   read: boolean;

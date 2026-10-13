@@ -2,6 +2,7 @@ import {
   CustomerProfile,
   SocialPost,
   SocialComment,
+  SocialCommentReply,
   SocialReactionType,
   CustomerProductItem,
   ChatMessage,
@@ -10,6 +11,9 @@ import {
   FriendRequest,
   FriendRequestStatus,
   MarketplaceBoostRequest,
+  SocialStory,
+  SocialGroup,
+  SocialPage,
 } from '../types/marketplaceSocial';
 
 const PROFILE_KEY = 'mkt_fb_current_profile_v2';
@@ -21,27 +25,52 @@ const PROFILES_DIRECTORY_KEY = 'mkt_fb_profiles_directory_v2';
 const FRIEND_REQUESTS_KEY = 'mkt_fb_friend_requests_v3';
 const USER_FRIENDS_KEY = 'mkt_fb_user_friends_v3';
 const BOOST_REQUESTS_KEY = 'mkt_fb_boost_requests_v1';
+const STORIES_KEY = 'mkt_fb_stories_v1';
+const GROUPS_KEY = 'mkt_fb_groups_v1';
+const PAGES_KEY = 'mkt_fb_pages_v1';
+const CHAT_GROUPS_KEY = 'mkt_fb_chat_groups_v1';
 
-// Helper to validate NO video files
-export function validateImageFiles(files: FileList | File[]): { valid: boolean; error?: string; imageFiles: File[] } {
+// Helper to validate media files (Images and Videos)
+export function validateMediaFiles(files: FileList | File[]): {
+  valid: boolean;
+  error?: string;
+  mediaFiles: Array<{ file: File; type: 'image' | 'video' | 'file' }>;
+} {
   const fileArray = Array.from(files);
+  const mediaFiles: Array<{ file: File; type: 'image' | 'video' | 'file' }> = [];
+
   for (const file of fileArray) {
-    if (file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm|flv|wmv|3gp|m4v)$/i.test(file.name)) {
-      return {
-        valid: false,
-        error: '⚠️ ভিডিও আপলোড করার অনুমতি নেই। শুধুমাত্র ছবি (PNG, JPG, WEBP) আপলোড করা যাবে।',
-        imageFiles: [],
-      };
-    }
-    if (!file.type.startsWith('image/')) {
-      return {
-        valid: false,
-        error: '⚠️ শুধুমাত্র ছবি ফাইল (Image) নির্বাচন করুন।',
-        imageFiles: [],
-      };
+    const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm|flv|wmv|3gp|m4v)$/i.test(file.name);
+    const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg)$/i.test(file.name);
+
+    if (isVideo) {
+      if (file.size > 100 * 1024 * 1024) {
+        return { valid: false, error: '⚠️ ভিডিও ফাইলের সাইজ ১০০ মেগাবাইট (100MB)-এর বেশি হতে পারবে না।', mediaFiles: [] };
+      }
+      mediaFiles.push({ file, type: 'video' });
+    } else if (isImage) {
+      if (file.size > 25 * 1024 * 1024) {
+        return { valid: false, error: '⚠️ ছবি ফাইলের সাইজ ২৫ মেগাবাইট (25MB)-এর বেশি হতে পারবে না।', mediaFiles: [] };
+      }
+      mediaFiles.push({ file, type: 'image' });
+    } else {
+      mediaFiles.push({ file, type: 'file' });
     }
   }
-  return { valid: true, imageFiles: fileArray };
+
+  return { valid: true, mediaFiles };
+}
+
+// Backward-compatible image validator
+export function validateImageFiles(files: FileList | File[]): { valid: boolean; error?: string; imageFiles: File[] } {
+  const fileArray = Array.from(files);
+  const imageFiles: File[] = [];
+  for (const file of fileArray) {
+    if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg)$/i.test(file.name)) {
+      imageFiles.push(file);
+    }
+  }
+  return { valid: imageFiles.length > 0, imageFiles };
 }
 
 // Convert File to base64
@@ -1076,6 +1105,11 @@ export const marketplaceSocialService = {
   createPost(payload: {
     content: string;
     images?: string[];
+    videos?: string[];
+    videoUrl?: string;
+    location?: string;
+    linkUrl?: string;
+    privacy?: 'public' | 'friends' | 'only_me';
     feeling?: { emoji: string; label: string };
     linkedProduct?: any;
   }): SocialPost {
@@ -1091,6 +1125,11 @@ export const marketplaceSocialService = {
       authorVerified: profile.isVerified,
       content: payload.content,
       images: payload.images || [],
+      videos: payload.videos || (payload.videoUrl ? [payload.videoUrl] : []),
+      videoUrl: payload.videoUrl || (payload.videos && payload.videos[0]) || undefined,
+      location: payload.location,
+      linkUrl: payload.linkUrl,
+      privacy: payload.privacy || 'public',
       feeling: payload.feeling,
       linkedProduct: payload.linkedProduct,
       createdAt: new Date().toISOString(),
@@ -1106,6 +1145,7 @@ export const marketplaceSocialService = {
       userReactions: {},
       comments: [],
       sharesCount: 0,
+      savedByUserIds: [],
     };
 
     const updatedPosts = [newPost, ...posts];
@@ -1548,20 +1588,34 @@ export const marketplaceSocialService = {
   getMessagesWith(targetUserId: string): ChatMessage[] {
     const profile = this.getCurrentProfile();
     const all = this.getAllMessages();
-    return all.filter(
-      (m) =>
+    return all.filter((m) => {
+      if (m.groupId === targetUserId || (m.isGroup && (m.groupId === targetUserId || m.receiverId === targetUserId))) {
+        return true;
+      }
+      return (
         (m.senderId === profile.id && m.receiverId === targetUserId) ||
         (m.senderId === targetUserId && m.receiverId === profile.id)
-    );
+      );
+    });
   },
 
   sendMessage(payload: {
-    receiverId: string;
+    receiverId?: string;
+    groupId?: string;
+    isGroup?: boolean;
     text: string;
+    mediaUrl?: string;
+    mediaType?: 'image' | 'video' | 'file';
+    fileName?: string;
+    fileSize?: string;
     productContext?: { id: string; name: string; price: number; imageUrl?: string };
   }): ChatMessage {
     const profile = this.getCurrentProfile();
-    if (this.isUserBlocked(payload.receiverId)) {
+    const isGroup = Boolean(payload.isGroup || payload.groupId || payload.receiverId?.startsWith('cgrp_'));
+    const targetGroupId = payload.groupId || (isGroup ? payload.receiverId : undefined);
+    const receiverId = isGroup ? undefined : payload.receiverId;
+
+    if (receiverId && this.isUserBlocked(receiverId)) {
       throw new Error('এই ব্যবহারকারীকে আপনি ব্লক করেছেন। মেসেজ পাঠানোর জন্য প্রথমে আনব্লক করুন।');
     }
 
@@ -1569,26 +1623,42 @@ export const marketplaceSocialService = {
     const newMsg: ChatMessage = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       senderId: profile.id,
-      receiverId: payload.receiverId,
+      senderName: profile.name,
+      senderAvatar: profile.avatar,
+      receiverId: receiverId,
+      groupId: targetGroupId,
+      isGroup: isGroup,
       text: payload.text.trim(),
+      mediaUrl: payload.mediaUrl,
+      mediaType: payload.mediaType,
+      fileName: payload.fileName,
+      fileSize: payload.fileSize,
       timestamp: new Date().toISOString(),
       productContext: payload.productContext,
       read: false,
+      status: 'seen',
     };
 
     all.push(newMsg);
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(all));
 
-    // Send notification to recipient
-    this.addNotification({
-      recipientId: payload.receiverId,
-      senderId: profile.id,
-      senderName: profile.name,
-      senderAvatar: profile.avatar,
-      type: 'message',
-      text: `${profile.name} আপনাকে মেসেজ পাঠিয়েছেন: "${payload.text.slice(0, 35)}${payload.text.length > 35 ? '...' : ''}"`,
-      targetId: profile.id,
-    });
+    // Send notification to recipient if 1-on-1
+    if (receiverId) {
+      this.addNotification({
+        recipientId: receiverId,
+        senderId: profile.id,
+        senderName: profile.name,
+        senderAvatar: profile.avatar,
+        type: 'message',
+        text: `${profile.name} আপনাকে মেসেজ পাঠিয়েছেন: "${payload.text.slice(0, 35)}${payload.text.length > 35 ? '...' : ''}"`,
+        targetId: profile.id,
+      });
+    }
+
+    // Broadcast chat update event for real-time UI synchronization
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_chat_updated', { detail: newMsg }));
+    }
 
     // Persist chat message to backend DB
     try {
@@ -1599,8 +1669,14 @@ export const marketplaceSocialService = {
           senderId: profile.id,
           senderName: profile.name,
           senderAvatar: profile.avatar,
-          receiverId: payload.receiverId,
+          receiverId: receiverId,
+          groupId: targetGroupId,
+          isGroup: isGroup,
           text: payload.text,
+          mediaUrl: payload.mediaUrl,
+          mediaType: payload.mediaType,
+          fileName: payload.fileName,
+          fileSize: payload.fileSize,
           productContext: payload.productContext,
         }),
       }).catch((e) => console.debug('Sync message note:', e));
@@ -1614,12 +1690,54 @@ export const marketplaceSocialService = {
     const blockedIds = new Set(profile.blockedUserIds || []);
     const messages = this.getAllMessages();
     const directory = this.getProfilesDirectory();
+    const mutedSet = new Set(profile.mutedConversationIds || []);
+    const archivedSet = new Set(profile.archivedConversationIds || []);
 
     const conversationMap: Record<string, ChatConversation> = {};
 
+    // Include group chats created by users
+    const groupChats = this.getChatGroups();
+    groupChats.forEach((grp) => {
+      conversationMap[grp.id] = {
+        ...grp,
+        isMuted: mutedSet.has(grp.id),
+        isArchived: archivedSet.has(grp.id),
+      };
+    });
+
     messages.forEach((msg) => {
+      if (msg.isGroup && msg.groupId) {
+        const grpId = msg.groupId;
+        const lastTxt = msg.text || (msg.mediaType === 'image' ? '📷 ছবি' : msg.mediaType === 'video' ? '🎥 ভিডিও' : '📎 ফাইল');
+        if (!conversationMap[grpId]) {
+          conversationMap[grpId] = {
+            id: grpId,
+            participantId: grpId,
+            participantName: `গ্রুপ চ্যাট (${grpId.slice(-4)})`,
+            participantAvatar: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=300&q=80',
+            participantUsername: `@group_${grpId.slice(-5)}`,
+            isGroup: true,
+            groupId: grpId,
+            lastMessage: lastTxt,
+            lastMessageTime: msg.timestamp,
+            unreadCount: (!msg.read && msg.senderId !== profile.id) ? 1 : 0,
+            isMuted: mutedSet.has(grpId),
+            isArchived: archivedSet.has(grpId),
+          };
+        } else {
+          if (new Date(msg.timestamp) > new Date(conversationMap[grpId].lastMessageTime)) {
+            conversationMap[grpId].lastMessage = lastTxt;
+            conversationMap[grpId].lastMessageTime = msg.timestamp;
+          }
+          if (!msg.read && msg.senderId !== profile.id) {
+            conversationMap[grpId].unreadCount += 1;
+          }
+        }
+        return;
+      }
+
       const otherId = msg.senderId === profile.id ? msg.receiverId : msg.senderId;
-      if (blockedIds.has(otherId)) return;
+      if (!otherId || blockedIds.has(otherId)) return;
 
       const otherProfile = directory.find((p) => p.id === otherId) || {
         id: otherId,
@@ -1629,6 +1747,7 @@ export const marketplaceSocialService = {
       };
 
       const isUnread = !msg.read && msg.receiverId === profile.id;
+      const lastMsgText = msg.text || (msg.mediaType === 'image' ? '📷 ছবি' : msg.mediaType === 'video' ? '🎥 ভিডিও' : '📎 ফাইল');
 
       if (!conversationMap[otherId]) {
         conversationMap[otherId] = {
@@ -1638,13 +1757,16 @@ export const marketplaceSocialService = {
           participantAvatar: otherProfile.avatar,
           participantUsername: otherProfile.username,
           participantPhone: (otherProfile as any).phone,
-          lastMessage: msg.text,
+          lastMessage: lastMsgText,
           lastMessageTime: msg.timestamp,
           unreadCount: isUnread ? 1 : 0,
+          isMuted: mutedSet.has(otherId),
+          isArchived: archivedSet.has(otherId),
+          isOnline: true,
         };
       } else {
         if (new Date(msg.timestamp) > new Date(conversationMap[otherId].lastMessageTime)) {
-          conversationMap[otherId].lastMessage = msg.text;
+          conversationMap[otherId].lastMessage = lastMsgText;
           conversationMap[otherId].lastMessageTime = msg.timestamp;
         }
         if (isUnread) {
@@ -2403,6 +2525,628 @@ export const marketplaceSocialService = {
       window.dispatchEvent(new CustomEvent('twing_marketplace_users_updated'));
       window.dispatchEvent(new CustomEvent('twing_profile_updated', { detail: { ...current, ...powers } }));
     }
+  },
+
+  // =========================================================================
+  // STORIES (24 Hours Expiration)
+  // =========================================================================
+  getStories(): SocialStory[] {
+    let stories: SocialStory[] = [];
+    try {
+      const stored = localStorage.getItem(STORIES_KEY);
+      if (stored) {
+        stories = JSON.parse(stored);
+      }
+    } catch (e) {}
+
+    const now = Date.now();
+    // Filter active stories
+    const active = stories.filter((s) => new Date(s.expiresAt || 0).getTime() > now);
+    if (active.length !== stories.length) {
+      localStorage.setItem(STORIES_KEY, JSON.stringify(active));
+    }
+
+    // Try background sync with server
+    try {
+      fetch('/api/marketplace/social/stories')
+        .then((r) => r.json())
+        .then((data) => {
+          if (data && data.success && Array.isArray(data.stories)) {
+            localStorage.setItem(STORIES_KEY, JSON.stringify(data.stories));
+          }
+        })
+        .catch(() => {});
+    } catch (e) {}
+
+    return active;
+  },
+
+  createStory(payload: { mediaUrl: string; mediaType?: 'image' | 'video'; caption?: string }): SocialStory {
+    const profile = this.getCurrentProfile();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+    const story: SocialStory = {
+      id: `story_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      authorId: profile.id,
+      authorName: profile.name,
+      authorUsername: profile.username,
+      authorAvatar: profile.avatar,
+      mediaUrl: payload.mediaUrl,
+      mediaType: payload.mediaType || 'image',
+      caption: payload.caption || '',
+      createdAt: now.toISOString(),
+      expiresAt,
+      viewedByUserIds: [],
+    };
+
+    const current = this.getStories();
+    const updated = [story, ...current];
+    localStorage.setItem(STORIES_KEY, JSON.stringify(updated));
+
+    try {
+      fetch('/api/marketplace/social/stories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(story),
+      }).catch(() => {});
+    } catch (e) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_stories_updated'));
+    }
+
+    return story;
+  },
+
+  deleteStory(storyId: string): void {
+    const stories = this.getStories().filter((s) => s.id !== storyId);
+    localStorage.setItem(STORIES_KEY, JSON.stringify(stories));
+    try {
+      fetch(`/api/marketplace/social/stories/${storyId}`, { method: 'DELETE' }).catch(() => {});
+    } catch (e) {}
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_stories_updated'));
+    }
+  },
+
+  // =========================================================================
+  // GROUPS
+  // =========================================================================
+  getGroups(): SocialGroup[] {
+    let groups: SocialGroup[] = [];
+    try {
+      const stored = localStorage.getItem(GROUPS_KEY);
+      if (stored) {
+        groups = JSON.parse(stored);
+      } else {
+        groups = [
+          {
+            id: 'grp_tech',
+            name: 'টুইং টেক ও গ্যাজেট ক্লাব',
+            description: 'বাংলাদেশি স্মার্টফোন, ল্যাপটপ ও গ্যাজেট প্রেমীদের উন্মুক্ত কমিউনিটি।',
+            coverImage: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=800&q=80',
+            privacy: 'public',
+            creatorId: 'user_tanvir',
+            membersCount: 1420,
+            memberIds: ['user_tanvir', 'user_current'],
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'grp_fashion',
+            name: 'অনলাইন উদ্যোক্তা ও ফ্যাশন হাব',
+            description: 'পোশাক, হ্যান্ডিক্রাফটস ও লাইফস্টাইল বিক্রেতা এবং ক্রেতাদের মেলবন্ধন।',
+            coverImage: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=80',
+            privacy: 'public',
+            creatorId: 'user_shuvo',
+            membersCount: 890,
+            memberIds: ['user_shuvo', 'user_current'],
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        localStorage.setItem(GROUPS_KEY, JSON.stringify(groups));
+      }
+    } catch (e) {}
+
+    // Background server sync
+    try {
+      fetch('/api/marketplace/social/groups')
+        .then((r) => r.json())
+        .then((d) => {
+          if (d && d.success && Array.isArray(d.groups) && d.groups.length > 0) {
+            localStorage.setItem(GROUPS_KEY, JSON.stringify(d.groups));
+          }
+        })
+        .catch(() => {});
+    } catch (e) {}
+
+    return groups;
+  },
+
+  createGroup(payload: { name: string; description?: string; coverImage?: string; privacy?: 'public' | 'private' }): SocialGroup {
+    const profile = this.getCurrentProfile();
+    const newGroup: SocialGroup = {
+      id: `grp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: payload.name.trim(),
+      description: payload.description || '',
+      coverImage: payload.coverImage || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1200&q=80',
+      privacy: payload.privacy || 'public',
+      creatorId: profile.id,
+      membersCount: 1,
+      memberIds: [profile.id],
+      createdAt: new Date().toISOString(),
+    };
+
+    const current = this.getGroups();
+    const updated = [newGroup, ...current];
+    localStorage.setItem(GROUPS_KEY, JSON.stringify(updated));
+
+    try {
+      fetch('/api/marketplace/social/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newGroup),
+      }).catch(() => {});
+    } catch (e) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_groups_updated'));
+    }
+
+    return newGroup;
+  },
+
+  joinGroup(groupId: string): SocialGroup {
+    const profile = this.getCurrentProfile();
+    const groups = this.getGroups();
+    const grp = groups.find((g) => g.id === groupId);
+    if (!grp) throw new Error('গ্রুপ পাওয়া যায়নি');
+
+    grp.memberIds = grp.memberIds || [];
+    if (!grp.memberIds.includes(profile.id)) {
+      grp.memberIds.push(profile.id);
+      grp.membersCount = grp.memberIds.length;
+      localStorage.setItem(GROUPS_KEY, JSON.stringify(groups));
+      try {
+        fetch(`/api/marketplace/social/groups/${groupId}/join`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: profile.id }),
+        }).catch(() => {});
+      } catch (e) {}
+    }
+    return grp;
+  },
+
+  leaveGroup(groupId: string): SocialGroup {
+    const profile = this.getCurrentProfile();
+    const groups = this.getGroups();
+    const grp = groups.find((g) => g.id === groupId);
+    if (!grp) throw new Error('গ্রুপ পাওয়া যায়নি');
+
+    grp.memberIds = (grp.memberIds || []).filter((id) => id !== profile.id);
+    grp.membersCount = Math.max(0, grp.memberIds.length);
+    localStorage.setItem(GROUPS_KEY, JSON.stringify(groups));
+    try {
+      fetch(`/api/marketplace/social/groups/${groupId}/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: profile.id }),
+      }).catch(() => {});
+    } catch (e) {}
+    return grp;
+  },
+
+  // =========================================================================
+  // PAGES
+  // =========================================================================
+  getPages(): SocialPage[] {
+    let pages: SocialPage[] = [];
+    try {
+      const stored = localStorage.getItem(PAGES_KEY);
+      if (stored) {
+        pages = JSON.parse(stored);
+      } else {
+        pages = [
+          {
+            id: 'page_twing_official',
+            name: 'TWING Official Store',
+            category: 'ভেরিফাইড অফিসিয়াল স্টোর',
+            bio: 'টুইংহিসাবি অনুমোদিত বিশ্বস্ত প্রডাক্ট এবং বিশেষ অফারসমূহ।',
+            avatar: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=300&q=80',
+            coverImage: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=1200&q=80',
+            creatorId: 'user_admin',
+            followersCount: 5420,
+            followerIds: ['user_admin', 'user_current'],
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        localStorage.setItem(PAGES_KEY, JSON.stringify(pages));
+      }
+    } catch (e) {}
+
+    try {
+      fetch('/api/marketplace/social/pages')
+        .then((r) => r.json())
+        .then((d) => {
+          if (d && d.success && Array.isArray(d.pages) && d.pages.length > 0) {
+            localStorage.setItem(PAGES_KEY, JSON.stringify(d.pages));
+          }
+        })
+        .catch(() => {});
+    } catch (e) {}
+
+    return pages;
+  },
+
+  createPage(payload: { name: string; category?: string; bio?: string; avatar?: string; coverImage?: string }): SocialPage {
+    const profile = this.getCurrentProfile();
+    const newPage: SocialPage = {
+      id: `page_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: payload.name.trim(),
+      category: payload.category || 'ব্যবসা ও সেবা',
+      bio: payload.bio || '',
+      avatar: payload.avatar || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=300&q=80',
+      coverImage: payload.coverImage || 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=80',
+      creatorId: profile.id,
+      followersCount: 1,
+      followerIds: [profile.id],
+      createdAt: new Date().toISOString(),
+    };
+
+    const current = this.getPages();
+    const updated = [newPage, ...current];
+    localStorage.setItem(PAGES_KEY, JSON.stringify(updated));
+
+    try {
+      fetch('/api/marketplace/social/pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPage),
+      }).catch(() => {});
+    } catch (e) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_pages_updated'));
+    }
+
+    return newPage;
+  },
+
+  followPage(pageId: string): SocialPage {
+    const profile = this.getCurrentProfile();
+    const pages = this.getPages();
+    const page = pages.find((p) => p.id === pageId);
+    if (!page) throw new Error('পেজ পাওয়া যায়নি');
+
+    page.followerIds = page.followerIds || [];
+    const idx = page.followerIds.indexOf(profile.id);
+    if (idx >= 0) {
+      page.followerIds.splice(idx, 1);
+    } else {
+      page.followerIds.push(profile.id);
+    }
+    page.followersCount = page.followerIds.length;
+    localStorage.setItem(PAGES_KEY, JSON.stringify(pages));
+
+    try {
+      fetch(`/api/marketplace/social/pages/${pageId}/follow`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: profile.id }),
+      }).catch(() => {});
+    } catch (e) {}
+
+    return page;
+  },
+
+  // =========================================================================
+  // POST EDIT, SAVE, REPLY
+  // =========================================================================
+  editPost(postId: string, updateData: Partial<SocialPost>): SocialPost {
+    const posts = this.getPosts();
+    const idx = posts.findIndex((p) => p.id === postId);
+    if (idx === -1) throw new Error('পোস্ট পাওয়া যায়নি');
+
+    const updated = {
+      ...posts[idx],
+      ...updateData,
+      isEdited: true,
+      editedAt: new Date().toISOString(),
+    };
+
+    posts[idx] = updated;
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+
+    const profile = this.getCurrentProfile();
+    try {
+      fetch(`/api/marketplace/social/posts/${postId}/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: profile.id, ...updateData }),
+      }).catch(() => {});
+    } catch (e) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_social_posts_updated'));
+    }
+
+    return updated;
+  },
+
+  toggleSavePost(postId: string): boolean {
+    const profile = this.getCurrentProfile();
+    const posts = this.getPosts();
+    const post = posts.find((p) => p.id === postId);
+    if (!post) return false;
+
+    post.savedByUserIds = post.savedByUserIds || [];
+    const idx = post.savedByUserIds.indexOf(profile.id);
+    let isSaved = false;
+    if (idx >= 0) {
+      post.savedByUserIds.splice(idx, 1);
+      isSaved = false;
+    } else {
+      post.savedByUserIds.push(profile.id);
+      isSaved = true;
+    }
+
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+
+    // Update user profile savedPostIds as well
+    const profileSaved = profile.savedPostIds || [];
+    const pIdx = profileSaved.indexOf(postId);
+    if (isSaved && pIdx === -1) {
+      this.updateCurrentProfile({ savedPostIds: [...profileSaved, postId] });
+    } else if (!isSaved && pIdx >= 0) {
+      this.updateCurrentProfile({ savedPostIds: profileSaved.filter((id) => id !== postId) });
+    }
+
+    try {
+      fetch(`/api/marketplace/social/posts/${postId}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: profile.id }),
+      }).catch(() => {});
+    } catch (e) {}
+
+    return isSaved;
+  },
+
+  replyToComment(postId: string, commentId: string, content: string): { post: SocialPost; newReply: SocialCommentReply } {
+    if (!content.trim()) throw new Error('উত্তরের টেক্সট খালি রাখা যাবে না');
+    const profile = this.getCurrentProfile();
+    const posts = this.getPosts();
+    const postIdx = posts.findIndex((p) => p.id === postId);
+    if (postIdx === -1) throw new Error('পোস্ট পাওয়া যায়নি');
+
+    const post = posts[postIdx];
+    const comment = (post.comments || []).find((c) => c.id === commentId);
+    if (!comment) throw new Error('মন্তব্য পাওয়া যায়নি');
+
+    const newReply: SocialCommentReply = {
+      id: `reply_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      authorId: profile.id,
+      authorName: profile.name,
+      authorUsername: profile.username,
+      authorAvatar: profile.avatar,
+      content: content.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    comment.replies = comment.replies || [];
+    comment.replies.push(newReply);
+
+    posts[postIdx] = post;
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+
+    try {
+      fetch(`/api/marketplace/social/posts/${postId}/comments/${commentId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          authorId: profile.id,
+          authorName: profile.name,
+          authorUsername: profile.username,
+          authorAvatar: profile.avatar,
+          content: content.trim(),
+        }),
+      }).catch(() => {});
+    } catch (e) {}
+
+    return { post, newReply };
+  },
+
+  // =========================================================================
+  // MESSENGER UNSED & GROUP CHAT
+  // =========================================================================
+  unsendMessage(messageId: string, forEveryone: boolean = true): boolean {
+    const profile = this.getCurrentProfile();
+    const msgs = this.getMessages();
+    const target = msgs.find((m) => m.id === messageId);
+    if (!target) return false;
+
+    if (forEveryone) {
+      target.isDeleted = true;
+      target.deletedForEveryone = true;
+      target.text = '⚠️ এই বার্তাটি আনসেন্ড (মুছে ফেলা) হয়েছে।';
+      target.mediaUrl = undefined;
+    } else {
+      (target as any).deletedForUserIds = (target as any).deletedForUserIds || [];
+      if (!(target as any).deletedForUserIds.includes(profile.id)) {
+        (target as any).deletedForUserIds.push(profile.id);
+      }
+    }
+
+    localStorage.setItem(MESSAGES_KEY, JSON.stringify(msgs));
+
+    try {
+      fetch('/api/marketplace/social/messages/unsend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, userId: profile.id, forEveryone }),
+      }).catch(() => {});
+    } catch (e) {}
+
+    return true;
+  },
+
+  createChatGroup(payload: { name: string; avatar?: string; memberIds: string[] }): ChatConversation {
+    const profile = this.getCurrentProfile();
+    const members = Array.from(new Set([profile.id, ...payload.memberIds]));
+    const convId = `cgrp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const groupConv: ChatConversation = {
+      id: convId,
+      participantId: convId,
+      participantName: payload.name.trim(),
+      participantAvatar: payload.avatar || 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=300&q=80',
+      participantUsername: `@group_${convId.slice(5, 10)}`,
+      isGroup: true,
+      groupId: convId,
+      memberIds: members,
+      memberCount: members.length,
+      lastMessage: 'গ্রুপ তৈরি করা হয়েছে 🎉',
+      lastMessageTime: 'এইমাত্র',
+      unreadCount: 0,
+    };
+
+    let chatGroups: ChatConversation[] = [];
+    try {
+      const stored = localStorage.getItem(CHAT_GROUPS_KEY);
+      if (stored) chatGroups = JSON.parse(stored);
+    } catch (e) {}
+
+    chatGroups.unshift(groupConv);
+    localStorage.setItem(CHAT_GROUPS_KEY, JSON.stringify(chatGroups));
+
+    try {
+      fetch('/api/marketplace/social/chat-groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: convId,
+          name: payload.name.trim(),
+          avatar: groupConv.participantAvatar,
+          memberIds: members,
+          creatorId: profile.id,
+        }),
+      }).catch(() => {});
+    } catch (e) {}
+
+    return groupConv;
+  },
+
+  getChatGroups(): ChatConversation[] {
+    try {
+      const stored = localStorage.getItem(CHAT_GROUPS_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  toggleMuteConversation(convId: string): boolean {
+    const profile = this.getCurrentProfile();
+    const muted = profile.mutedConversationIds || [];
+    const idx = muted.indexOf(convId);
+    let isMuted = false;
+    if (idx >= 0) {
+      this.updateCurrentProfile({ mutedConversationIds: muted.filter((id) => id !== convId) });
+      isMuted = false;
+    } else {
+      this.updateCurrentProfile({ mutedConversationIds: [...muted, convId] });
+      isMuted = true;
+    }
+    return isMuted;
+  },
+
+  toggleArchiveConversation(convId: string): boolean {
+    const profile = this.getCurrentProfile();
+    const archived = profile.archivedConversationIds || [];
+    const idx = archived.indexOf(convId);
+    let isArchived = false;
+    if (idx >= 0) {
+      this.updateCurrentProfile({ archivedConversationIds: archived.filter((id) => id !== convId) });
+      isArchived = false;
+    } else {
+      this.updateCurrentProfile({ archivedConversationIds: [...archived, convId] });
+      isArchived = true;
+    }
+    return isArchived;
+  },
+
+  // =========================================================================
+  // USER FOLLOW & UNFRIEND
+  // =========================================================================
+  toggleFollowUser(targetUserId: string): boolean {
+    const profile = this.getCurrentProfile();
+    const following = profile.followingUserIds || [];
+    const idx = following.indexOf(targetUserId);
+    let isFollowing = false;
+    if (idx >= 0) {
+      this.updateCurrentProfile({
+        followingUserIds: following.filter((id) => id !== targetUserId),
+        followingCount: Math.max(0, (profile.followingCount || 1) - 1),
+      });
+      isFollowing = false;
+    } else {
+      this.updateCurrentProfile({
+        followingUserIds: [...following, targetUserId],
+        followingCount: (profile.followingCount || 0) + 1,
+      });
+      isFollowing = true;
+    }
+
+    try {
+      fetch(`/api/marketplace/social/users/${targetUserId}/follow`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentUserId: profile.id }),
+      }).catch(() => {});
+    } catch (e) {}
+
+    return isFollowing;
+  },
+
+  unfriendUser(targetUserId: string): boolean {
+    const profile = this.getCurrentProfile();
+    const friends = this.getUserFriends(profile.id).filter((f) => f.id !== targetUserId);
+    this.saveUserFriends(profile.id, friends);
+
+    try {
+      fetch(`/api/marketplace/social/users/${targetUserId}/unfriend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentUserId: profile.id }),
+      }).catch(() => {});
+    } catch (e) {}
+
+    return true;
+  },
+
+  // =========================================================================
+  // VENDOR PAYMENT VERIFICATION (SERVER-SIDE)
+  // =========================================================================
+  async verifyVendorPayment(payload: {
+    orderId?: string;
+    subOrderId?: string;
+    vendorId?: string;
+    paymentMethod?: string;
+    trxId: string;
+    senderPhone?: string;
+    amount?: number;
+  }): Promise<{ success: boolean; message: string }> {
+    const res = await fetch('/api/marketplace/vendor-payment/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'পেমেন্ট যাচাই ব্যর্থ হয়েছে');
+    }
+    return data;
   },
 };
 

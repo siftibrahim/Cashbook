@@ -11,8 +11,12 @@ import {
   MessageCircle,
   ShieldAlert,
   UserCheck,
+  UserPlus,
+  UserMinus,
+  Clock,
   Star,
   Check,
+  Plus,
   X,
   Upload,
   AlertTriangle,
@@ -80,6 +84,16 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
 
   const [blockModalOpen, setBlockModalOpen] = useState(false);
 
+  // Friend and Follow status when viewing other profiles
+  const [relationshipStatus, setRelationshipStatus] = useState<'none' | 'self' | 'friends' | 'pending_sent' | 'pending_received'>(() => {
+    return isOwnProfile ? 'none' : marketplaceSocialService.getRelationshipStatus(profile.id);
+  });
+  const [isFollowing, setIsFollowing] = useState<boolean>(() => {
+    if (isOwnProfile) return false;
+    const current = marketplaceSocialService.getCurrentProfile();
+    return (current.followingUserIds || []).includes(profile.id);
+  });
+
   const coverInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -93,7 +107,13 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
     setEditLocation(profile.location);
     setEditAddress(profile.address);
     setBioText(profile.bio || '');
-  }, [profile]);
+
+    if (!isOwnProfile) {
+      setRelationshipStatus(marketplaceSocialService.getRelationshipStatus(profile.id));
+      const cur = marketplaceSocialService.getCurrentProfile();
+      setIsFollowing((cur.followingUserIds || []).includes(profile.id));
+    }
+  }, [profile, isOwnProfile]);
 
   // Listen to profile updates broadcast
   useEffect(() => {
@@ -206,6 +226,40 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
     marketplaceSocialService.blockUser(profile.id);
     onShowToast?.(`${profile.name}-কে ব্লক করা হয়েছে।`);
     setBlockModalOpen(false);
+  };
+
+  // Handle Friend Request / Unfriend
+  const handleFriendAction = () => {
+    if (relationshipStatus === 'friends') {
+      marketplaceSocialService.unfriend(profile.id);
+      setRelationshipStatus('none');
+      onShowToast?.(`${profile.name}-কে আনফ্রেন্ড করা হয়েছে।`);
+    } else if (relationshipStatus === 'pending_sent') {
+      const res = marketplaceSocialService.cancelSentFriendRequest(profile.id);
+      setRelationshipStatus('none');
+      onShowToast?.(res.message);
+    } else if (relationshipStatus === 'pending_received') {
+      const reqs = marketplaceSocialService.getPendingReceivedRequests();
+      const targetReq = reqs.find((r) => r.senderId === profile.id);
+      if (targetReq) {
+        const res = marketplaceSocialService.acceptFriendRequest(targetReq.id);
+        setRelationshipStatus('friends');
+        onShowToast?.(res.message);
+      }
+    } else {
+      const res = marketplaceSocialService.sendFriendRequest(profile.id);
+      if (res.success) {
+        setRelationshipStatus('pending_sent');
+      }
+      onShowToast?.(res.message);
+    }
+  };
+
+  // Handle Follow / Unfollow
+  const handleToggleFollow = () => {
+    const following = marketplaceSocialService.toggleFollowUser(profile.id);
+    setIsFollowing(following);
+    onShowToast?.(following ? `${profile.name}-কে ফলো করা হচ্ছে` : `${profile.name}-কে আনফলো করা হয়েছে`);
   };
 
   return (
@@ -359,21 +413,84 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
                 </>
               ) : (
                 <>
+                  {/* Friend Request Action */}
+                  <button
+                    type="button"
+                    onClick={handleFriendAction}
+                    className={`px-3.5 py-2 text-xs font-black rounded-xl flex items-center gap-1.5 transition shadow-2xs cursor-pointer ${
+                      relationshipStatus === 'friends'
+                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                        : relationshipStatus === 'pending_sent'
+                        ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                        : relationshipStatus === 'pending_received'
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-[#1877F2] hover:bg-blue-700 text-white'
+                    }`}
+                  >
+                    {relationshipStatus === 'friends' ? (
+                      <>
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>বন্ধু (Friend)</span>
+                      </>
+                    ) : relationshipStatus === 'pending_sent' ? (
+                      <>
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>অনুরোধ পাঠানো</span>
+                      </>
+                    ) : relationshipStatus === 'pending_received' ? (
+                      <>
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>অনুরোধ গ্রহণ</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>ফ্রেন্ড রিকোয়েস্ট</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Follow / Unfollow */}
+                  <button
+                    type="button"
+                    onClick={handleToggleFollow}
+                    className={`px-3 py-2 text-xs font-bold rounded-xl flex items-center gap-1 transition cursor-pointer border ${
+                      isFollowing
+                        ? 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                        : 'bg-blue-50 text-[#1877F2] border-blue-200 hover:bg-blue-100'
+                    }`}
+                  >
+                    {isFollowing ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>ফলো করছেন</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>ফলো করুন</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Message */}
                   <button
                     type="button"
                     onClick={() => onStartChatWithUser?.(profile.id)}
-                    className="px-4 py-2 bg-[#1877F2] hover:bg-blue-700 text-white text-xs font-black rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer"
                   >
-                    <MessageCircle className="w-4 h-4" />
-                    <span>মেসেজ পাঠান</span>
+                    <MessageCircle className="w-3.5 h-3.5 text-[#1877F2]" />
+                    <span>মেসেজ</span>
                   </button>
+
+                  {/* Block */}
                   <button
                     type="button"
                     onClick={() => setBlockModalOpen(true)}
-                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-1 transition cursor-pointer border border-rose-200"
+                    className="px-2.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-1 transition cursor-pointer border border-rose-200"
+                    title="ব্লক করুন"
                   >
-                    <ShieldAlert className="w-4 h-4" />
-                    <span>ব্লক করুন</span>
+                    <ShieldAlert className="w-3.5 h-3.5" />
                   </button>
                 </>
               )}

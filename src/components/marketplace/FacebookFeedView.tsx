@@ -23,22 +23,44 @@ import {
   TrendingUp,
   Zap,
   Flame,
+  Video,
+  MapPin,
+  Link as LinkIcon,
+  Globe,
+  Lock,
+  Users,
+  Bookmark,
+  BookmarkCheck,
+  Edit,
+  Trash2,
+  Flag,
+  UserPlus,
+  UserCheck,
+  Plus,
+  Play,
+  CornerDownRight,
+  FileText,
 } from 'lucide-react';
 import {
   CustomerProfile,
   SocialPost,
   SocialReactionType,
   CustomerProductItem,
+  SocialStory,
+  SocialGroup,
+  SocialPage,
 } from '../../types/marketplaceSocial';
 import {
   marketplaceSocialService,
-  validateImageFiles,
+  validateMediaFiles,
   fileToBase64,
 } from '../../services/marketplaceSocialService';
 import { formatMoney } from '../../utils/storage';
 import { BlockConfirmModal } from './BlockConfirmModal';
 import { ShareModal } from './ShareModal';
 import { ProductBoostModal } from './ProductBoostModal';
+import { StoryCreateModal, StoryViewerModal } from './StoryModals';
+import { GroupCreateModal, PageCreateModal } from './CommunityModals';
 
 interface FacebookFeedViewProps {
   currentProfile?: CustomerProfile;
@@ -56,6 +78,8 @@ const FEELINGS_LIST = [
   { emoji: '✨', label: 'ক্রিয়েটিভ মুডে' },
   { emoji: '💡', label: 'নতুন আইডিয়া' },
   { emoji: '🎉', label: 'নতুন সেল অফার' },
+  { emoji: '🍽️', label: 'খাবারের সন্ধানে' },
+  { emoji: '✈️', label: 'ভ্রমণ করছি' },
 ];
 
 export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
@@ -75,77 +99,124 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
   const [posts, setPosts] = useState<SocialPost[]>(() => marketplaceSocialService.getPosts());
   const [postText, setPostText] = useState('');
   const [postImages, setPostImages] = useState<string[]>([]);
+  const [postVideos, setPostVideos] = useState<string[]>([]);
+  const [videoUrlInput, setVideoUrlInput] = useState('');
+  const [showVideoInput, setShowVideoInput] = useState(false);
+  const [locationInput, setLocationInput] = useState('');
+  const [showLocationInput, setShowLocationInput] = useState(false);
+  const [linkInput, setLinkInput] = useState('');
+  const [showLinkInput, setShowLinkInput] = useState(false);
+  const [postPrivacy, setPostPrivacy] = useState<'public' | 'friends' | 'only_me'>('public');
+
   const [selectedFeeling, setSelectedFeeling] = useState<{ emoji: string; label: string } | null>(null);
   const [isFeelingPickerOpen, setIsFeelingPickerOpen] = useState(false);
   const [isSubmittingPost, setIsSubmittingPost] = useState(false);
   const [postError, setPostError] = useState('');
 
-  // Floating reactions state: which post has hovered/active reaction menu
+  // Stories state
+  const [stories, setStories] = useState<SocialStory[]>(() => marketplaceSocialService.getStories());
+  const [isStoryCreateOpen, setIsStoryCreateOpen] = useState(false);
+  const [viewingStoryIndex, setViewingStoryIndex] = useState<number | null>(null);
+
+  // Groups and Pages state
+  const [groups, setGroups] = useState<SocialGroup[]>(() => marketplaceSocialService.getGroups());
+  const [pages, setPages] = useState<SocialPage[]>(() => marketplaceSocialService.getPages());
+  const [isGroupCreateOpen, setIsGroupCreateOpen] = useState(false);
+  const [isPageCreateOpen, setIsPageCreateOpen] = useState(false);
+
+  // Feed Filter: 'all' or 'saved'
+  const [feedFilter, setFeedFilter] = useState<'all' | 'saved'>('all');
+
+  // Floating reactions state
   const [hoveredReactionPostId, setHoveredReactionPostId] = useState<string | null>(null);
 
-  // Comments open state: set of post IDs where comment box is expanded
+  // Comments open state
   const [openCommentPostIds, setOpenCommentPostIds] = useState<Record<string, boolean>>({});
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
 
-  // Block modal state
-  const [blockTarget, setBlockTarget] = useState<{ id: string; name: string } | null>(null);
+  // Comment replies state: replyInputs[commentId]
+  const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
+  const [openReplyBoxCommentId, setOpenReplyBoxCommentId] = useState<string | null>(null);
 
-  // Share and Boost modal states
+  // Edit post modal
+  const [editingPost, setEditingPost] = useState<SocialPost | null>(null);
+  const [editPostText, setEditPostText] = useState('');
+  const [editPostLocation, setEditPostLocation] = useState('');
+  const [editPostPrivacy, setEditPostPrivacy] = useState<'public' | 'friends' | 'only_me'>('public');
+
+  // Modals state
+  const [blockTarget, setBlockTarget] = useState<{ id: string; name: string } | null>(null);
   const [shareTarget, setShareTarget] = useState<{ post?: SocialPost | null; product?: any | null } | null>(null);
   const [boostTargetProduct, setBoostTargetProduct] = useState<any | null>(null);
-
-  // Active 3-dot dropdown
   const [activeMenuPostId, setActiveMenuPostId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const refreshPosts = () => {
     setPosts(marketplaceSocialService.getPosts());
+    setStories(marketplaceSocialService.getStories());
+    setGroups(marketplaceSocialService.getGroups());
+    setPages(marketplaceSocialService.getPages());
   };
 
-  // Sync profile when prop updates
   useEffect(() => {
-    if (propProfile) {
-      setProfileState(propProfile);
-    }
+    if (propProfile) setProfileState(propProfile);
   }, [propProfile]);
 
-  // Listen to profile updates broadcast
   useEffect(() => {
     const handleSync = (e: any) => {
-      if (e.detail) {
-        setProfileState(e.detail);
-      }
+      if (e.detail) setProfileState(e.detail);
       refreshPosts();
     };
     window.addEventListener('twing_profile_updated', handleSync);
-    return () => window.removeEventListener('twing_profile_updated', handleSync);
+    window.addEventListener('twing_social_posts_updated', handleSync);
+    window.addEventListener('twing_stories_updated', handleSync);
+    window.addEventListener('twing_groups_updated', handleSync);
+    window.addEventListener('twing_pages_updated', handleSync);
+    return () => {
+      window.removeEventListener('twing_profile_updated', handleSync);
+      window.removeEventListener('twing_social_posts_updated', handleSync);
+      window.removeEventListener('twing_stories_updated', handleSync);
+      window.removeEventListener('twing_groups_updated', handleSync);
+      window.removeEventListener('twing_pages_updated', handleSync);
+    };
   }, []);
 
-  // Handle post image upload (STRICT CHECK: NO VIDEOS ALLOWED)
-  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle media selection (Images AND Videos)
+  const handleMediaSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setPostError('');
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    // Strict validation: reject any video file
-    const validation = validateImageFiles(files);
+    const validation = validateMediaFiles(files);
     if (!validation.valid) {
-      setPostError(validation.error || 'ভিডিও আপলোড করার অনুমতি নেই! শুধুমাত্র ছবি (Images) আপলোড করা যাবে।');
-      onShowToast(validation.error || 'ভিডিও আপলোড করার অনুমতি নেই!');
+      setPostError(validation.error || 'সঠিক ছবি বা ভিডিও ফাইল নির্বাচন করুন');
+      onShowToast(validation.error || 'ফাইল ভ্যালিডেশন সমস্যা');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
     try {
-      const base64List: string[] = [];
-      for (const file of validation.imageFiles) {
-        const b64 = await fileToBase64(file);
-        base64List.push(b64);
+      const newImages: string[] = [];
+      const newVideos: string[] = [];
+
+      for (const item of validation.mediaFiles) {
+        const b64 = await fileToBase64(item.file);
+        if (item.type === 'video') {
+          newVideos.push(b64);
+        } else {
+          newImages.push(b64);
+        }
       }
-      setPostImages((prev) => [...prev, ...base64List].slice(0, 4));
-    } catch (err: any) {
-      setPostError('ছবি প্রসেসিংয়ে সমস্যা হয়েছে');
+
+      if (newImages.length > 0) {
+        setPostImages((prev) => [...prev, ...newImages].slice(0, 6));
+      }
+      if (newVideos.length > 0) {
+        setPostVideos((prev) => [...prev, ...newVideos].slice(0, 2));
+      }
+    } catch (err) {
+      setPostError('মিডিয়া ফাইল প্রসেসিংয়ে সমস্যা হয়েছে');
     }
   };
 
@@ -153,8 +224,13 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
     e.preventDefault();
     setPostError('');
 
-    if (!postText.trim() && postImages.length === 0) {
-      setPostError('কিছু লিখুন অথবা ছবি আপলোড করুন');
+    const effectiveVideos = [...postVideos];
+    if (videoUrlInput.trim()) {
+      effectiveVideos.push(videoUrlInput.trim());
+    }
+
+    if (!postText.trim() && postImages.length === 0 && effectiveVideos.length === 0 && !linkInput.trim()) {
+      setPostError('কিছু লিখুন অথবা ছবি, ভিডিও বা লিংক যোগ করুন');
       return;
     }
 
@@ -163,11 +239,23 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
       marketplaceSocialService.createPost({
         content: postText.trim(),
         images: postImages,
+        videos: effectiveVideos,
+        videoUrl: effectiveVideos[0] || undefined,
+        location: locationInput.trim() || undefined,
+        linkUrl: linkInput.trim() || undefined,
+        privacy: postPrivacy,
         feeling: selectedFeeling || undefined,
       });
 
       setPostText('');
       setPostImages([]);
+      setPostVideos([]);
+      setVideoUrlInput('');
+      setShowVideoInput(false);
+      setLocationInput('');
+      setShowLocationInput(false);
+      setLinkInput('');
+      setShowLinkInput(false);
       setSelectedFeeling(null);
       setIsFeelingPickerOpen(false);
       setIsSubmittingPost(false);
@@ -203,23 +291,61 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
     }
   };
 
-  const handleShare = (postOrId: SocialPost | string) => {
-    let targetPost: SocialPost | undefined;
-    if (typeof postOrId === 'string') {
-      targetPost = posts.find((p) => p.id === postOrId);
-    } else {
-      targetPost = postOrId;
+  const handleReplyToComment = (postId: string, commentId: string) => {
+    const text = replyInputs[commentId];
+    if (!text || !text.trim()) return;
+
+    try {
+      marketplaceSocialService.replyToComment(postId, commentId, text.trim());
+      setReplyInputs((prev) => ({ ...prev, [commentId]: '' }));
+      setOpenReplyBoxCommentId(null);
+      refreshPosts();
+      onShowToast('উত্তরে মন্তব্য সফল হয়েছে!');
+    } catch (err: any) {
+      onShowToast(err.message);
     }
-    if (targetPost) {
-      setShareTarget({ post: targetPost });
+  };
+
+  const handleSaveToggle = (postId: string) => {
+    const isSaved = marketplaceSocialService.toggleSavePost(postId);
+    setActiveMenuPostId(null);
+    refreshPosts();
+    onShowToast(isSaved ? '🔖 পোস্টটি আপনার সংরক্ষিত তালিকায় যুক্ত হয়েছে' : 'সংরক্ষিত তালিকা থেকে সরানো হয়েছে');
+  };
+
+  const handleStartEdit = (post: SocialPost) => {
+    setEditingPost(post);
+    setEditPostText(post.content);
+    setEditPostLocation(post.location || '');
+    setEditPostPrivacy(post.privacy || 'public');
+    setActiveMenuPostId(null);
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPost) return;
+
+    try {
+      marketplaceSocialService.editPost(editingPost.id, {
+        content: editPostText.trim(),
+        location: editPostLocation.trim() || undefined,
+        privacy: editPostPrivacy,
+      });
+      setEditingPost(null);
+      refreshPosts();
+      onShowToast('পোস্ট সফলভাবে সম্পাদনা করা হয়েছে!');
+    } catch (err: any) {
+      onShowToast(err.message || 'সম্পাদনা ব্যর্থ হয়েছে');
     }
   };
 
   const handleDeletePost = (postId: string) => {
-    marketplaceSocialService.deletePost(postId);
-    setActiveMenuPostId(null);
-    refreshPosts();
-    onShowToast('পোস্ট মুছে ফেলা হয়েছে');
+    if (window.confirm('আপনি কি এই পোস্টটি মুছে ফেলতে নিশ্চিত?')) {
+      marketplaceSocialService.deletePost(postId);
+      setActiveMenuPostId(null);
+      refreshPosts();
+      onShowToast('পোস্ট মুছে ফেলা হয়েছে');
+    }
   };
 
   const handleConfirmBlock = () => {
@@ -230,20 +356,37 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
     refreshPosts();
   };
 
-  // Trending products for right column
+  const handleFollowToggle = (targetUserId: string, name: string) => {
+    const isFollowing = marketplaceSocialService.toggleFollowUser(targetUserId);
+    refreshPosts();
+    onShowToast(isFollowing ? `${name}-কে ফলো করা হচ্ছে` : `${name}-কে আনফলো করা হয়েছে`);
+  };
+
+  // Filter posts
+  const displayedPosts = posts.filter((p) => {
+    if (feedFilter === 'saved') {
+      return (p.savedByUserIds || []).includes(currentProfile.id);
+    }
+    // Check privacy
+    if (p.privacy === 'only_me' && p.authorId !== currentProfile.id) {
+      return false;
+    }
+    return true;
+  });
+
   const trendingProducts = marketplaceSocialService.getCustomerProducts().slice(0, 4);
   const communityDirectory = marketplaceSocialService.getProfilesDirectory().filter((p) => p.id !== currentProfile.id);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 max-w-[1300px] mx-auto items-start">
       {/* ========================================================================= */}
-      {/* LEFT COLUMN: Shortcuts & Profile widget (3 cols on lg) */}
+      {/* LEFT COLUMN: Shortcuts, Groups & Pages (3 cols on lg) */}
       {/* ========================================================================= */}
       <div className="hidden lg:block lg:col-span-3 space-y-3.5 sticky top-20">
-        {/* User Card */}
+        {/* User Profile Card */}
         <div
           onClick={() => onViewProfile(currentProfile.id)}
-          className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs hover:shadow-xs transition cursor-pointer flex items-center gap-3 group"
+          className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs hover:shadow-xs transition cursor-pointer flex items-center gap-3 group"
         >
           <img
             src={currentProfile.avatar}
@@ -260,58 +403,221 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
         </div>
 
         {/* Shortcuts list */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-2.5 shadow-2xs divide-y divide-slate-100">
+        <div className="bg-white rounded-2xl border border-slate-200 p-2 shadow-2xs divide-y divide-slate-100">
+          <button
+            type="button"
+            onClick={() => setFeedFilter('all')}
+            className={`w-full p-2.5 flex items-center gap-3 text-left rounded-xl font-bold text-xs transition cursor-pointer ${
+              feedFilter === 'all' ? 'bg-blue-50 text-[#1877F2]' : 'text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <div className="w-8 h-8 rounded-lg bg-blue-100 text-[#1877F2] flex items-center justify-center">
+              <Globe className="w-4 h-4" />
+            </div>
+            <span>সব সামাজিক পোস্ট (Feed)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFeedFilter('saved')}
+            className={`w-full p-2.5 flex items-center gap-3 text-left rounded-xl font-bold text-xs transition cursor-pointer ${
+              feedFilter === 'saved' ? 'bg-amber-50 text-amber-700' : 'text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
+              <Bookmark className="w-4 h-4" />
+            </div>
+            <span>সংরক্ষিত পোস্ট (Saved)</span>
+          </button>
+
           <button
             type="button"
             onClick={onOpenSellProductModal}
-            className="w-full p-2.5 flex items-center gap-3 text-left rounded-xl hover:bg-blue-50 text-slate-700 hover:text-[#1877F2] font-black text-xs transition cursor-pointer"
-          >
-            <div className="w-8 h-8 rounded-lg bg-blue-100 text-[#1877F2] flex items-center justify-center">
-              <Package className="w-4 h-4" />
-            </div>
-            <span>পণ্য বিক্রি করুন</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onViewProfile(currentProfile.id)}
-            className="w-full p-2.5 flex items-center gap-3 text-left rounded-xl hover:bg-slate-50 text-slate-700 font-bold text-xs transition cursor-pointer"
+            className="w-full p-2.5 flex items-center gap-3 text-left rounded-xl hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 font-bold text-xs transition cursor-pointer"
           >
             <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
-              <ShoppingBag className="w-4 h-4" />
+              <Package className="w-4 h-4" />
             </div>
-            <span>আমার বিক্রির পণ্য</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onViewProfile(currentProfile.id)}
-            className="w-full p-2.5 flex items-center gap-3 text-left rounded-xl hover:bg-slate-50 text-slate-700 font-bold text-xs transition cursor-pointer"
-          >
-            <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
-              <ShieldAlert className="w-4 h-4" />
-            </div>
-            <span>ব্লক করা তালিকা</span>
+            <span>মার্কেটপ্লেসে পণ্য বিক্রি</span>
           </button>
         </div>
 
-        {/* Video Restriction Info Box */}
-        <div className="p-3 bg-amber-50/80 border border-amber-200/70 rounded-2xl text-[11px] text-amber-900 space-y-1">
-          <div className="flex items-center gap-1.5 font-black text-amber-800">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-            <span>সেন্ট্রাল মার্কেটপ্লেস সুরক্ষা নীতি</span>
+        {/* Groups Widget */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="font-black text-xs text-slate-900 flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-[#1877F2]" />
+              <span>কমিউনিটি গ্রুপসমূহ</span>
+            </h4>
+            <button
+              type="button"
+              onClick={() => setIsGroupCreateOpen(true)}
+              className="text-[10px] text-[#1877F2] font-black hover:underline cursor-pointer flex items-center gap-0.5"
+            >
+              <Plus className="w-3 h-3" /> তৈরি করুন
+            </button>
           </div>
-          <p className="text-amber-800/90 leading-tight">
-            মার্কেটপ্লেসে শুধুমাত্র পণ্যের স্পষ্ট ও উচ্চমানের ছবি আপলোড করা যাবে। ভিডিও ফাইল আপলোড সম্পূর্ণ নিষিদ্ধ।
-          </p>
+
+          <div className="space-y-2">
+            {groups.slice(0, 3).map((grp) => {
+              const isJoined = (grp.memberIds || []).includes(currentProfile.id);
+              return (
+                <div key={grp.id} className="p-2 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img src={grp.coverImage} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-bold text-[11px] text-slate-800 truncate">{grp.name}</p>
+                      <p className="text-[10px] text-slate-400">{grp.membersCount} মেম্বার</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isJoined) {
+                        marketplaceSocialService.leaveGroup(grp.id);
+                        onShowToast('গ্রুপ ত্যাগ করা হয়েছে');
+                      } else {
+                        marketplaceSocialService.joinGroup(grp.id);
+                        onShowToast('গ্রুপে সফলভাবে যুক্ত হয়েছেন!');
+                      }
+                      refreshPosts();
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-black transition cursor-pointer ${
+                      isJoined
+                        ? 'bg-slate-200 text-slate-700'
+                        : 'bg-[#1877F2] text-white hover:bg-blue-700 shadow-2xs'
+                    }`}
+                  >
+                    {isJoined ? 'যুক্ত আছেন' : 'Join'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Pages Widget */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="font-black text-xs text-slate-900 flex items-center gap-1.5">
+              <FileText className="w-4 h-4 text-emerald-600" />
+              <span>অফিসিয়াল পেজসমূহ</span>
+            </h4>
+            <button
+              type="button"
+              onClick={() => setIsPageCreateOpen(true)}
+              className="text-[10px] text-emerald-600 font-black hover:underline cursor-pointer flex items-center gap-0.5"
+            >
+              <Plus className="w-3 h-3" /> পেজ তৈরি
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {pages.slice(0, 3).map((page) => {
+              const isFollowing = (page.followerIds || []).includes(currentProfile.id);
+              return (
+                <div key={page.id} className="p-2 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img src={page.avatar} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-bold text-[11px] text-slate-800 truncate">{page.name}</p>
+                      <p className="text-[10px] text-slate-400">{page.followersCount} ফলোয়ার</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      marketplaceSocialService.followPage(page.id);
+                      refreshPosts();
+                      onShowToast(isFollowing ? 'আনফলো করা হয়েছে' : 'পেজ ফলো করা হয়েছে');
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-black transition cursor-pointer ${
+                      isFollowing
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-2xs'
+                    }`}
+                  >
+                    {isFollowing ? 'ফলোয়িং' : 'Follow'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* CENTER COLUMN: Create Post Box & Social Posts Feed (6 cols on lg) */}
+      {/* CENTER COLUMN: Stories, Create Post Box & Social Posts Feed (6 cols on lg) */}
       {/* ========================================================================= */}
       <div className="col-span-1 lg:col-span-6 space-y-4">
-        {/* 1. Create Post Box (Facebook Style) */}
+        {/* ===================================================================== */}
+        {/* STORIES TRAY (FACEBOOK STYLE 24-HOUR STORIES) */}
+        {/* ===================================================================== */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-2xs">
+          <div className="flex items-center gap-3 overflow-x-auto pb-1 scrollbar-none">
+            {/* Create Story Card */}
+            <div
+              onClick={() => setIsStoryCreateOpen(true)}
+              className="relative w-24 h-36 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0 cursor-pointer group flex flex-col justify-between shadow-2xs hover:shadow-xs transition"
+            >
+              <div className="h-24 w-full overflow-hidden bg-slate-200">
+                <img
+                  src={currentProfile.avatar}
+                  alt=""
+                  className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                />
+              </div>
+              <div className="relative bg-white pb-2 text-center flex flex-col items-center">
+                <div className="w-7 h-7 -mt-3.5 rounded-full bg-[#1877F2] text-white flex items-center justify-center border-2 border-white shadow-sm">
+                  <Plus className="w-4 h-4 font-bold" />
+                </div>
+                <span className="text-[11px] font-black text-slate-800 leading-tight mt-1">
+                  স্টোরি দিন
+                </span>
+              </div>
+            </div>
+
+            {/* Active Stories List */}
+            {stories.map((st, idx) => (
+              <div
+                key={st.id}
+                onClick={() => setViewingStoryIndex(idx)}
+                className="relative w-24 h-36 rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 shrink-0 cursor-pointer group shadow-2xs hover:shadow-md transition"
+              >
+                {st.mediaType === 'video' ? (
+                  <video src={st.mediaUrl} className="w-full h-full object-cover opacity-80" />
+                ) : (
+                  <img src={st.mediaUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/80" />
+
+                {/* Author Avatar with Story Ring */}
+                <div className="absolute top-2 left-2 z-10">
+                  <img
+                    src={st.authorAvatar}
+                    alt=""
+                    className="w-8 h-8 rounded-full object-cover border-2 border-white ring-2 ring-[#1877F2]"
+                  />
+                </div>
+
+                {st.mediaType === 'video' && (
+                  <div className="absolute top-2 right-2 z-10 text-white drop-shadow">
+                    <Play className="w-3.5 h-3.5 fill-white" />
+                  </div>
+                )}
+
+                {/* Author Name */}
+                <p className="absolute bottom-2 inset-x-2 z-10 font-black text-[10px] text-white truncate drop-shadow">
+                  {st.authorName}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ===================================================================== */}
+        {/* CREATE POST BOX (FACEBOOK STYLE) */}
+        {/* ===================================================================== */}
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
           <div className="flex items-center gap-3">
             <img
@@ -320,62 +626,129 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
               className="w-10 h-10 rounded-full object-cover border border-slate-200 cursor-pointer"
               onClick={() => onViewProfile(currentProfile.id)}
             />
-            <button
-              type="button"
-              onClick={() => {
-                const el = document.getElementById('post-textarea');
-                el?.focus();
-              }}
-              className="flex-1 text-left px-4 py-2.5 bg-slate-100 hover:bg-slate-200/80 text-slate-500 rounded-full text-xs font-medium transition cursor-text"
-            >
-              আপনার মনে কি আছে, {currentProfile.name.split(' ')[0]}? ব্লগ বা বিক্রয় পোস্ট করুন...
-            </button>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <span className="font-black text-xs text-slate-800">{currentProfile.name}</span>
+                {/* Privacy Selector */}
+                <select
+                  value={postPrivacy}
+                  onChange={(e) => setPostPrivacy(e.target.value as any)}
+                  className="text-[11px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-lg border border-slate-200 focus:outline-hidden cursor-pointer"
+                >
+                  <option value="public">🌍 পাবলিক (Public)</option>
+                  <option value="friends">👥 বন্ধুরা (Friends)</option>
+                  <option value="only_me">🔒 শুধু আমি (Only Me)</option>
+                </select>
+              </div>
+            </div>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleCreatePost} className="space-y-3">
             <textarea
-              id="post-textarea"
-              rows={3}
-              placeholder="পণ্য রিভিউ, বিক্রয় ঘোষণা বা আপনার অভিজ্ঞতা শেয়ার করুন..."
+              placeholder={`আপনার মনে কী আছে, ${currentProfile.name.split(' ')[0]}? টেক্সট, ছবি ও ভিডিও শেয়ার করুন...`}
               value={postText}
               onChange={(e) => setPostText(e.target.value)}
-              className="w-full p-3 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium focus:ring-2 focus:ring-[#1877F2] focus:outline-hidden"
+              rows={3}
+              className="w-full p-3 bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-400 rounded-xl text-xs sm:text-[13px] font-medium resize-none focus:outline-hidden transition"
             />
 
-            {/* Error Message */}
-            {postError && (
-              <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{postError}</span>
-              </div>
-            )}
-
-            {/* Selected Feeling Badge */}
+            {/* Selected Feeling Indicator */}
             {selectedFeeling && (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full text-xs text-amber-900 font-bold">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-xl text-xs font-bold text-[#1877F2] w-fit">
                 <span>{selectedFeeling.emoji}</span>
-                <span>{selectedFeeling.label}</span>
+                <span>অনুভূতি: {selectedFeeling.label}</span>
                 <button
                   type="button"
                   onClick={() => setSelectedFeeling(null)}
-                  className="p-0.5 hover:text-rose-600 rounded-full ml-1"
+                  className="ml-1 text-slate-400 hover:text-slate-600"
                 >
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
               </div>
             )}
 
-            {/* Uploaded Images Preview */}
+            {/* Location Input Box */}
+            {showLocationInput && (
+              <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-xl border border-slate-200">
+                <MapPin className="w-4 h-4 text-rose-500 shrink-0" />
+                <input
+                  type="text"
+                  placeholder="অবস্থান যোগ করুন (যেমন: ধানমন্ডি, ঢাকা)..."
+                  value={locationInput}
+                  onChange={(e) => setLocationInput(e.target.value)}
+                  className="flex-1 bg-transparent text-xs font-medium focus:outline-hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLocationInput('');
+                    setShowLocationInput(false);
+                  }}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Link Input Box */}
+            {showLinkInput && (
+              <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-xl border border-slate-200">
+                <LinkIcon className="w-4 h-4 text-blue-500 shrink-0" />
+                <input
+                  type="url"
+                  placeholder="লিংক যোগ করুন (https://...)..."
+                  value={linkInput}
+                  onChange={(e) => setLinkInput(e.target.value)}
+                  className="flex-1 bg-transparent text-xs font-medium focus:outline-hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLinkInput('');
+                    setShowLinkInput(false);
+                  }}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Video URL Input Box */}
+            {showVideoInput && (
+              <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-xl border border-slate-200">
+                <Video className="w-4 h-4 text-purple-500 shrink-0" />
+                <input
+                  type="url"
+                  placeholder="ভিডিও লিংক বা URL (MP4 / WebM)..."
+                  value={videoUrlInput}
+                  onChange={(e) => setVideoUrlInput(e.target.value)}
+                  className="flex-1 bg-transparent text-xs font-medium focus:outline-hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVideoUrlInput('');
+                    setShowVideoInput(false);
+                  }}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Selected Images Preview Grid */}
             {postImages.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                {postImages.map((img, idx) => (
-                  <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200">
+              <div className="grid grid-cols-3 gap-2">
+                {postImages.map((img, i) => (
+                  <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 border border-slate-200">
                     <img src={img} alt="" className="w-full h-full object-cover" />
                     <button
                       type="button"
-                      onClick={() => setPostImages((prev) => prev.filter((_, i) => i !== idx))}
-                      className="absolute top-1 right-1 p-1 bg-black/70 hover:bg-rose-600 text-white rounded-full transition cursor-pointer"
+                      onClick={() => setPostImages((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="absolute top-1 right-1 p-1 bg-black/60 text-white rounded-full hover:bg-rose-600 transition"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -384,134 +757,194 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
               </div>
             )}
 
-            {/* Feeling Picker Dropdown */}
+            {/* Selected Videos Preview */}
+            {postVideos.length > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                {postVideos.map((vid, i) => (
+                  <div key={i} className="relative aspect-video rounded-xl overflow-hidden bg-black border border-slate-200">
+                    <video src={vid} controls className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setPostVideos((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="absolute top-1 right-1 p-1 bg-black/60 text-white rounded-full hover:bg-rose-600 transition"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {postError && (
+              <p className="text-xs font-bold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                {postError}
+              </p>
+            )}
+
+            {/* Bottom Controls */}
+            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                {/* Photo/Video upload button */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-2.5 py-1.5 rounded-xl hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                  title="ছবি বা ভিডিও যুক্ত করুন"
+                >
+                  <ImageIcon className="w-4 h-4 text-emerald-600" />
+                  <span className="hidden sm:inline">ছবি/ভিডিও</span>
+                </button>
+
+                {/* Feeling Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsFeelingPickerOpen(!isFeelingPickerOpen)}
+                  className="px-2.5 py-1.5 rounded-xl hover:bg-amber-50 text-slate-600 hover:text-amber-700 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                  title="অনুভূতি শেয়ার করুন"
+                >
+                  <Smile className="w-4 h-4 text-amber-500" />
+                  <span className="hidden sm:inline">অনুভূতি</span>
+                </button>
+
+                {/* Location Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowLocationInput(!showLocationInput)}
+                  className="px-2.5 py-1.5 rounded-xl hover:bg-rose-50 text-slate-600 hover:text-rose-700 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                  title="লোকেশন শেয়ার করুন"
+                >
+                  <MapPin className="w-4 h-4 text-rose-500" />
+                  <span className="hidden sm:inline">লোকেশন</span>
+                </button>
+
+                {/* Link Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowLinkInput(!showLinkInput)}
+                  className="px-2.5 py-1.5 rounded-xl hover:bg-blue-50 text-slate-600 hover:text-blue-700 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                  title="লিংক যুক্ত করুন"
+                >
+                  <LinkIcon className="w-4 h-4 text-blue-500" />
+                  <span className="hidden sm:inline">লিংক</span>
+                </button>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,video/*"
+                onChange={handleMediaSelect}
+                className="hidden"
+              />
+
+              <button
+                type="submit"
+                disabled={isSubmittingPost || (!postText.trim() && postImages.length === 0 && postVideos.length === 0 && !linkInput.trim())}
+                className="px-5 py-2 rounded-xl bg-[#1877F2] hover:bg-blue-700 text-white font-black text-xs transition shadow-md disabled:opacity-40 cursor-pointer flex items-center gap-1.5"
+              >
+                <span>পোস্ট করুন</span>
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Feelings Picker Grid */}
             {isFeelingPickerOpen && (
-              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {FEELINGS_LIST.map((f, i) => (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {FEELINGS_LIST.map((f, idx) => (
                   <button
-                    key={i}
+                    key={idx}
                     type="button"
                     onClick={() => {
                       setSelectedFeeling(f);
                       setIsFeelingPickerOpen(false);
                     }}
-                    className="p-2 text-left flex items-center gap-2 hover:bg-white rounded-lg text-xs font-medium transition cursor-pointer"
+                    className="p-2 bg-white rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50 text-left flex items-center gap-2 transition cursor-pointer"
                   >
-                    <span className="text-base">{f.emoji}</span>
-                    <span>{f.label}</span>
+                    <span className="text-lg">{f.emoji}</span>
+                    <span className="text-xs font-bold text-slate-700">{f.label}</span>
                   </button>
                 ))}
               </div>
             )}
-
-            {/* Actions Toolbar */}
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex items-center gap-1.5">
-                {/* Photo Upload (Images Only, NO Videos) */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png, image/jpeg, image/webp"
-                  multiple
-                  onChange={handleImageSelect}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                  title="শুধুমাত্র ছবি আপলোড করুন"
-                >
-                  <ImageIcon className="w-4 h-4 text-emerald-600" />
-                  <span>ছবি (Photo)</span>
-                </button>
-
-                {/* Feeling / Activity */}
-                <button
-                  type="button"
-                  onClick={() => setIsFeelingPickerOpen(!isFeelingPickerOpen)}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <Smile className="w-4 h-4 text-amber-500" />
-                  <span>অনুভূতি</span>
-                </button>
-
-                {/* Sell Product shortcut */}
-                <button
-                  type="button"
-                  onClick={onOpenSellProductModal}
-                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#1877F2] rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <Tag className="w-4 h-4" />
-                  <span>পণ্য বিক্রি</span>
-                </button>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSubmittingPost || (!postText.trim() && postImages.length === 0)}
-                className="px-5 py-2 bg-[#1877F2] hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
-              >
-                <span>পোস্ট করুন</span>
-              </button>
-            </div>
           </form>
         </div>
 
-        {/* 2. Feed Posts Stream */}
+        {/* ===================================================================== */}
+        {/* POSTS LIST (FEED) */}
+        {/* ===================================================================== */}
         <div className="space-y-4">
-          {posts.length === 0 ? (
+          {displayedPosts.length === 0 ? (
             <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 text-slate-400 space-y-2">
-              <MessageCircle className="w-10 h-10 mx-auto text-slate-300" />
-              <p className="font-bold text-xs">ফিডে কোনো পোস্ট পাওয়া যায়নি</p>
+              <Sparkles className="w-10 h-10 mx-auto text-slate-300" />
+              <p className="font-bold text-sm text-slate-700">কোনো পোস্ট পাওয়া যায়নি</p>
+              <p className="text-xs">নতুন পোস্ট লিখে সেন্ট্রাল সোশ্যাল ফিডে সবার সাথে শেয়ার করুন।</p>
             </div>
           ) : (
-            posts.map((post) => {
-              const myReaction = post.userReactions?.[currentProfile.id];
-              const isCommentsOpen = !!openCommentPostIds[post.id];
-              const isOwnPost = post.authorId === currentProfile.id;
+            displayedPosts.map((post) => {
+              const isOwn = post.authorId === currentProfile.id;
+              const isSaved = (post.savedByUserIds || []).includes(currentProfile.id);
+              const userReaction = post.userReactions?.[currentProfile.id];
+              const isCommentOpen = openCommentPostIds[post.id];
+
+              const totalReactions = Object.values(post.reactions || {}).reduce((a, b) => a + b, 0);
 
               return (
-                <div
-                  key={post.id}
-                  className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
-                >
+                <div key={post.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden space-y-3">
                   {/* Post Header */}
-                  <div className="p-4 pb-2 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                  <div className="p-4 pb-0 flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <img
-                        src={post.authorId === currentProfile.id ? currentProfile.avatar : post.authorAvatar}
-                        alt={post.authorId === currentProfile.id ? currentProfile.name : post.authorName}
-                        className="w-10 h-10 rounded-full object-cover border border-slate-200 cursor-pointer"
+                        src={post.authorAvatar}
+                        alt=""
+                        className="w-11 h-11 rounded-full object-cover border border-slate-200 cursor-pointer"
                         onClick={() => onViewProfile(post.authorId)}
                       />
-                      <div>
-                        <div className="flex items-center gap-1.5">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <h4
                             onClick={() => onViewProfile(post.authorId)}
-                            className="font-black text-xs sm:text-sm text-slate-900 hover:text-[#1877F2] cursor-pointer"
+                            className="font-black text-xs sm:text-sm text-slate-900 truncate hover:text-[#1877F2] cursor-pointer"
                           >
-                            {post.authorId === currentProfile.id ? currentProfile.name : post.authorName}
+                            {post.authorName}
                           </h4>
                           {post.authorVerified && (
-                            <span className="text-[10px] bg-blue-50 text-blue-600 font-bold px-1.5 py-0.2 rounded-full">
+                            <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded-full font-bold">
                               ভেরিফাইড
                             </span>
                           )}
                           {post.feeling && (
-                            <span className="text-xs text-slate-500 font-normal">
+                            <span className="text-xs text-slate-500 font-medium">
                               — {post.feeling.emoji} {post.feeling.label}
                             </span>
                           )}
                         </div>
-                        <p className="text-[10px] text-slate-400">
-                          {new Date(post.createdAt).toLocaleDateString('bn-BD', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </p>
+
+                        <div className="flex items-center gap-2 text-[10px] text-slate-400 font-semibold pt-0.5">
+                          <span>
+                            {new Date(post.createdAt).toLocaleDateString('bn-BD', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                          {post.location && (
+                            <span className="text-slate-600 flex items-center gap-0.5">
+                              • <MapPin className="w-2.5 h-2.5 text-rose-500" /> {post.location}
+                            </span>
+                          )}
+                          {post.privacy === 'friends' ? (
+                            <span title="বন্ধুরা">👥</span>
+                          ) : post.privacy === 'only_me' ? (
+                            <span title="শুধু আমি">🔒</span>
+                          ) : (
+                            <span title="পাবলিক">🌍</span>
+                          )}
+                          {post.isEdited && (
+                            <span className="text-slate-400">(সম্পাদিত)</span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -519,271 +952,219 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
                     <div className="relative">
                       <button
                         type="button"
-                        onClick={() =>
-                          setActiveMenuPostId(activeMenuPostId === post.id ? null : post.id)
-                        }
-                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                        onClick={() => setActiveMenuPostId(activeMenuPostId === post.id ? null : post.id)}
+                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition cursor-pointer"
                       >
                         <MoreHorizontal className="w-5 h-5" />
                       </button>
 
                       {activeMenuPostId === post.id && (
-                        <div className="absolute right-0 top-8 w-44 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-20 text-xs font-bold divide-y divide-slate-100">
+                        <div className="absolute right-0 top-8 z-30 w-48 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 text-xs font-bold divide-y divide-slate-100 animate-in fade-in zoom-in-95">
                           <button
                             type="button"
-                            onClick={() => {
-                              onViewProfile(post.authorId);
-                              setActiveMenuPostId(null);
-                            }}
-                            className="w-full px-3.5 py-2 text-left hover:bg-slate-50 text-slate-700 flex items-center gap-2"
+                            onClick={() => handleSaveToggle(post.id)}
+                            className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-slate-700 cursor-pointer"
                           >
-                            <span>প্রোফাইল দেখুন</span>
+                            <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-amber-500 text-amber-500' : ''}`} />
+                            <span>{isSaved ? 'সংরক্ষণ বাতিল করুন' : 'পোস্ট সংরক্ষণ করুন'}</span>
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard?.writeText(window.location.href);
-                              onShowToast('পোস্টের লিংক কপি করা হয়েছে!');
-                              setActiveMenuPostId(null);
-                            }}
-                            className="w-full px-3.5 py-2 text-left hover:bg-slate-50 text-slate-700 flex items-center gap-2"
-                          >
-                            <span>লিংক কপি করুন</span>
-                          </button>
-
-                          {!isOwnPost && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setBlockTarget({ id: post.authorId, name: post.authorName });
-                                setActiveMenuPostId(null);
-                              }}
-                              className="w-full px-3.5 py-2 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2"
-                            >
-                              <ShieldAlert className="w-3.5 h-3.5" />
-                              <span>ইউজারকে ব্লক করুন</span>
-                            </button>
-                          )}
-
-                          {isOwnPost && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeletePost(post.id)}
-                              className="w-full px-3.5 py-2 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2"
-                            >
-                              <span>পোস্ট ডিলিট করুন</span>
-                            </button>
+                          {isOwn ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleStartEdit(post)}
+                                className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-slate-700 cursor-pointer"
+                              >
+                                <Edit className="w-4 h-4 text-blue-500" />
+                                <span>পোস্ট সম্পাদনা করুন</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePost(post.id)}
+                                className="w-full px-3.5 py-2 text-left hover:bg-rose-50 flex items-center gap-2 text-rose-600 cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                <span>মুছে ফেলুন</span>
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onShowToast('পোস্ট রিপোর্ট জমা হয়েছে। অ্যাডমিন পর্যালোচনা করবেন।');
+                                  setActiveMenuPostId(null);
+                                }}
+                                className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-slate-700 cursor-pointer"
+                              >
+                                <Flag className="w-4 h-4 text-amber-500" />
+                                <span>রিপোর্ট করুন</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBlockTarget({ id: post.authorId, name: post.authorName });
+                                  setActiveMenuPostId(null);
+                                }}
+                                className="w-full px-3.5 py-2 text-left hover:bg-rose-50 flex items-center gap-2 text-rose-600 cursor-pointer"
+                              >
+                                <ShieldAlert className="w-4 h-4" />
+                                <span>ব্যবহারকারীকে ব্লক করুন</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Post Content */}
-                  <div className="px-4 py-2 space-y-3">
-                    <p className="text-xs sm:text-[13px] text-slate-800 leading-relaxed whitespace-pre-line">
-                      {post.content}
-                    </p>
-
-                    {/* Post Images Grid */}
-                    {post.images && post.images.length > 0 && (
-                      <div
-                        className={`rounded-xl overflow-hidden gap-1.5 ${
-                          post.images.length === 1
-                            ? 'grid grid-cols-1'
-                            : post.images.length === 2
-                            ? 'grid grid-cols-2'
-                            : 'grid grid-cols-2 sm:grid-cols-3'
-                        }`}
-                      >
-                        {post.images.map((img, i) => (
-                          <div key={i} className="aspect-video sm:aspect-square bg-slate-100 overflow-hidden">
-                            <img
-                              src={img}
-                              alt=""
-                              className="w-full h-full object-cover hover:scale-102 transition duration-300"
-                            />
-                          </div>
-                        ))}
-                      </div>
+                  {/* Post Content Body */}
+                  <div className="px-4 space-y-3">
+                    {post.content && (
+                      <p className="text-xs sm:text-[13px] text-slate-800 leading-relaxed whitespace-pre-line">
+                        {post.content}
+                      </p>
                     )}
 
-                    {/* Linked Product Card (If post is selling a product) */}
-                    {post.linkedProduct && (
-                      <div className="p-3 bg-gradient-to-r from-blue-50/70 to-indigo-50/60 border border-blue-200/80 rounded-2xl flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          {post.linkedProduct.imageUrl && (
-                            <img
-                              src={post.linkedProduct.imageUrl}
-                              alt=""
-                              className="w-14 h-14 rounded-xl object-cover border border-blue-200 shrink-0"
-                            />
-                          )}
-                          <div className="min-w-0">
-                            <span className="text-[10px] font-black text-[#1877F2] uppercase tracking-wider">
-                              মার্কেটপ্লেস পণ্য
-                            </span>
-                            <h5 className="font-black text-xs text-slate-900 truncate">
-                              {post.linkedProduct.name}
-                            </h5>
-                            <div className="flex items-baseline gap-1.5 mt-0.5">
-                              <span className="text-sm font-black text-[#1877F2]">
-                                ৳ {formatMoney(post.linkedProduct.salePrice)}
-                              </span>
-                              {post.linkedProduct.regularPrice && (
-                                <span className="text-[11px] text-slate-400 line-through">
-                                  ৳ {formatMoney(post.linkedProduct.regularPrice)}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                          {/* Promote / Boost Product Button */}
-                          <button
-                            type="button"
-                            onClick={() => setBoostTargetProduct(post.linkedProduct)}
-                            className="px-2.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-black rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1"
-                            title="সুপার এডমিনের মাধ্যমে পণ্যটি প্রমোট বা বুস্ট করুন"
-                          >
-                            <Zap className="w-3 h-3 fill-white" />
-                            <span>প্রমোট</span>
-                          </button>
-
-                          {!isOwnPost && (
-                            <button
-                              type="button"
-                              onClick={() => onStartChat(post.authorId, post.linkedProduct)}
-                              className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
-                            >
-                              চ্যাট
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => onOpenQuickBuy(post.linkedProduct)}
-                            className="px-4 py-1.5 bg-[#1877F2] hover:bg-blue-700 text-white text-xs font-black rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1"
-                          >
-                            <ShoppingBag className="w-3.5 h-3.5" />
-                            <span>এখনই কিনুন</span>
-                          </button>
-                        </div>
-                      </div>
+                    {/* Link Preview */}
+                    {post.linkUrl && (
+                      <a
+                        href={post.linkUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block p-2.5 bg-blue-50/70 border border-blue-200 rounded-xl text-xs font-bold text-[#1877F2] hover:underline truncate flex items-center gap-2"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{post.linkUrl}</span>
+                      </a>
                     )}
                   </div>
 
-                  {/* Reaction Summary Bar */}
-                  <div className="px-4 py-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                    <div className="flex items-center gap-1.5">
-                      <span className="flex -space-x-1">
-                        <span className="w-5 h-5 rounded-full bg-[#1877F2] text-white flex items-center justify-center text-[10px] ring-2 ring-white">
-                          👍
-                        </span>
-                        <span className="w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center text-[10px] ring-2 ring-white">
-                          ❤️
-                        </span>
-                      </span>
-                      <span className="font-bold text-slate-700">
-                        {Object.values(post.reactions || {}).reduce((a, b) => a + b, 0)}
-                      </span>
+                  {/* Images Display Grid */}
+                  {post.images && post.images.length > 0 && (
+                    <div
+                      className={`grid gap-1 px-4 ${
+                        post.images.length === 1
+                          ? 'grid-cols-1'
+                          : post.images.length === 2
+                          ? 'grid-cols-2'
+                          : 'grid-cols-3'
+                      }`}
+                    >
+                      {post.images.map((img, i) => (
+                        <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-slate-100 border border-slate-200">
+                          <img src={img} alt="" className="w-full h-full object-cover hover:scale-105 transition duration-300" />
+                        </div>
+                      ))}
                     </div>
+                  )}
 
-                    <div className="flex items-center gap-3 text-[11px]">
+                  {/* Video Playback Display */}
+                  {((post.videos && post.videos.length > 0) || post.videoUrl) && (
+                    <div className="px-4">
+                      <div className="rounded-2xl overflow-hidden bg-black border border-slate-200 aspect-video flex items-center justify-center">
+                        <video
+                          src={post.videoUrl || (post.videos && post.videos[0])}
+                          controls
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Linked Product Card (If any) */}
+                  {post.linkedProduct && (
+                    <div className="mx-4 p-3 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 rounded-2xl border border-blue-200 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {post.linkedProduct.imageUrl && (
+                          <img
+                            src={post.linkedProduct.imageUrl}
+                            alt=""
+                            className="w-12 h-12 rounded-xl object-cover border border-blue-200 shrink-0"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <p className="font-bold text-xs text-slate-900 truncate">
+                            {post.linkedProduct.name}
+                          </p>
+                          <p className="text-xs font-black text-[#1877F2]">
+                            ৳ {post.linkedProduct.salePrice}
+                          </p>
+                        </div>
+                      </div>
                       <button
                         type="button"
-                        onClick={() =>
-                          setOpenCommentPostIds((prev) => ({
-                            ...prev,
-                            [post.id]: !prev[post.id],
-                          }))
-                        }
-                        className="hover:underline cursor-pointer"
+                        onClick={() => onOpenQuickBuy(post.linkedProduct)}
+                        className="px-3 py-1.5 bg-[#1877F2] hover:bg-blue-700 text-white font-black text-[11px] rounded-xl transition shadow-xs shrink-0 cursor-pointer"
                       >
-                        {post.comments.length} টি মন্তব্য
+                        কিনুন
                       </button>
-                      <span>•</span>
-                      <span>{post.sharesCount} টি শেয়ার</span>
+                    </div>
+                  )}
+
+                  {/* Reactions Count and Comments Count */}
+                  <div className="px-4 pt-1 flex items-center justify-between text-[11px] text-slate-500 font-semibold border-b border-slate-100 pb-2">
+                    <div className="flex items-center gap-1">
+                      {totalReactions > 0 && (
+                        <span className="flex items-center -space-x-1">
+                          <span className="w-4 h-4 rounded-full bg-blue-500 text-white text-[9px] flex items-center justify-center">👍</span>
+                          <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] flex items-center justify-center">❤️</span>
+                        </span>
+                      )}
+                      <span>{totalReactions} রিঅ্যাকশন</span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span>{(post.comments || []).length} মন্তব্য</span>
+                      <span>{post.sharesCount || 0} শেয়ার</span>
                     </div>
                   </div>
 
-                  {/* Action Buttons Bar with Floating Reaction Picker */}
-                  <div className="px-2 py-1 border-t border-slate-100 flex items-center justify-around relative bg-slate-50/50">
+                  {/* Action Bar (Like, Comment, Share, Save) */}
+                  <div className="px-4 py-1 flex items-center justify-between gap-1 relative">
                     {/* Floating Reaction Bar */}
                     {hoveredReactionPostId === post.id && (
                       <div
                         onMouseLeave={() => setHoveredReactionPostId(null)}
-                        className="absolute bottom-11 left-3 bg-white shadow-2xl border border-slate-200 rounded-full px-2.5 py-1.5 flex items-center gap-2 z-30 animate-in fade-in zoom-in-95 duration-150"
+                        className="absolute -top-10 left-4 z-40 bg-white rounded-full shadow-2xl border border-slate-200 px-3 py-1.5 flex items-center gap-2 animate-in fade-in zoom-in-90"
                       >
                         {[
-                          { type: 'like', emoji: '👍', label: 'লাইক' },
-                          { type: 'love', emoji: '❤️', label: 'লাভ' },
-                          { type: 'care', emoji: '🥰', label: 'কেয়ার' },
-                          { type: 'haha', emoji: '😆', label: 'হাহা' },
-                          { type: 'wow', emoji: '😮', label: 'ওয়াও' },
-                          { type: 'sad', emoji: '😢', label: 'স্যাড' },
-                          { type: 'angry', emoji: '😡', label: 'অ্যাংরি' },
-                        ].map((rx) => (
+                          { type: 'like' as SocialReactionType, emoji: '👍', label: 'লাইক' },
+                          { type: 'love' as SocialReactionType, emoji: '❤️', label: 'লাভ' },
+                          { type: 'care' as SocialReactionType, emoji: '🥰', label: 'কেয়ার' },
+                          { type: 'haha' as SocialReactionType, emoji: '😆', label: 'হাহা' },
+                          { type: 'wow' as SocialReactionType, emoji: '😮', label: 'ওয়াও' },
+                          { type: 'sad' as SocialReactionType, emoji: '😢', label: 'স্যাড' },
+                          { type: 'angry' as SocialReactionType, emoji: '😡', label: 'অ্যাংরি' },
+                        ].map((r) => (
                           <button
-                            key={rx.type}
+                            key={r.type}
                             type="button"
-                            onClick={() => handleReaction(post.id, rx.type as any)}
-                            className="text-xl hover:scale-130 transition duration-150 cursor-pointer p-0.5"
-                            title={rx.label}
+                            onClick={() => handleReaction(post.id, r.type)}
+                            className="text-lg hover:scale-125 transition cursor-pointer"
+                            title={r.label}
                           >
-                            {rx.emoji}
+                            {r.emoji}
                           </button>
                         ))}
                       </div>
                     )}
 
-                    {/* React Button */}
-                    <div
-                      className="relative"
+                    {/* Like button */}
+                    <button
+                      type="button"
                       onMouseEnter={() => setHoveredReactionPostId(post.id)}
+                      onClick={() => handleReaction(post.id, userReaction || 'like')}
+                      className={`flex-1 py-1.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                        userReaction ? 'text-[#1877F2] bg-blue-50/70 font-black' : 'text-slate-600 hover:bg-slate-100'
+                      }`}
                     >
-                      <button
-                        type="button"
-                        onClick={() => handleReaction(post.id, myReaction ? myReaction : 'like')}
-                        className={`px-3 sm:px-6 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer hover:bg-slate-100 ${
-                          myReaction === 'love'
-                            ? 'text-rose-600 font-black'
-                            : myReaction
-                            ? 'text-[#1877F2] font-black'
-                            : 'text-slate-600'
-                        }`}
-                      >
-                        {myReaction === 'love' ? (
-                          <Heart className="w-4 h-4 fill-rose-600 text-rose-600" />
-                        ) : (
-                          <ThumbsUp
-                            className={`w-4 h-4 ${
-                              myReaction ? 'fill-[#1877F2] text-[#1877F2]' : ''
-                            }`}
-                          />
-                        )}
-                        <span>
-                          {myReaction === 'love'
-                            ? 'লাভ'
-                            : myReaction === 'care'
-                            ? 'কেয়ার'
-                            : myReaction === 'haha'
-                            ? 'হাহা'
-                            : myReaction === 'wow'
-                            ? 'ওয়াও'
-                            : myReaction === 'sad'
-                            ? 'স্যাড'
-                            : myReaction === 'angry'
-                            ? 'অ্যাংরি'
-                            : myReaction === 'like'
-                            ? 'লাইক'
-                            : 'রিয়েক্ট'}
-                        </span>
-                      </button>
-                    </div>
+                      <ThumbsUp className={`w-4 h-4 ${userReaction ? 'fill-[#1877F2]' : ''}`} />
+                      <span>{userReaction ? 'পছন্দ হয়েছে' : 'লাইক'}</span>
+                    </button>
 
-                    {/* Comment Button */}
+                    {/* Comment button */}
                     <button
                       type="button"
                       onClick={() =>
@@ -792,96 +1173,159 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
                           [post.id]: !prev[post.id],
                         }))
                       }
-                      className="px-3 sm:px-6 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-1.5 transition cursor-pointer"
+                      className="flex-1 py-1.5 rounded-xl text-slate-600 hover:bg-slate-100 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                     >
                       <MessageCircle className="w-4 h-4" />
-                      <span>মন্তব্য করুন</span>
+                      <span>মন্তব্য</span>
                     </button>
 
-                    {/* Share Button */}
+                    {/* Share button */}
                     <button
                       type="button"
-                      onClick={() => handleShare(post.id)}
-                      className="px-3 sm:px-6 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-1.5 transition cursor-pointer"
+                      onClick={() => setShareTarget({ post })}
+                      className="flex-1 py-1.5 rounded-xl text-slate-600 hover:bg-slate-100 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                     >
                       <Share2 className="w-4 h-4" />
                       <span>শেয়ার</span>
                     </button>
+
+                    {/* Save button */}
+                    <button
+                      type="button"
+                      onClick={() => handleSaveToggle(post.id)}
+                      className={`p-2 rounded-xl transition cursor-pointer ${
+                        isSaved ? 'text-amber-600 bg-amber-50' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                      }`}
+                      title={isSaved ? 'সংরক্ষিত' : 'সংরক্ষণ করুন'}
+                    >
+                      <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-amber-500' : ''}`} />
+                    </button>
                   </div>
 
-                  {/* Comment Section (Interactive) */}
-                  {isCommentsOpen && (
+                  {/* Comments & Replies Section */}
+                  {isCommentOpen && (
                     <div className="p-4 bg-slate-50/70 border-t border-slate-100 space-y-3">
-                      {/* Input Box */}
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={currentProfile.avatar}
-                          alt=""
-                          className="w-8 h-8 rounded-full object-cover shrink-0"
-                        />
-                        <div className="flex-1 flex items-center bg-white border border-slate-200 rounded-full px-3 py-1.5 focus-within:ring-2 focus-within:ring-blue-500">
-                          <input
-                            type="text"
-                            placeholder="একটি মন্তব্য লিখুন..."
-                            value={commentInputs[post.id] || ''}
-                            onChange={(e) =>
-                              setCommentInputs((prev) => ({
-                                ...prev,
-                                [post.id]: e.target.value,
-                              }))
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleAddComment(post.id);
-                            }}
-                            className="flex-1 text-xs bg-transparent focus:outline-hidden font-medium"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleAddComment(post.id)}
-                            className="p-1 text-[#1877F2] hover:text-blue-700 cursor-pointer"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Comments List */}
-                      <div className="space-y-2.5 pt-1">
-                        {post.comments.length === 0 ? (
-                          <p className="text-[11px] text-slate-400 text-center py-2">
-                            এখনও কোনো মন্তব্য নেই। প্রথম মন্তব্যটি আপনি করুন!
-                          </p>
-                        ) : (
-                          post.comments.map((comm) => (
-                            <div key={comm.id} className="flex items-start gap-2.5">
+                      {/* Existing comments */}
+                      <div className="space-y-3">
+                        {(post.comments || []).map((comm) => (
+                          <div key={comm.id} className="space-y-2">
+                            <div className="flex items-start gap-2.5">
                               <img
-                                src={comm.authorId === currentProfile.id ? currentProfile.avatar : comm.authorAvatar}
+                                src={comm.authorAvatar}
                                 alt=""
-                                className="w-7 h-7 rounded-full object-cover shrink-0 cursor-pointer"
-                                onClick={() => onViewProfile(comm.authorId)}
+                                className="w-8 h-8 rounded-full object-cover border border-slate-200"
                               />
-                              <div className="flex-1 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-2xs">
-                                <div className="flex items-center justify-between">
-                                  <h6
-                                    onClick={() => onViewProfile(comm.authorId)}
-                                    className="font-black text-xs text-slate-900 cursor-pointer hover:underline"
-                                  >
-                                    {comm.authorId === currentProfile.id ? currentProfile.name : comm.authorName}
-                                  </h6>
-                                  <span className="text-[9px] text-slate-400">
+                              <div className="flex-1 min-w-0">
+                                <div className="bg-white p-2.5 rounded-2xl border border-slate-200 inline-block max-w-[90%] shadow-2xs">
+                                  <p className="font-black text-xs text-slate-900">{comm.authorName}</p>
+                                  <p className="text-xs text-slate-700 leading-snug">{comm.content}</p>
+                                </div>
+                                <div className="flex items-center gap-3 text-[10px] text-slate-400 font-bold px-2 pt-0.5">
+                                  <span>
                                     {new Date(comm.createdAt).toLocaleTimeString([], {
                                       hour: '2-digit',
                                       minute: '2-digit',
                                     })}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOpenReplyBoxCommentId(
+                                        openReplyBoxCommentId === comm.id ? null : comm.id
+                                      )
+                                    }
+                                    className="text-[#1877F2] hover:underline cursor-pointer"
+                                  >
+                                    উত্তর দিন (Reply)
+                                  </button>
                                 </div>
-                                <p className="text-xs text-slate-700 mt-0.5 leading-snug">
-                                  {comm.content}
-                                </p>
                               </div>
                             </div>
-                          ))
-                        )}
+
+                            {/* Nested Replies */}
+                            {comm.replies && comm.replies.length > 0 && (
+                              <div className="pl-10 space-y-2">
+                                {comm.replies.map((rep) => (
+                                  <div key={rep.id} className="flex items-start gap-2">
+                                    <CornerDownRight className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-1" />
+                                    <img
+                                      src={rep.authorAvatar}
+                                      alt=""
+                                      className="w-6 h-6 rounded-full object-cover border border-slate-200 shrink-0"
+                                    />
+                                    <div className="bg-slate-100 p-2 rounded-xl text-xs max-w-[85%]">
+                                      <p className="font-black text-[11px] text-slate-900">{rep.authorName}</p>
+                                      <p className="text-[11px] text-slate-700">{rep.content}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Reply Input Box */}
+                            {openReplyBoxCommentId === comm.id && (
+                              <div className="pl-10 flex items-center gap-2 pt-1">
+                                <input
+                                  type="text"
+                                  placeholder={`${comm.authorName}-কে উত্তর দিন...`}
+                                  value={replyInputs[comm.id] || ''}
+                                  onChange={(e) =>
+                                    setReplyInputs((prev) => ({
+                                      ...prev,
+                                      [comm.id]: e.target.value,
+                                    }))
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      handleReplyToComment(post.id, comm.id);
+                                    }
+                                  }}
+                                  className="flex-1 px-3 py-1.5 bg-white border border-slate-200 focus:border-blue-400 rounded-full text-xs font-medium focus:outline-hidden"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleReplyToComment(post.id, comm.id)}
+                                  className="p-1.5 bg-[#1877F2] text-white rounded-full hover:bg-blue-700 transition"
+                                >
+                                  <Send className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Add comment input */}
+                      <div className="flex items-center gap-2 pt-2 border-t border-slate-200/60">
+                        <img
+                          src={currentProfile.avatar}
+                          alt=""
+                          className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
+                        />
+                        <input
+                          type="text"
+                          placeholder="একটি মন্তব্য লিখুন..."
+                          value={commentInputs[post.id] || ''}
+                          onChange={(e) =>
+                            setCommentInputs((prev) => ({
+                              ...prev,
+                              [post.id]: e.target.value,
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleAddComment(post.id);
+                            }
+                          }}
+                          className="flex-1 px-3.5 py-2 bg-white border border-slate-200 focus:border-blue-400 rounded-full text-xs font-medium focus:outline-hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddComment(post.id)}
+                          className="p-2 bg-[#1877F2] hover:bg-blue-700 text-white rounded-full transition shadow-xs"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   )}
@@ -893,81 +1337,184 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* RIGHT COLUMN: Trending Marketplace Products & Active Community (3 cols) */}
+      {/* RIGHT COLUMN: People You May Know & Hot Deals (3 cols on lg) */}
       {/* ========================================================================= */}
       <div className="hidden lg:block lg:col-span-3 space-y-4 sticky top-20">
-        {/* Trending Products */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3">
+        {/* People You May Know */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="font-black text-xs text-slate-900 flex items-center gap-1.5">
-              <TrendingUp className="w-4 h-4 text-[#1877F2]" />
-              <span>মার্কেটপ্লেসে ট্রেন্ডিং পণ্য</span>
-            </h3>
-            <span className="text-[10px] text-slate-400 font-bold">সরাসরি কিনুন</span>
+            <h4 className="font-black text-xs text-slate-900 flex items-center gap-1.5">
+              <UserPlus className="w-4 h-4 text-[#1877F2]" />
+              <span>পরিচিত হতে পারেন</span>
+            </h4>
           </div>
 
-          <div className="divide-y divide-slate-100">
-            {trendingProducts.map((prod) => (
-              <div key={prod.id} className="py-2.5 flex items-center gap-2.5 group">
-                <img
-                  src={prod.imageUrl}
-                  alt={prod.name}
-                  className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0"
-                />
-                <div className="min-w-0 flex-1">
-                  <h5 className="font-bold text-xs text-slate-800 line-clamp-1 group-hover:text-[#1877F2]">
-                    {prod.name}
-                  </h5>
-                  <div className="flex items-baseline gap-1 mt-0.5">
-                    <span className="text-xs font-black text-[#1877F2]">
-                      ৳ {formatMoney(prod.salePrice)}
-                    </span>
+          <div className="space-y-2.5">
+            {communityDirectory.slice(0, 4).map((user) => {
+              const isFollowing = (currentProfile.followingUserIds || []).includes(user.id);
+              return (
+                <div key={user.id} className="p-2 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2">
+                  <div
+                    onClick={() => onViewProfile(user.id)}
+                    className="flex items-center gap-2 min-w-0 cursor-pointer"
+                  >
+                    <img src={user.avatar} alt="" className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-bold text-xs text-slate-900 truncate hover:text-[#1877F2]">{user.name}</p>
+                      <p className="text-[10px] text-slate-400 truncate">{user.location || 'বাংলাদেশ'}</p>
+                    </div>
                   </div>
+
                   <button
                     type="button"
-                    onClick={() => onOpenQuickBuy(prod)}
-                    className="text-[10px] text-[#1877F2] font-black hover:underline cursor-pointer"
+                    onClick={() => handleFollowToggle(user.id, user.name)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition cursor-pointer shrink-0 ${
+                      isFollowing
+                        ? 'bg-slate-200 text-slate-700'
+                        : 'bg-[#1877F2] text-white hover:bg-blue-700 shadow-2xs'
+                    }`}
                   >
-                    এখনই অর্ডার করুন →
+                    {isFollowing ? 'ফলোয়িং' : 'Follow'}
                   </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
-        {/* Active Sellers / Contacts */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3">
-          <h3 className="font-black text-xs text-slate-900">
-            সক্রিয় বিক্রেতা ও বন্ধু
-          </h3>
+        {/* Hot Deals from Marketplace */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs space-y-3">
+          <h4 className="font-black text-xs text-slate-900 flex items-center gap-1.5">
+            <Flame className="w-4 h-4 text-rose-500" />
+            <span>সেন্ট্রাল হট ডিলস</span>
+          </h4>
+
           <div className="space-y-2">
-            {communityDirectory.map((user) => (
+            {trendingProducts.map((prod) => (
               <div
-                key={user.id}
-                onClick={() => onStartChat(user.id)}
-                className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-slate-50 transition cursor-pointer"
+                key={prod.id}
+                onClick={() => onOpenQuickBuy(prod)}
+                className="p-2 rounded-xl border border-slate-100 hover:border-blue-200 bg-slate-50/50 hover:bg-blue-50/50 transition cursor-pointer flex items-center gap-2.5"
               >
-                <div className="relative shrink-0">
-                  <img
-                    src={user.avatar}
-                    alt={user.name}
-                    className="w-9 h-9 rounded-full object-cover border border-slate-200"
-                  />
-                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full"></span>
-                </div>
+                <img src={prod.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <h5 className="font-bold text-xs text-slate-900 truncate">
-                    {user.name}
-                  </h5>
-                  <p className="text-[10px] text-slate-400 truncate">{user.username}</p>
+                  <p className="font-bold text-[11px] text-slate-800 truncate">{prod.name}</p>
+                  <p className="text-xs font-black text-[#1877F2]">৳ {prod.salePrice}</p>
                 </div>
-                <span className="text-[10px] text-[#1877F2] font-black">চ্যাট</span>
               </div>
             ))}
           </div>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* MODALS */}
+      {/* ========================================================================= */}
+      {/* Story Create Modal */}
+      <StoryCreateModal
+        isOpen={isStoryCreateOpen}
+        onClose={() => setIsStoryCreateOpen(false)}
+        onStoryCreated={() => refreshPosts()}
+        onShowToast={onShowToast}
+      />
+
+      {/* Story Viewer Modal */}
+      {viewingStoryIndex !== null && (
+        <StoryViewerModal
+          isOpen={true}
+          onClose={() => setViewingStoryIndex(null)}
+          stories={stories}
+          initialIndex={viewingStoryIndex}
+          currentUserId={currentProfile.id}
+          onDeleteStory={(id) => {
+            marketplaceSocialService.deleteStory(id);
+            refreshPosts();
+          }}
+        />
+      )}
+
+      {/* Group Create Modal */}
+      <GroupCreateModal
+        isOpen={isGroupCreateOpen}
+        onClose={() => setIsGroupCreateOpen(false)}
+        onGroupCreated={() => refreshPosts()}
+        onShowToast={onShowToast}
+      />
+
+      {/* Page Create Modal */}
+      <PageCreateModal
+        isOpen={isPageCreateOpen}
+        onClose={() => setIsPageCreateOpen(false)}
+        onPageCreated={() => refreshPosts()}
+        onShowToast={onShowToast}
+      />
+
+      {/* Edit Post Modal */}
+      {editingPost && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-200 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="font-black text-sm text-slate-900">পোস্ট সম্পাদনা করুন</h3>
+              <button
+                type="button"
+                onClick={() => setEditingPost(null)}
+                className="p-1 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-3">
+              <textarea
+                value={editPostText}
+                onChange={(e) => setEditPostText(e.target.value)}
+                rows={4}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium resize-none focus:outline-hidden"
+              />
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">অবস্থান</label>
+                <input
+                  type="text"
+                  value={editPostLocation}
+                  onChange={(e) => setEditPostLocation(e.target.value)}
+                  placeholder="অবস্থান লিখুন..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">প্রাইভেসি</label>
+                <select
+                  value={editPostPrivacy}
+                  onChange={(e) => setEditPostPrivacy(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
+                >
+                  <option value="public">🌍 পাবলিক (Public)</option>
+                  <option value="friends">👥 বন্ধুরা (Friends)</option>
+                  <option value="only_me">🔒 শুধু আমি (Only Me)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingPost(null)}
+                  className="flex-1 py-2 border border-slate-200 rounded-xl text-xs font-bold"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2 bg-[#1877F2] hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-md"
+                >
+                  সংরক্ষণ করুন
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Block Confirm Modal */}
       {blockTarget && (
@@ -979,7 +1526,7 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
         />
       )}
 
-      {/* Share Modal (Interactive Social & Profile Share) */}
+      {/* Share Modal */}
       {shareTarget && (
         <ShareModal
           isOpen={true}
@@ -992,7 +1539,7 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
         />
       )}
 
-      {/* Product Boost & Promotion Modal */}
+      {/* Product Boost Modal */}
       {boostTargetProduct && (
         <ProductBoostModal
           isOpen={true}
