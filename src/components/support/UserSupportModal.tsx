@@ -291,3 +291,4 @@ export const UserSupportModal: React.FC<UserSupportModalProps> = ({
       </div>
     </div>
   );
+};

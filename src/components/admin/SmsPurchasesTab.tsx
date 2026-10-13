@@ -967,4 +967,3 @@ export const SmsPurchasesTab: React.FC<SmsPurchasesTabProps> = ({
     </div>
   );
 };
-��

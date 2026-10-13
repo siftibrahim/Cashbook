@@ -362,4 +362,5 @@ export const StorefrontSupportDrawer: React.FC<StorefrontSupportDrawerProps> = (
         </form>
       </motion.div>
     </div>
-  �
+  );
+};

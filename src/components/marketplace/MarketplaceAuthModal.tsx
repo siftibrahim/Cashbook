@@ -866,4 +866,5 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
         </div>
       </div>
     </div>
-  )�
+  );
+};

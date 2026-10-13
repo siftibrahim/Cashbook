@@ -187,4 +187,7 @@ export async function notifySearchEnginesOnProductPublish(productId: string, pro
         // Dispatched in background
       });
   } catch (e) {
-    // Non-blockingp
+    // Non-blocking
+  }
+}
+

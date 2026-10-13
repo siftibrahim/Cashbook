@@ -1,530 +1,460 @@
-import React, { useState, useEffect } from 'react';
-import { StoreProfile } from '../types';
-import {
-  Phone,
-  LogOut,
-  Settings,
-  Store,
-  Bell,
-  Sparkles,
-  Wifi,
-  WifiOff,
-  RefreshCw,
-  CheckCircle2,
-  ShieldCheck,
-  Menu,
-  MoreVertical,
-  X,
-  ChevronRight,
-  MessageSquare,
-  Globe,
-  Truck,
-  QrCode,
-  BadgeCheck,
-  Cloud,
-} from 'lucide-react';
-import {
-  subscribeSyncStatus,
-  performFullCloudSync,
-  SyncStatus,
-  getCurrentSyncStatus,
-} from '../services/offlineSyncService';
-import { PWAInstallButton } from './pwa/PWAInstallButton';
+/**
+ * Offline Sync Service & Queue Manager for TWING হিসাবি
+ * Manages robust offline action queuing, automatic background sync, conflict resolution,
+ * and real-time connectivity status.
+ */
 
-interface NavbarProps {
-  store: StoreProfile;
-  onLogout: () => void;
-  onOpenSettings?: () => void;
-  onOpenOnlineStore?: () => void;
-  onOpenEcommerceCod?: () => void;
-  onOpenNotifications?: () => void;
-  onOpenSubscription?: () => void;
-  onOpenPermissions?: () => void;
-  onOpenSms?: () => void;
-  onOpenQrCode?: () => void;
-  unreadNotificationsCount?: number;
-  isSubscriptionSystemEnabled?: boolean;
-  smsBalance?: number;
+import { Customer, Transaction, StoreProfile, DailyExpense } from '../types';
+import {
+  customerApi,
+  transactionApi,
+  expenseApi,
+  storeApi,
+  productApi,
+  getStoredUser,
+  getAuthToken,
+} from './apiService';
+import {
+  getUserStorageKey,
+  getActiveUserId,
+  loadCustomers,
+  loadTransactions,
+  loadDailyExpenses,
+  loadStoreProfile,
+  loadProducts,
+  saveCustomers,
+  saveTransactions,
+  saveDailyExpenses,
+  saveStoreProfile,
+  saveProducts,
+} from '../utils/storage';
+
+export type SyncActionType =
+  | 'SAVE_CUSTOMER'
+  | 'DELETE_CUSTOMER'
+  | 'SAVE_TRANSACTION'
+  | 'DELETE_TRANSACTION'
+  | 'SAVE_EXPENSE'
+  | 'DELETE_EXPENSE'
+  | 'SAVE_STORE_PROFILE'
+  | 'SAVE_PRODUCT'
+  | 'DELETE_PRODUCT'
+  | 'SYNC_ALL';
+
+export interface QueueItem {
+  id: string;
+  action: SyncActionType;
+  payload: any;
+  createdAt: number;
+  attempts: number;
+  lastAttemptAt?: number;
+  error?: string;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({
-  store,
-  onLogout,
-  onOpenSettings,
-  onOpenOnlineStore,
-  onOpenEcommerceCod,
-  onOpenNotifications,
-  onOpenSubscription,
-  onOpenPermissions,
-  onOpenSms,
-  onOpenQrCode,
-  unreadNotificationsCount = 0,
-  isSubscriptionSystemEnabled = true,
-  smsBalance,
-}) => {
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>(getCurrentSyncStatus());
-  const [syncMsg, setSyncMsg] = useState<string | null>(null);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+export interface SyncStatus {
+  isOnline: boolean;
+  isSyncing: boolean;
+  pendingCount: number;
+  lastSyncedAt: number | null;
+  lastError: string | null;
+}
 
-  useEffect(() => {
-    const unsubscribe = subscribeSyncStatus((status) => {
-      setSyncStatus(status);
-    });
-    return () => unsubscribe();
-  }, []);
+type SyncListener = (status: SyncStatus) => void;
+const listeners = new Set<SyncListener>();
 
-  const handleManualSyncClick = async () => {
-    if (syncStatus.isSyncing) return;
-    setSyncMsg('ক্লাউড সিঙ্ক হচ্ছে...');
-    try {
-      const result = await performFullCloudSync();
-      setSyncMsg(result.message);
-    } catch {
-      setSyncMsg('সিঙ্ক সম্পন্ন হয়েছে');
-    }
-    setTimeout(() => {
-      setSyncMsg(null);
-    }, 3500);
+let currentStatus: SyncStatus = {
+  isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  isSyncing: false,
+  pendingCount: 0,
+  lastSyncedAt: Date.now(),
+  lastError: null,
+};
+
+function notifyListeners() {
+  currentStatus = {
+    ...currentStatus,
+    pendingCount: getPendingQueueCount(),
   };
+  listeners.forEach((fn) => {
+    try {
+      fn({ ...currentStatus });
+    } catch (e) {
+      console.warn('Sync listener error:', e);
+    }
+  });
+}
 
-  return (
-    <>
-      {/* ===================== CLEAN & BEAUTIFUL FINTECH HEADER ===================== */}
-      <header
-        id="main-app-header"
-        className="sticky top-0 left-0 right-0 z-40 w-full bg-gradient-to-r from-[#00382E] via-[#004D40] to-[#003128] text-white px-3 sm:px-4 py-2 min-h-[54px] sm:min-h-[58px] flex items-center justify-between shadow-md shrink-0 no-print border-b border-emerald-500/20 select-none relative"
-        style={{
-          paddingTop: 'env(safe-area-inset-top, 0px)',
-        }}
-      >
-        {/* Left: Store Branding with Avatar, Name & Phone (Clean, Unstyled, Smaller, Centered) */}
-        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 pr-2">
-          {/* Store Avatar Logo */}
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            title="দোকান প্রোফাইল ও সেটিংস খুলুন"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden shrink-0 border border-emerald-400/40 shadow-xs cursor-pointer active:scale-95 transition bg-[#002B23]"
-          >
-            <img
-              src={store.logoUrl || '/icon-192.png'}
-              alt={store.name || 'TWING Hisabi'}
-              className="w-full h-full object-cover"
-            />
-          </button>
+/**
+ * Subscribe to live sync & online status
+ */
+export function subscribeSyncStatus(listener: SyncListener): () => void {
+  listeners.add(listener);
+  listener({ ...currentStatus, pendingCount: getPendingQueueCount() });
+  return () => {
+    listeners.delete(listener);
+  };
+}
 
-          {/* Store Name & Phone (Plain text, smaller, vertically centered, no extra capsule/card) */}
-          <div className="flex flex-col justify-center min-w-0 leading-tight">
-            {/* Store Name with subtle online status dot */}
-            <div className="flex items-center gap-1.5 min-w-0">
-              <h1
-                onClick={onOpenSettings}
-                title={store.name || 'আমার দোকান'}
-                className="text-xs sm:text-sm font-bold text-white tracking-tight truncate cursor-pointer hover:text-emerald-200 transition max-w-[140px] xs:max-w-[200px] sm:max-w-[320px]"
-              >
-                {store.name || 'আমার দোকান'}
-              </h1>
+export function getCurrentSyncStatus(): SyncStatus {
+  return { ...currentStatus, pendingCount: getPendingQueueCount() };
+}
 
-              {/* Online / Sync Status Dot */}
-              <button
-                type="button"
-                onClick={handleManualSyncClick}
-                id="nav-online-status-pill"
-                title={
-                  syncStatus.isSyncing
-                    ? 'ক্লাউড সিঙ্ক হচ্ছে...'
-                    : syncStatus.isOnline
-                    ? 'অনলাইন (সিঙ্ক করতে ক্লিক করুন)'
-                    : 'অফলাইন — ইন্টারনেট সংযোগ নেই'
-                }
-                className="inline-flex items-center justify-center cursor-pointer p-0.5"
-              >
-                {syncStatus.isSyncing ? (
-                  <RefreshCw className="w-2.5 h-2.5 text-amber-300 animate-spin" />
-                ) : syncStatus.isOnline ? (
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
-                  </span>
-                ) : (
-                  <WifiOff className="w-2.5 h-2.5 text-rose-400" />
-                )}
-              </button>
-            </div>
+/**
+ * Get sync queue key for current user
+ */
+function getQueueStorageKey(userId?: string): string {
+  const uid = userId || getActiveUserId();
+  return getUserStorageKey('offline_sync_queue_v2', uid);
+}
 
-            {/* Mobile Phone Number */}
-            {store.phone && (
-              <div className="flex items-center gap-1 mt-0.5">
-                <a
-                  href={`tel:${store.phone}`}
-                  title={`কল করুন: ${store.phone}`}
-                  className="inline-flex items-center gap-1 text-[10.5px] sm:text-[11px] text-teal-100/80 hover:text-white transition font-mono"
-                >
-                  <Phone className="w-2.5 h-2.5 text-emerald-300 shrink-0" />
-                  <span className="truncate max-w-[120px] xs:max-w-[180px] sm:max-w-[250px]">{store.phone}</span>
-                </a>
-              </div>
-            )}
-          </div>
-        </div>
+/**
+ * Get pending sync queue items from LocalStorage
+ */
+export function getPendingQueue(userId?: string): QueueItem[] {
+  try {
+    const key = getQueueStorageKey(userId);
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.warn('Error reading sync queue:', e);
+    return [];
+  }
+}
 
-        {/* Right: Clean & Elegant Action Bar */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {/* Quick QR Code Button (When available) */}
-          {onOpenQrCode && (
-            <button
-              type="button"
-              onClick={onOpenQrCode}
-              title="দোকানের পেমেন্ট ও কিউআর কোড"
-              className="hidden sm:flex w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 border border-white/10 text-teal-100 hover:text-white items-center justify-center transition cursor-pointer"
-            >
-              <QrCode className="w-4.5 h-4.5" />
-            </button>
-          )}
+/**
+ * Save pending sync queue to LocalStorage
+ */
+function savePendingQueue(queue: QueueItem[], userId?: string): void {
+  try {
+    const key = getQueueStorageKey(userId);
+    localStorage.setItem(key, JSON.stringify(queue));
+    notifyListeners();
+  } catch (e) {
+    console.error('Error saving sync queue:', e);
+  }
+}
 
-          {/* Notifications Button */}
-          {onOpenNotifications && (
-            <button
-              type="button"
-              onClick={onOpenNotifications}
-              id="nav-notifications-btn"
-              title="বিজ্ঞপ্তি ও নোটিফিকেশন"
-              className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 border border-white/10 text-teal-100 hover:text-white flex items-center justify-center transition cursor-pointer"
-            >
-              <Bell className="w-4.5 h-4.5" />
-              {unreadNotificationsCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center ring-2 ring-[#00382E] shadow-xs">
-                  {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
-                </span>
-              )}
-            </button>
-          )}
+/**
+ * Get count of pending items
+ */
+export function getPendingQueueCount(userId?: string): number {
+  return getPendingQueue(userId).length;
+}
 
-          {/* Menu Icon Button */}
-          <button
-            type="button"
-            onClick={() => setIsMenuOpen(true)}
-            id="nav-main-menu-btn"
-            title="মেনু ও সেটিংস"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 border border-white/10 text-white flex items-center justify-center transition cursor-pointer"
-          >
-            <Menu className="w-4.5 h-4.5 text-white" />
-          </button>
-        </div>
-      </header>
+/**
+ * Enqueue an action to be synced with the server
+ */
+export function enqueueAction(action: SyncActionType, payload: any, userId?: string): void {
+  const uid = userId || getActiveUserId();
+  const queue = getPendingQueue(uid);
+  const newItemId = 'sq_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
-      {/* Sync Toast Notification Banner */}
-      {syncMsg && (
-        <div
-          id="nav-sync-toast"
-          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-[#002720]/95 backdrop-blur-md text-white text-xs px-4 py-2.5 rounded-2xl shadow-2xl border border-emerald-400/40 flex items-center gap-2.5 animate-bounce font-medium"
-        >
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{syncMsg}</span>
-        </div>
-      )}
+  // Smart deduplication & compaction
+  let updatedQueue = [...queue];
 
-      {/* ===================== LUXURY MOBILE MENU DRAWER ===================== */}
-      {isMenuOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-200">
-          {/* Backdrop dismiss */}
-          <div className="fixed inset-0" onClick={() => setIsMenuOpen(false)} />
+  if (action === 'SAVE_CUSTOMER' && payload?.id) {
+    // If customer already has a pending SAVE, replace it with latest data
+    const existingIdx = updatedQueue.findIndex(
+      (item) => item.action === 'SAVE_CUSTOMER' && item.payload?.id === payload.id
+    );
+    if (existingIdx >= 0) {
+      updatedQueue[existingIdx] = {
+        ...updatedQueue[existingIdx],
+        payload,
+        createdAt: Date.now(),
+      };
+      savePendingQueue(updatedQueue, uid);
+      triggerBackgroundSync(uid);
+      return;
+    }
+  } else if (action === 'DELETE_CUSTOMER' && payload?.customerId) {
+    // Remove any pending saves for this customer and keep delete
+    updatedQueue = updatedQueue.filter(
+      (item) => !(item.action === 'SAVE_CUSTOMER' && item.payload?.id === payload.customerId)
+    );
+  } else if (action === 'SAVE_TRANSACTION' && payload?.id) {
+    const existingIdx = updatedQueue.findIndex(
+      (item) => item.action === 'SAVE_TRANSACTION' && item.payload?.id === payload.id
+    );
+    if (existingIdx >= 0) {
+      updatedQueue[existingIdx] = {
+        ...updatedQueue[existingIdx],
+        payload,
+        createdAt: Date.now(),
+      };
+      savePendingQueue(updatedQueue, uid);
+      triggerBackgroundSync(uid);
+      return;
+    }
+  } else if (action === 'DELETE_TRANSACTION' && payload?.txId) {
+    updatedQueue = updatedQueue.filter(
+      (item) => !(item.action === 'SAVE_TRANSACTION' && item.payload?.id === payload.txId)
+    );
+  } else if (action === 'SAVE_STORE_PROFILE') {
+    // Only keep latest profile save
+    updatedQueue = updatedQueue.filter((item) => item.action !== 'SAVE_STORE_PROFILE');
+  } else if (action === 'SAVE_PRODUCT' && payload?.id) {
+    const existingIdx = updatedQueue.findIndex(
+      (item) => item.action === 'SAVE_PRODUCT' && item.payload?.id === payload.id
+    );
+    if (existingIdx >= 0) {
+      updatedQueue[existingIdx] = {
+        ...updatedQueue[existingIdx],
+        payload,
+        createdAt: Date.now(),
+      };
+      savePendingQueue(updatedQueue, uid);
+      triggerBackgroundSync(uid);
+      return;
+    }
+  } else if (action === 'DELETE_PRODUCT' && (payload?.productId || payload?.id)) {
+    const pId = payload.productId || payload.id;
+    updatedQueue = updatedQueue.filter(
+      (item) => !(item.action === 'SAVE_PRODUCT' && item.payload?.id === pId)
+    );
+  }
 
-          {/* Drawer Panel */}
-          <div
-            className="relative w-full max-w-xs sm:max-w-sm h-full bg-[#0B1516] border-l border-emerald-500/20 shadow-2xl flex flex-col justify-between p-5 z-10 animate-in slide-in-from-right duration-250 overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Drawer Header Card */}
-            <div>
-              <div className="flex items-center justify-between pb-4 border-b border-emerald-500/20">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 rounded-2xl p-0.5 bg-gradient-to-br from-emerald-400 to-teal-600 shadow-md ring-1 ring-white/20 shrink-0">
-                    <img
-                      src="/icon-192.png"
-                      alt={store.name}
-                      className="w-full h-full object-cover rounded-[14px]"
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-black text-white truncate max-w-[170px]">
-                      {store.name || 'TWING হিসাবি'}
-                    </h3>
-                    <p className="text-[11px] text-emerald-400/90 font-mono truncate">
-                      {store.phone || 'স্মার্ট ক্যাশবুক ও খাতা'}
-                    </p>
-                  </div>
-                </div>
+  updatedQueue.push({
+    id: newItemId,
+    action,
+    payload,
+    createdAt: Date.now(),
+    attempts: 0,
+  });
 
-                <button
-                  type="button"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
-                >
-                  <X className="w-4.5 h-4.5" />
-                </button>
-              </div>
+  savePendingQueue(updatedQueue, uid);
+  triggerBackgroundSync(uid);
+}
 
-              {/* Menu Options List */}
-              <div className="mt-4 space-y-2">
-                {/* 📱 PWA Install Button */}
-                <PWAInstallButton
-                  variant="drawer"
-                  onActionComplete={() => setIsMenuOpen(false)}
-                />
+/**
+ * Process the entire pending queue sequentially
+ */
+export async function processSyncQueue(userId?: string): Promise<{
+  success: boolean;
+  syncedCount: number;
+  remainingCount: number;
+  error?: string;
+}> {
+  const uid = userId || getActiveUserId();
+  const token = getAuthToken();
 
-                {/* Subscription Packages */}
-                {isSubscriptionSystemEnabled && onOpenSubscription && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      onOpenSubscription();
-                    }}
-                    className="w-full p-3 rounded-2xl bg-gradient-to-r from-amber-500/15 to-transparent hover:bg-amber-500/25 border border-amber-500/30 text-left flex items-center justify-between transition cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
-                        <Sparkles className="w-4 h-4 animate-pulse" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-black text-amber-300 block">
-                          সাবস্ক্রিপশন ও প্যাকেজ
-                        </span>
-                        <span className="text-[10px] text-amber-200/80 block">
-                          মেয়াদ বৃদ্ধি ও প্রিমিয়াম ফিচার
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-amber-400 group-hover:translate-x-0.5 transition" />
-                  </button>
-                )}
+  // If no user logged in or no network, skip
+  if (!navigator.onLine || !token) {
+    currentStatus.isOnline = navigator.onLine;
+    notifyListeners();
+    return {
+      success: false,
+      syncedCount: 0,
+      remainingCount: getPendingQueueCount(uid),
+      error: 'অফলাইন মোড অথবা লগইন করা নেই',
+    };
+  }
 
-                {/* SMS Tagada & Recharge Service */}
-                {onOpenSms && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      onOpenSms();
-                    }}
-                    className="w-full p-3 rounded-2xl bg-gradient-to-r from-teal-500/15 to-transparent hover:bg-teal-500/25 border border-teal-500/30 text-left flex items-center justify-between transition cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-xl bg-teal-500/20 text-teal-400">
-                        <MessageSquare className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-black text-teal-300 block">
-                            তাগাদা এসএমএস
-                          </span>
-                          {smsBalance !== undefined && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 font-bold border border-teal-500/30">
-                              {smsBalance} টি
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[10px] text-teal-200/80 block">
-                          প্যাকেজ ক্রয় ও বাকি তাগাদা পাঠান
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-teal-400 group-hover:translate-x-0.5 transition" />
-                  </button>
-                )}
+  if (currentStatus.isSyncing) {
+    return {
+      success: true,
+      syncedCount: 0,
+      remainingCount: getPendingQueueCount(uid),
+    };
+  }
 
-                {/* Online Store & Website */}
-                {onOpenOnlineStore && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      onOpenOnlineStore();
-                    }}
-                    className="w-full p-3 rounded-2xl bg-emerald-950/30 hover:bg-emerald-950/60 border border-emerald-500/20 text-left flex items-center justify-between transition cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
-                        <Globe className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-emerald-300 block">
-                          অনলাইন স্টোর ও ওয়েবসাইট
-                        </span>
-                        <span className="text-[10px] text-emerald-200/70 block">
-                          ই-কমার্স ওয়েবসাইট, কাস্টম ডোমেন ও অর্ডার
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 transition" />
-                  </button>
-                )}
+  currentStatus.isSyncing = true;
+  currentStatus.lastError = null;
+  notifyListeners();
 
-                {/* E-Commerce & COD Dedicated Ledger */}
-                {onOpenEcommerceCod && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      onOpenEcommerceCod();
-                    }}
-                    className="w-full p-3 rounded-2xl bg-gradient-to-r from-teal-500/15 via-emerald-500/10 to-transparent hover:bg-teal-500/25 border border-teal-500/30 text-left flex items-center justify-between transition cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-xl bg-teal-500/20 text-teal-300">
-                        <Truck className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-black text-teal-200 block">
-                            ই-কমার্স ও COD হিসাব
-                          </span>
-                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-bold border border-amber-400/30">
-                            আলাদা অপশন
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-teal-100/70 block">
-                          ক্যাশ অন ডেলিভারি, কুরিয়ার ও পার্সেল হিসাব
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-teal-400 group-hover:translate-x-0.5 transition" />
-                  </button>
-                )}
+  const queue = getPendingQueue(uid);
+  if (queue.length === 0) {
+    currentStatus.isSyncing = false;
+    currentStatus.lastSyncedAt = Date.now();
+    notifyListeners();
+    return { success: true, syncedCount: 0, remainingCount: 0 };
+  }
 
-                {/* QR Code Modal Trigger */}
-                {onOpenQrCode && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      onOpenQrCode();
-                    }}
-                    className="w-full p-3 rounded-2xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-xl bg-slate-800 text-teal-300">
-                        <QrCode className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-white block">
-                          দোকানের পেমেন্ট কিউআর কোড
-                        </span>
-                        <span className="text-[10px] text-slate-400 block">
-                          বিকাশ, নগদ বা ব্যাংক কিউআর দেখান
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:translate-x-0.5 transition" />
-                  </button>
-                )}
+  let syncedCount = 0;
+  const remainingQueue: QueueItem[] = [];
 
-                {/* Store Settings */}
-                {onOpenSettings && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      onOpenSettings();
-                    }}
-                    className="w-full p-3 rounded-2xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-xl bg-slate-800 text-teal-400">
-                        <Settings className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-white block">
-                          দোকান সেটিংস
-                        </span>
-                        <span className="text-[10px] text-slate-400 block">
-                          প্রোফাইল, ক্যাশমেমো ও প্রিন্টার
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:translate-x-0.5 transition" />
-                  </button>
-                )}
+  for (const item of queue) {
+    try {
+      item.attempts = (item.attempts || 0) + 1;
+      item.lastAttemptAt = Date.now();
 
-                {/* Permissions & Security */}
-                {onOpenPermissions && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      onOpenPermissions();
-                    }}
-                    className="w-full p-3 rounded-2xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-xl bg-slate-800 text-indigo-400">
-                        <ShieldCheck className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-white block">
-                          অ্যাপ পারমিশন ও নিরাপত্তা
-                        </span>
-                        <span className="text-[10px] text-slate-400 block">
-                          ক্যামেরা, এসএমএস ও স্টোরেজ
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:translate-x-0.5 transition" />
-                  </button>
-                )}
+      switch (item.action) {
+        case 'SAVE_CUSTOMER':
+          await customerApi.save(item.payload);
+          break;
+        case 'DELETE_CUSTOMER':
+          await customerApi.delete(item.payload.customerId || item.payload.id);
+          break;
+        case 'SAVE_TRANSACTION':
+          await transactionApi.save(item.payload);
+          break;
+        case 'DELETE_TRANSACTION':
+          await transactionApi.delete(item.payload.txId || item.payload.id);
+          break;
+        case 'SAVE_EXPENSE':
+          await expenseApi.save(item.payload);
+          break;
+        case 'DELETE_EXPENSE':
+          await expenseApi.delete(item.payload.expenseId || item.payload.id);
+          break;
+        case 'SAVE_STORE_PROFILE':
+          await storeApi.saveProfile(item.payload);
+          break;
+        case 'SAVE_PRODUCT':
+          await productApi.save(item.payload);
+          break;
+        case 'DELETE_PRODUCT':
+          await productApi.delete(item.payload.productId || item.payload.id);
+          break;
+        case 'SYNC_ALL':
+          await storeApi.syncAll(
+            item.payload.store,
+            item.payload.customers,
+            item.payload.transactions,
+            item.payload.expenses
+          );
+          if (Array.isArray(item.payload.products) && item.payload.products.length > 0) {
+            await productApi.batchSync(item.payload.products);
+          }
+          break;
+      }
+      syncedCount++;
+    } catch (err: any) {
+      console.warn(`Sync item failed for action ${item.action}:`, err);
+      const rawError = (err?.message || '').trim();
+      item.error = rawError || 'অপ্রত্যাশিত নেটওয়ার্ক বা সার্ভার ত্রুটি';
 
-                {/* Cloud Sync Action */}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await handleManualSyncClick();
-                    setIsMenuOpen(false);
-                  }}
-                  className="w-full p-3 rounded-2xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-left flex items-center justify-between transition cursor-pointer group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-xl bg-slate-800 text-sky-400">
-                      <RefreshCw
-                        className={`w-4 h-4 ${syncStatus.isSyncing ? 'animate-spin' : ''}`}
-                      />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-white block">
-                        ক্লাউড ডাটা সিঙ্ক
-                      </span>
-                      <span className="text-[10px] text-slate-400 block">
-                        {syncStatus.isOnline
-                          ? 'সব ডাটা সেন্ট্রাল সার্ভারের সাথে মিলান'
-                          : 'অফলাইন — ইন্টারনেট পেলেই সিঙ্ক হবে'}
-                      </span>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:translate-x-0.5 transition" />
-                </button>
-              </div>
-            </div>
+      const isFatalClientError = err?.status === 400 || err?.status === 404 || err?.status === 422;
+      const hasExceededRetries = (item.attempts || 0) >= 5;
 
-            {/* Drawer Footer: Logout */}
-            <div className="pt-4 border-t border-emerald-500/20">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMenuOpen(false);
-                  onLogout();
-                }}
-                className="w-full py-3 rounded-2xl bg-rose-500/15 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>লগআউট করুন</span>
-              </button>
-              <p className="text-[10px] text-slate-500 text-center mt-2.5 font-medium">
-                TWING হিসাবি • স্মার্ট খাতা ও ব্যবসা ব্যবস্থাপনা
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}@�
+      // Keep item in queue only if transient failure and hasn't exceeded 5 retries
+      if (!isFatalClientError && !hasExceededRetries) {
+        remainingQueue.push(item);
+      } else {
+        console.warn(`Discarding non-recoverable sync item (${item.action}) after ${item.attempts} attempts:`, item.error);
+      }
+
+      // If network is completely dead, break and save remaining
+      if (!navigator.onLine || err?.status === 0 || err?.message?.includes('Failed to fetch')) {
+        currentStatus.isOnline = false;
+        break;
+      }
+    }
+  }
+
+  savePendingQueue(remainingQueue, uid);
+  currentStatus.isSyncing = false;
+  currentStatus.lastSyncedAt = Date.now();
+  currentStatus.lastError = remainingQueue.length > 0 ? remainingQueue[0].error || 'সিঙ্কে সমস্যা হয়েছে' : null;
+  notifyListeners();
+
+  return {
+    success: remainingQueue.length === 0,
+    syncedCount,
+    remainingCount: remainingQueue.length,
+    error: currentStatus.lastError || undefined,
+  };
+}
+
+/**
+ * Trigger background sync with debouncing
+ */
+let syncDebounceTimer: any = null;
+export function triggerBackgroundSync(userId?: string): void {
+  if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+  syncDebounceTimer = setTimeout(() => {
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      processSyncQueue(userId).catch(() => {});
+    }
+  }, 1200);
+}
+
+/**
+ * Full Manual Sync: Flushes local queue and syncs current full ledger to cloud
+ */
+export async function performFullCloudSync(userId?: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  const uid = userId || getActiveUserId();
+
+  if (!navigator.onLine) {
+    return {
+      success: false,
+      message: '📶 ইন্টারনেট সংযোগ নেই। ডাটা আপনার ফোনে অফলাইনে সংরক্ষিত আছে।',
+    };
+  }
+
+  try {
+    currentStatus.isSyncing = true;
+    notifyListeners();
+
+    // 1. Process queued single actions first
+    await processSyncQueue(uid);
+
+    // 2. Perform whole ledger sync backup
+    const store = loadStoreProfile(uid);
+    const custs = loadCustomers(uid);
+    const txs = loadTransactions(uid);
+    const exps = loadDailyExpenses(uid);
+    const prods = loadProducts(uid);
+
+    await storeApi.syncAll(store, custs, txs, exps);
+
+    // Sync products if any exist locally
+    if (Array.isArray(prods) && prods.length > 0) {
+      await productApi.batchSync(prods).catch((e) => console.warn('Product batch sync warning:', e));
+    }
+
+    currentStatus.isSyncing = false;
+    currentStatus.isOnline = true;
+    currentStatus.lastSyncedAt = Date.now();
+    currentStatus.lastError = null;
+    savePendingQueue([], uid);
+    notifyListeners();
+
+    return {
+      success: true,
+      message: '☁️ আপনার সম্পূর্ণ খাতার হিসাব ক্লাউড ডাটাবেজে সফলভাবে ব্যাকআপ ও সিঙ্ক হয়েছে!',
+    };
+  } catch (err: any) {
+    currentStatus.isSyncing = false;
+    currentStatus.lastError = err?.message || 'সিঙ্ক ব্যর্থ হয়েছে';
+    notifyListeners();
+    return {
+      success: false,
+      message: `⚠️ সিঙ্ক ব্যর্থ হয়েছে: ${err?.message || 'সার্ভার সংযোগে ত্রুটি'}`,
+    };
+  }
+}
+
+// -------------------------------------------------------------
+// Auto-initialize Global Online / Offline Event Listeners
+// -------------------------------------------------------------
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    currentStatus.isOnline = true;
+    notifyListeners();
+    triggerBackgroundSync();
+    // Schedule full reconciliation cloud sync after reconnect
+    setTimeout(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        performFullCloudSync().catch((e) => console.warn('Offline recovery sync error:', e));
+      }
+    }, 2500);
+  });
+
+  window.addEventListener('offline', () => {
+    currentStatus.isOnline = false;
+    notifyListeners();
+  });
+
+  // Periodic heartbeat sync every 30 seconds
+  setInterval(() => {
+    if (typeof navigator !== 'undefined' && navigator.onLine && getPendingQueueCount() > 0) {
+      processSyncQueue().catch(() => {});
+    }
+  }, 30000);
+}

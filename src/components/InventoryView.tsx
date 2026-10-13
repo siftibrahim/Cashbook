@@ -1026,4 +1026,3 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     </div>
   );
 };
-p�

@@ -1,1 +1,222 @@
-var __defProp=Object.defineProperty;var __name=(target,value)=>__defProp(target,"name",{value,configurable:true});const RESERVED_SUBDOMAINS=new Set(["www","app","admin","api","dashboard","mail","cname","ns1","ns2","smtp","ftp","status","auth","login","billing","cdn","assets","static","cloud","portal","root","public","dev","staging","test","centralmarketplace","marketplace"]);function cleanDomainString(domain){if(!domain)return"";return domain.trim().toLowerCase().replace(/^https?:\/\//i,"").replace(/\/.*$/,"").replace(/:\d+$/,"")}__name(cleanDomainString,"cleanDomainString");function validateStoreSlug(slug){if(!slug){return{valid:false,error:"\u09B8\u09BE\u09AC-\u09A1\u09CB\u09AE\u09C7\u09A8 \u09AC\u09BE \u09B8\u09CD\u09B2\u09BE\u0997 \u0996\u09BE\u09B2\u09BF \u09B0\u09BE\u0996\u09BE \u09AF\u09BE\u09AC\u09C7 \u09A8\u09BE\u0964"}}const clean=slug.toLowerCase().trim();if(clean.length<3){return{valid:false,error:"\u09B8\u09BE\u09AC-\u09A1\u09CB\u09AE\u09C7\u09A8 \u09A8\u09BE\u09AE\u099F\u09BF \u0995\u09AE\u09AA\u0995\u09CD\u09B7\u09C7 \u09E9 \u0985\u0995\u09CD\u09B7\u09B0\u09C7\u09B0 \u09B9\u09A4\u09C7 \u09B9\u09AC\u09C7\u0964"}}if(clean.length>60){return{valid:false,error:"\u09B8\u09BE\u09AC-\u09A1\u09CB\u09AE\u09C7\u09A8 \u09A8\u09BE\u09AE\u099F\u09BF \u09B8\u09B0\u09CD\u09AC\u09CB\u099A\u09CD\u099A \u09EC\u09E6 \u0985\u0995\u09CD\u09B7\u09B0\u09C7\u09B0 \u09B9\u09A4\u09C7 \u09AA\u09BE\u09B0\u09C7\u0964"}}if(!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(clean)){return{valid:false,error:"\u09B8\u09BE\u09AC-\u09A1\u09CB\u09AE\u09C7\u09A8\u09C7 \u09B6\u09C1\u09A7\u09C1\u09AE\u09BE\u09A4\u09CD\u09B0 \u099B\u09CB\u099F \u09B9\u09BE\u09A4\u09C7\u09B0 \u0987\u0982\u09B0\u09C7\u099C\u09BF \u0985\u0995\u09CD\u09B7\u09B0 (a-z), \u09B8\u0982\u0996\u09CD\u09AF\u09BE (0-9) \u098F\u09AC\u0982 \u09B9\u09BE\u0987\u09AB\u09C7\u09A8 (-) \u09AC\u09CD\u09AF\u09AC\u09B9\u09BE\u09B0 \u0995\u09B0\u09BE \u09AF\u09BE\u09AC\u09C7\u0964 \u09B6\u09C1\u09B0\u09C1 \u09AC\u09BE \u09B6\u09C7\u09B7\u09C7 \u09B9\u09BE\u0987\u09AB\u09C7\u09A8 \u0997\u09CD\u09B0\u09B9\u09A3\u09AF\u09CB\u0997\u09CD\u09AF \u09A8\u09DF\u0964"}}if(RESERVED_SUBDOMAINS.has(clean)){return{valid:false,error:`"${clean}" \u09A8\u09BE\u09AE\u099F\u09BF \u09B8\u09BF\u09B8\u09CD\u099F\u09C7\u09AE\u09C7\u09B0 \u099C\u09A8\u09CD\u09AF \u09B8\u0982\u09B0\u0995\u09CD\u09B7\u09BF\u09A4\u0964 \u0985\u09A8\u09C1\u0997\u09CD\u09B0\u09B9 \u0995\u09B0\u09C7 \u0985\u09A8\u09CD\u09AF \u098F\u0995\u099F\u09BF \u0987\u0989\u09A8\u09BF\u0995 \u09A8\u09BE\u09AE \u09A6\u09BF\u09A8 (\u09AF\u09C7\u09AE\u09A8: ${clean}-shop \u09AC\u09BE my-${clean})\u0964`}}return{valid:true}}__name(validateStoreSlug,"validateStoreSlug");function extractSubdomainFromHost(rawHost,baseDomain=process.env.STORE_BASE_DOMAIN||"twinghisabi.site"){const cleanHost=cleanDomainString(rawHost);const normalizedBase=cleanDomainString(baseDomain).toLowerCase();if(!cleanHost){return{rawHost,cleanHost:"",isSubdomain:false,slug:null,isCustomDomain:false,isRootDomain:true,baseDomain:normalizedBase}}if(cleanHost===normalizedBase||cleanHost===`www.${normalizedBase}`){return{rawHost,cleanHost,isSubdomain:false,slug:null,isCustomDomain:false,isRootDomain:true,baseDomain:normalizedBase}}if(cleanHost.endsWith(`.${normalizedBase}`)){const subPart=cleanHost.slice(0,-(normalizedBase.length+1)).toLowerCase();const slug=subPart.split(".")[0];if(slug&&!RESERVED_SUBDOMAINS.has(slug)){return{rawHost,cleanHost,isSubdomain:true,slug,isCustomDomain:false,isRootDomain:false,baseDomain:normalizedBase}}return{rawHost,cleanHost,isSubdomain:false,slug:null,isCustomDomain:false,isRootDomain:true,baseDomain:normalizedBase}}const isDevHost=cleanHost.endsWith(".localhost")||cleanHost.endsWith(".lvh.me")||cleanHost.includes(".nip.io");if(isDevHost){const slug=cleanHost.split(".")[0].toLowerCase();if(slug&&!RESERVED_SUBDOMAINS.has(slug)){return{rawHost,cleanHost,isSubdomain:true,slug,isCustomDomain:false,isRootDomain:false,baseDomain:normalizedBase}}}const isPlatformHost=cleanHost==="localhost"||cleanHost==="127.0.0.1"||cleanHost.endsWith("googleusercontent.com")||cleanHost.endsWith("run.app")||cleanHost.endsWith("onrender.com");if(isPlatformHost){return{rawHost,cleanHost,isSubdomain:false,slug:null,isCustomDomain:false,isRootDomain:true,baseDomain:normalizedBase}}if(cleanHost.includes(".")){return{rawHost,cleanHost,isSubdomain:false,slug:null,isCustomDomain:true,isRootDomain:false,baseDomain:normalizedBase}}return{rawHost,cleanHost,isSubdomain:false,slug:null,isCustomDomain:false,isRootDomain:true,baseDomain:normalizedBase}}__name(extractSubdomainFromHost,"extractSubdomainFromHost");export{RESERVED_SUBDOMAINS,cleanDomainString,extractSubdomainFromHost,validateStoreSlug};
+/**
+ * Domain & Subdomain Resolution Utility
+ * Provides deterministic tenant extraction, wildcard subdomain routing,
+ * and security validation for twinghisabi.site and custom domains.
+ */
+
+export const RESERVED_SUBDOMAINS = new Set([
+  'www',
+  'app',
+  'admin',
+  'api',
+  'dashboard',
+  'mail',
+  'cname',
+  'ns1',
+  'ns2',
+  'smtp',
+  'ftp',
+  'status',
+  'auth',
+  'login',
+  'billing',
+  'cdn',
+  'assets',
+  'static',
+  'cloud',
+  'portal',
+  'root',
+  'public',
+  'dev',
+  'staging',
+  'test',
+  'centralmarketplace',
+  'marketplace',
+]);
+
+export interface HostInfo {
+  rawHost: string;
+  cleanHost: string;
+  isSubdomain: boolean;
+  slug: string | null;
+  isCustomDomain: boolean;
+  isRootDomain: boolean;
+  baseDomain: string;
+}
+
+/**
+ * Strips protocol, port, and trailing path from a host or domain string
+ */
+export function cleanDomainString(domain: string): string {
+  if (!domain) return '';
+  return domain
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/.*$/, '')
+    .replace(/:\d+$/, ''); // Remove port e.g. :3000
+}
+
+/**
+ * Validates a store slug for format, length, and reserved keywords
+ */
+export function validateStoreSlug(slug: string): { valid: boolean; error?: string } {
+  if (!slug) {
+    return { valid: false, error: 'সাব-ডোমেন বা স্লাগ খালি রাখা যাবে না।' };
+  }
+
+  const clean = slug.toLowerCase().trim();
+
+  if (clean.length < 3) {
+    return { valid: false, error: 'সাব-ডোমেন নামটি কমপক্ষে ৩ অক্ষরের হতে হবে।' };
+  }
+
+  if (clean.length > 60) {
+    return { valid: false, error: 'সাব-ডোমেন নামটি সর্বোচ্চ ৬০ অক্ষরের হতে পারে।' };
+  }
+
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(clean)) {
+    return {
+      valid: false,
+      error: 'সাব-ডোমেনে শুধুমাত্র ছোট হাতের ইংরেজি অক্ষর (a-z), সংখ্যা (0-9) এবং হাইফেন (-) ব্যবহার করা যাবে। শুরু বা শেষে হাইফেন গ্রহণযোগ্য নয়।',
+    };
+  }
+
+  if (RESERVED_SUBDOMAINS.has(clean)) {
+    return {
+      valid: false,
+      error: `"${clean}" নামটি সিস্টেমের জন্য সংরক্ষিত। অনুগ্রহ করে অন্য একটি ইউনিক নাম দিন (যেমন: ${clean}-shop বা my-${clean})।`,
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Extracts subdomain / tenant slug and classification from an incoming Host or X-Forwarded-Host
+ */
+export function extractSubdomainFromHost(
+  rawHost: string,
+  baseDomain = process.env.STORE_BASE_DOMAIN || 'twinghisabi.site'
+): HostInfo {
+  const cleanHost = cleanDomainString(rawHost);
+  const normalizedBase = cleanDomainString(baseDomain).toLowerCase();
+
+  if (!cleanHost) {
+    return {
+      rawHost,
+      cleanHost: '',
+      isSubdomain: false,
+      slug: null,
+      isCustomDomain: false,
+      isRootDomain: true,
+      baseDomain: normalizedBase,
+    };
+  }
+
+  // 1. Direct root or www of base domain
+  if (cleanHost === normalizedBase || cleanHost === `www.${normalizedBase}`) {
+    return {
+      rawHost,
+      cleanHost,
+      isSubdomain: false,
+      slug: null,
+      isCustomDomain: false,
+      isRootDomain: true,
+      baseDomain: normalizedBase,
+    };
+  }
+
+  // 2. Wildcard subdomain on base domain: e.g. tanjinhub.twinghisabi.site
+  if (cleanHost.endsWith(`.${normalizedBase}`)) {
+    const subPart = cleanHost.slice(0, -(normalizedBase.length + 1)).toLowerCase();
+    // In case of multi-level like foo.bar.twinghisabi.site, take the innermost segment
+    const slug = subPart.split('.')[0];
+    if (slug && !RESERVED_SUBDOMAINS.has(slug)) {
+      return {
+        rawHost,
+        cleanHost,
+        isSubdomain: true,
+        slug,
+        isCustomDomain: false,
+        isRootDomain: false,
+        baseDomain: normalizedBase,
+      };
+    }
+    // Reserved subdomain (e.g. app.twinghisabi.site, api.twinghisabi.site)
+    return {
+      rawHost,
+      cleanHost,
+      isSubdomain: false,
+      slug: null,
+      isCustomDomain: false,
+      isRootDomain: true,
+      baseDomain: normalizedBase,
+    };
+  }
+
+  // 3. Localhost & development wildcard testing:
+  // e.g. tanjinhub.localhost, tanjinhub.lvh.me, tanjinhub.127.0.0.1.nip.io
+  const isDevHost =
+    cleanHost.endsWith('.localhost') ||
+    cleanHost.endsWith('.lvh.me') ||
+    cleanHost.includes('.nip.io');
+
+  if (isDevHost) {
+    const slug = cleanHost.split('.')[0].toLowerCase();
+    if (slug && !RESERVED_SUBDOMAINS.has(slug)) {
+      return {
+        rawHost,
+        cleanHost,
+        isSubdomain: true,
+        slug,
+        isCustomDomain: false,
+        isRootDomain: false,
+        baseDomain: normalizedBase,
+      };
+    }
+  }
+
+  // 4. Platform hosts (Google Cloud Run preview, Render base preview, localhost root)
+  const isPlatformHost =
+    cleanHost === 'localhost' ||
+    cleanHost === '127.0.0.1' ||
+    cleanHost.endsWith('googleusercontent.com') ||
+    cleanHost.endsWith('run.app') ||
+    cleanHost.endsWith('onrender.com');
+
+  if (isPlatformHost) {
+    return {
+      rawHost,
+      cleanHost,
+      isSubdomain: false,
+      slug: null,
+      isCustomDomain: false,
+      isRootDomain: true,
+      baseDomain: normalizedBase,
+    };
+  }
+
+  // 5. External Custom Domain: e.g. myshopbd.com, fashionhouse.com
+  if (cleanHost.includes('.')) {
+    return {
+      rawHost,
+      cleanHost,
+      isSubdomain: false,
+      slug: null,
+      isCustomDomain: true,
+      isRootDomain: false,
+      baseDomain: normalizedBase,
+    };
+  }
+
+  return {
+    rawHost,
+    cleanHost,
+    isSubdomain: false,
+    slug: null,
+    isCustomDomain: false,
+    isRootDomain: true,
+    baseDomain: normalizedBase,
+  };
+}

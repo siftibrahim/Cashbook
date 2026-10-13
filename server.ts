@@ -21,9 +21,9 @@ import mediaRoutes from './server/routes/mediaRoutes';
 import marketplaceRoutes from './server/routes/marketplaceRoutes';
 import { migrateDataToPostgres } from './server/migration';
 import { requireSuperAdmin } from './server/authMiddleware';
+import { SubscriptionEngine } from './server/services/subscriptionEngine';
 import { wildcardCors, dynamicSubdomainMiddleware } from './server/middleware/subdomainMiddleware';
 import { injectProductSeo, injectMarketplaceSeo } from './server/services/productSeoHelper';
-import { realtimeEvents } from './server/services/realtimeEvents';
 
 // Ensure process.env.PORT is not set to 8080 (which is reserved by Nginx reverse proxy)
 if (process.env.PORT === '8080') {
@@ -92,34 +92,6 @@ async function startServer() {
       service: 'Twing Store Backend API',
       database: 'Neon PostgreSQL',
       timestamp: new Date().toISOString(),
-    });
-  });
-
-  // Global Real-Time SSE Stream for Marketplace, Feed, Messages & Notifications
-  app.get('/api/realtime', (req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    res.flushHeaders?.();
-
-    const userId = (req.query.userId as string) || (req.query.id as string) || 'all';
-    const clientId = `rt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    realtimeEvents.addClient(clientId, userId, res, 'marketplace_user');
-
-    res.write(`event: connected\ndata: ${JSON.stringify({ status: 'connected', time: Date.now() })}\n\n`);
-
-    const keepAlive = setInterval(() => {
-      try {
-        res.write(': keepalive\n\n');
-      } catch {
-        clearInterval(keepAlive);
-      }
-    }, 20000);
-
-    req.on('close', () => {
-      clearInterval(keepAlive);
-      realtimeEvents.removeClient(clientId);
     });
   });
 

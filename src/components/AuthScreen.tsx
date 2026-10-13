@@ -1209,7 +1209,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     ) : (
                       <>
                         <Smartphone className="w-4 h-4 text-slate-950" />
-                        <span>SMS OTP পাঠান</span>
+                        <span>📩 মোবাইলে OTP কোড পাঠান</span>
                       </>
                     )}
                   </button>
@@ -1218,25 +1218,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
               {/* STEP 2: OTP VERIFICATION */}
               {resetStep === 'otp' && (
-                <form onSubmit={handleVerifyResetOtp} className="space-y-4">
-                  <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-3.5 text-xs text-slate-300">
+                <form onSubmit={handleVerifyResetOtp} className="space-y-3.5">
+                  <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-2xl p-3 text-xs text-slate-300">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-emerald-400 flex items-center gap-1.5">
-                        <Smartphone className="w-4 h-4" />
-                        <span>SMS প্রেরিত নম্বর:</span>
-                      </span>
-                      <span className="font-mono text-white font-bold text-sm bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700">
-                        {resetMaskedPhone || resetTarget}
-                      </span>
+                      <span className="font-bold text-emerald-400">মোবাইল SMS প্রেরিত:</span>
+                      <span className="font-mono text-white font-bold">{resetMaskedPhone || resetTarget}</span>
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                      মোবাইলের SMS ইনবক্স চেক করে ৬-সংখ্যার OTP কোডটি নিচে দিন।
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      মোবাইলের ইনবক্স চেক করে ৬-সংখ্যার OTP কোডটি নিচে লিখুন (মেয়াদ: ১৫ মিনিট)।
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-300 mb-1.5 text-center">
-                      ৬-সংখ্যার OTP কোড লিখুন <span className="text-emerald-400">*</span>
+                      ৬-সংখ্যার OTP কোড দিন <span className="text-emerald-400">*</span>
                     </label>
                     <div className="relative">
                       <KeyRound className="w-4 h-4 text-emerald-400 absolute left-3.5 top-3.5" />
@@ -1247,7 +1242,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         autoFocus
                         value={resetOtp}
                         onFocus={handleInputFocus}
-                        onChange={(e) => setResetOtp(e.target.value)}
+                        onChange={(e) => setResetOtp(e.target.value.replace(/\D/g, ''))}
                         placeholder="••••••"
                         className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-emerald-500/50 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
@@ -1257,12 +1252,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <div className="flex items-center justify-between text-xs pt-1">
                     <button
                       type="button"
-                      onClick={() => {
-                        setResetStep('phone');
-                        setResetOtp('');
-                        setErrorMsg('');
-                        setSuccessMsg('');
-                      }}
+                      onClick={() => setResetStep('phone')}
                       className="text-slate-400 hover:text-slate-200 font-bold flex items-center gap-1 cursor-pointer"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
@@ -1293,35 +1283,44 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     {loading ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                        <span>যাচাই করা হচ্ছে...</span>
+                        <span>OTP যাচাই করা হচ্ছে...</span>
                       </>
                     ) : (
                       <>
                         <CheckCircle2 className="w-4 h-4 text-slate-950" />
-                        <span>OTP কোড যাচাই করুন</span>
+                        <span>OTP যাচাই করে সামনে বাড়ুন</span>
                       </>
                     )}
                   </button>
                 </form>
               )}
 
-              {/* STEP 3: NEW PASSWORD / PIN */}
+              {/* STEP 3: SET NEW PIN */}
               {resetStep === 'new_password' && (
-                <form onSubmit={handleSaveNewPassword} className="space-y-4">
+                <form onSubmit={handleSaveNewPassword} className="space-y-3.5">
+                  <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-2xl p-3 text-xs text-slate-300">
+                    <p className="font-bold text-emerald-400">✅ OTP সফলভাবে যাচাই হয়েছে!</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      এবার আপনার অ্যাকাউন্টের জন্য নতুন একটি গোপন পিন নির্ধারণ করুন।
+                    </p>
+                  </div>
+
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                      নতুন গোপন পিন (ন্যূনতম ৪ ডিজিট) <span className="text-emerald-400">*</span>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      নতুন গোপন পিন (New PIN) <span className="text-emerald-400">*</span>
                     </label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
                       <input
                         type={showResetNewPass ? 'text' : 'password'}
                         required
+                        minLength={4}
+                        autoFocus
                         value={resetNewPass}
                         onFocus={handleInputFocus}
                         onChange={(e) => setResetNewPass(e.target.value)}
-                        placeholder="নতুন পিন লিখুন"
-                        className="w-full pl-10 pr-11 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 tracking-wider transition"
+                        placeholder="৪ বা ৬ সংখ্যার নতুন পিন"
+                        className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
                       />
                       <button
                         type="button"
@@ -1334,19 +1333,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                      পুনরায় নতুন পিন নিশ্চিত করুন <span className="text-emerald-400">*</span>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      পিন নিশ্চিত করুন (Confirm PIN) <span className="text-emerald-400">*</span>
                     </label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
                       <input
                         type={showResetConfirmPass ? 'text' : 'password'}
                         required
+                        minLength={4}
                         value={resetConfirmPass}
                         onFocus={handleInputFocus}
                         onChange={(e) => setResetConfirmPass(e.target.value)}
-                        placeholder="একই পিন আবার লিখুন"
-                        className="w-full pl-10 pr-11 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 tracking-wider transition"
+                        placeholder="একই পিন পুনরায় লিখুন"
+                        className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
                       />
                       <button
                         type="button"
@@ -1360,54 +1360,61 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || resetNewPass.length < 4 || resetNewPass !== resetConfirmPass}
                     className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
                   >
                     {loading ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                        <span>সংরক্ষণ করা হচ্ছে...</span>
+                        <span>পিন আপডেট হচ্ছে...</span>
                       </>
                     ) : (
                       <>
-                        <CheckCircle2 className="w-4 h-4 text-slate-950" />
-                        <span>নতুন পিন সেভ করুন</span>
+                        <Lock className="w-4 h-4 text-slate-950" />
+                        <span>🔒 নতুন পিন সেভ করুন</span>
                       </>
                     )}
                   </button>
                 </form>
               )}
 
-              {/* STEP 4: SUCCESS */}
+              {/* STEP 4: SUCCESS VIEW */}
               {resetStep === 'success' && (
-                <div className="text-center py-6 space-y-4">
-                  <div className="w-14 h-14 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/30">
-                    <CheckCircle2 className="w-8 h-8" />
+                <div className="text-center py-4 space-y-4">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    <CheckCircle2 className="w-10 h-10" />
                   </div>
                   <div>
-                    <h4 className="text-base font-black text-white">পিন সফলভাবে পরিবর্তন হয়েছে!</h4>
-                    <p className="text-xs text-slate-400 mt-1">এখন আপনার নতুন পিন দিয়ে অ্যাকাউন্টে লগইন করতে পারেন।</p>
+                    <h4 className="text-lg font-black text-white">পিন সফলভাবে পরিবর্তিত হয়েছে!</h4>
+                    <p className="text-xs text-slate-300 mt-1">
+                      আপনার নতুন পিনটি এখন সক্রিয় রয়েছে। অনুগ্রহ করে নতুন পিন দিয়ে লগইন করুন।
+                    </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
+                      const finalTarget = resetTarget.trim();
+                      setIdentifier(finalTarget);
+                      setPassword(resetNewPass);
                       setActiveTab('login');
+                      setShow2FA(false);
                       setResetStep('phone');
                       setResetOtp('');
                       setResetNewPass('');
                       setResetConfirmPass('');
                       setErrorMsg('');
+                      setSuccessMsg('✅ আপনার নতুন পিনটি বসানো হয়েছে। এখন লগইন বাটনে ক্লিক করে দোকানে প্রবেশ করুন।');
                     }}
-                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-black rounded-2xl shadow-lg transition text-xs sm:text-sm cursor-pointer"
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-black rounded-2xl shadow-lg text-sm cursor-pointer"
                   >
-                    লগইন পেজে ফিরে যান
+                    লগইন পেজে যান
                   </button>
                 </div>
               )}
 
-              {/* Back to Login Footer */}
+              {/* Back to Login Links */}
               {resetStep !== 'success' && (
-                <div className="text-center pt-2">
+                <div className="text-center pt-2 flex items-center justify-center gap-4 text-xs font-bold">
                   <button
                     type="button"
                     onClick={() => {
@@ -1415,17 +1422,23 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       setErrorMsg('');
                       setSuccessMsg('');
                     }}
-                    className="text-xs text-slate-400 hover:text-white font-bold flex items-center justify-center gap-1.5 mx-auto cursor-pointer"
+                    className="text-emerald-400 hover:underline cursor-pointer flex items-center gap-1"
                   >
-                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <ArrowLeft className="w-3 h-3" />
                     <span>লগইন পেজে ফিরে যান</span>
                   </button>
                 </div>
               )}
             </div>
           )}
+
+          {/* PWA Install Button for Home Screen */}
+          <div className="mt-5 pt-4 border-t border-slate-800/80">
+            <PWAInstallButton variant="auth" />
+          </div>
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 };

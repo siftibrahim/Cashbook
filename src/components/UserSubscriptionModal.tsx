@@ -1633,4 +1633,4 @@ export const UserSubscriptionModal: React.FC<UserSubscriptionModalProps> = ({
       )}
     </div>
   );
-`�
+};

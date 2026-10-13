@@ -396,4 +396,4 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-export default r�
+export default router;

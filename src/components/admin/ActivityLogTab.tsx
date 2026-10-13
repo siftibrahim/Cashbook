@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { AdminActivityLog } from '../../types/adminTypes';
 import {
   Clock,
@@ -771,4 +771,5 @@ export const ActivityLogTab: React.FC<ActivityLogTabProps> = ({
         </div>
       )}
     </div>
-  )p�
+  );
+};

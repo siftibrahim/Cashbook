@@ -433,4 +433,4 @@ export const FacebookVerificationModal: React.FC<FacebookVerificationModalProps>
       </div>
     </div>
   );
-}P
+};

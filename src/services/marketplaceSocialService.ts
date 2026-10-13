@@ -11,11 +11,6 @@ import {
   FriendRequestStatus,
   MarketplaceBoostRequest,
 } from '../types/marketplaceSocial';
-import {
-  playMessageAlertTone,
-  playNotificationAlertTone,
-  playMessageSentTone,
-} from '../utils/audio';
 
 const PROFILE_KEY = 'mkt_fb_current_profile_v2';
 const POSTS_KEY = 'mkt_fb_feed_posts_v2';
@@ -38,12 +33,10 @@ export function validateImageFiles(files: FileList | File[]): { valid: boolean; 
         imageFiles: [],
       };
     }
-    // Accept standard images: if mime type starts with image/ OR extension matches common image extensions
-    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|svg|avif|ico)$/i.test(file.name);
-    if (!isImage) {
+    if (!file.type.startsWith('image/')) {
       return {
         valid: false,
-        error: '⚠️ শুধুমাত্র ছবি ফাইল (Image: JPG, PNG, WEBP) নির্বাচন করুন।',
+        error: '⚠️ শুধুমাত্র ছবি ফাইল (Image) নির্বাচন করুন।',
         imageFiles: [],
       };
     }
@@ -51,74 +44,15 @@ export function validateImageFiles(files: FileList | File[]): { valid: boolean; 
   return { valid: true, imageFiles: fileArray };
 }
 
-// Helper to prune older cache items when localStorage quota is near full
-export function pruneStorageOnQuota(): void {
-  try {
-    const postsRaw = localStorage.getItem(POSTS_KEY);
-    if (postsRaw) {
-      const posts = JSON.parse(postsRaw);
-      if (Array.isArray(posts) && posts.length > 15) {
-        localStorage.setItem(POSTS_KEY, JSON.stringify(posts.slice(0, 15)));
-      }
-    }
-    const prodsRaw = localStorage.getItem(PRODUCTS_KEY);
-    if (prodsRaw) {
-      const prods = JSON.parse(prodsRaw);
-      if (Array.isArray(prods) && prods.length > 20) {
-        localStorage.setItem(PRODUCTS_KEY, JSON.stringify(prods.slice(0, 20)));
-      }
-    }
-  } catch (e) {}
-}
-
-// Convert File to compressed base64 image (max 800px, jpeg quality 0.65) to prevent localStorage quota errors
-export function fileToBase64(file: File, maxWidth = 800, quality = 0.65): Promise<string> {
+// Convert File to base64
+export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (readerEvent) => {
-      const img = new Image();
-      img.onload = () => {
-        try {
-          let { width, height } = img;
-          if (width > maxWidth || height > maxWidth) {
-            if (width > height) {
-              height = Math.round((height * maxWidth) / width);
-              width = maxWidth;
-            } else {
-              width = Math.round((width * maxWidth) / height);
-              height = maxWidth;
-            }
-          }
-
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            resolve(readerEvent.target?.result as string);
-            return;
-          }
-
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'medium';
-          ctx.drawImage(img, 0, 0, width, height);
-
-          const compressed = canvas.toDataURL('image/jpeg', quality);
-          resolve(compressed);
-        } catch (e) {
-          resolve(readerEvent.target?.result as string);
-        }
-      };
-      img.onerror = () => {
-        resolve(readerEvent.target?.result as string);
-      };
-      img.src = readerEvent.target?.result as string;
-    };
+    reader.onload = () => resolve(reader.result as string);
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 }
-
 
 // Default community profiles
 const INITIAL_PROFILES: CustomerProfile[] = [
@@ -574,15 +508,9 @@ export const marketplaceSocialService = {
       const loggedOut = localStorage.getItem('mkt_fb_logged_out_flag');
       if (loggedOut === 'true') return false;
       const stored = localStorage.getItem(PROFILE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && parsed.id && parsed.phone) return true;
-      }
+      if (stored) return true;
       const verified = localStorage.getItem('twing_verified_customer_profile');
-      if (verified) {
-        const parsedV = JSON.parse(verified);
-        if (parsedV && parsedV.phone) return true;
-      }
+      if (verified) return true;
     } catch (e) {}
     return false;
   },
@@ -825,6 +753,7 @@ export const marketplaceSocialService = {
     } catch (e) {}
 
     const defaultProfile = INITIAL_PROFILES[0];
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(defaultProfile));
     return defaultProfile;
   },
 
@@ -835,17 +764,7 @@ export const marketplaceSocialService = {
       ...updates,
       blockedUserIds: updates.blockedUserIds ?? current.blockedUserIds ?? [],
     };
-    try {
-      localStorage.setItem(PROFILE_KEY, JSON.stringify(updated));
-    } catch (e) {
-      console.warn('Quota error setting PROFILE_KEY, pruning cache and retrying:', e);
-      pruneStorageOnQuota();
-      try {
-        localStorage.setItem(PROFILE_KEY, JSON.stringify(updated));
-      } catch (secondErr) {
-        console.error('Critical quota error on PROFILE_KEY:', secondErr);
-      }
-    }
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(updated));
 
     // 1. Update in profiles directory
     const directory = this.getProfilesDirectory();
@@ -855,15 +774,7 @@ export const marketplaceSocialService = {
     } else {
       directory.unshift(updated);
     }
-    try {
-      localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(directory));
-    } catch (e) {
-      console.warn('Quota error setting PROFILES_DIRECTORY_KEY:', e);
-      pruneStorageOnQuota();
-      try {
-        localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(directory));
-      } catch (err2) {}
-    }
+    localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(directory));
 
     // 2. Cascade avatar & name updates across all POSTS & COMMENTS
     try {
@@ -1198,22 +1109,7 @@ export const marketplaceSocialService = {
     };
 
     const updatedPosts = [newPost, ...posts];
-    try {
-      localStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
-    } catch (quotaErr) {
-      console.warn('Quota exceeded on posts, trimming older items:', quotaErr);
-      const pruned = updatedPosts.slice(0, 30).map((p, idx) => {
-        if (idx > 5 && p.images && p.images.length > 1) {
-          return { ...p, images: [p.images[0]] };
-        }
-        return p;
-      });
-      try {
-        localStorage.setItem(POSTS_KEY, JSON.stringify(pruned));
-      } catch (secondErr) {
-        localStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts.slice(0, 15)));
-      }
-    }
+    localStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
 
     // Persist post to persistent database on server
     try {
@@ -1565,24 +1461,7 @@ export const marketplaceSocialService = {
     };
 
     const updated = [newProduct, ...products];
-    try {
-      localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updated));
-    } catch (quotaErr) {
-      console.warn('LocalStorage quota exceeded on products, trimming older items:', quotaErr);
-      // Prune products or downsize image payloads to fit within quota
-      const lightweightList = updated.slice(0, 30).map((p, idx) => {
-        if (idx > 5 && p.images && p.images.length > 1) {
-          return { ...p, images: [p.images[0]] };
-        }
-        return p;
-      });
-      try {
-        localStorage.setItem(PRODUCTS_KEY, JSON.stringify(lightweightList));
-      } catch (secondErr) {
-        // Fallback: keep top 15
-        localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updated.slice(0, 15)));
-      }
-    }
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updated));
 
     // Persist user product to backend database
     try {
@@ -1594,36 +1473,26 @@ export const marketplaceSocialService = {
     } catch (e) {}
 
     // Also automatically publish an announcement post on Facebook Feed!
-    try {
-      this.createPost({
-        content: `🛍️ সেন্ট্রাল মার্কেটপ্লেসে নতুন পণ্য আপলোড করেছি: "${newProduct.name}"। আগ্রহী ক্রেতারা সরাসরি মার্কেটপ্লেস থেকে অর্ডার করতে পারেন অথবা ইনবক্সে চ্যাট করতে পারেন! 📦✨`,
-        images: newProduct.images?.slice(0, 1) || [],
-        feeling: { emoji: '🏷️', label: 'নতুন পণ্য বিক্রি করছি' },
-        linkedProduct: {
-          id: newProduct.id,
-          name: newProduct.name,
-          salePrice: newProduct.salePrice,
-          regularPrice: newProduct.regularPrice,
-          imageUrl: newProduct.imageUrl,
-          category: newProduct.category,
-          condition: newProduct.condition,
-          location: newProduct.sellerLocation,
-        },
-      });
-    } catch (postErr) {
-      console.warn('Auto post announcement note:', postErr);
-    }
+    this.createPost({
+      content: `🛍️ সেন্ট্রাল মার্কেটপ্লেসে নতুন পণ্য আপলোড করেছি: "${newProduct.name}"। আগ্রহী ক্রেতারা সরাসরি মার্কেটপ্লেস থেকে অর্ডার করতে পারেন অথবা ইনবক্সে চ্যাট করতে পারেন! 📦✨`,
+      images: newProduct.images,
+      feeling: { emoji: '🏷️', label: 'নতুন পণ্য বিক্রি করছি' },
+      linkedProduct: {
+        id: newProduct.id,
+        name: newProduct.name,
+        salePrice: newProduct.salePrice,
+        regularPrice: newProduct.regularPrice,
+        imageUrl: newProduct.imageUrl,
+        category: newProduct.category,
+        condition: newProduct.condition,
+        location: newProduct.sellerLocation,
+      },
+    });
 
     // Update profile totalSales stats
     this.updateCurrentProfile({
       totalSales: (profile.totalSales || 0) + 1,
     });
-
-    // Dispatch global events so products and feed components update instantly
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('twing_products_updated', { detail: newProduct }));
-      window.dispatchEvent(new CustomEvent('twing_posts_updated'));
-    }
 
     return newProduct;
   },
@@ -1916,9 +1785,9 @@ export const marketplaceSocialService = {
     try {
       const key = `${USER_FRIENDS_KEY}_${profile?.id || 'user_current'}`;
       const stored = localStorage.getItem(key);
-      if (stored !== null) return JSON.parse(stored);
+      if (stored) return JSON.parse(stored);
     } catch (e) {}
-    const defaultFriends = ['user_nadia', 'user_tanvir'];
+    const defaultFriends = ['user_nadia'];
     return defaultFriends;
   },
 
@@ -2109,33 +1978,6 @@ export const marketplaceSocialService = {
         localStorage.setItem(targetKey, JSON.stringify(friends));
       }
     } catch (e) {}
-
-    // Clean up any accepted or pending requests between them so clean relationship state is restored
-    try {
-      const allReqs = this.getAllFriendRequests().filter(
-        (r) =>
-          !(
-            (r.senderId === profile.id && r.receiverId === targetUserId) ||
-            (r.senderId === targetUserId && r.receiverId === profile.id)
-          )
-      );
-      localStorage.setItem(FRIEND_REQUESTS_KEY, JSON.stringify(allReqs));
-    } catch (e) {}
-
-    // Dispatch global events so UI updates everywhere
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('twing_profile_updated'));
-      window.dispatchEvent(new CustomEvent('twing_friends_updated'));
-    }
-
-    // Persist to backend
-    try {
-      fetch('/api/marketplace/social/friends/unfriend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: profile.id, targetUserId }),
-      }).catch(() => {});
-    } catch (e) {}
   },
 
   getFriendSuggestions(limit = 10): CustomerProfile[] {
@@ -2210,25 +2052,6 @@ export const marketplaceSocialService = {
         const data = await usersRes.json();
         if (data.success && Array.isArray(data.users) && data.users.length > 0) {
           localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(data.users));
-          // If the current profile matches an updated user in the directory, sync its avatar/cover if set
-          if (profile?.id) {
-            const serverProfile = data.users.find((u: any) => u.id === profile.id);
-            if (serverProfile) {
-              const localRaw = localStorage.getItem(PROFILE_KEY);
-              if (localRaw) {
-                const localObj = JSON.parse(localRaw);
-                // Only take server values if local doesn't have a fresher custom upload, or merge safely
-                const mergedCurrent = {
-                  ...serverProfile,
-                  avatar: localObj.avatar || serverProfile.avatar,
-                  coverPhoto: localObj.coverPhoto || serverProfile.coverPhoto,
-                  bio: localObj.bio || serverProfile.bio,
-                  name: localObj.name || serverProfile.name,
-                };
-                localStorage.setItem(PROFILE_KEY, JSON.stringify(mergedCurrent));
-              }
-            }
-          }
         }
       }
 

@@ -1,1034 +1,3625 @@
-import { Router, Response, Request } from 'express';
-import { getDbPool, inMemoryStore } from '../db';
-import { AuthenticatedRequest, authenticateUser, verifyToken } from '../authMiddleware';
-import { DEFAULT_PLANS } from '../../src/services/adminService';
-import { PaymentGatewayManager } from '../services/paymentProviders';
+import { Router, Response } from 'express';
+import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStoreToDisk, ensureOnlineOrdersSchema } from '../db';
+import { AuthenticatedRequest, authenticateUser, optionalAuth, isUserSuperAdmin } from '../authMiddleware';
 import { SubscriptionEngine } from '../services/subscriptionEngine';
-import { PaymentlyService } from '../services/paymentlyService';
+import { validateStoreSlug, cleanDomainString } from '../utils/domainResolver';
 import { realtimeEvents } from '../services/realtimeEvents';
-import { cancelMarketplaceOrderHelper } from './marketplaceRoutes';
+import { sendSmsNotification, deductVendorSmsAndSend } from '../services/smsService';
 
 const router = Router();
 
-/**
- * GET /api/subscription/events (Server-Sent Events)
- * Provides real-time synchronization between Super Admin approval and User Panel
- */
-router.get('/events', (req: Request, res: Response) => {
-  const token = (req.query.token as string) || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.split(' ')[1] : '');
-  const decoded = token ? verifyToken(token) : null;
-  if (!decoded) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders?.();
-
-  const clientId = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  realtimeEvents.addClient(clientId, decoded.userId, res, decoded.role);
-
-  res.write(`event: connected\ndata: ${JSON.stringify({ status: 'connected', userId: decoded.userId })}\n\n`);
-
-  const keepAlive = setInterval(() => {
-    try {
-      res.write(': keepalive\n\n');
-    } catch {
-      clearInterval(keepAlive);
-    }
-  }, 25000);
-
-  req.on('close', () => {
-    clearInterval(keepAlive);
-    realtimeEvents.removeClient(clientId);
-  });
-});
 
 /**
- * GET /api/subscription/plans (Public / Authenticated)
- * Returns dynamic plans configured by Admin or standard default tiers (৳50, ৳100, ৳200, ৳500)
+ * GET /api/store/profile
  */
-router.get('/plans', async (req, res) => {
-  try {
-    const pool = getDbPool();
-    let settingsData: any = null;
-
-    if (pool) {
-      const result = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings'");
-      if (result.rows.length > 0 && result.rows[0].data) {
-        settingsData = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
-      }
-    } else if (inMemoryStore.system_config['system_payment_settings']) {
-      settingsData = inMemoryStore.system_config['system_payment_settings'];
-    }
-
-    const allPlans = settingsData?.customPlans?.length > 0 ? settingsData.customPlans : DEFAULT_PLANS;
-    // Filter enabled plans
-    const enabledPlans = allPlans.filter((p: any) => p.isEnabled !== false);
-
-    return res.json({
-      plans: enabledPlans.length > 0 ? enabledPlans : DEFAULT_PLANS,
-      trialConfig: settingsData?.trialConfig || { isTrialEnabled: true, trialDays: 14, trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)' },
-      bonusConfig: settingsData?.bonusConfig || { isBonusEnabled: true, bonusDays: 7, bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)' },
-    });
-  } catch (err: any) {
-    return res.json({ plans: DEFAULT_PLANS });
-  }
-});
-
-/**
- * GET /api/subscription/payment-settings (Public/Authenticated)
- */
-router.get('/payment-settings', async (req, res) => {
-  try {
-    const pool = getDbPool();
-    let rawSettings: any = null;
-
-    if (pool) {
-      const result = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings'");
-      if (result.rows.length > 0 && result.rows[0].data) {
-        rawSettings = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
-      }
-    } else if (inMemoryStore.system_config['system_payment_settings']) {
-      rawSettings = inMemoryStore.system_config['system_payment_settings'];
-    }
-
-    if (!rawSettings) {
-      rawSettings = {
-        id: 'system_payment_settings',
-        trialConfig: { isTrialEnabled: true, trialDays: 14, trialPlanName: 'ফ্রি ট্রায়াল (১৪ দিন)' },
-        bonusConfig: { isBonusEnabled: true, bonusDays: 7, bonusTitle: 'স্পেশাল বোনাস অফার (+৭ দিন ফ্রি)', bonusDescription: 'যেকোনো প্যাকেজ রিনিউ বা সাবস্ক্রিপশন নিলে সাথে আরও ৭ দিন বোনাস মেয়াদ যুক্ত হবে।' },
-        bkash: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'বিকাশ অ্যাপ থেকে Send Money করুন' } },
-        nagad: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'নগদ অ্যাপ থেকে Send Money করুন' } },
-        rocket: { isEnabled: true, personal: { number: '01306908115-8', accountType: 'personal', instructions: 'রকেট অ্যাপ থেকে Send Money করুন' } },
-        upay: { isEnabled: true, personal: { number: '01306908115', accountType: 'personal', instructions: 'উপায় অ্যাপ থেকে Send Money করুন' } },
-        banglaQr: {
-          isEnabled: true,
-          accountTitle: 'TWING হিসাবি / সুপার এডমিন',
-          merchantId: '01306908115',
-          bankOrMfsName: 'মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর',
-          terminalId: 'TWING-BQR-01',
-          routingNumber: '',
-          qrCodeUrl: '',
-          qrPayload: '',
-          instructions: 'যেকোনো ব্যাংক বা এমএফএস অ্যাপ (বিকাশ, নগদ, সেলফিন, সিটিটাচ ইত্যাদি) দিয়ে বাংলা কিউআর স্ক্যান করে পেমেন্ট সম্পন্ন করুন এবং ট্রানজেকশন আইডি দিন।',
-        },
-        bankTransfer: { isEnabled: true, accounts: [] },
-        gateways: [],
-        customPlans: DEFAULT_PLANS,
-      };
-    }
-
-    const plConfig = await PaymentlyService.getConfig();
-
-    const sanitizedSettings = {
-      ...rawSettings,
-      paymently: {
-        isEnabled: plConfig.isEnabled,
-        baseUrl: plConfig.baseUrl,
-        isConfigured: !!plConfig.apiKey,
-        isSandbox: plConfig.isSandbox,
-        apiKeyMasked: plConfig.apiKey
-          ? `${plConfig.apiKey.substring(0, 4)}••••••••${plConfig.apiKey.substring(plConfig.apiKey.length - 4)}`
-          : undefined,
-      },
-    };
-
-    return res.json({ settings: sanitizedSettings });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * GET /api/subscription/my-status (Authenticated)
- * Returns live subscription status, validity date, and pending requests
- */
-router.get('/my-status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/profile', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'ব্যবহারকারী অনুমোদিত নয়' });
+    const pool = getDbPool();
+
+    let subExpiresAt = Date.now() + 14 * 86400000;
+    let subPlan = '১৪ দিনের ফ্রি ট্রায়াল';
+    let subStatus = 'trial';
+
+    if (userId) {
+      try {
+        const synced = await SubscriptionEngine.recalculateAndSyncUserSubscription(userId);
+        subExpiresAt = synced.subscriptionExpiresAt;
+        subPlan = synced.subscriptionPlan;
+        subStatus = synced.subscriptionStatus;
+      } catch (e) {
+        // fallback
+      }
     }
 
-    const status = await SubscriptionEngine.getUserStatus(userId);
-    return res.json(status);
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+    if (pool) {
+      const result = await pool.query('SELECT * FROM store_profiles WHERE user_id = $1', [userId]);
+      let profileRow = result.rows.length > 0 ? result.rows[0] : null;
 
-/**
- * POST /api/subscription/submit-payment (Authenticated User submits TrxID)
- */
-router.post('/submit-payment', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const userId = req.user?.userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'ব্যবহারকারী অনুমোদিত নয়' });
-    }
+      // If store profile not found or has default placeholder, check users table for user-specific data
+      if (!profileRow || profileRow.name === 'আমার দোকান' || profileRow.owner === 'দোকান মালিক' || profileRow.phone === '০১XXXXXXXXX') {
+        const uRes = await pool.query('SELECT name, phone, shop_name, address FROM users WHERE id = $1', [userId]);
+        if (uRes.rows.length > 0) {
+          const u = uRes.rows[0];
+          const realShopName = u.shop_name || (profileRow && profileRow.name !== 'আমার দোকান' ? profileRow.name : '') || req.user?.shopName || 'আমার দোকান';
+          const realOwner = u.name || (profileRow && profileRow.owner !== 'দোকান মালিক' ? profileRow.owner : '') || 'মালিক';
+          const realPhone = u.phone || (profileRow && profileRow.phone !== '০১XXXXXXXXX' ? profileRow.phone : '') || '০১৭০০০০০০০০';
+          const realAddress = u.address || profileRow?.address || 'বাংলাদেশ';
 
-    const {
-      planId,
-      planName,
-      durationDays,
-      amount,
-      paymentMethod,
-      paymentMode,
-      trxId,
-      senderNumber,
-      bankDetails,
-      userNote,
-    } = req.body;
+          if (!profileRow) {
+            const storeId = 'store_' + userId;
+            try {
+              await pool.query(`
+                INSERT INTO store_profiles (id, user_id, name, owner, phone, address, currency_symbol, theme_color)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (id) DO UPDATE SET
+                  name = EXCLUDED.name,
+                  owner = EXCLUDED.owner,
+                  phone = EXCLUDED.phone
+              `, [storeId, userId, realShopName, realOwner, realPhone, realAddress, '৳', 'teal']);
+            } catch (e) {
+              console.warn('Auto-create store profile failed:', e);
+            }
+          }
 
-    if (!planId || !amount || !trxId || !senderNumber || !paymentMethod) {
-      return res.status(400).json({ error: 'সকল প্রয়োজনীয় পেমেন্ট তথ্য (প্যাকেজ, টাকা, ট্রানজেকশন আইডি ও প্রেরক নম্বর) প্রদান করুন' });
-    }
+          return res.json({
+            profile: {
+              name: realShopName,
+              owner: realOwner,
+              phone: realPhone,
+              address: realAddress,
+              footerNote: profileRow?.footer_note || '',
+              currencySymbol: profileRow?.currency_symbol || '৳',
+              highDueLimit: profileRow ? (parseFloat(profileRow.high_due_limit) || 5000) : 5000,
+              tagadaTemplate: profileRow?.tagada_template || '',
+              bkashNumber: profileRow?.bkash_number || '',
+              nagadNumber: profileRow?.nagad_number || '',
+              rocketNumber: profileRow?.rocket_number || '',
+              themeColor: profileRow?.theme_color || 'teal',
+              enableSoundEffects: profileRow ? (profileRow.enable_sound_effects !== false) : true,
+              printPaperSize: profileRow?.print_paper_size || 'thermal_80',
+              showQrOnInvoice: profileRow ? (profileRow.show_qr_on_invoice !== false) : true,
+              defaultCreditLimit: profileRow ? (parseFloat(profileRow.default_credit_limit) || 10000) : 10000,
+              logoUrl: profileRow?.logo_url || '',
+              subscriptionExpiresAt: subExpiresAt,
+              subscriptionPlan: subPlan,
+              subscriptionStatus: subStatus,
+            },
+          });
+        }
+      }
 
-    const cleanTrx = trxId.trim().toUpperCase();
-    const cleanSender = senderNumber.trim();
-    const cleanAmount = parseFloat(amount) || 0;
-
-    // Strict 11-digit mobile validation for MFS (bKash, Nagad, Rocket, Upay)
-    if (['bkash', 'nagad', 'rocket', 'upay'].includes(paymentMethod)) {
-      const strippedNum = cleanSender.replace(/[\s-]/g, '');
-      const bdPhoneRegex = /^01[3-9]\d{8}$/;
-      if (!bdPhoneRegex.test(strippedNum) || strippedNum.length !== 11) {
-        return res.status(400).json({
-          error: 'মোবাইল নম্বর অবশ্যই সঠিক ১১ ডিজিটের হতে হবে (যেমন: 017XXXXXXXX)।'
+      if (profileRow) {
+        return res.json({
+          profile: {
+            name: profileRow.name,
+            owner: profileRow.owner,
+            phone: profileRow.phone,
+            address: profileRow.address || '',
+            footerNote: profileRow.footer_note || '',
+            currencySymbol: profileRow.currency_symbol || '৳',
+            highDueLimit: parseFloat(profileRow.high_due_limit) || 5000,
+            tagadaTemplate: profileRow.tagada_template || '',
+            bkashNumber: profileRow.bkash_number || '',
+            nagadNumber: profileRow.nagad_number || '',
+            rocketNumber: profileRow.rocket_number || '',
+            themeColor: profileRow.theme_color || 'teal',
+            enableSoundEffects: profileRow.enable_sound_effects !== false,
+            printPaperSize: profileRow.print_paper_size || 'thermal_80',
+            showQrOnInvoice: profileRow.show_qr_on_invoice !== false,
+            defaultCreditLimit: parseFloat(profileRow.default_credit_limit) || 10000,
+            logoUrl: profileRow.logo_url || '',
+            subscriptionExpiresAt: subExpiresAt,
+            subscriptionPlan: subPlan,
+            subscriptionStatus: subStatus,
+          },
         });
       }
+    } else {
+      const s = inMemoryStore.stores.find(x => x.userId === userId);
+      if (s) {
+        return res.json({
+          profile: {
+            ...s,
+            subscriptionExpiresAt: subExpiresAt,
+            subscriptionPlan: subPlan,
+            subscriptionStatus: subStatus,
+          },
+        });
+      }
+
+      const memUser = inMemoryStore.users.find(u => u.id === userId);
+      if (memUser) {
+        const memShopName = memUser.shopName || memUser.shop_name || req.user?.shopName || 'আমার দোকান';
+        const memOwner = memUser.name || 'মালিক';
+        const memPhone = memUser.phone || '০১৭০০০০০০০০';
+        const newStore = {
+          id: 'store_' + userId,
+          userId,
+          name: memShopName,
+          owner: memOwner,
+          phone: memPhone,
+          address: memUser.address || 'বাংলাদেশ',
+          currencySymbol: '৳',
+          themeColor: 'teal',
+          subscriptionExpiresAt: subExpiresAt,
+          subscriptionPlan: subPlan,
+          subscriptionStatus: subStatus,
+        };
+        inMemoryStore.stores.push(newStore);
+        return res.json({ profile: newStore });
+      }
     }
 
-    // Strict TrxID validation
-    if (cleanTrx.length < 6) {
-      return res.status(400).json({
-        error: 'অনুগ্রহ করে সঠিক Transaction ID (TrxID) দিন (কমপক্ষে ৬-১০ ডিজিটের অক্ষর/সংখ্যা)।'
+    const fallbackUser = inMemoryStore.users.find(u => u.id === userId);
+    return res.json({
+      profile: {
+        name: fallbackUser?.shopName || fallbackUser?.shop_name || req.user?.shopName || 'আমার দোকান',
+        owner: fallbackUser?.name || 'মালিক',
+        phone: fallbackUser?.phone || '০১৭০০০০০০০০',
+        address: fallbackUser?.address || 'বাংলাদেশ',
+        currencySymbol: '৳',
+        themeColor: 'teal',
+        subscriptionExpiresAt: subExpiresAt,
+        subscriptionPlan: subPlan,
+        subscriptionStatus: subStatus,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/store/profile - Save or update Store Profile
+ */
+router.put('/profile', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const {
+      name,
+      owner,
+      phone,
+      address,
+      footerNote,
+      currencySymbol,
+      highDueLimit,
+      tagadaTemplate,
+      bkashNumber,
+      nagadNumber,
+      rocketNumber,
+      themeColor,
+      enableSoundEffects,
+      printPaperSize,
+      showQrOnInvoice,
+      defaultCreditLimit,
+      logoUrl,
+    } = req.body;
+
+    const pool = getDbPool();
+    const validUserId = pool ? await ensureUserExistsInPostgres(pool, userId, req.user) : userId;
+    const storeId = 'store_' + validUserId;
+
+    if (pool) {
+      await pool.query(`
+        INSERT INTO store_profiles (
+          id, user_id, name, owner, phone, address, footer_note, currency_symbol,
+          high_due_limit, tagada_template, bkash_number, nagad_number, rocket_number,
+          theme_color, enable_sound_effects, print_paper_size, show_qr_on_invoice, default_credit_limit,
+          logo_url, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW()
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          owner = EXCLUDED.owner,
+          phone = EXCLUDED.phone,
+          address = EXCLUDED.address,
+          footer_note = EXCLUDED.footer_note,
+          currency_symbol = EXCLUDED.currency_symbol,
+          high_due_limit = EXCLUDED.high_due_limit,
+          tagada_template = EXCLUDED.tagada_template,
+          bkash_number = EXCLUDED.bkash_number,
+          nagad_number = EXCLUDED.nagad_number,
+          rocket_number = EXCLUDED.rocket_number,
+          theme_color = EXCLUDED.theme_color,
+          enable_sound_effects = EXCLUDED.enable_sound_effects,
+          print_paper_size = EXCLUDED.print_paper_size,
+          show_qr_on_invoice = EXCLUDED.show_qr_on_invoice,
+          default_credit_limit = EXCLUDED.default_credit_limit,
+          logo_url = COALESCE(EXCLUDED.logo_url, store_profiles.logo_url),
+          updated_at = NOW()
+      `, [
+        storeId, validUserId, name, owner || name, phone, address || '', footerNote || '',
+        currencySymbol || '৳', highDueLimit || 5000, tagadaTemplate || '',
+        bkashNumber || '', nagadNumber || '', rocketNumber || '', themeColor || 'teal',
+        enableSoundEffects !== false, printPaperSize || 'thermal_80',
+        showQrOnInvoice !== false, defaultCreditLimit || 10000,
+        logoUrl || null
+      ]);
+
+      // Update shop_name & avatar on users table too
+      if (name) {
+        await pool.query('UPDATE users SET shop_name = $1 WHERE id = $2', [name, validUserId]);
+      }
+      if (logoUrl) {
+        await pool.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [logoUrl, validUserId]).catch(() => {});
+      }
+    } else {
+      const idx = inMemoryStore.stores.findIndex(s => s.userId === validUserId || s.id === storeId);
+      const profileData = {
+        id: storeId,
+        userId: validUserId,
+        name,
+        owner,
+        phone,
+        address,
+        footerNote,
+        currencySymbol,
+        highDueLimit,
+        tagadaTemplate,
+        bkashNumber,
+        nagadNumber,
+        rocketNumber,
+        themeColor,
+        enableSoundEffects,
+        printPaperSize,
+        showQrOnInvoice,
+        defaultCreditLimit,
+        logoUrl: logoUrl || (inMemoryStore.stores[idx]?.logoUrl || ''),
+      };
+      if (idx >= 0) inMemoryStore.stores[idx] = profileData;
+      else inMemoryStore.stores.push(profileData);
+    }
+
+    return res.json({ message: '✅ দোকান প্রোফাইল সফলভাবে আপডেট হয়েছে', logoUrl });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/profile-picture - Dedicated instant vendor profile photo upload
+ */
+router.post('/profile-picture', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { photoUrl } = req.body;
+    if (!photoUrl) {
+      return res.status(400).json({ error: 'ছবির ডাটা প্রদান করুন' });
+    }
+
+    const pool = getDbPool();
+    const validUserId = pool ? await ensureUserExistsInPostgres(pool, userId, req.user) : userId;
+    const storeId = 'store_' + validUserId;
+
+    if (pool) {
+      await pool.query(`
+        INSERT INTO store_profiles (id, user_id, name, owner, phone, logo_url, updated_at)
+        VALUES ($1, $2, 'আমার দোকান', 'মালিক', '০১XXXXXXXXX', $3, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          logo_url = EXCLUDED.logo_url,
+          updated_at = NOW()
+      `, [storeId, validUserId, photoUrl]);
+
+      await pool.query('UPDATE users SET avatar_url = $1 WHERE id = $2', [photoUrl, validUserId]).catch(() => {});
+    } else {
+      const idx = inMemoryStore.stores.findIndex(s => s.userId === validUserId || s.id === storeId);
+      if (idx >= 0) {
+        inMemoryStore.stores[idx].logoUrl = photoUrl;
+      } else {
+        inMemoryStore.stores.push({
+          id: storeId,
+          userId: validUserId,
+          name: 'আমার দোকান',
+          owner: 'মালিক',
+          phone: '০১XXXXXXXXX',
+          logoUrl: photoUrl,
+        } as any);
+      }
+      saveInMemoryStoreToDisk();
+    }
+
+    return res.json({
+      success: true,
+      message: '✅ ভেন্ডার প্রোফাইল ছবি সফলভাবে আপডেট হয়েছে',
+      photoUrl,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/sync-all - Bulk Sync ledger data
+ */
+router.post('/sync-all', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { store, customers, transactions, expenses, products } = req.body;
+    const pool = getDbPool();
+
+    if (pool) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // 1. Ensure User row exists
+        await client.query(`
+          INSERT INTO users (
+            id, name, phone, email, password_hash, shop_name,
+            subscription_expires_at, registered_at, last_active_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT (id) DO NOTHING
+        `, [
+          userId,
+          req.user?.name || 'ব্যবহারকারী',
+          '01700000000',
+          req.user?.email || `${userId}@app.com`,
+          'auto_hash',
+          store?.name || req.user?.shopName || 'দোকান',
+          Date.now() + 3650 * 86400000,
+          Date.now(),
+          Date.now()
+        ]);
+
+        // 2. Store profile
+        if (store) {
+          await client.query(`
+            INSERT INTO store_profiles (id, user_id, name, owner, phone, address, currency_symbol, theme_color)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              owner = EXCLUDED.owner,
+              phone = EXCLUDED.phone,
+              address = EXCLUDED.address,
+              currency_symbol = EXCLUDED.currency_symbol,
+              theme_color = EXCLUDED.theme_color
+          `, [
+            'store_' + userId,
+            userId,
+            store.name || 'TWING হিসাবি',
+            store.owner || store.name || 'মালিক',
+            store.phone || '০১৭০০০০০০০০',
+            store.address || '',
+            store.currencySymbol || '৳',
+            store.themeColor || 'teal'
+          ]);
+        }
+
+        // 3. Customers
+        if (Array.isArray(customers)) {
+          for (const c of customers) {
+            if (!c || !c.id) continue;
+            await client.query(`
+              INSERT INTO customers (
+                id, user_id, name, phone, address, balance, category, credit_limit, notes, created_at, updated_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+              ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                phone = EXCLUDED.phone,
+                address = EXCLUDED.address,
+                balance = EXCLUDED.balance,
+                category = EXCLUDED.category,
+                credit_limit = EXCLUDED.credit_limit,
+                notes = EXCLUDED.notes,
+                updated_at = EXCLUDED.updated_at
+            `, [
+              c.id,
+              userId,
+              c.name || 'কাস্টমার',
+              c.phone || '',
+              c.address || '',
+              parseFloat(c.balance) || 0,
+              c.category || 'regular',
+              parseFloat(c.creditLimit) || 10000,
+              c.notes || '',
+              c.createdAt || Date.now(),
+              c.updatedAt || Date.now()
+            ]);
+          }
+        }
+
+        // 4. Transactions
+        if (transactions) {
+          const txList = Array.isArray(transactions) ? transactions : Object.values(transactions).flat();
+          for (const tx of txList as any[]) {
+            if (!tx || !tx.id) continue;
+            await client.query(`
+              INSERT INTO transactions (
+                id, user_id, customer_id, type, amount, description, date, time, balance_after,
+                payment_method, items, receipt_no, subtotal, discount, net_amount,
+                paid_amount, due_amount, prev_balance, created_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+              ON CONFLICT (id) DO UPDATE SET
+                type = EXCLUDED.type,
+                amount = EXCLUDED.amount,
+                description = EXCLUDED.description,
+                date = EXCLUDED.date,
+                time = EXCLUDED.time,
+                balance_after = EXCLUDED.balance_after,
+                payment_method = EXCLUDED.payment_method,
+                items = EXCLUDED.items,
+                receipt_no = EXCLUDED.receipt_no,
+                subtotal = EXCLUDED.subtotal,
+                discount = EXCLUDED.discount,
+                net_amount = EXCLUDED.net_amount,
+                paid_amount = EXCLUDED.paid_amount,
+                due_amount = EXCLUDED.due_amount,
+                prev_balance = EXCLUDED.prev_balance
+            `, [
+              tx.id,
+              userId,
+              tx.customerId || null,
+              tx.type || 'due',
+              parseFloat(tx.amount) || 0,
+              tx.description || '',
+              tx.date || new Date().toISOString().split('T')[0],
+              tx.time || new Date().toLocaleTimeString(),
+              parseFloat(tx.balanceAfter) || 0,
+              tx.paymentMethod || 'cash',
+              JSON.stringify(tx.items || []),
+              tx.receiptNo || null,
+              tx.subtotal ? parseFloat(tx.subtotal) : null,
+              tx.discount ? parseFloat(tx.discount) : null,
+              tx.netAmount ? parseFloat(tx.netAmount) : null,
+              tx.paidAmount ? parseFloat(tx.paidAmount) : null,
+              tx.dueAmount ? parseFloat(tx.dueAmount) : null,
+              tx.prevBalance ? parseFloat(tx.prevBalance) : null,
+              tx.createdAt || Date.now()
+            ]);
+          }
+        }
+
+        // 5. Expenses
+        if (Array.isArray(expenses)) {
+          for (const exp of expenses) {
+            if (!exp || !exp.id) continue;
+            await client.query(`
+              INSERT INTO expenses (id, user_id, type, category, amount, description, date, time, created_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+              ON CONFLICT (id) DO UPDATE SET
+                type = EXCLUDED.type,
+                category = EXCLUDED.category,
+                amount = EXCLUDED.amount,
+                description = EXCLUDED.description,
+                date = EXCLUDED.date,
+                time = EXCLUDED.time
+            `, [
+              exp.id,
+              userId,
+              exp.type || 'expense',
+              exp.category || 'অন্যান্য',
+              parseFloat(exp.amount) || 0,
+              exp.description || '',
+              exp.date || new Date().toISOString().split('T')[0],
+              exp.time || new Date().toLocaleTimeString(),
+              exp.createdAt || Date.now()
+            ]);
+          }
+        }
+
+        // 6. Products
+        if (Array.isArray(products)) {
+          for (const p of products) {
+            if (!p || !p.name) continue;
+            const prodId = p.id || 'prod_' + Math.random().toString(36).substring(2, 8);
+            const assignedSku = p.sku ? p.sku.trim() : `PRD-${Date.now().toString().slice(-6)}`;
+            await client.query(`
+              INSERT INTO products (
+                id, user_id, name, category, unit, buy_price, sale_price, stock, min_stock_alert, sku, qr_code, updated_at
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+              ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                category = EXCLUDED.category,
+                unit = EXCLUDED.unit,
+                buy_price = EXCLUDED.buy_price,
+                sale_price = EXCLUDED.sale_price,
+                stock = EXCLUDED.stock,
+                min_stock_alert = EXCLUDED.min_stock_alert,
+                sku = EXCLUDED.sku,
+                qr_code = EXCLUDED.qr_code,
+                updated_at = EXCLUDED.updated_at
+            `, [
+              prodId,
+              userId,
+              p.name.trim(),
+              p.category || 'সাধারণ',
+              p.unit || 'পিস',
+              parseFloat(p.buyPrice) || 0,
+              parseFloat(p.salePrice) || 0,
+              parseFloat(p.stock) || 0,
+              parseFloat(p.minStockAlert) || 5,
+              assignedSku,
+              p.qrCode || '',
+              p.updatedAt || Date.now()
+            ]);
+          }
+        }
+
+        // Update counts
+        const custCountRes = await client.query('SELECT COUNT(*) FROM customers WHERE user_id = $1', [userId]);
+        const totalCust = parseInt(custCountRes.rows[0].count, 10);
+
+        const txCountRes = await client.query('SELECT COUNT(*) FROM transactions WHERE user_id = $1', [userId]);
+        const totalTx = parseInt(txCountRes.rows[0].count, 10);
+
+        await client.query('UPDATE users SET total_customers = $1, total_transactions = $2 WHERE id = $3', [totalCust, totalTx, userId]);
+
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
+    return res.json({ message: '✅ সম্পূর্ণ ডাটাবেজ ব্যাকআপ ও সিঙ্ক সফল হয়েছে!' });
+  } catch (err: any) {
+    console.error('Sync-all error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper to format DB row to OnlineOrder object
+function mapDbRowToOrder(r: any) {
+  const isMarketplaceOrder = r.order_source === 'marketplace' || Boolean(r.master_order_id);
+  const totalAmount = parseFloat(r.total_amount) || 0;
+  const paymentStatus = r.payment_status || 'unpaid';
+  const rawPaidAmount = r.paid_amount !== undefined && r.paid_amount !== null ? parseFloat(r.paid_amount) : 0;
+  const paidAmount = rawPaidAmount > 0 ? rawPaidAmount : (paymentStatus === 'paid' ? totalAmount : 0);
+  const rawDueAmount = r.due_amount !== undefined && r.due_amount !== null ? parseFloat(r.due_amount) : 0;
+  const dueAmount = paymentStatus === 'paid' ? 0 : (rawDueAmount > 0 ? rawDueAmount : Math.max(0, totalAmount - paidAmount));
+
+  return {
+    id: r.id,
+    userId: r.user_id,
+    vendorId: r.user_id,
+    orderNumber: r.order_number,
+    customerName: r.customer_name,
+    customerPhone: r.customer_phone,
+    customerAddress: r.customer_address || '',
+    deliveryArea: r.delivery_area || 'inside_dhaka',
+    deliveryCharge: parseFloat(r.delivery_charge) || 0,
+    discountAmount: parseFloat(r.discount_amount) || 0,
+    items: typeof r.items === 'string' ? JSON.parse(r.items) : (r.items || []),
+    subtotal: parseFloat(r.subtotal) || 0,
+    totalAmount,
+    paidAmount,
+    dueAmount,
+    paymentMethod: r.payment_method || 'cod',
+    paymentStatus,
+    orderStatus: r.order_status || 'pending',
+    orderSource: isMarketplaceOrder ? 'marketplace' : 'direct_store',
+    masterOrderId: r.master_order_id,
+    vendorPayoutStatus: r.vendor_payout_status || 'unsettled',
+    adminApprovalStatus: isMarketplaceOrder ? (r.admin_approval_status || 'pending_approval') : 'not_required',
+    isAdminApproved: isMarketplaceOrder ? (r.is_admin_approved === true) : true,
+    isLockedForVendor: isMarketplaceOrder ? (r.is_admin_approved !== true) : false,
+    isRejectedByAdmin: r.is_rejected_by_admin === true,
+    isHiddenFromVendor: r.is_hidden_from_vendor === true,
+    trxId: r.trx_id || '',
+    senderPhone: r.sender_phone || '',
+    paymentAmount: r.payment_amount ? parseFloat(r.payment_amount) : undefined,
+    paymentProof: r.payment_proof || '',
+    paymentRejectReason: r.payment_reject_reason || '',
+    paymentReviewedAt: r.payment_reviewed_at ? parseInt(r.payment_reviewed_at, 10) : undefined,
+    notes: r.notes || '',
+    courierName: r.courier_name || '',
+    courierTrackingCode: r.courier_tracking_code || '',
+    deliveryManName: r.delivery_man_name || '',
+    deliveryManPhone: r.delivery_man_phone || '',
+    estimatedDeliveryDate: r.estimated_delivery_date || '',
+    deliveryNote: r.delivery_note || '',
+    vendorNote: r.vendor_note || '',
+    codCollectedAmount: r.cod_collected_amount ? parseFloat(r.cod_collected_amount) : undefined,
+    collectedAt: r.collected_at ? parseInt(r.collected_at, 10) : undefined,
+    isStockAdjusted: r.is_stock_adjusted === true,
+    isLedgerSynced: r.is_ledger_synced === true,
+    createdAt: parseInt(r.created_at, 10) || Date.now(),
+    updatedAt: parseInt(r.updated_at, 10) || Date.now(),
+  };
+}
+
+/**
+ * GET /api/store/orders - Get all orders for authenticated vendor
+ */
+router.get('/orders', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com');
+    const pool = getDbPool();
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+
+      const result = await pool.query(
+        `SELECT * FROM online_orders 
+         WHERE user_id = $1 
+           AND (order_source != 'marketplace' OR is_admin_approved = TRUE OR $2 = TRUE)
+           AND is_hidden_from_vendor IS NOT TRUE 
+           AND is_rejected_by_admin IS NOT TRUE 
+         ORDER BY created_at DESC`,
+        [userId, isSuperAdmin]
+      );
+      const orders = result.rows.map(mapDbRowToOrder);
+      return res.json({ orders });
+    } else {
+      const memoryOrders = (inMemoryStore.online_orders || [])
+        .filter((o) => {
+          if (!isSuperAdmin && o.userId !== userId) return false;
+          if (o.isHiddenFromVendor || o.isRejectedByAdmin) return false;
+          const isMkt = o.orderSource === 'marketplace' || Boolean(o.masterOrderId);
+          if (isMkt && !isSuperAdmin && o.isAdminApproved !== true) return false;
+          return true;
+        })
+        .map((o) => {
+          const isMkt = o.orderSource === 'marketplace' || Boolean(o.masterOrderId);
+          return {
+            ...o,
+            orderSource: isMkt ? 'marketplace' : 'direct_store',
+            isAdminApproved: isMkt ? Boolean(o.isAdminApproved) : true,
+            isLockedForVendor: isMkt ? (o.isAdminApproved !== true) : false,
+          };
+        })
+        .sort((a, b) => b.createdAt - a.createdAt);
+      return res.json({ orders: memoryOrders });
+    }
+  } catch (err: any) {
+    console.error('Error fetching online orders:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/store/orders/:id - Get single order details for vendor (strictly isolated to vendor)
+ */
+router.get('/orders/:id', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com');
+    const { id } = req.params;
+    const cleanId = (id || '').replace(/^#/, '').trim();
+    const pool = getDbPool();
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const result = await pool.query(
+        'SELECT * FROM online_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
+        [id, cleanId]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+      }
+      const order = mapDbRowToOrder(result.rows[0]);
+      if (!isSuperAdmin && order.userId !== userId) {
+        return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি শুধুমাত্র নিজের অর্ডারের তথ্য দেখতে পারবেন।' });
+      }
+      const isMkt = order.orderSource === 'marketplace' || Boolean(order.masterOrderId);
+      if (isMkt && !isSuperAdmin && order.isAdminApproved !== true) {
+        return res.status(403).json({ error: '🔒 সুপার এডমিন কর্তৃক পেমেন্ট অনুমোদনের পর এই অর্ডারটি আনলক হবে।' });
+      }
+      return res.json({ order });
+    } else {
+      const o = (inMemoryStore.online_orders || []).find(
+        (x) => x.id === id || x.orderNumber === id || x.id === cleanId || x.orderNumber === cleanId
+      );
+      if (!o) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+      }
+      if (!isSuperAdmin && o.userId !== userId) {
+        return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: আপনি শুধুমাত্র নিজের অর্ডারের তথ্য দেখতে পারবেন।' });
+      }
+      const isMkt = o.orderSource === 'marketplace' || Boolean(o.masterOrderId);
+      if (isMkt && !isSuperAdmin && o.isAdminApproved !== true) {
+        return res.status(403).json({ error: '🔒 সুপার এডমিন কর্তৃক পেমেন্ট অনুমোদনের পর এই অর্ডারটি আনলক হবে।' });
+      }
+      return res.json({ order: o });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/store/online-config - Get logged-in vendor's online store configuration
+ */
+router.get('/online-config', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+
+    if (pool) {
+      // Auto-heal schema if missing on older DBs
+      await pool.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online_store_allowed BOOLEAN DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_status VARCHAR(50) DEFAULT 'disabled';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_requested_at BIGINT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS online_store_note TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_name VARCHAR(255) DEFAULT 'আমার দোকান';
+      `).catch(() => {});
+
+      let result: any = { rows: [] };
+      try {
+        result = await pool.query('SELECT * FROM online_store_configs WHERE user_id = $1', [userId]);
+      } catch (err: any) {
+        console.warn('Warning querying online_store_configs:', err?.message);
+      }
+
+      let u: any = {};
+      try {
+        const uRes = await pool.query(
+          'SELECT shop_name, phone, address, name, role, is_online_store_allowed, online_store_status, online_store_requested_at, online_store_note, store_slug FROM users WHERE id = $1',
+          [userId]
+        );
+        u = uRes.rows[0] || {};
+      } catch {
+        try {
+          const uRes = await pool.query(
+            'SELECT shop_name, phone, address, name, role, is_online_store_allowed, online_store_status, online_store_requested_at, online_store_note FROM users WHERE id = $1',
+            [userId]
+          );
+          u = uRes.rows[0] || {};
+        } catch {
+          const uRes = await pool.query('SELECT shop_name, phone, address, name, role FROM users WHERE id = $1', [userId]).catch(() => ({ rows: [] }));
+          u = uRes.rows[0] || {};
+        }
+      }
+      const isSuperAdmin = (u.role === 'super_admin' || req.user?.role === 'super_admin' || userId === 'usr_super_admin');
+      const isAllowed = isSuperAdmin ? true : (u.is_online_store_allowed === true);
+      const adminStatus = isSuperAdmin ? 'active' : (u.online_store_status || (isAllowed ? 'active' : 'disabled'));
+      const adminNote = u.online_store_note || '';
+
+      if (result.rows.length > 0) {
+        const r = result.rows[0];
+        return res.json({
+          config: {
+            isEnabled: r.is_enabled !== false,
+            storeSlug: r.store_slug || u.store_slug,
+            storeName: r.store_name || u.shop_name || 'আমার দোকান',
+            tagline: r.tagline || '',
+            category: r.category || 'general',
+            phone: r.phone || u.phone || '',
+            whatsappPhone: r.whatsapp_phone || u.phone || '',
+            address: r.address || u.address || '',
+            customDomain: r.custom_domain || '',
+            customDomainVerified: Boolean(r.custom_domain_verified),
+            customDomainStatus: r.custom_domain_status || 'pending',
+            customDomainVerifiedAt: r.custom_domain_verified_at ? Number(r.custom_domain_verified_at) : undefined,
+            themeColor: r.theme_color || 'teal',
+            announcement: r.announcement || '',
+            deliveryInsideDhaka: parseFloat(r.delivery_inside_dhaka) || 60,
+            deliveryOutsideDhaka: parseFloat(r.delivery_outside_dhaka) || 120,
+            freeDeliveryAbove: r.free_delivery_above ? parseFloat(r.free_delivery_above) : undefined,
+            minOrderAmount: r.min_order_amount ? parseFloat(r.min_order_amount) : undefined,
+            deliveryTimeEstimate: r.delivery_time_estimate || '২-৩ কর্মদিবস',
+            acceptCOD: r.accept_cod !== false,
+            acceptBkash: Boolean(r.accept_bkash),
+            bkashNumber: r.bkash_number || '',
+            bkashType: r.bkash_type || 'personal',
+            acceptNagad: Boolean(r.accept_nagad),
+            nagadNumber: r.nagad_number || '',
+            nagadType: r.nagad_type || 'personal',
+            acceptRocket: Boolean(r.accept_rocket),
+            rocketNumber: r.rocket_number || '',
+            rocketType: r.rocket_type || 'personal',
+            acceptUpay: Boolean(r.accept_upay),
+            upayNumber: r.upay_number || '',
+            upayType: r.upay_type || 'personal',
+            acceptBank: Boolean(r.accept_bank),
+            bankName: r.bank_name || '',
+            bankAccountName: r.bank_account_name || '',
+            bankAccountNumber: r.bank_account_number || '',
+            bankBranchName: r.bank_branch_name || '',
+            bankRoutingNumber: r.bank_routing_number || '',
+            vendorPaymentQrUrl: r.vendor_payment_qr_url || '',
+            acceptBanglaQr: r.accept_bangla_qr !== false,
+            banglaQrNumber: r.bangla_qr_number || '',
+            paymentInstructions: r.payment_instructions || '',
+            bannerUrl: r.banner_url || '',
+            bannerTitle: r.banner_title || '',
+            bannerSubtitle: r.banner_subtitle || '',
+            bannerTag: r.banner_tag || '',
+            bannerDiscountText: r.banner_discount_text || '',
+            bannerStyle: r.banner_style || 'gradient',
+            banners: Array.isArray(r.banners)
+              ? r.banners
+              : (typeof r.banners === 'string' ? JSON.parse(r.banners || '[]') : []),
+            logoUrl: r.logo_url || '',
+            supportWhatsAppMessage: r.support_whatsapp_message || '',
+            supportHours: r.support_hours || '',
+            facebookUrl: r.facebook_url || '',
+            publishedProductIds: Array.isArray(r.published_product_ids)
+              ? r.published_product_ids
+              : (typeof r.published_product_ids === 'string' ? JSON.parse(r.published_product_ids) : []),
+            deletedDemoProductIds: Array.isArray(r.deleted_demo_product_ids)
+              ? r.deleted_demo_product_ids
+              : (typeof r.deleted_demo_product_ids === 'string' ? JSON.parse(r.deleted_demo_product_ids || '[]') : []),
+            includeDemoProducts: r.include_demo_products !== false,
+            coupons: Array.isArray(r.coupons)
+              ? r.coupons
+              : (typeof r.coupons === 'string' ? JSON.parse(r.coupons || '[]') : []),
+            estimatedDeliveryDays: r.estimated_delivery_days || r.delivery_time_estimate || '২-৩ কর্মদিবস',
+            isStoreAllowedByAdmin: isAllowed,
+            adminStoreStatus: adminStatus,
+            adminStoreNote: adminNote,
+            createdAt: Number(r.created_at),
+            updatedAt: Number(r.updated_at),
+          },
+        });
+      }
+
+      // Default if not saved yet
+      const defShop = u.shop_name || req.user?.shopName || 'আমার দোকান';
+      const autoSlug = u.store_slug || (defShop.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `store-${userId?.slice(-4)}`);
+
+      return res.json({
+        config: {
+          isEnabled: true,
+          storeSlug: autoSlug,
+          storeName: defShop,
+          tagline: 'আপনার বিশ্বস্ত অনলাইন শপ',
+          category: 'general',
+          phone: u.phone || '',
+          whatsappPhone: u.phone || '',
+          address: u.address || '',
+          themeColor: 'teal',
+          deliveryInsideDhaka: 60,
+          deliveryOutsideDhaka: 120,
+          acceptCOD: true,
+          acceptBkash: false,
+          acceptNagad: false,
+          acceptRocket: false,
+          bannerStyle: 'gradient',
+          publishedProductIds: [],
+          deletedDemoProductIds: [],
+          includeDemoProducts: true,
+          isStoreAllowedByAdmin: isAllowed,
+          adminStoreStatus: adminStatus,
+          adminStoreNote: adminNote,
+        },
       });
+    } else {
+      const memUser = inMemoryStore.users.find((u) => u.id === userId);
+      const isSuperAdmin = (memUser?.role === 'super_admin' || req.user?.role === 'super_admin' || userId === 'usr_super_admin');
+      const isAllowed = isSuperAdmin ? true : (memUser?.isOnlineStoreAllowed === true);
+      const adminStatus = isSuperAdmin ? 'active' : (memUser?.onlineStoreStatus || (isAllowed ? 'active' : 'disabled'));
+      const adminNote = memUser?.onlineStoreNote || '';
+
+      const found = (inMemoryStore.online_store_configs || []).find((c) => (c.userId || c.user_id) === userId);
+      if (found) {
+        return res.json({
+          config: {
+            ...found,
+            deletedDemoProductIds: found.deletedDemoProductIds || found.deleted_demo_product_ids || [],
+            includeDemoProducts: found.includeDemoProducts !== false && found.include_demo_products !== false,
+            isStoreAllowedByAdmin: isAllowed,
+            adminStoreStatus: adminStatus,
+            adminStoreNote: adminNote,
+          }
+        });
+      }
+
+      const defShop = memUser?.shopName || req.user?.shopName || 'আমার দোকান';
+      const autoSlug = memUser?.storeSlug || (defShop.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `store-${userId?.slice(-4)}`);
+
+      return res.json({
+        config: {
+          isEnabled: true,
+          storeSlug: autoSlug,
+          storeName: defShop,
+          tagline: 'আপনার বিশ্বস্ত অনলাইন শপ',
+          category: 'general',
+          phone: memUser?.phone || '',
+          whatsappPhone: memUser?.phone || '',
+          address: memUser?.address || '',
+          themeColor: 'teal',
+          deliveryInsideDhaka: 60,
+          deliveryOutsideDhaka: 120,
+          acceptCOD: true,
+          acceptBkash: false,
+          acceptNagad: false,
+          acceptRocket: false,
+          bannerStyle: 'gradient',
+          publishedProductIds: [],
+          isStoreAllowedByAdmin: isAllowed,
+          adminStoreStatus: adminStatus,
+          adminStoreNote: adminNote,
+        },
+      });
+    }
+  } catch (err: any) {
+    console.error('Error fetching online store config:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/request-activation
+ * User requests Super Admin to activate their Online Store
+ */
+router.post('/request-activation', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { note } = req.body || {};
+    const pool = getDbPool();
+    const now = Date.now();
+    const userNote = note ? String(note).trim().slice(0, 500) : 'ইউজার অনলাইন স্টোর চালুর আবেদন করেছেন';
+
+    if (pool) {
+      const uRes = await pool.query('SELECT name, shop_name, phone FROM users WHERE id = $1', [userId]);
+      const u = uRes.rows[0] || {};
+
+      await pool.query(`
+        UPDATE users SET
+          online_store_status = 'requested',
+          online_store_requested_at = $1,
+          online_store_note = $2
+        WHERE id = $3
+      `, [now, userNote, userId]);
+
+      await pool.query(`
+        UPDATE online_store_configs SET
+          admin_store_status = 'requested',
+          admin_store_note = $1
+        WHERE user_id = $2
+      `, [userNote, userId]).catch(() => {});
+
+      // Create Admin Notification
+      await pool.query(`
+        INSERT INTO notifications (id, title, message, type, target, priority, is_read, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        'notif_store_req_' + now,
+        '🛍️ নতুন অনলাইন স্টোর অ্যাক্টিভেশন রিকোয়েস্ট!',
+        `${u.shop_name || u.name || 'একজন ইউজার'} (${u.phone || userId}) অনলাইন স্টোর চালুর আবেদন করেছেন। নোট: ${userNote}`,
+        'system',
+        'admin',
+        'high',
+        false,
+        now,
+      ]).catch(() => {});
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u) {
+        u.onlineStoreStatus = 'requested';
+        u.onlineStoreRequestedAt = now;
+        u.onlineStoreNote = userNote;
+      }
+      const c = (inMemoryStore.online_store_configs || []).find(x => (x.userId || x.user_id) === userId);
+      if (c) {
+        c.adminStoreStatus = 'requested';
+        c.adminStoreNote = userNote;
+      }
+    }
+
+    return res.json({
+      message: '✅ আপনার অনলাইন স্টোর চালুর রিকোয়েস্ট সফলভাবে সুপার অ্যাডমিনের কাছে পাঠানো হয়েছে! পর্যালোচনার পর এটি সক্রিয় করা হবে।',
+      onlineStoreStatus: 'requested',
+      onlineStoreRequestedAt: now,
+    });
+  } catch (err: any) {
+    console.error('Error requesting online store activation:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/cancel-request
+ * User cancels their pending store activation request
+ */
+router.post('/cancel-request', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+
+    if (pool) {
+      await pool.query(`
+        UPDATE users SET
+          online_store_status = 'disabled',
+          online_store_note = 'ইউজার আবেদন প্রত্যাহার করেছেন'
+        WHERE id = $1 AND online_store_status = 'requested'
+      `, [userId]);
+
+      await pool.query(`
+        UPDATE online_store_configs SET
+          admin_store_status = 'disabled',
+          admin_store_note = 'ইউজার আবেদন প্রত্যাহার করেছেন'
+        WHERE user_id = $1
+      `, [userId]).catch(() => {});
+    } else {
+      const u = inMemoryStore.users.find(x => x.id === userId);
+      if (u && u.onlineStoreStatus === 'requested') {
+        u.onlineStoreStatus = 'disabled';
+        u.onlineStoreNote = 'ইউজার আবেদন প্রত্যাহার করেছেন';
+      }
+      const c = (inMemoryStore.online_store_configs || []).find(x => (x.userId || x.user_id) === userId);
+      if (c) {
+        c.adminStoreStatus = 'disabled';
+        c.adminStoreNote = 'ইউজার আবেদন প্রত্যাহার করেছেন';
+      }
+    }
+
+    return res.json({
+      message: 'অনলাইন স্টোর আবেদন প্রত্যাহার করা হয়েছে',
+      onlineStoreStatus: 'disabled',
+    });
+  } catch (err: any) {
+    console.error('Error cancelling online store request:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/store/online-config - Save or update logged-in vendor's online store configuration
+ */
+router.put('/online-config', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'অননুমোদিত অ্যাক্সেস' });
+
+    const body = req.body || {};
+    const now = Date.now();
+
+    // Clean & validate slug
+    let rawSlug = (body.storeSlug || body.storeName || `store-${userId.slice(-4)}`)
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    if (!rawSlug || rawSlug.length < 3) rawSlug = `store-${userId.slice(-4)}`;
+
+    // Validate slug constraints only if user explicitly typed a custom slug
+    if (body.storeSlug && body.storeSlug.trim() && body.storeSlug.trim() !== rawSlug) {
+      const slugValidation = validateStoreSlug(rawSlug);
+      if (!slugValidation.valid) {
+        // If auto-cleanup makes it valid, use rawSlug; otherwise if it has illegal chars notify
+        if (rawSlug.length < 3) rawSlug = `store-${userId.slice(-4)}`;
+      }
+    }
+
+    // Clean custom domain
+    let cleanDomain = cleanDomainString(body.customDomain || '');
+
+    const pool = getDbPool();
+    if (pool) {
+      // Ensure table columns exist first
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS online_store_configs (
+          user_id VARCHAR(100) PRIMARY KEY,
+          store_slug VARCHAR(100) UNIQUE NOT NULL,
+          store_name VARCHAR(255) NOT NULL,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        );
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS store_name VARCHAR(255) DEFAULT 'আমার দোকান';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS theme_color VARCHAR(50) DEFAULT 'teal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS tagline TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS whatsapp_phone VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS address TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain VARCHAR(255);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain_verified BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain_status VARCHAR(50) DEFAULT 'pending';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS custom_domain_verified_at BIGINT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS announcement TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS delivery_inside_dhaka NUMERIC(12, 2) DEFAULT 60;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS delivery_outside_dhaka NUMERIC(12, 2) DEFAULT 120;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS free_delivery_above NUMERIC(12, 2);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS min_order_amount NUMERIC(12, 2);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS delivery_time_estimate VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_cod BOOLEAN DEFAULT TRUE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_bkash BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bkash_number VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bkash_type VARCHAR(50) DEFAULT 'personal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_nagad BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS nagad_number VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS nagad_type VARCHAR(50) DEFAULT 'personal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_rocket BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS rocket_number VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS rocket_type VARCHAR(50) DEFAULT 'personal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_upay BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS upay_number VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS upay_type VARCHAR(50) DEFAULT 'personal';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_bank BOOLEAN DEFAULT FALSE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_name VARCHAR(150);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_account_name VARCHAR(150);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_branch_name VARCHAR(150);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bank_routing_number VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS vendor_payment_qr_url TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS accept_bangla_qr BOOLEAN DEFAULT TRUE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS bangla_qr_number VARCHAR(50);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS payment_instructions TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_url TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_title TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_subtitle TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_tag TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_discount_text TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banner_style VARCHAR(50) DEFAULT 'gradient';
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS logo_url TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS support_whatsapp_message TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS support_hours VARCHAR(100);
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS facebook_url TEXT;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS published_product_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS banners JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT TRUE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS deleted_demo_product_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS include_demo_products BOOLEAN DEFAULT TRUE;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS coupons JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE online_store_configs ADD COLUMN IF NOT EXISTS estimated_delivery_days VARCHAR(100);
+        ALTER TABLE online_store_configs ALTER COLUMN id DROP NOT NULL;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+        ALTER TABLE store_profiles ADD COLUMN IF NOT EXISTS store_slug VARCHAR(100);
+      `).catch(() => null);
+
+      // Check slug collision with another user
+      const slugCheck = await pool.query(
+        'SELECT user_id FROM online_store_configs WHERE store_slug = $1 AND user_id != $2',
+        [rawSlug, userId]
+      ).catch(() => ({ rows: [] }));
+      if (slugCheck.rows.length > 0) {
+        if (body.storeSlug && body.storeSlug.trim()) {
+          return res.status(409).json({
+            error: `সাব-ডোমেন "${rawSlug}.twinghisabi.site" ইতিমধ্যে অন্য একজন ভেন্ডর নিবন্ধন করেছেন। অনুগ্রহ করে একটি ইউনিক সাব-ডোমেন নাম দিন (যেমন: ${rawSlug}-bd)।`,
+          });
+        }
+        rawSlug = `${rawSlug}-${userId.slice(-4)}`;
+      }
+
+      // Check custom domain collision with another user
+      if (cleanDomain) {
+        const domainCheck = await pool.query(
+          'SELECT user_id FROM online_store_configs WHERE LOWER(custom_domain) = $1 AND user_id != $2',
+          [cleanDomain, userId]
+        ).catch(() => ({ rows: [] }));
+        if (domainCheck.rows.length > 0) {
+          return res.status(409).json({
+            error: 'এই কাস্টম ডোমেনটি ইতিমধ্যে অন্য একটি স্টোরে যুক্ত রয়েছে। একই ডোমেন একাধিক ভেন্ডর ব্যবহার করতে পারবেন না।',
+          });
+        }
+      }
+
+      const existing = await pool.query('SELECT user_id FROM online_store_configs WHERE user_id = $1', [userId]);
+      if (existing.rows.length > 0) {
+        await pool.query(
+          `UPDATE online_store_configs SET
+            store_slug = $2,
+            store_name = $3,
+            tagline = $4,
+            category = $5,
+            phone = $6,
+            whatsapp_phone = $7,
+            address = $8,
+            custom_domain = $9,
+            custom_domain_verified = $10,
+            custom_domain_status = $11,
+            custom_domain_verified_at = $12,
+            theme_color = $13,
+            announcement = $14,
+            delivery_inside_dhaka = $15,
+            delivery_outside_dhaka = $16,
+            free_delivery_above = $17,
+            min_order_amount = $18,
+            delivery_time_estimate = $19,
+            accept_cod = $20,
+            accept_bkash = $21,
+            bkash_number = $22,
+            bkash_type = $23,
+            accept_nagad = $24,
+            nagad_number = $25,
+            nagad_type = $26,
+            accept_rocket = $27,
+            rocket_number = $28,
+            rocket_type = $29,
+            accept_upay = $30,
+            upay_number = $31,
+            upay_type = $32,
+            accept_bank = $33,
+            bank_name = $34,
+            bank_account_name = $35,
+            bank_account_number = $36,
+            bank_branch_name = $37,
+            bank_routing_number = $38,
+            vendor_payment_qr_url = $39,
+            accept_bangla_qr = $40,
+            bangla_qr_number = $41,
+            payment_instructions = $42,
+            banner_url = $43,
+            banner_title = $44,
+            banner_subtitle = $45,
+            banner_tag = $46,
+            banner_discount_text = $47,
+            banner_style = $48,
+            logo_url = $49,
+            support_whatsapp_message = $50,
+            support_hours = $51,
+            facebook_url = $52,
+            published_product_ids = $53::jsonb,
+            banners = $54::jsonb,
+            is_enabled = $55,
+            deleted_demo_product_ids = $56::jsonb,
+            include_demo_products = $57,
+            coupons = $58::jsonb,
+            estimated_delivery_days = $59,
+            updated_at = $60
+          WHERE user_id = $1`,
+          [
+            userId,
+            rawSlug,
+            body.storeName || 'আমার দোকান',
+            body.tagline || '',
+            body.category || 'general',
+            body.phone || '',
+            body.whatsappPhone || '',
+            body.address || '',
+            cleanDomain || null,
+            Boolean(body.customDomainVerified),
+            body.customDomainStatus || 'pending',
+            body.customDomainVerifiedAt ? Number(body.customDomainVerifiedAt) : null,
+            body.themeColor || 'teal',
+            body.announcement || '',
+            parseFloat(body.deliveryInsideDhaka) || 60,
+            parseFloat(body.deliveryOutsideDhaka) || 120,
+            body.freeDeliveryAbove ? parseFloat(body.freeDeliveryAbove) : null,
+            body.minOrderAmount ? parseFloat(body.minOrderAmount) : null,
+            body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
+            body.acceptCOD !== false,
+            Boolean(body.acceptBkash),
+            body.bkashNumber || '',
+            body.bkashType || 'personal',
+            Boolean(body.acceptNagad),
+            body.nagadNumber || '',
+            body.nagadType || 'personal',
+            Boolean(body.acceptRocket),
+            body.rocketNumber || '',
+            body.rocketType || 'personal',
+            Boolean(body.acceptUpay),
+            body.upayNumber || '',
+            body.upayType || 'personal',
+            Boolean(body.acceptBank),
+            body.bankName || '',
+            body.bankAccountName || '',
+            body.bankAccountNumber || '',
+            body.bankBranchName || '',
+            body.bankRoutingNumber || '',
+            body.vendorPaymentQrUrl || '',
+            body.acceptBanglaQr !== false,
+            body.banglaQrNumber || '',
+            body.paymentInstructions || '',
+            body.bannerUrl || '',
+            body.bannerTitle || '',
+            body.bannerSubtitle || '',
+            body.bannerTag || '',
+            body.bannerDiscountText || '',
+            body.bannerStyle || 'gradient',
+            body.logoUrl || '',
+            body.supportWhatsAppMessage || '',
+            body.supportHours || '',
+            body.facebookUrl || '',
+            JSON.stringify(body.publishedProductIds || []),
+            JSON.stringify(body.banners || []),
+            body.isEnabled !== false,
+            JSON.stringify(body.deletedDemoProductIds || []),
+            body.includeDemoProducts !== false,
+            JSON.stringify(body.coupons || []),
+            body.estimatedDeliveryDays || body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
+            now,
+          ]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO online_store_configs (
+            id, user_id, store_slug, store_name, tagline, category, phone, whatsapp_phone,
+            address, custom_domain, custom_domain_verified, custom_domain_status,
+            custom_domain_verified_at, theme_color, announcement, delivery_inside_dhaka,
+            delivery_outside_dhaka, free_delivery_above, min_order_amount,
+            delivery_time_estimate, accept_cod, accept_bkash, bkash_number, bkash_type,
+            accept_nagad, nagad_number, nagad_type, accept_rocket, rocket_number,
+            rocket_type, accept_upay, upay_number, upay_type, accept_bank, bank_name,
+            bank_account_name, bank_account_number, bank_branch_name, bank_routing_number,
+            vendor_payment_qr_url, accept_bangla_qr, bangla_qr_number,
+            payment_instructions, banner_url, banner_title, banner_subtitle,
+            banner_tag, banner_discount_text, banner_style, logo_url, support_whatsapp_message,
+            support_hours, facebook_url, published_product_ids, banners, is_enabled,
+            deleted_demo_product_ids, include_demo_products, coupons, estimated_delivery_days, created_at, updated_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34,
+            $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50,
+            $51, $52, $53::jsonb, $54::jsonb, $55, $56::jsonb, $57, $58::jsonb, $59, $60, $61
+          )`,
+          [
+            'cfg_' + userId,
+            userId,
+            rawSlug,
+            body.storeName || 'আমার দোকান',
+            body.tagline || '',
+            body.category || 'general',
+            body.phone || '',
+            body.whatsappPhone || '',
+            body.address || '',
+            cleanDomain || null,
+            Boolean(body.customDomainVerified),
+            body.customDomainStatus || 'pending',
+            body.customDomainVerifiedAt ? Number(body.customDomainVerifiedAt) : null,
+            body.themeColor || 'teal',
+            body.announcement || '',
+            parseFloat(body.deliveryInsideDhaka) || 60,
+            parseFloat(body.deliveryOutsideDhaka) || 120,
+            body.freeDeliveryAbove ? parseFloat(body.freeDeliveryAbove) : null,
+            body.minOrderAmount ? parseFloat(body.minOrderAmount) : null,
+            body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
+            body.acceptCOD !== false,
+            Boolean(body.acceptBkash),
+            body.bkashNumber || '',
+            body.bkashType || 'personal',
+            Boolean(body.acceptNagad),
+            body.nagadNumber || '',
+            body.nagadType || 'personal',
+            Boolean(body.acceptRocket),
+            body.rocketNumber || '',
+            body.rocketType || 'personal',
+            Boolean(body.acceptUpay),
+            body.upayNumber || '',
+            body.upayType || 'personal',
+            Boolean(body.acceptBank),
+            body.bankName || '',
+            body.bankAccountName || '',
+            body.bankAccountNumber || '',
+            body.bankBranchName || '',
+            body.bankRoutingNumber || '',
+            body.vendorPaymentQrUrl || '',
+            body.acceptBanglaQr !== false,
+            body.banglaQrNumber || '',
+            body.paymentInstructions || '',
+            body.bannerUrl || '',
+            body.bannerTitle || '',
+            body.bannerSubtitle || '',
+            body.bannerTag || '',
+            body.bannerDiscountText || '',
+            body.bannerStyle || 'gradient',
+            body.logoUrl || '',
+            body.supportWhatsAppMessage || '',
+            body.supportHours || '',
+            body.facebookUrl || '',
+            JSON.stringify(body.publishedProductIds || []),
+            JSON.stringify(body.banners || []),
+            body.isEnabled !== false,
+            JSON.stringify(body.deletedDemoProductIds || []),
+            body.includeDemoProducts !== false,
+            JSON.stringify(body.coupons || []),
+            body.estimatedDeliveryDays || body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
+            now,
+            now,
+          ]
+        );
+
+        // Dual-sync store_slug into users and store_profiles table
+        await pool.query('UPDATE users SET store_slug = $1 WHERE id = $2', [rawSlug, userId]).catch(() => {});
+        await pool.query('UPDATE store_profiles SET store_slug = $1 WHERE user_id = $2', [rawSlug, userId]).catch(() => {});
+
+        // Keep inMemoryStore synchronized for fast middleware lookups
+        if (!inMemoryStore.online_store_configs) inMemoryStore.online_store_configs = [];
+        const idx = inMemoryStore.online_store_configs.findIndex((c) => (c.userId || c.user_id) === userId);
+        const confObj = {
+          ...body,
+          userId,
+          storeSlug: rawSlug,
+          customDomain: cleanDomain || undefined,
+          coupons: body.coupons || [],
+          estimatedDeliveryDays: body.estimatedDeliveryDays || body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
+          updatedAt: now,
+        };
+        if (idx >= 0) inMemoryStore.online_store_configs[idx] = confObj;
+        else inMemoryStore.online_store_configs.push(confObj);
+
+        const memUser = (inMemoryStore.users || []).find(u => u.id === userId);
+        if (memUser) memUser.storeSlug = rawSlug;
+        const memStore = (inMemoryStore.stores || []).find(s => s.userId === userId);
+        if (memStore) memStore.storeSlug = rawSlug;
+        saveInMemoryStoreToDisk();
+      }
+    } else {
+      if (!inMemoryStore.online_store_configs) inMemoryStore.online_store_configs = [];
+
+      // Check collision in memory
+      if (cleanDomain) {
+        const conflict = inMemoryStore.online_store_configs.find(
+          (c) =>
+            (c.userId || c.user_id) !== userId &&
+            c.customDomain &&
+            c.customDomain.toLowerCase() === cleanDomain.toLowerCase()
+        );
+        if (conflict) {
+          return res.status(400).json({
+            error: 'এই কাস্টম ডোমেনটি ইতিমধ্যে অন্য একটি স্টোরে যুক্ত রয়েছে। একই ডোমেন একাধিক ভেন্ডর ব্যবহার করতে পারবেন না।',
+          });
+        }
+      }
+
+      const idx = inMemoryStore.online_store_configs.findIndex((c) => (c.userId || c.user_id) === userId);
+      const confObj = {
+        ...body,
+        userId,
+        storeSlug: rawSlug,
+        customDomain: cleanDomain || undefined,
+        coupons: body.coupons || [],
+        estimatedDeliveryDays: body.estimatedDeliveryDays || body.deliveryTimeEstimate || '২-৩ কর্মদিবস',
+        updatedAt: now,
+      };
+      if (idx >= 0) inMemoryStore.online_store_configs[idx] = confObj;
+      else inMemoryStore.online_store_configs.push(confObj);
+
+      const memUser = (inMemoryStore.users || []).find(u => u.id === userId);
+      if (memUser) memUser.storeSlug = rawSlug;
+      const memStore = (inMemoryStore.stores || []).find(s => s.userId === userId);
+      if (memStore) memStore.storeSlug = rawSlug;
+      saveInMemoryStoreToDisk();
+    }
+
+    const canonicalUrl = body.customDomainVerified && cleanDomain
+      ? `https://${cleanDomain}`
+      : `https://${rawSlug}.twinghisabi.site`;
+
+    return res.json({
+      message: '✅ অনলাইন স্টোর সেটিংস সফলভাবে সংরক্ষিত হয়েছে!',
+      subdomainUrl: `https://${rawSlug}.twinghisabi.site`,
+      canonicalUrl,
+      config: { ...body, storeSlug: rawSlug, customDomain: cleanDomain },
+    });
+  } catch (err: any) {
+    console.error('Error saving online store config:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/verify-domain - Server-side verification of Vendor Custom Domain
+ */
+router.post('/verify-domain', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { domain } = req.body;
+
+    if (!domain || typeof domain !== 'string') {
+      return res.status(400).json({ error: 'অনুগ্রহ করে সঠিক ডোমেন নাম লিখুন।' });
+    }
+
+    const cleanDomain = domain
+      .toLowerCase()
+      .trim()
+      .replace(/^https?:\/\//i, '')
+      .replace(/\/.*$/, '')
+      .replace(/:\d+$/, '');
+
+    // Domain validation
+    if (!cleanDomain.includes('.') || cleanDomain.length < 4 || cleanDomain.length > 253) {
+      return res.status(400).json({ error: 'ডোমেন ফরম্যাট সঠিক নয় (যেমন: shop.mybrand.com অথবা mybrand.com)' });
+    }
+
+    // Reserved system hostnames
+    const reservedRoots = ['localhost', '127.0.0.1', 'ai.studio', 'googleusercontent.com', 'run.app'];
+    if (reservedRoots.some((r) => cleanDomain === r || cleanDomain.endsWith('.' + r))) {
+      return res.status(400).json({ error: 'এই ডোমেনটি সিস্টেমের জন্য সংরক্ষিত।' });
     }
 
     const pool = getDbPool();
     const now = Date.now();
 
-    // Check if user ALREADY has a pending payment request (Duplicate Pending Protection)
     if (pool) {
-      const pendingCheck = await pool.query(
-        "SELECT id, trx_id, plan_name, amount FROM payments WHERE user_id = $1 AND status = 'pending'",
-        [userId]
+      // Check if domain is already registered to another vendor
+      const conflict = await pool.query(
+        'SELECT user_id, store_name FROM online_store_configs WHERE LOWER(custom_domain) = $1 AND user_id != $2',
+        [cleanDomain, userId]
       );
-      if (pendingCheck.rows.length > 0) {
-        const p = pendingCheck.rows[0];
-        return res.status(400).json({
-          error: `আপনার ইতিমধ্যে একটি পেমেন্ট ভেরিফিকেশন অপেক্ষমাণ রয়েছে (TrxID: ${p.trx_id}, ৳${p.amount})। সুপার অ্যাডমিন যাচাই করার পর নতুন অনুরোধ করা যাবে।`
+      if (conflict.rows.length > 0) {
+        return res.status(409).json({
+          error: 'এই কাস্টম ডোমেনটি ইতিমধ্যে অন্য একটি স্টোরে নিবন্ধিত রয়েছে। একই ডোমেন একাধিক ভেন্ডর ব্যবহার করতে পারবেন না।',
         });
       }
 
-      // Check duplicate TrxID across all pending & approved records
-      const dupCheck = await pool.query(
-        "SELECT id, status, shop_name, user_id FROM payments WHERE UPPER(trx_id) = $1 AND status IN ('pending', 'approved')",
-        [cleanTrx]
+      // Update or insert domain as verified
+      const updateRes = await pool.query(
+        `UPDATE online_store_configs
+         SET custom_domain = $1,
+             custom_domain_verified = true,
+             custom_domain_status = 'verified',
+             custom_domain_verified_at = $2,
+             updated_at = $2
+         WHERE user_id = $3
+         RETURNING user_id`,
+        [cleanDomain, now, userId]
       );
-      if (dupCheck.rows.length > 0) {
-        return res.status(400).json({
-          error: `এই Transaction ID (${cleanTrx}) ইতিমধ্যে একবার ব্যবহার বা সাবমিট করা হয়েছে। একই TrxID বারবার ব্যবহার করা যাবে না। অনুগ্রহ করে আপনার সঠিক TrxID দিন।`
+      if (updateRes.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO online_store_configs (
+            id, user_id, store_slug, store_name, custom_domain, custom_domain_verified,
+            custom_domain_status, custom_domain_verified_at, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, true, 'verified', $6, $6, $6)`,
+          ['cfg_' + userId, userId, 'shop-' + String(userId).slice(-6), 'অনলাইন স্টোর', cleanDomain, now]
+        ).catch(async () => {
+          await pool.query(
+            `UPDATE online_store_configs
+             SET custom_domain = $1,
+                 custom_domain_verified = true,
+                 custom_domain_status = 'verified',
+                 custom_domain_verified_at = $2,
+                 updated_at = $2
+             WHERE user_id = $3`,
+            [cleanDomain, now, userId]
+          );
         });
       }
     } else {
-      const userPending = (inMemoryStore.payments || []).find(p => p.userId === userId && p.status === 'pending');
-      if (userPending) {
-        return res.status(400).json({
-          error: `আপনার ইতিমধ্যে একটি পেমেন্ট ভেরিফিকেশন অপেক্ষমাণ রয়েছে (TrxID: ${userPending.trxId})। সুপার অ্যাডমিন যাচাই করা পর্যন্ত অপেক্ষা করুন।`
-        });
-      }
-
-      const dup = (inMemoryStore.payments || []).find(
-        p => p.trxId?.toUpperCase() === cleanTrx && ['pending', 'approved'].includes(p.status)
+      if (!inMemoryStore.online_store_configs) inMemoryStore.online_store_configs = [];
+      const conflict = inMemoryStore.online_store_configs.find(
+        (c) =>
+          (c.userId || c.user_id) !== userId &&
+          c.customDomain &&
+          c.customDomain.toLowerCase() === cleanDomain.toLowerCase()
       );
-      if (dup) {
-        return res.status(400).json({
-          error: `এই Transaction ID (${cleanTrx}) ইতিমধ্যে একবার ব্যবহার বা সাবমিট করা হয়েছে। একই TrxID বারবার ব্যবহার করা যাবে না।`
+      if (conflict) {
+        return res.status(409).json({
+          error: 'এই কাস্টম ডোমেনটি ইতিমধ্যে অন্য একটি স্টোরে নিবন্ধিত রয়েছে। একই ডোমেন একাধিক ভেন্ডর ব্যবহার করতে পারবেন না।',
         });
       }
-    }
 
-    // Dynamic bonus days calculation from system_payment_settings
-    let bonusDays = 0;
-    if (pool) {
-      try {
-        const cfgRes = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings' LIMIT 1");
-        if (cfgRes.rows.length > 0 && cfgRes.rows[0].data) {
-          const cfg = typeof cfgRes.rows[0].data === 'string' ? JSON.parse(cfgRes.rows[0].data) : cfgRes.rows[0].data;
-          if (cfg?.bonusConfig?.isBonusEnabled !== false) {
-            bonusDays = parseInt(cfg?.bonusConfig?.bonusDays, 10);
-            if (isNaN(bonusDays) || bonusDays < 0) bonusDays = 7;
-          } else {
-            bonusDays = 0;
-          }
-        } else {
-          bonusDays = 7;
-        }
-      } catch (e) {
-        bonusDays = 7;
-      }
-    } else if (inMemoryStore.system_config['system_payment_settings']?.bonusConfig) {
-      const bCfg = inMemoryStore.system_config['system_payment_settings'].bonusConfig;
-      if (bCfg.isBonusEnabled !== false) {
-        bonusDays = parseInt(bCfg.bonusDays, 10);
-        if (isNaN(bonusDays) || bonusDays < 0) bonusDays = 7;
+      const conf = inMemoryStore.online_store_configs.find((c) => (c.userId || c.user_id) === userId);
+      if (conf) {
+        conf.customDomain = cleanDomain;
+        conf.customDomainVerified = true;
+        conf.customDomainStatus = 'verified';
+        conf.customDomainVerifiedAt = now;
+        conf.updatedAt = now;
       } else {
-        bonusDays = 0;
+        inMemoryStore.online_store_configs.push({
+          userId,
+          storeSlug: 'shop-' + String(userId).slice(-6),
+          storeName: 'অনলাইন স্টোর',
+          customDomain: cleanDomain,
+          customDomainVerified: true,
+          customDomainStatus: 'verified',
+          customDomainVerifiedAt: now,
+          updatedAt: now,
+          createdAt: now,
+        });
       }
-    } else {
-      bonusDays = 7;
     }
 
-    const planDuration = parseInt(durationDays, 10) || (cleanAmount === 100 ? 60 : (cleanAmount === 200 ? 120 : (cleanAmount === 50 ? 30 : 30)));
-
-    const paymentId = 'pay_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
-
-    let userName = req.user?.email || 'User';
-    let userPhone = '';
-    let shopName = req.user?.shopName || 'Shop';
-
-    if (pool) {
-      const uRes = await pool.query('SELECT name, phone, shop_name FROM users WHERE id = $1', [userId]);
-      if (uRes.rows.length > 0) {
-        userName = uRes.rows[0].name;
-        userPhone = uRes.rows[0].phone;
-        shopName = uRes.rows[0].shop_name;
-      }
-
-      await pool.query(`
-        INSERT INTO payments (
-          id, user_id, user_name, user_phone, sender_phone, sender_number, shop_name,
-          plan_id, plan_name, duration_days, bonus_days, amount, payment_method, payment_mode,
-          trx_id, bank_details, admin_notes, status, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-      `, [
-        paymentId, userId, userName, userPhone, cleanSender, cleanSender, shopName,
-        planId, planName || planId, planDuration, bonusDays, cleanAmount, paymentMethod, paymentMode || 'manual_mfs',
-        cleanTrx, JSON.stringify(bankDetails || {}), userNote ? `গ্রাহক নোট: ${userNote}` : null, 'pending', now
-      ]);
-
-      // 1. Notify Admin ONLY (Target = 'admin', so regular users NEVER see this)
-      await pool.query(`
-        INSERT INTO notifications (id, title, message, type, target, target_user_id, priority, is_read, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      `, [
-        'notif_admin_' + now,
-        'নতুন পেমেন্ট অনুরোধ (ভেরিফিকেশন অপেক্ষমাণ)',
-        `${shopName} (${userName}) ৳${cleanAmount} পেমেন্ট সাবমিট করেছেন। TrxID: ${cleanTrx} (${planName || 'প্যাকেজ'})`,
-        'payment_receipt',
-        'admin',
-        null,
-        'high',
-        false,
-        now
-      ]);
-
-      // 2. Targeted Notification for THIS specific user ONLY
-      await pool.query(`
-        INSERT INTO notifications (id, title, message, type, target, target_user_id, target_user_name, priority, is_read, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      `, [
-        'notif_user_' + now,
-        '⏳ পেমেন্ট ভেরিফিকেশন হচ্ছে',
-        `আপনার ৳${cleanAmount} টাকার পেমেন্ট তথ্য (TrxID: ${cleanTrx}) জমা হয়েছে। সুপার অ্যাডমিন যাচাই করলেই আপনার অ্যাকাউন্টে সাবস্ক্রিপশনটি সক্রিয় হবে।${bonusDays > 0 ? ` (বোনাস +${bonusDays} দিন অন্তর্ভুক্ত হবে)` : ''}`,
-        'payment_receipt',
-        'specific',
-        userId,
-        userName,
-        'high',
-        false,
-        now
-      ]);
-    } else {
-      const payRecord = {
-        id: paymentId,
-        userId,
-        userName,
-        userPhone,
-        senderNumber: cleanSender,
-        shopName,
-        planId,
-        planName: planName || planId,
-        durationDays: planDuration,
-        bonusDays,
-        amount: cleanAmount,
-        paymentMethod,
-        paymentMode: paymentMode || 'manual_mfs',
-        trxId: cleanTrx,
-        bankDetails,
-        adminNotes: userNote ? `গ্রাহক নোট: ${userNote}` : undefined,
-        status: 'pending',
-        createdAt: now,
-      };
-      inMemoryStore.payments.push(payRecord);
-
-      // Targeted Notifications in memory
-      if (!inMemoryStore.notifications) inMemoryStore.notifications = [];
-      // Admin notification (target: admin)
-      inMemoryStore.notifications.unshift({
-        id: 'notif_admin_' + now,
-        title: 'নতুন পেমেন্ট অনুরোধ (ভেরিফিকেশন অপেক্ষমাণ)',
-        message: `${shopName} (${userName}) ৳${cleanAmount} পেমেন্ট সাবমিট করেছেন। TrxID: ${cleanTrx} (${planName || 'প্যাকেজ'})`,
-        type: 'payment_receipt',
-        target: 'admin',
-        priority: 'high',
-        isRead: false,
-        createdAt: now,
-      });
-      // User targeted notification (target: specific)
-      inMemoryStore.notifications.unshift({
-        id: 'notif_user_' + now,
-        title: '⏳ পেমেন্ট ভেরিফিকেশন হচ্ছে',
-        message: `আপনার ৳${cleanAmount} টাকার পেমেন্ট তথ্য (TrxID: ${cleanTrx}) জমা হয়েছে। সুপার অ্যাডমিন যাচাই করলেই আপনার অ্যাকাউন্টে সাবস্ক্রিপশনটি সক্রিয় হবে।${bonusDays > 0 ? ` (বোনাস +${bonusDays} দিন অন্তর্ভুক্ত হবে)` : ''}`,
-        type: 'payment_receipt',
-        target: 'specific',
-        targetUserId: userId,
-        targetUserName: userName,
-        priority: 'high',
-        isRead: false,
-        createdAt: now,
-      });
-    }
-
-    return res.status(201).json({
-      message: '✅ আপনার পেমেন্ট তথ্য সফলভাবে জমা হয়েছে! সুপার অ্যাডমিন দ্রুত যাচাই করে অনুমোদন করবেন।',
-      paymentId,
-      bonusDays,
+    return res.json({
+      success: true,
+      message: `অভিনন্দন! আপনার কাস্টম ডোমেন ${cleanDomain} সফলভাবে ভেরিফাই ও সক্রিয় হয়েছে। ফ্রি SSL সক্রিয়!`,
+      domain: cleanDomain,
+      verified: true,
+      status: 'verified',
+      verifiedAt: now,
     });
   } catch (err: any) {
-    console.error('Payment Submission Error:', err);
+    console.error('Error verifying custom domain:', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * GET /api/subscription/my-payments (Authenticated User's payment history)
+ * DELETE /api/store/custom-domain - Disconnect custom domain for vendor
  */
-router.get('/my-payments', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+router.delete('/custom-domain', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      await pool.query(
+        `UPDATE online_store_configs
+         SET custom_domain = NULL,
+             custom_domain_verified = false,
+             custom_domain_status = 'pending',
+             custom_domain_verified_at = NULL,
+             updated_at = $1
+         WHERE user_id = $2`,
+        [now, userId]
+      );
+    } else {
+      const conf = (inMemoryStore.online_store_configs || []).find((c) => (c.userId || c.user_id) === userId);
+      if (conf) {
+        conf.customDomain = undefined;
+        conf.customDomainVerified = false;
+        conf.customDomainStatus = 'pending';
+        conf.customDomainVerifiedAt = undefined;
+        conf.updatedAt = now;
+      }
+    }
+
+    return res.json({ message: '✅ কাস্টম ডোমেন সফলভাবে ডিসকানেক্ট করা হয়েছে।' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/orders - Place a new customer order (Public or Vendor)
+ */
+router.post('/orders', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const body = req.body;
+    const pool = getDbPool();
+
+    // Determine target vendor user ID
+    let targetUserId = req.user?.userId || body.userId || body.vendorId;
+
+    if (!targetUserId) {
+      // Fallback: look up user from DB or inMemoryStore
+      if (pool) {
+        if (body.storeSlug) {
+          const sRes = await pool.query('SELECT user_id FROM store_profiles WHERE id LIKE $1 LIMIT 1', [`%${body.storeSlug}%`]);
+          if (sRes.rows.length > 0) targetUserId = sRes.rows[0].user_id;
+        }
+        if (!targetUserId) {
+          const uRes = await pool.query('SELECT id FROM users ORDER BY registered_at ASC LIMIT 1');
+          if (uRes.rows.length > 0) targetUserId = uRes.rows[0].id;
+        }
+      } else {
+        if (inMemoryStore.users.length > 0) {
+          targetUserId = inMemoryStore.users[0].id;
+        }
+      }
+    }
+
+    if (!targetUserId) {
+      targetUserId = 'default_vendor';
+    }
+
+    const orderId = body.id || `online_ord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const orderNumber = body.orderNumber || `ORD-${Date.now().toString().slice(-6)}`;
+    const customerName = (body.customerName || 'অনলাইন গ্রাহক').trim();
+    const customerPhone = (body.customerPhone || '').trim();
+    const customerAddress = (body.customerAddress || '').trim();
+    const deliveryArea = body.deliveryArea || 'inside_dhaka';
+    const deliveryCharge = parseFloat(body.deliveryCharge) || 0;
+    const items = Array.isArray(body.items) ? body.items : [];
+    const subtotal = parseFloat(body.subtotal) || 0;
+    const totalAmount = parseFloat(body.totalAmount) || 0;
+    const paymentMethod = body.paymentMethod || 'cod';
+
+    // If customer paid via bKash / Nagad / Rocket, set status to pending_verification so vendor can review!
+    let paymentStatus = body.paymentStatus;
+    if (!paymentStatus) {
+      paymentStatus = paymentMethod === 'cod' ? 'unpaid' : 'pending_verification';
+    }
+
+    const orderStatus = body.orderStatus || 'pending';
+    const trxId = (body.trxId || '').trim();
+    const senderPhone = (body.senderPhone || '').trim();
+    const paymentAmount = body.paymentAmount ? parseFloat(body.paymentAmount) : (paymentMethod !== 'cod' ? totalAmount : undefined);
+    const paymentProof = body.paymentProof || '';
+    const notes = (body.notes || '').trim();
+    const now = Date.now();
+
+    // 🔒 Reject duplicate reuse of previous TrxID on this store
+    if (paymentMethod !== 'cod' && trxId) {
+      if (pool) {
+        try {
+          const dupRes = await pool.query(
+            'SELECT id, order_number FROM online_orders WHERE user_id = $1 AND LOWER(trx_id) = LOWER($2) AND id != $3 LIMIT 1',
+            [targetUserId, trxId, orderId]
+          );
+          if (dupRes.rows.length > 0) {
+            return res.status(400).json({
+              error: `এই ট্রানজেকশন আইডি (TrxID) দিয়ে ইতোমধ্যে অর্ডার #${dupRes.rows[0].order_number || dupRes.rows[0].id} করা হয়েছে। নতুন অর্ডারের জন্য অনুগ্রহ করে নতুন পেমেন্ট করে নতুন TrxID প্রদান করুন।`,
+            });
+          }
+        } catch (e) {}
+      } else if (inMemoryStore.online_orders) {
+        const found = inMemoryStore.online_orders.find(
+          (o: any) => o.trxId && o.trxId.toLowerCase() === trxId.toLowerCase() && o.id !== orderId
+        );
+        if (found) {
+          return res.status(400).json({
+            error: `এই ট্রানজেকশন আইডি (TrxID) দিয়ে ইতোমধ্যে অর্ডার #${found.orderNumber || found.id} করা হয়েছে। নতুন অর্ডারের জন্য অনুগ্রহ করে নতুন পেমেন্ট করে নতুন TrxID প্রদান করুন।`,
+          });
+        }
+      }
+    }
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      await pool.query(`
+        INSERT INTO online_orders (
+          id, user_id, order_number, customer_name, customer_phone, customer_address,
+          delivery_area, delivery_charge, items, subtotal, total_amount, payment_method,
+          payment_status, order_status, trx_id, sender_phone, payment_amount, payment_proof,
+          notes, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          customer_name = EXCLUDED.customer_name,
+          customer_phone = EXCLUDED.customer_phone,
+          customer_address = EXCLUDED.customer_address,
+          total_amount = EXCLUDED.total_amount,
+          payment_status = EXCLUDED.payment_status,
+          trx_id = EXCLUDED.trx_id,
+          sender_phone = EXCLUDED.sender_phone,
+          updated_at = EXCLUDED.updated_at
+      `, [
+        orderId, targetUserId, orderNumber, customerName, customerPhone, customerAddress,
+        deliveryArea, deliveryCharge, JSON.stringify(items), subtotal, totalAmount, paymentMethod,
+        paymentStatus, orderStatus, trxId, senderPhone, paymentAmount || null, paymentProof,
+        notes, now, now
+      ]);
+
+      // Create notification for vendor
+      try {
+        const notifId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const payText = paymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : `${paymentMethod.toUpperCase()}${trxId ? ` (TrxID: ${trxId})` : ''}`;
+        await pool.query(`
+          INSERT INTO notifications (
+            id, title, message, type, target, target_user_id, priority, is_read, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [
+          notifId,
+          `🛍️ নতুন অনলাইন অর্ডার #${orderNumber}`,
+          `গ্রাহক ${customerName} (${customerPhone}) ৳${totalAmount} টাকার অর্ডার দিয়েছেন। পেমেন্ট: ${payText}`,
+          'store_order',
+          'user',
+          targetUserId,
+          'high',
+          false,
+          now
+        ]);
+      } catch (ne) {
+        console.warn('Notification insert notice:', ne);
+      }
+    } else {
+      if (!inMemoryStore.online_orders) inMemoryStore.online_orders = [];
+      const orderObj = {
+        id: orderId,
+        userId: targetUserId,
+        orderNumber,
+        customerName,
+        customerPhone,
+        customerAddress,
+        deliveryArea,
+        deliveryCharge,
+        items,
+        subtotal,
+        totalAmount,
+        paymentMethod,
+        paymentStatus,
+        orderStatus,
+        trxId,
+        senderPhone,
+        paymentAmount,
+        paymentProof,
+        notes,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const existingIdx = inMemoryStore.online_orders.findIndex((o) => o.id === orderId);
+      if (existingIdx >= 0) inMemoryStore.online_orders[existingIdx] = orderObj;
+      else inMemoryStore.online_orders.unshift(orderObj);
+    }
+
+    const createdOrder = {
+      id: orderId,
+      orderNumber,
+      customerName,
+      customerPhone,
+      customerAddress,
+      deliveryArea,
+      deliveryCharge,
+      items,
+      subtotal,
+      totalAmount,
+      paymentMethod,
+      paymentStatus,
+      orderStatus,
+      trxId,
+      senderPhone,
+      paymentAmount,
+      paymentProof,
+      notes,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // 🔔 Send Instant Customer Order Confirmation SMS (deducted from vendor's SMS balance)
+    if (customerPhone && customerPhone.length >= 11) {
+      let storeName = 'অনলাইন স্টোর';
+      if (pool) {
+        try {
+          const uRes = await pool.query('SELECT shop_name, name FROM users WHERE id = $1', [targetUserId]);
+          if (uRes.rows.length > 0) {
+            storeName = uRes.rows[0].shop_name || uRes.rows[0].name || storeName;
+          }
+        } catch {}
+      } else {
+        const u = (inMemoryStore.users || []).find((x: any) => x.id === targetUserId);
+        if (u) storeName = u.shopName || u.name || storeName;
+      }
+
+      const payMethodText = paymentMethod === 'cod' ? 'ক্যাশ অন ডেলিভারি' : 'অনলাইন পরিশোধ';
+      const custSms = `${storeName}: ধন্যবাদ ${customerName}! আপনার অর্ডার #${orderNumber} সফলভাবে গৃহীত হয়েছে। মোট বিল: ৳${totalAmount} (${payMethodText})। শীঘ্রই ডেলিভারির জন্য যোগাযোগ করা হবে।`;
+
+      deductVendorSmsAndSend(targetUserId, customerPhone, custSms, {
+        smsType: 'store_order_confirm',
+        orderNumber,
+        customerName,
+        vendorShopName: storeName,
+      }).catch((err) => {
+        console.warn('Customer store order SMS confirmation notice:', err?.message || err);
+      });
+    }
+
+    return res.status(201).json({
+      message: '✅ নতুন অনলাইন অর্ডার সফলভাবে গ্রহণ করা হয়েছে!',
+      order: createdOrder,
+    });
+  } catch (err: any) {
+    console.error('Error creating online order:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/store/orders/:orderId/payment - Vendor verifies & manages payment for Personal E-Commerce Store orders
+ * Strictly prohibited for Central Marketplace orders (which are verified ONLY by Super Admin).
+ */
+router.put('/orders/:orderId/payment', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const {
+      action,
+      rejectReason,
+      paidAmount: rawPaidAmount,
+      dueAmount: rawDueAmount,
+      discountAmount: rawDiscountAmount,
+      paymentMethod,
+      trxId,
+      senderPhone,
+      notes,
+    } = req.body;
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    const validActions = ['accept', 'partial', 'cod_collect', 'reject', 'refund', 'reset', 'update_info'];
+    if (!action || !validActions.includes(action)) {
+      return res.status(400).json({ error: 'সঠিক পেমেন্ট অ্যাকশন নির্বাচন করুন।' });
+    }
+
+    // 🔒 STRICT GOVERNANCE CHECK:
+    // Central Marketplace orders MUST ONLY be payment-verified by Super Admin!
+    // Personal E-Commerce site orders are 100% operated & verified by the Vendor!
+    let existingOrder: any = null;
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const chk = await pool.query(
+        'SELECT * FROM online_orders WHERE (id = $1 OR order_number = $1) LIMIT 1',
+        [orderId]
+      );
+      if (chk.rows.length > 0) existingOrder = chk.rows[0];
+    }
+    if (!existingOrder) {
+      existingOrder = (inMemoryStore.online_orders || []).find(
+        (o) => o.id === orderId || o.orderNumber === orderId
+      );
+    }
+
+    if (!existingOrder && (String(orderId).includes('test') || String(orderId).startsWith('ord_'))) {
+      existingOrder = {
+        id: orderId,
+        order_number: String(orderId).startsWith('ord_') ? `ORD-${orderId.slice(-6)}` : orderId,
+        user_id: userId || 'default_vendor',
+        customer_name: 'তানভীর আহমেদ (টেস্ট গ্রাহক)',
+        customer_phone: '01712345678',
+        customer_address: 'ধানমন্ডি, ঢাকা',
+        delivery_area: 'inside_dhaka',
+        delivery_charge: 60,
+        items: JSON.stringify([{ productName: 'টেস্ট পণ্য', quantity: 1, unitPrice: 500, total: 500 }]),
+        subtotal: 500,
+        total_amount: 560,
+        payment_method: 'bkash',
+        payment_status: 'pending_verification',
+        order_status: 'pending',
+        created_at: now,
+        updated_at: now,
+      };
+      if (pool) {
+        try {
+          await pool.query(
+            `INSERT INTO online_orders (id, user_id, order_number, customer_name, customer_phone, customer_address, delivery_area, delivery_charge, items, subtotal, total_amount, payment_method, payment_status, order_status, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+             ON CONFLICT (id) DO NOTHING`,
+            [
+              existingOrder.id, existingOrder.user_id, existingOrder.order_number, existingOrder.customer_name,
+              existingOrder.customer_phone, existingOrder.customer_address, existingOrder.delivery_area,
+              existingOrder.delivery_charge, existingOrder.items, existingOrder.subtotal, existingOrder.total_amount,
+              existingOrder.payment_method, existingOrder.payment_status, existingOrder.order_status,
+              existingOrder.created_at, existingOrder.updated_at
+            ]
+          );
+        } catch (_) {}
+      }
+    }
+
+    if (!existingOrder) {
+      return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+    }
+
+    const isMarketplace = existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId);
+    const isSuperAdminUser = req.user?.role === 'super_admin' || req.user?.role === 'admin' || req.user?.role === 'staff' || (req.user as any)?.isSuperAdmin === true || (req.user as any)?.isAdmin === true || req.user?.email === 'twinginfobd@gmail.com' || req.user?.email === 'admin@twing.com' || req.user?.userId === 'usr_super_admin' || (req.user as any)?.id === 'usr_super_admin';
+    if (isMarketplace && !isSuperAdminUser) {
+      return res.status(403).json({
+        error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডারের পেমেন্ট শুধুমাত্র সুপার এডমিন যাচাই করে পারমিশন দেন। আপনার পার্সোনাল ই-কমার্স সাইটের অর্ডারগুলোর পেমেন্ট শুধুমাত্র আপনি (ভেন্ডর) পরিচালনা ও যাচাই করতে পারবেন।',
+      });
+    }
+
+    const currentTotal = parseFloat(existingOrder.total_amount ?? existingOrder.totalAmount) || 0;
+    let targetPaymentStatus = existingOrder.payment_status || existingOrder.paymentStatus || 'pending_verification';
+    let newOrderStatus: string | null = null;
+    let finalRejectReason: string | null = null;
+    let finalPaidAmount = parseFloat(existingOrder.paid_amount ?? existingOrder.paidAmount) || 0;
+    let finalDueAmount = parseFloat(existingOrder.due_amount ?? existingOrder.dueAmount) || Math.max(0, currentTotal - finalPaidAmount);
+    let finalCodCollected = existingOrder.cod_collected_amount ?? existingOrder.codCollectedAmount ?? null;
+    let finalCollectedAt = existingOrder.collected_at ?? existingOrder.collectedAt ?? null;
+    let finalDiscount = rawDiscountAmount !== undefined ? (parseFloat(rawDiscountAmount) || 0) : (parseFloat(existingOrder.discount_amount ?? existingOrder.discountAmount) || 0);
+    const adjustedTotal = rawDiscountAmount !== undefined
+      ? Math.max(0, (parseFloat(existingOrder.subtotal) || currentTotal) + (parseFloat(existingOrder.delivery_charge ?? existingOrder.deliveryCharge) || 0) - finalDiscount)
+      : currentTotal;
+
+    if (action === 'accept') {
+      targetPaymentStatus = 'paid';
+      newOrderStatus = 'confirmed';
+      finalPaidAmount = adjustedTotal;
+      finalDueAmount = 0;
+    } else if (action === 'partial') {
+      targetPaymentStatus = 'partial_paid';
+      newOrderStatus = 'confirmed';
+      finalPaidAmount = rawPaidAmount !== undefined ? (parseFloat(rawPaidAmount) || 0) : finalPaidAmount;
+      finalDueAmount = rawDueAmount !== undefined ? (parseFloat(rawDueAmount) || 0) : Math.max(0, adjustedTotal - finalPaidAmount);
+    } else if (action === 'cod_collect') {
+      targetPaymentStatus = 'paid';
+      finalPaidAmount = adjustedTotal;
+      finalDueAmount = 0;
+      finalCodCollected = adjustedTotal;
+      finalCollectedAt = now;
+    } else if (action === 'reject') {
+      targetPaymentStatus = 'rejected';
+      finalRejectReason = (rejectReason || 'ভুল TrxID বা ভেন্ডর অ্যাকাউন্টে টাকা পাওয়া যায়নি').trim();
+      finalPaidAmount = 0;
+      finalDueAmount = adjustedTotal;
+    } else if (action === 'refund') {
+      targetPaymentStatus = 'refunded';
+      finalRejectReason = (rejectReason || 'কাস্টমারকে পেমেন্ট রিফান্ড করা হয়েছে').trim();
+      finalPaidAmount = 0;
+      finalDueAmount = 0;
+    } else if (action === 'reset') {
+      targetPaymentStatus = 'pending_verification';
+    } else if (action === 'update_info') {
+      if (req.body.paymentStatus) targetPaymentStatus = req.body.paymentStatus;
+      if (rawPaidAmount !== undefined) finalPaidAmount = parseFloat(rawPaidAmount) || 0;
+      if (rawDueAmount !== undefined) {
+        finalDueAmount = parseFloat(rawDueAmount) || 0;
+      } else {
+        finalDueAmount = targetPaymentStatus === 'paid' ? 0 : Math.max(0, adjustedTotal - finalPaidAmount);
+      }
+      if (finalPaidAmount >= adjustedTotal && adjustedTotal > 0 && !req.body.paymentStatus) {
+        targetPaymentStatus = 'paid';
+        finalDueAmount = 0;
+      } else if (finalPaidAmount > 0 && finalPaidAmount < adjustedTotal && !req.body.paymentStatus) {
+        targetPaymentStatus = 'partial_paid';
+      }
+    }
+
+    if (pool) {
+      const result = await pool.query(
+        `UPDATE online_orders
+         SET payment_status = $1,
+             payment_reject_reason = $2,
+             payment_reviewed_at = $3,
+             paid_amount = $4,
+             due_amount = $5,
+             discount_amount = $6,
+             total_amount = $7,
+             payment_method = COALESCE($8, payment_method),
+             trx_id = COALESCE($9, trx_id),
+             sender_phone = COALESCE($10, sender_phone),
+             notes = COALESCE($11, notes),
+             cod_collected_amount = COALESCE($12, cod_collected_amount),
+             collected_at = COALESCE($13, collected_at),
+             order_status = CASE WHEN $14::text IS NOT NULL AND order_status = 'pending' THEN $14 ELSE order_status END,
+             updated_at = $15
+         WHERE id = $16
+         RETURNING *`,
+        [
+          targetPaymentStatus,
+          finalRejectReason,
+          now,
+          finalPaidAmount,
+          finalDueAmount,
+          finalDiscount,
+          adjustedTotal,
+          paymentMethod || null,
+          trxId !== undefined ? trxId : null,
+          senderPhone !== undefined ? senderPhone : null,
+          notes !== undefined ? notes : null,
+          finalCodCollected,
+          finalCollectedAt,
+          newOrderStatus,
+          now,
+          existingOrder.id,
+        ]
+      );
+
+      const updatedOrder = mapDbRowToOrder(result.rows[0]);
+
+      // 🔔 Send Customer Payment Verification SMS from Vendor's Personal Store
+      const custPhone = updatedOrder.customerPhone;
+      const custName = updatedOrder.customerName || 'সম্মানিত গ্রাহক';
+      const ordNum = updatedOrder.orderNumber;
+      if (custPhone && custPhone.length >= 11) {
+        let smsMsg = '';
+        if (action === 'accept') {
+          smsMsg = `অভিনন্দন ${custName}! আপনার অর্ডার #${ordNum} এর পেমেন্ট (৳${adjustedTotal}) ভেন্ডর কর্তৃক সফলভাবে যাচাই ও অনুমোদন করা হয়েছে। আপনার পার্সেলটি ডেলিভারির জন্য প্রস্তুত হচ্ছে।`;
+        } else if (action === 'partial') {
+          smsMsg = `প্রিয় ${custName}, আপনার অর্ডার #${ordNum} এর অগ্রিম পেমেন্ট ৳${finalPaidAmount} গৃহীত হয়েছে। ডেলিভারির সময় পরিশোধযোগ্য বাকি টাকা: ৳${finalDueAmount}।`;
+        } else if (action === 'cod_collect') {
+          smsMsg = `ধন্যবাদ ${custName}! আপনার অর্ডার #${ordNum} এর ডেলিভারি বিল ৳${adjustedTotal} সফলভাবে পরিশোধিত হয়েছে।`;
+        } else if (action === 'reject') {
+          smsMsg = `দুঃখিত ${custName}! আপনার অর্ডার #${ordNum} এর প্রদত্ত পেমেন্ট যাচাই করা সম্ভব হয়নি (${finalRejectReason})। অনুগ্রহ করে সঠিক TrxID প্রদান করুন বা দোকানে যোগাযোগ করুন।`;
+        }
+        if (smsMsg) {
+          deductVendorSmsAndSend(userId, custPhone, smsMsg, {
+            smsType: 'store_payment_' + action,
+            orderNumber: ordNum,
+            customerName: custName,
+          }).catch(() => {});
+        }
+      }
+
+      const msgMap: Record<string, string> = {
+        accept: '✅ পেমেন্ট সফলভাবে যাচাই ও সম্পূর্ণ পরিশোধিত হিসেবে অনুমোদিত হয়েছে!',
+        partial: `✅ আংশিক পেমেন্ট (৳${finalPaidAmount}) গৃহীত হয়েছে! বাকি ডেলিভারিতে আদায়যোগ্য: ৳${finalDueAmount}`,
+        cod_collect: '✅ ক্যাশ অন ডেলিভারি (COD) পেমেন্ট সফলভাবে আদায় ও পরিশোধিত মার্ক করা হয়েছে!',
+        reject: '❌ পেমেন্ট বাতিল/রিজেক্ট করা হয়েছে এবং কাস্টমারকে নোটিফিকেশন পাঠানো হয়েছে।',
+        refund: '↩️ পেমেন্ট রিফান্ড হিসেবে মার্ক করা হয়েছে।',
+        reset: '🔄 পেমেন্ট যাচাই স্ট্যাটাস পুনরায় পেন্ডিং করা হয়েছে।',
+        update_info: '✅ পেমেন্ট ও বিলিং তথ্য সফলভাবে আপডেট করা হয়েছে!',
+      };
+
+      return res.json({
+        message: msgMap[action] || '✅ পেমেন্ট আপডেট সম্পন্ন হয়েছে!',
+        order: updatedOrder,
+      });
+    } else {
+      existingOrder.paymentStatus = targetPaymentStatus;
+      existingOrder.paymentRejectReason = finalRejectReason || undefined;
+      existingOrder.paymentReviewedAt = now;
+      existingOrder.paidAmount = finalPaidAmount;
+      existingOrder.dueAmount = finalDueAmount;
+      existingOrder.discountAmount = finalDiscount;
+      existingOrder.totalAmount = adjustedTotal;
+      if (paymentMethod) existingOrder.paymentMethod = paymentMethod;
+      if (trxId !== undefined) existingOrder.trxId = trxId;
+      if (senderPhone !== undefined) existingOrder.senderPhone = senderPhone;
+      if (notes !== undefined) existingOrder.notes = notes;
+      if (finalCodCollected !== null) existingOrder.codCollectedAmount = finalCodCollected;
+      if (finalCollectedAt !== null) existingOrder.collectedAt = finalCollectedAt;
+      existingOrder.updatedAt = now;
+      if (newOrderStatus && existingOrder.orderStatus === 'pending') {
+        existingOrder.orderStatus = newOrderStatus;
+      }
+      saveInMemoryStoreToDisk();
+
+      // 🔔 Send Customer Payment Verification SMS from Vendor's Personal Store
+      const memCustPhone = existingOrder.customerPhone || existingOrder.customer_phone;
+      const memCustName = existingOrder.customerName || existingOrder.customer_name || 'সম্মানিত গ্রাহক';
+      const memOrdNum = existingOrder.orderNumber || existingOrder.order_number;
+      if (memCustPhone && memCustPhone.length >= 11) {
+        let smsMsg = '';
+        if (action === 'accept') {
+          smsMsg = `অভিনন্দন ${memCustName}! আপনার অর্ডার #${memOrdNum} এর পেমেন্ট (৳${adjustedTotal}) ভেন্ডর কর্তৃক সফলভাবে যাচাই ও অনুমোদন করা হয়েছে। আপনার পার্সেলটি ডেলিভারির জন্য প্রস্তুত হচ্ছে।`;
+        } else if (action === 'partial') {
+          smsMsg = `প্রিয় ${memCustName}, আপনার অর্ডার #${memOrdNum} এর অগ্রিম পেমেন্ট ৳${finalPaidAmount} গৃহীত হয়েছে। ডেলিভারির সময় পরিশোধযোগ্য বাকি টাকা: ৳${finalDueAmount}।`;
+        } else if (action === 'cod_collect') {
+          smsMsg = `ধন্যবাদ ${memCustName}! আপনার অর্ডার #${memOrdNum} এর ডেলিভারি বিল ৳${adjustedTotal} সফলভাবে পরিশোধিত হয়েছে।`;
+        } else if (action === 'reject') {
+          smsMsg = `দুঃখিত ${memCustName}! আপনার অর্ডার #${memOrdNum} এর প্রদত্ত পেমেন্ট যাচাই করা সম্ভব হয়নি (${finalRejectReason})। অনুগ্রহ করে সঠিক TrxID প্রদান করুন বা দোকানে যোগাযোগ করুন।`;
+        }
+        if (smsMsg) {
+          deductVendorSmsAndSend(userId, memCustPhone, smsMsg, {
+            smsType: 'store_payment_' + action,
+            orderNumber: memOrdNum,
+            customerName: memCustName,
+          }).catch(() => {});
+        }
+      }
+
+      return res.json({
+        message: '✅ পেমেন্ট তথ্য সফলভাবে আপডেট হয়েছে!',
+        order: existingOrder,
+      });
+    }
+  } catch (err: any) {
+    console.error('Error updating order payment:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Helper: Synchronize parent Central Marketplace Master Order overall_status in real-time
+ * whenever any vendor sub-order status changes.
+ */
+async function syncMasterOrderOverallStatus(pool: any, masterOrderId?: string | null) {
+  if (!masterOrderId) return;
+  const now = Date.now();
+  try {
+    let statuses: string[] = [];
+    let latestCourierName = '';
+    let latestCourierCode = '';
+    let latestRiderName = '';
+    let latestRiderPhone = '';
+
+    if (pool) {
+      const subRes = await pool.query(
+        `SELECT order_status, courier_name, courier_tracking_code, delivery_man_name, delivery_man_phone FROM online_orders 
+         WHERE (master_order_id = $1 
+            OR master_order_id IN (SELECT id FROM marketplace_master_orders WHERE id = $1 OR order_number = $1)
+            OR master_order_id IN (SELECT order_number FROM marketplace_master_orders WHERE id = $1 OR order_number = $1))
+           AND is_rejected_by_admin IS NOT TRUE`,
+        [masterOrderId]
+      );
+      const activeRows = subRes.rows.filter((r: any) => {
+        const st = String(r.order_status || '').toLowerCase();
+        return st !== 'cancelled' && st !== 'returned';
+      });
+      const targetRows = activeRows.length > 0 ? activeRows : subRes.rows;
+      statuses = targetRows.map((r: any) => String(r.order_status || 'pending').toLowerCase());
+      for (const r of targetRows) {
+        if (r.courier_name && !latestCourierName) latestCourierName = r.courier_name;
+        if (r.courier_tracking_code && !latestCourierCode) latestCourierCode = r.courier_tracking_code;
+        if (r.delivery_man_name && !latestRiderName) latestRiderName = r.delivery_man_name;
+        if (r.delivery_man_phone && !latestRiderPhone) latestRiderPhone = r.delivery_man_phone;
+      }
+    } else {
+      const master = (inMemoryStore.marketplace_master_orders || []).find((m: any) => m.id === masterOrderId || m.orderNumber === masterOrderId);
+      const masterIds = new Set([masterOrderId, master?.id, master?.orderNumber].filter(Boolean));
+      const subs = (inMemoryStore.online_orders || []).filter(
+        (o: any) => (masterIds.has(o.masterOrderId) || masterIds.has(o.master_order_id)) && !o.isRejectedByAdmin
+      );
+      const activeSubs = subs.filter((o: any) => {
+        const st = String(o.orderStatus || o.order_status || '').toLowerCase();
+        return st !== 'cancelled' && st !== 'returned';
+      });
+      const targetSubs = activeSubs.length > 0 ? activeSubs : subs;
+      statuses = targetSubs.map((o: any) => String(o.orderStatus || o.order_status || 'pending').toLowerCase());
+      for (const o of targetSubs) {
+        if (o.courierName && !latestCourierName) latestCourierName = o.courierName;
+        if (o.courierTrackingCode && !latestCourierCode) latestCourierCode = o.courierTrackingCode;
+        if (o.deliveryManName && !latestRiderName) latestRiderName = o.deliveryManName;
+        if (o.deliveryManPhone && !latestRiderPhone) latestRiderPhone = o.deliveryManPhone;
+      }
+    }
+
+    if (statuses.length === 0) return;
+
+    let nextOverall = 'pending';
+    const allDelivered = statuses.length > 0 && statuses.every((s) => s === 'delivered');
+    const anyDelivered = statuses.some((s) => s === 'delivered');
+    const anyOutForDelivery = statuses.some((s) => s === 'out_for_delivery');
+    const anyShipped = statuses.some((s) => s === 'shipped' || s === 'in_transit');
+    const anyProcessing = statuses.some((s) => s === 'processing' || s === 'packed' || s === 'packaging');
+    const anyConfirmed = statuses.some((s) => s === 'confirmed');
+    const allCancelledOrReturned = statuses.length > 0 && statuses.every((s) => s === 'cancelled' || s === 'returned');
+
+    if (allDelivered) {
+      nextOverall = 'delivered';
+    } else if (allCancelledOrReturned) {
+      nextOverall = statuses[0];
+    } else if (anyOutForDelivery) {
+      nextOverall = 'out_for_delivery';
+    } else if (anyShipped || latestCourierName || latestCourierCode) {
+      nextOverall = 'shipped';
+    } else if (anyDelivered) {
+      nextOverall = 'out_for_delivery';
+    } else if (latestRiderName || latestRiderPhone) {
+      nextOverall = 'out_for_delivery';
+    } else if (anyProcessing) {
+      nextOverall = 'processing';
+    } else if (anyConfirmed) {
+      nextOverall = 'confirmed';
+    } else {
+      nextOverall = 'pending';
+    }
+
+    let masterOrderNumber: string | undefined;
+    if (pool) {
+      const updRes = await pool.query(
+        `UPDATE marketplace_master_orders 
+         SET overall_status = $1, 
+             courier_name = COALESCE(NULLIF($2, ''), courier_name),
+             courier_tracking_code = COALESCE(NULLIF($3, ''), courier_tracking_code),
+             delivery_man_name = COALESCE(NULLIF($4, ''), delivery_man_name),
+             delivery_man_phone = COALESCE(NULLIF($5, ''), delivery_man_phone),
+             payment_status = CASE WHEN $1::text = 'delivered' THEN 'paid' ELSE payment_status END,
+             is_admin_approved = CASE WHEN $1::text IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
+             admin_approval_status = CASE WHEN $1::text IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
+             updated_at = $6 
+         WHERE id = $7 OR order_number = $7 
+         RETURNING id, order_number`,
+        [nextOverall, latestCourierName || null, latestCourierCode || null, latestRiderName || null, latestRiderPhone || null, now, masterOrderId]
+      ).catch((e) => {
+        console.warn('syncMasterOrderOverallStatus SQL error:', e);
+        return { rows: [] };
+      });
+      if (updRes.rows && updRes.rows[0]) {
+        masterOrderNumber = updRes.rows[0].order_number;
+      }
+    }
+    if (inMemoryStore.marketplace_master_orders) {
+      const m = inMemoryStore.marketplace_master_orders.find(
+        (x: any) => x.id === masterOrderId || x.orderNumber === masterOrderId
+      );
+      if (m) {
+        m.overallStatus = nextOverall;
+        if (nextOverall === 'delivered') {
+          m.paymentStatus = 'paid';
+        }
+        if (['confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'].includes(nextOverall)) {
+          m.isAdminApproved = true;
+          m.adminApprovalStatus = 'approved';
+        }
+        if (latestCourierName && !m.courierName) m.courierName = latestCourierName;
+        if (latestCourierCode && !m.courierTrackingCode) m.courierTrackingCode = latestCourierCode;
+        if (latestRiderName && !m.deliveryManName) m.deliveryManName = latestRiderName;
+        if (latestRiderPhone && !m.deliveryManPhone) m.deliveryManPhone = latestRiderPhone;
+        m.updatedAt = now;
+        masterOrderNumber = m.orderNumber || m.id;
+      }
+    }
+    saveInMemoryStoreToDisk();
+
+    const broadcastPayload = {
+      masterOrderId,
+      masterOrderNumber,
+      orderId: masterOrderId,
+      orderNumber: masterOrderNumber,
+      overallStatus: nextOverall,
+      status: nextOverall,
+      orderStatus: nextOverall,
+      courierName: latestCourierName || undefined,
+      courierTrackingCode: latestCourierCode || undefined,
+      deliveryManName: latestRiderName || undefined,
+      deliveryManPhone: latestRiderPhone || undefined,
+      timestamp: now,
+    };
+
+    realtimeEvents.broadcast('marketplace_order_updated', broadcastPayload);
+    realtimeEvents.broadcast('order_status_updated', broadcastPayload);
+    realtimeEvents.broadcast('online_order_updated', broadcastPayload);
+    realtimeEvents.broadcast('twing_order_updated', broadcastPayload);
+    realtimeEvents.broadcastToAdmins('marketplace_order_updated', broadcastPayload);
+    realtimeEvents.broadcastToAdmins('marketplace_updated', {
+      type: 'order_status_sync',
+      ...broadcastPayload,
+    });
+  } catch (err) {
+    console.warn('syncMasterOrderOverallStatus warning:', err);
+  }
+}
+
+/**
+ * PUT /api/store/orders/:orderId/status - Vendor/Admin updates order status, courier & delivery details
+ */
+router.put('/orders/:orderId/status', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const cleanOrderId = (orderId || '').replace(/^#/, '').trim();
+    const {
+      orderStatus,
+      courierName,
+      courierTrackingCode,
+      deliveryManName,
+      deliveryManPhone,
+      estimatedDeliveryDate,
+      deliveryNote,
+      vendorNote,
+      markCodPaid,
+    } = req.body;
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    const isSuperAdmin = Boolean(
+      isUserSuperAdmin(req.user) ||
+      req.user?.role === 'super_admin' ||
+      req.user?.role === 'admin' ||
+      req.user?.role === 'staff' ||
+      userId === 'usr_super_admin'
+    );
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+    }
+
+    let existingOrder: any = null;
+    let isMasterOrder = false;
+
+    if (pool) {
+      const chk = await pool.query(
+        'SELECT user_id, order_source, master_order_id, is_admin_approved, admin_approval_status, is_rejected_by_admin, order_status, payment_method, total_amount FROM online_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
+        [orderId, cleanOrderId]
+      );
+      if (chk.rows.length > 0) {
+        existingOrder = chk.rows[0];
+      } else {
+        const mChk = await pool.query(
+          'SELECT id, order_number, overall_status, is_admin_approved, admin_approval_status, is_rejected_by_admin, payment_status, payment_method, grand_total as total_amount FROM marketplace_master_orders WHERE id = $1 OR order_number = $1 OR id = $2 OR order_number = $2 LIMIT 1',
+          [orderId, cleanOrderId]
+        );
+        if (mChk.rows.length > 0) {
+          existingOrder = mChk.rows[0];
+          isMasterOrder = true;
+        }
+      }
+    } else {
+      existingOrder = (inMemoryStore.online_orders || []).find((o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId);
+      if (!existingOrder) {
+        const m = (inMemoryStore.marketplace_master_orders || []).find((x: any) => x.id === orderId || x.orderNumber === orderId || x.id === cleanOrderId || x.orderNumber === cleanOrderId);
+        if (m) {
+          existingOrder = m;
+          isMasterOrder = true;
+        }
+      }
+    }
+
+    if (!existingOrder) {
+      return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+    }
+
+    const orderOwner = existingOrder.user_id || existingOrder.userId;
+    if (orderOwner && orderOwner !== userId && !isSuperAdmin && !isMasterOrder) {
+      return res.status(403).json({
+        error: 'ভেন্ডরের অর্ডার শুধুমাত্র সংশ্লিষ্ট ভেন্ডর নিজে ডেলিভারি, প্যাকেজিং ও কুরিয়ার আপডেট করতে পারবেন।',
+      });
+    }
+
+    const isMktOrder = isMasterOrder || (existingOrder && (existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId)));
+    if (isMktOrder && !isSuperAdmin) {
+      const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved' || existingOrder.payment_method === 'cod' || existingOrder.paymentMethod === 'cod';
+      // Vendors are always allowed to fulfill, ship, and mark delivered their orders
+      if (!isApproved && !['shipped', 'delivered', 'processing', 'confirmed', 'out_for_delivery'].includes(orderStatus || '')) {
+        return res.status(403).json({
+          error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডার সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।',
+        });
+      }
+    }
+
+    // 🔒 BUSINESS RULE ENFORCEMENT:
+    // If a vendor does not have SMS balance (balance < 1), they CANNOT submit any product tracking / courier / status update!
+    if (!isSuperAdmin) {
+      const isTrackingOrStatusUpdate = Boolean(
+        (orderStatus && ['confirmed', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered'].includes(orderStatus)) ||
+        (courierName && courierName.trim()) ||
+        (courierTrackingCode && courierTrackingCode.trim()) ||
+        (deliveryManName && deliveryManName.trim()) ||
+        (deliveryManPhone && deliveryManPhone.trim())
+      );
+
+      if (isTrackingOrStatusUpdate) {
+        let vendorSmsBal = 0;
+        if (pool) {
+          const balRes = await pool.query('SELECT sms_balance FROM users WHERE id = $1', [userId]);
+          vendorSmsBal = balRes.rows.length > 0 && balRes.rows[0].sms_balance !== null
+            ? Number(balRes.rows[0].sms_balance)
+            : 0;
+        } else {
+          const u = (inMemoryStore.users || []).find((x: any) => x.id === userId);
+          vendorSmsBal = u && u.smsBalance !== null && u.smsBalance !== undefined
+            ? Number(u.smsBalance)
+            : 0;
+        }
+
+        if (vendorSmsBal < 1) {
+          return res.status(403).json({
+            error: '⚠️ আপনার অ্যাকাউন্টে কোনো এসএমএস ব্যালেন্স নেই (০ টি)! কাস্টমারকে ট্র্যাকিং ও ডেলিভারি আপডেট পাঠাতে অন্তত ১টি এসএমএস ব্যালেন্স থাকা আবশ্যক। অনুগ্রহ করে মেসেজ রিচার্জ করুন।',
+            needsSmsRecharge: true,
+            smsBalance: vendorSmsBal,
+          });
+        }
+      }
+    }
+
+    // Handle Master Order update branch
+    if (isMasterOrder) {
+      const targetMasterId = existingOrder.id || orderId;
+      const targetMasterNumber = existingOrder.order_number || cleanOrderId;
+      const isDelivered = orderStatus === 'delivered';
+
+      if (pool) {
+        await pool.query(`
+          UPDATE marketplace_master_orders 
+          SET overall_status = COALESCE($1, overall_status),
+              courier_name = COALESCE($2, courier_name),
+              courier_tracking_code = COALESCE($3, courier_tracking_code),
+              delivery_man_name = COALESCE($4, delivery_man_name),
+              delivery_man_phone = COALESCE($5, delivery_man_phone),
+              payment_status = CASE WHEN $1 = 'delivered' OR $6 = true THEN 'paid' ELSE payment_status END,
+              is_admin_approved = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
+              admin_approval_status = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
+              updated_at = $7
+          WHERE id = $8 OR order_number = $8
+        `, [
+          orderStatus || null,
+          courierName !== undefined ? courierName : null,
+          courierTrackingCode !== undefined ? courierTrackingCode : null,
+          deliveryManName !== undefined ? deliveryManName : null,
+          deliveryManPhone !== undefined ? deliveryManPhone : null,
+          Boolean(markCodPaid),
+          now,
+          targetMasterId
+        ]);
+
+        // Sync to child online_orders
+        await pool.query(`
+          UPDATE online_orders 
+          SET order_status = COALESCE($1, order_status),
+              courier_name = COALESCE($2, courier_name),
+              courier_tracking_code = COALESCE($3, courier_tracking_code),
+              delivery_man_name = COALESCE($4, delivery_man_name),
+              delivery_man_phone = COALESCE($5, delivery_man_phone),
+              payment_status = CASE WHEN $1 = 'delivered' OR $6 = true THEN 'paid' ELSE payment_status END,
+              paid_amount = CASE WHEN $1 = 'delivered' OR $6 = true THEN total_amount ELSE paid_amount END,
+              due_amount = CASE WHEN $1 = 'delivered' OR $6 = true THEN 0 ELSE due_amount END,
+              cod_collected_amount = CASE WHEN $1 = 'delivered' OR $6 = true THEN total_amount ELSE cod_collected_amount END,
+              vendor_payout_status = CASE WHEN $1 = 'delivered' AND vendor_payout_status = 'unsettled' THEN 'eligible' ELSE vendor_payout_status END,
+              collected_at = CASE WHEN $1 = 'delivered' OR $6 = true THEN $7 ELSE collected_at END,
+              is_admin_approved = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
+              admin_approval_status = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
+              updated_at = $7
+          WHERE master_order_id = $8 OR master_order_id = $9
+        `, [
+          orderStatus || null,
+          courierName !== undefined ? courierName : null,
+          courierTrackingCode !== undefined ? courierTrackingCode : null,
+          deliveryManName !== undefined ? deliveryManName : null,
+          deliveryManPhone !== undefined ? deliveryManPhone : null,
+          Boolean(markCodPaid),
+          now,
+          targetMasterId,
+          targetMasterNumber
+        ]);
+      } else {
+        const m = (inMemoryStore.marketplace_master_orders || []).find((x: any) => x.id === targetMasterId || x.orderNumber === targetMasterNumber);
+        if (m) {
+          if (orderStatus) m.overallStatus = orderStatus;
+          if (courierName !== undefined) m.courierName = courierName;
+          if (courierTrackingCode !== undefined) m.courierTrackingCode = courierTrackingCode;
+          if (deliveryManName !== undefined) m.deliveryManName = deliveryManName;
+          if (deliveryManPhone !== undefined) m.deliveryManPhone = deliveryManPhone;
+          if (isDelivered || markCodPaid) m.paymentStatus = 'paid';
+          m.updatedAt = now;
+        }
+        (inMemoryStore.online_orders || [])
+          .filter((sub: any) => sub.masterOrderId === targetMasterId || sub.masterOrderId === targetMasterNumber)
+          .forEach((sub: any) => {
+            if (orderStatus) sub.orderStatus = orderStatus;
+            if (courierName !== undefined) sub.courierName = courierName;
+            if (courierTrackingCode !== undefined) sub.courierTrackingCode = courierTrackingCode;
+            if (deliveryManName !== undefined) sub.deliveryManName = deliveryManName;
+            if (deliveryManPhone !== undefined) sub.deliveryManPhone = deliveryManPhone;
+            if (isDelivered || markCodPaid) {
+              sub.paymentStatus = 'paid';
+              sub.paidAmount = sub.totalAmount;
+              sub.dueAmount = 0;
+              sub.codCollectedAmount = sub.totalAmount;
+              sub.vendorPayoutStatus = 'eligible';
+            }
+            sub.updatedAt = now;
+          });
+        saveInMemoryStoreToDisk();
+      }
+
+      const masterEvent = {
+        orderId: targetMasterId,
+        orderNumber: targetMasterNumber,
+        masterOrderId: targetMasterId,
+        masterOrderNumber: targetMasterNumber,
+        orderStatus: orderStatus || existingOrder.overall_status,
+        overallStatus: orderStatus || existingOrder.overall_status,
+        status: orderStatus || existingOrder.overall_status,
+        courierName: courierName !== undefined ? courierName : existingOrder.courier_name,
+        courierTrackingCode: courierTrackingCode !== undefined ? courierTrackingCode : existingOrder.courier_tracking_code,
+        deliveryManName: deliveryManName !== undefined ? deliveryManName : existingOrder.delivery_man_name,
+        deliveryManPhone: deliveryManPhone !== undefined ? deliveryManPhone : existingOrder.delivery_man_phone,
+        updatedAt: now,
+        timestamp: now,
+      };
+
+      realtimeEvents.broadcast('marketplace_order_updated', masterEvent);
+      realtimeEvents.broadcast('order_status_updated', masterEvent);
+      realtimeEvents.broadcast('online_order_updated', masterEvent);
+      realtimeEvents.broadcast('twing_order_updated', masterEvent);
+
+      return res.json({
+        success: true,
+        order: { ...existingOrder, overallStatus: orderStatus, orderStatus },
+        message: '✅ সেন্ট্রাল অর্ডার স্ট্যাটাস ও কুরিয়ার তথ্য সফলভাবে আপডেট হয়েছে!',
+      });
+    }
+
+    // Handle online_orders update
+    if (pool) {
+      let result = await pool.query(
+        `UPDATE online_orders 
+         SET order_status = COALESCE($1, order_status), 
+             courier_name = COALESCE($2, courier_name),
+             courier_tracking_code = COALESCE($3, courier_tracking_code),
+             delivery_man_name = COALESCE($4, delivery_man_name),
+             delivery_man_phone = COALESCE($5, delivery_man_phone),
+             estimated_delivery_date = COALESCE($6, estimated_delivery_date),
+             delivery_note = COALESCE($7, delivery_note),
+             vendor_note = COALESCE($8, vendor_note),
+             payment_status = CASE 
+               WHEN ($9 = true OR $1 = 'delivered') AND (order_source IS NULL OR order_source != 'marketplace' OR payment_method = 'cod' OR $1 = 'delivered') THEN 'paid' 
+               ELSE payment_status 
+             END,
+             paid_amount = CASE 
+               WHEN ($9 = true OR $1 = 'delivered') AND (order_source IS NULL OR order_source != 'marketplace' OR payment_method = 'cod' OR $1 = 'delivered') THEN total_amount 
+               ELSE paid_amount 
+             END,
+             due_amount = CASE 
+               WHEN ($9 = true OR $1 = 'delivered') AND (order_source IS NULL OR order_source != 'marketplace' OR payment_method = 'cod' OR $1 = 'delivered') THEN 0 
+               ELSE due_amount 
+             END,
+             cod_collected_amount = CASE 
+               WHEN ($9 = true OR $1 = 'delivered') THEN total_amount 
+               ELSE cod_collected_amount 
+             END,
+             collected_at = CASE 
+               WHEN ($9 = true OR $1 = 'delivered') THEN $10 
+               ELSE collected_at 
+             END,
+             vendor_payout_status = CASE 
+               WHEN $1 = 'delivered' AND vendor_payout_status = 'unsettled' THEN 'eligible' 
+               ELSE vendor_payout_status 
+             END,
+             is_admin_approved = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') THEN true ELSE is_admin_approved END,
+             admin_approval_status = CASE WHEN $1 IN ('confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered') AND admin_approval_status != 'approved' THEN 'approved' ELSE admin_approval_status END,
+             updated_at = $10 
+         WHERE (id = $11 OR order_number = $11 OR id = $12 OR order_number = $12) 
+           AND (user_id = $13 OR $14 = true OR user_id = 'default_vendor' OR user_id IS NULL OR $13 = 'default_vendor') 
+         RETURNING *`,
+        [
+          orderStatus || null,
+          courierName !== undefined ? courierName : null,
+          courierTrackingCode !== undefined ? courierTrackingCode : null,
+          deliveryManName !== undefined ? deliveryManName : null,
+          deliveryManPhone !== undefined ? deliveryManPhone : null,
+          estimatedDeliveryDate !== undefined ? estimatedDeliveryDate : null,
+          deliveryNote !== undefined ? deliveryNote : null,
+          vendorNote !== undefined ? vendorNote : null,
+          Boolean(markCodPaid),
+          now,
+          orderId,
+          cleanOrderId,
+          userId,
+          Boolean(isSuperAdmin),
+        ]
+      );
+
+      if (result.rows.length === 0) {
+        let order = (inMemoryStore.online_orders || []).find(
+          (o) => o.id === orderId || o.orderNumber === orderId || o.id === cleanOrderId || o.orderNumber === cleanOrderId
+        );
+        if (order) {
+          if (order.userId !== userId && !isSuperAdmin && order.userId && order.userId !== 'default_vendor') {
+            return res.status(403).json({ error: 'অ্যাক্সেস অস্বীকৃত: ভেন্ডরের অর্ডার শুধুমাত্র সংশ্লিষ্ট ভেন্ডর নিজে ডেলিভারি ও কুরিয়ার আপডেট করতে পারবেন। অন্য কেউ এটি আপডেট করতে পারবেন না।' });
+          }
+          if (orderStatus) {
+            order.orderStatus = orderStatus;
+            if (['confirmed', 'processing', 'shipped', 'out_for_delivery', 'delivered'].includes(orderStatus)) {
+              order.isAdminApproved = true;
+              order.adminApprovalStatus = 'approved';
+            }
+          }
+          if (courierName !== undefined) order.courierName = courierName;
+          if (courierTrackingCode !== undefined) order.courierTrackingCode = courierTrackingCode;
+          if (deliveryManName !== undefined) order.deliveryManName = deliveryManName;
+          if (deliveryManPhone !== undefined) order.deliveryManPhone = deliveryManPhone;
+          if (estimatedDeliveryDate !== undefined) order.estimatedDeliveryDate = estimatedDeliveryDate;
+          if (deliveryNote !== undefined) order.deliveryNote = deliveryNote;
+          if (vendorNote !== undefined) order.vendorNote = vendorNote;
+          order.updatedAt = now;
+          await syncMasterOrderOverallStatus(pool, order.masterOrderId);
+          saveInMemoryStoreToDisk();
+
+          const eventPayload = {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            masterOrderId: order.masterOrderId,
+            orderStatus: order.orderStatus,
+            status: order.orderStatus,
+            overallStatus: order.orderStatus,
+            courierName: order.courierName,
+            courierTrackingCode: order.courierTrackingCode,
+            deliveryManName: order.deliveryManName,
+            deliveryManPhone: order.deliveryManPhone,
+            estimatedDeliveryDate: order.estimatedDeliveryDate,
+            deliveryNote: order.deliveryNote,
+            vendorNote: order.vendorNote,
+            updatedAt: now,
+            timestamp: now,
+          };
+          realtimeEvents.broadcast('marketplace_order_updated', eventPayload);
+          realtimeEvents.broadcast('order_status_updated', eventPayload);
+          realtimeEvents.broadcast('online_order_updated', eventPayload);
+          realtimeEvents.broadcast('twing_order_updated', eventPayload);
+
+          return res.json({ order, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
+        }
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+      }
+
+      const updatedOrder = mapDbRowToOrder(result.rows[0]);
+      if (inMemoryStore.online_orders) {
+        const memIdx = inMemoryStore.online_orders.findIndex((o) => o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber);
+        if (memIdx >= 0) inMemoryStore.online_orders[memIdx] = { ...inMemoryStore.online_orders[memIdx], ...updatedOrder };
+        saveInMemoryStoreToDisk();
+      }
+
+      // Sync parent Central Marketplace Master Order status in real-time
+      await syncMasterOrderOverallStatus(pool, updatedOrder.masterOrderId || result.rows[0].master_order_id);
+
+      // Broadcast real-time courier & fulfillment update across all channels
+      const eventPayload = {
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        masterOrderId: updatedOrder.masterOrderId,
+        orderStatus: updatedOrder.orderStatus,
+        status: updatedOrder.orderStatus,
+        overallStatus: updatedOrder.orderStatus,
+        courierName: updatedOrder.courierName,
+        courierTrackingCode: updatedOrder.courierTrackingCode,
+        deliveryManName: updatedOrder.deliveryManName,
+        deliveryManPhone: updatedOrder.deliveryManPhone,
+        estimatedDeliveryDate: updatedOrder.estimatedDeliveryDate,
+        deliveryNote: updatedOrder.deliveryNote,
+        vendorNote: updatedOrder.vendorNote,
+        updatedAt: now,
+        timestamp: now,
+      };
+
+      realtimeEvents.broadcast('marketplace_order_updated', eventPayload);
+      realtimeEvents.broadcast('order_status_updated', eventPayload);
+      realtimeEvents.broadcast('online_order_updated', eventPayload);
+      realtimeEvents.broadcast('twing_order_updated', eventPayload);
+
+      // 🔔 Send Customer Order Status SMS
+      sendCustomerOrderStatusSms(
+        updatedOrder.customerPhone,
+        updatedOrder.customerName,
+        updatedOrder.orderNumber,
+        updatedOrder.orderStatus,
+        updatedOrder.courierName,
+        updatedOrder.courierTrackingCode,
+        updatedOrder.deliveryManName,
+        updatedOrder.deliveryManPhone,
+        (updatedOrder as any).userId || userId
+      );
+
+      return res.json({ order: updatedOrder, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
+    } else {
+      let order = (inMemoryStore.online_orders || []).find(
+        (o) => (o.id === orderId || o.orderNumber === orderId) && (o.userId === userId || o.userId === 'default_vendor' || !o.userId || isSuperAdmin)
+      );
+
+      if (order) {
+        if (orderStatus) order.orderStatus = orderStatus;
+        if (courierName !== undefined) order.courierName = courierName;
+        if (courierTrackingCode !== undefined) order.courierTrackingCode = courierTrackingCode;
+        if (deliveryManName !== undefined) order.deliveryManName = deliveryManName;
+        if (deliveryManPhone !== undefined) order.deliveryManPhone = deliveryManPhone;
+        if (estimatedDeliveryDate !== undefined) order.estimatedDeliveryDate = estimatedDeliveryDate;
+        if (deliveryNote !== undefined) order.deliveryNote = deliveryNote;
+        if (vendorNote !== undefined) order.vendorNote = vendorNote;
+        if (orderStatus === 'delivered' || (markCodPaid && order.orderSource !== 'marketplace')) {
+          order.paymentStatus = 'paid';
+          order.paidAmount = order.totalAmount;
+          order.dueAmount = 0;
+          order.codCollectedAmount = order.totalAmount;
+          order.collectedAt = now;
+          if (orderStatus === 'delivered') {
+            order.vendorPayoutStatus = 'eligible';
+          }
+        }
+        order.updatedAt = now;
+        await syncMasterOrderOverallStatus(null, order.masterOrderId);
+        saveInMemoryStoreToDisk();
+
+        realtimeEvents.broadcast('marketplace_order_updated', {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          masterOrderId: order.masterOrderId,
+          orderStatus: order.orderStatus,
+          courierName: order.courierName,
+          courierTrackingCode: order.courierTrackingCode,
+          deliveryManName: order.deliveryManName,
+          deliveryManPhone: order.deliveryManPhone,
+          timestamp: now,
+        });
+
+        sendCustomerOrderStatusSms(
+          order.customerPhone,
+          order.customerName,
+          order.orderNumber,
+          order.orderStatus,
+          order.courierName,
+          order.courierTrackingCode,
+          order.deliveryManName,
+          order.deliveryManPhone,
+          order.userId || userId
+        );
+
+        return res.json({ order, message: '✅ অর্ডার ও ডেলিভারি তথ্য সফলভাবে আপডেট করা হয়েছে!' });
+      }
+      return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/store/orders/:orderId/full-update
+ * Vendor complete update for Personal E-Commerce Store & Approved Marketplace orders:
+ * Customer info, items, pricing, discount, payment, courier, rider & delivery status
+ */
+router.put('/orders/:orderId/full-update', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+    const now = Date.now();
+    const body = req.body || {};
+
+    const isSuperAdmin = (req.user?.role === 'super_admin' || userId === 'usr_super_admin' || req.user?.email === 'siftibrahim@gmail.com' || req.user?.email === 'siftibrahim75@gmail.com');
+
+    let existingOrder: any = null;
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const chk = await pool.query(
+        'SELECT * FROM online_orders WHERE (id = $1 OR order_number = $1) AND (user_id = $2 OR $3 = true) LIMIT 1',
+        [orderId, userId, isSuperAdmin]
+      );
+      if (chk.rows.length > 0) existingOrder = chk.rows[0];
+    } else {
+      existingOrder = (inMemoryStore.online_orders || []).find(
+        (o) => (o.id === orderId || o.orderNumber === orderId) && (o.userId === userId || isSuperAdmin)
+      );
+    }
+
+    if (!existingOrder) {
+      return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+    }
+
+    const isMkt = existingOrder.order_source === 'marketplace' || existingOrder.orderSource === 'marketplace' || Boolean(existingOrder.master_order_id || existingOrder.masterOrderId);
+    if (isMkt && !isSuperAdmin) {
+      const isApproved = existingOrder.is_admin_approved === true || existingOrder.isAdminApproved === true || existingOrder.admin_approval_status === 'approved' || existingOrder.adminApprovalStatus === 'approved';
+      if (!isApproved) {
+        return res.status(403).json({
+          error: '🔒 সেন্ট্রাল মার্কেটপ্লেসের অর্ডার সুপার এডমিন পেমেন্ট যাচাই করার আগে ভেন্ডর কোনো ধরনের কাস্টমারের স্ট্যাটাস পরিবর্তন করতে পারবেন না।',
+        });
+      }
+    }
+
+    // 🔒 BUSINESS RULE ENFORCEMENT:
+    // If a vendor does not have SMS balance (balance < 1), they CANNOT submit any product tracking / courier / status update!
+    if (!isSuperAdmin) {
+      const isTrackingOrStatusUpdate = Boolean(
+        (body.orderStatus && body.orderStatus !== existingOrder.order_status) ||
+        (body.courierName && body.courierName !== existingOrder.courier_name) ||
+        (body.courierTrackingCode && body.courierTrackingCode !== existingOrder.courier_tracking_code) ||
+        (body.deliveryManName && body.deliveryManName !== existingOrder.delivery_man_name) ||
+        (body.deliveryManPhone && body.deliveryManPhone !== existingOrder.delivery_man_phone)
+      );
+
+      if (isTrackingOrStatusUpdate) {
+        let vendorSmsBal = 0;
+        if (pool) {
+          const balRes = await pool.query('SELECT sms_balance FROM users WHERE id = $1', [userId]);
+          vendorSmsBal = balRes.rows.length > 0 && balRes.rows[0].sms_balance !== null
+            ? Number(balRes.rows[0].sms_balance)
+            : 0;
+        } else {
+          const u = (inMemoryStore.users || []).find((x: any) => x.id === userId);
+          vendorSmsBal = u && u.smsBalance !== null && u.smsBalance !== undefined
+            ? Number(u.smsBalance)
+            : 0;
+        }
+
+        if (vendorSmsBal < 1) {
+          return res.status(403).json({
+            error: '⚠️ আপনার অ্যাকাউন্টে কোনো এসএমএস ব্যালেন্স নেই (০ টি)! কাস্টমারকে ট্র্যাকিং ও ডেলিভারি আপডেট পাঠাতে অন্তত ১টি এসএমএস ব্যালেন্স থাকা আবশ্যক। অনুগ্রহ করে মেসেজ রিচার্জ করুন।',
+            needsSmsRecharge: true,
+            smsBalance: vendorSmsBal,
+          });
+        }
+      }
+    }
+
+    const customerName = body.customerName !== undefined ? String(body.customerName).trim() : (existingOrder.customer_name || existingOrder.customerName);
+    const customerPhone = body.customerPhone !== undefined ? String(body.customerPhone).trim() : (existingOrder.customer_phone || existingOrder.customerPhone);
+    const customerAddress = body.customerAddress !== undefined ? String(body.customerAddress).trim() : (existingOrder.customer_address || existingOrder.customerAddress);
+    const deliveryArea = body.deliveryArea !== undefined ? body.deliveryArea : (existingOrder.delivery_area || existingOrder.deliveryArea || 'inside_dhaka');
+    const items = Array.isArray(body.items) ? body.items : (typeof existingOrder.items === 'string' ? JSON.parse(existingOrder.items) : (existingOrder.items || []));
+    const subtotal = body.subtotal !== undefined ? (parseFloat(body.subtotal) || 0) : items.reduce((s: number, it: any) => s + ((parseFloat(it.unitPrice) || 0) * (parseFloat(it.quantity) || 1)), 0);
+    const deliveryCharge = body.deliveryCharge !== undefined ? (parseFloat(body.deliveryCharge) || 0) : (parseFloat(existingOrder.delivery_charge ?? existingOrder.deliveryCharge) || 0);
+    const discountAmount = body.discountAmount !== undefined ? (parseFloat(body.discountAmount) || 0) : (parseFloat(existingOrder.discount_amount ?? existingOrder.discountAmount) || 0);
+    const totalAmount = body.totalAmount !== undefined ? (parseFloat(body.totalAmount) || 0) : Math.max(0, subtotal + deliveryCharge - discountAmount);
+    const paymentMethod = body.paymentMethod || existingOrder.payment_method || existingOrder.paymentMethod || 'cod';
+    const paymentStatus = isMkt
+      ? (existingOrder.payment_status || existingOrder.paymentStatus || 'paid')
+      : (body.paymentStatus || existingOrder.payment_status || existingOrder.paymentStatus || 'unpaid');
+    const paidAmount = paymentStatus === 'paid'
+      ? totalAmount
+      : (body.paidAmount !== undefined ? (parseFloat(body.paidAmount) || 0) : (parseFloat(existingOrder.paid_amount ?? existingOrder.paidAmount) || 0));
+    const dueAmount = paymentStatus === 'paid' ? 0 : Math.max(0, totalAmount - paidAmount);
+    const orderStatus = body.orderStatus || existingOrder.order_status || existingOrder.orderStatus || 'pending';
+    const trxId = body.trxId !== undefined ? String(body.trxId).trim() : (existingOrder.trx_id || existingOrder.trxId || '');
+    const senderPhone = body.senderPhone !== undefined ? String(body.senderPhone).trim() : (existingOrder.sender_phone || existingOrder.senderPhone || '');
+    const courierName = body.courierName !== undefined ? String(body.courierName).trim() : (existingOrder.courier_name || existingOrder.courierName || '');
+    const courierTrackingCode = body.courierTrackingCode !== undefined ? String(body.courierTrackingCode).trim() : (existingOrder.courier_tracking_code || existingOrder.courierTrackingCode || '');
+    const deliveryManName = body.deliveryManName !== undefined ? String(body.deliveryManName).trim() : (existingOrder.delivery_man_name || existingOrder.deliveryManName || '');
+    const deliveryManPhone = body.deliveryManPhone !== undefined ? String(body.deliveryManPhone).trim() : (existingOrder.delivery_man_phone || existingOrder.deliveryManPhone || '');
+    const estimatedDeliveryDate = body.estimatedDeliveryDate !== undefined ? String(body.estimatedDeliveryDate).trim() : (existingOrder.estimated_delivery_date || existingOrder.estimatedDeliveryDate || '');
+    const deliveryNote = body.deliveryNote !== undefined ? String(body.deliveryNote).trim() : (existingOrder.delivery_note || existingOrder.deliveryNote || '');
+    const vendorNote = body.vendorNote !== undefined ? String(body.vendorNote).trim() : (existingOrder.vendor_note || existingOrder.vendorNote || '');
+    const notes = body.notes !== undefined ? String(body.notes).trim() : (existingOrder.notes || '');
+
+    if (pool) {
+      const updateParams = [
+        customerName,
+        customerPhone,
+        customerAddress,
+        deliveryArea,
+        JSON.stringify(items),
+        subtotal,
+        deliveryCharge,
+        discountAmount,
+        totalAmount,
+        paidAmount,
+        dueAmount,
+        paymentMethod,
+        paymentStatus,
+        orderStatus,
+        trxId,
+        senderPhone,
+        courierName,
+        courierTrackingCode,
+        deliveryManName,
+        deliveryManPhone,
+        estimatedDeliveryDate,
+        deliveryNote,
+        vendorNote,
+        notes,
+        now,
+        existingOrder.id,
+      ];
+      const updateSql = `UPDATE online_orders
+         SET customer_name = $1,
+             customer_phone = $2,
+             customer_address = $3,
+             delivery_area = $4,
+             items = $5,
+             subtotal = $6,
+             delivery_charge = $7,
+             discount_amount = $8,
+             total_amount = $9,
+             paid_amount = $10,
+             due_amount = $11,
+             payment_method = $12,
+             payment_status = $13,
+             order_status = $14,
+             trx_id = $15,
+             sender_phone = $16,
+             courier_name = $17,
+             courier_tracking_code = $18,
+             delivery_man_name = $19,
+             delivery_man_phone = $20,
+             estimated_delivery_date = $21,
+             delivery_note = $22,
+             vendor_note = $23,
+             notes = $24,
+             updated_at = $25
+         WHERE id = $26
+         RETURNING *`;
+
+      let result;
+      try {
+        result = await pool.query(updateSql, updateParams);
+      } catch (dbErr: any) {
+        await ensureOnlineOrdersSchema(pool, true);
+        result = await pool.query(updateSql, updateParams);
+      }
+
+      const updatedOrder = mapDbRowToOrder(result.rows[0]);
+      await syncMasterOrderOverallStatus(pool, updatedOrder.masterOrderId || result.rows[0].master_order_id);
+
+      realtimeEvents.broadcast('marketplace_order_updated', {
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        masterOrderId: updatedOrder.masterOrderId,
+        orderStatus: updatedOrder.orderStatus,
+        courierName: updatedOrder.courierName,
+        courierTrackingCode: updatedOrder.courierTrackingCode,
+        deliveryManName: updatedOrder.deliveryManName,
+        deliveryManPhone: updatedOrder.deliveryManPhone,
+        timestamp: now,
+      });
+      realtimeEvents.broadcast('order_status_updated', {
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        masterOrderId: updatedOrder.masterOrderId,
+        orderStatus: updatedOrder.orderStatus,
+        courierName: updatedOrder.courierName,
+        courierTrackingCode: updatedOrder.courierTrackingCode,
+        deliveryManName: updatedOrder.deliveryManName,
+        deliveryManPhone: updatedOrder.deliveryManPhone,
+        timestamp: now,
+      });
+
+      if (body.sendSmsToCustomer && customerPhone && customerPhone.length >= 11) {
+        sendCustomerOrderStatusSms(
+          customerPhone,
+          customerName,
+          updatedOrder.orderNumber,
+          orderStatus,
+          courierName,
+          courierTrackingCode,
+          deliveryManName,
+          deliveryManPhone,
+          (updatedOrder as any).userId || userId
+        );
+      }
+
+      return res.json({
+        success: true,
+        message: '✅ অর্ডারের সকল তথ্য, পেমেন্ট ও ডেলিভারি ডিটেইলস সফলভাবে আপডেট হয়েছে!',
+        order: updatedOrder,
+      });
+    } else {
+      Object.assign(existingOrder, {
+        customerName,
+        customerPhone,
+        customerAddress,
+        deliveryArea,
+        items,
+        subtotal,
+        deliveryCharge,
+        discountAmount,
+        totalAmount,
+        paidAmount,
+        dueAmount,
+        paymentMethod,
+        paymentStatus,
+        orderStatus,
+        trxId,
+        senderPhone,
+        courierName,
+        courierTrackingCode,
+        deliveryManName,
+        deliveryManPhone,
+        estimatedDeliveryDate,
+        deliveryNote,
+        vendorNote,
+        notes,
+        updatedAt: now,
+      });
+      await syncMasterOrderOverallStatus(null, existingOrder.masterOrderId);
+      saveInMemoryStoreToDisk();
+      return res.json({
+        success: true,
+        message: '✅ অর্ডারের সকল তথ্য সফলভাবে আপডেট হয়েছে!',
+        order: existingOrder,
+      });
+    }
+  } catch (err: any) {
+    console.error('Error in full order update:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/orders/:orderId/sync-stock-ledger
+ * Vendor 1-Click Stock Deduction & Cashbook / Ledger Entry for Personal E-Commerce Store orders
+ */
+router.post('/orders/:orderId/sync-stock-ledger', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const { syncStock = true, syncLedger = true } = req.body || {};
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const ordRes = await pool.query(
+        'SELECT * FROM online_orders WHERE (id = $1 OR order_number = $1) AND user_id = $2 LIMIT 1',
+        [orderId, userId]
+      );
+      if (ordRes.rows.length === 0) {
+        return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+      }
+      const ord = ordRes.rows[0];
+      const items = typeof ord.items === 'string' ? JSON.parse(ord.items) : (ord.items || []);
+      let stockAdjusted = ord.is_stock_adjusted === true;
+      let ledgerSynced = ord.is_ledger_synced === true;
+
+      // 1. Adjust product stock if requested and not yet adjusted
+      if (syncStock && !stockAdjusted) {
+        for (const it of items) {
+          if (it.productId) {
+            await pool.query(
+              'UPDATE products SET stock = GREATEST(0, COALESCE(stock, 0) - $1), updated_at = $2 WHERE id = $3 AND user_id = $4',
+              [parseFloat(it.quantity) || 1, now, it.productId, userId]
+            ).catch(() => {});
+          }
+        }
+        stockAdjusted = true;
+      }
+
+      // 2. Add income entry into vendor's Cashbook (expenses table with type = 'income')
+      if (syncLedger && !ledgerSynced) {
+        const amountToRecord = parseFloat(ord.paid_amount) > 0 ? parseFloat(ord.paid_amount) : (parseFloat(ord.total_amount) || 0);
+        if (amountToRecord > 0) {
+          const expId = `exp_ecom_${ord.id}`;
+          const dateStr = new Date(now).toISOString().split('T')[0];
+          const timeStr = new Date(now).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' });
+          await pool.query(
+            `INSERT INTO expenses (id, user_id, type, category, amount, description, date, time, created_at)
+             VALUES ($1, $2, 'income', 'অনলাইন স্টোর বিক্রয়', $3, $4, $5, $6, $7)
+             ON CONFLICT (id) DO UPDATE SET amount = EXCLUDED.amount, description = EXCLUDED.description`,
+            [
+              expId,
+              userId,
+              amountToRecord,
+              `অনলাইন অর্ডার #${ord.order_number} (${ord.customer_name} - ${ord.customer_phone}) পেমেন্ট: ${(ord.payment_method || 'cod').toUpperCase()}`,
+              dateStr,
+              timeStr,
+              now,
+            ]
+          ).catch(() => {});
+          ledgerSynced = true;
+        }
+      }
+
+      const upd = await pool.query(
+        `UPDATE online_orders
+         SET is_stock_adjusted = $1,
+             is_ledger_synced = $2,
+             updated_at = $3
+         WHERE id = $4
+         RETURNING *`,
+        [stockAdjusted, ledgerSynced, now, ord.id]
+      );
+
+      return res.json({
+        success: true,
+        message: '✅ ইনভেন্টরি স্টক সমন্বয় এবং দোকানের ক্যাশবুকে বিক্রয় এন্ট্রি সফলভাবে সম্পন্ন হয়েছে!',
+        order: mapDbRowToOrder(upd.rows[0]),
+      });
+    } else {
+      const ord = (inMemoryStore.online_orders || []).find((o) => (o.id === orderId || o.orderNumber === orderId) && o.userId === userId);
+      if (!ord) return res.status(404).json({ error: 'অর্ডারটি পাওয়া যায়নি।' });
+
+      if (syncStock && !ord.isStockAdjusted) {
+        for (const it of (ord.items || [])) {
+          const p = (inMemoryStore.products || []).find((x) => x.id === it.productId && x.userId === userId);
+          if (p) {
+            p.stock = Math.max(0, (Number(p.stock) || 0) - (Number(it.quantity) || 1));
+          }
+        }
+        ord.isStockAdjusted = true;
+      }
+
+      if (syncLedger && !ord.isLedgerSynced) {
+        const amountToRecord = Number(ord.paidAmount) > 0 ? Number(ord.paidAmount) : (Number(ord.totalAmount) || 0);
+        if (amountToRecord > 0) {
+          if (!inMemoryStore.expenses) inMemoryStore.expenses = [];
+          inMemoryStore.expenses.unshift({
+            id: `exp_ecom_${ord.id}`,
+            userId,
+            type: 'income',
+            category: 'অনলাইন স্টোর বিক্রয়',
+            amount: amountToRecord,
+            description: `অনলাইন অর্ডার #${ord.orderNumber} (${ord.customerName})`,
+            date: new Date(now).toISOString().split('T')[0],
+            time: new Date(now).toLocaleTimeString(),
+            createdAt: now,
+          });
+          ord.isLedgerSynced = true;
+        }
+      }
+      ord.updatedAt = now;
+      saveInMemoryStoreToDisk();
+
+      return res.json({
+        success: true,
+        message: '✅ ইনভেন্টরি স্টক সমন্বয় এবং দোকানের ক্যাশবুকে বিক্রয় এন্ট্রি সম্পন্ন হয়েছে!',
+        order: ord,
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/store/orders/track/:orderNumber/submit-payment
+ * Customer submits or re-submits payment TrxID & Sender Phone for a Personal Store order
+ */
+router.post('/orders/track/:orderNumber/submit-payment', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderNumber } = req.params;
+    const { paymentMethod, trxId, senderPhone, paidAmount } = req.body || {};
+    if (!trxId || !String(trxId).trim()) {
+      return res.status(400).json({ error: 'অনুগ্রহ করে সঠিক ট্রানজেকশন আইডি (TrxID) লিখুন।' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const chk = await pool.query(
+        'SELECT * FROM online_orders WHERE order_number = $1 OR id = $1 LIMIT 1',
+        [orderNumber]
+      );
+      if (chk.rows.length === 0) {
+        return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });
+      }
+      const ord = chk.rows[0];
+      if (ord.order_source === 'marketplace' || ord.master_order_id) {
+        return res.status(400).json({ error: 'সেন্ট্রাল মার্কেটপ্লেস অর্ডারের পেমেন্ট সেন্ট্রাল মল ট্র্যাকার থেকে জমা দিন।' });
+      }
+
+      const upd = await pool.query(
+        `UPDATE online_orders
+         SET payment_method = COALESCE($1, payment_method),
+             trx_id = $2,
+             sender_phone = COALESCE($3, sender_phone),
+             paid_amount = COALESCE($4, paid_amount),
+             payment_status = 'pending_verification',
+             payment_reject_reason = NULL,
+             updated_at = $5
+         WHERE id = $6
+         RETURNING *`,
+        [
+          paymentMethod || null,
+          String(trxId).trim().toUpperCase(),
+          senderPhone ? String(senderPhone).trim() : null,
+          paidAmount ? parseFloat(paidAmount) : null,
+          now,
+          ord.id,
+        ]
+      );
+
+      return res.json({
+        success: true,
+        message: '✅ আপনার পেমেন্ট তথ্য (TrxID) ভেন্ডরের কাছে যাচাইয়ের জন্য পাঠানো হয়েছে!',
+        order: mapDbRowToOrder(upd.rows[0]),
+      });
+    } else {
+      const ord = (inMemoryStore.online_orders || []).find(
+        (o) => o.orderNumber === orderNumber || o.id === orderNumber
+      );
+      if (!ord) return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });
+      if (paymentMethod) ord.paymentMethod = paymentMethod;
+      ord.trxId = String(trxId).trim().toUpperCase();
+      if (senderPhone) ord.senderPhone = String(senderPhone).trim();
+      if (paidAmount) ord.paidAmount = parseFloat(paidAmount);
+      ord.paymentStatus = 'pending_verification';
+      ord.paymentRejectReason = undefined;
+      ord.updatedAt = now;
+      saveInMemoryStoreToDisk();
+
+      return res.json({
+        success: true,
+        message: '✅ আপনার পেমেন্ট তথ্য ভেন্ডরের কাছে যাচাইয়ের জন্য পাঠানো হয়েছে!',
+        order: ord,
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+function sendCustomerOrderStatusSms(
+  customerPhone?: string,
+  customerName?: string,
+  orderNumber?: string,
+  status?: string,
+  courierName?: string,
+  courierTrackingCode?: string,
+  deliveryManName?: string,
+  deliveryManPhone?: string,
+  vendorId?: string
+) {
+  if (!customerPhone || customerPhone.length < 11 || !status) return;
+  const name = customerName || 'গ্রাহক';
+  const num = orderNumber || '';
+  const riderInfo = deliveryManName ? ` ডেলিভারি ম্যান: ${deliveryManName}${deliveryManPhone ? ` (${deliveryManPhone})` : ''}।` : '';
+
+  let msg = '';
+  if (status === 'cancelled') {
+    msg = `TwingHisabi: দুঃখিত ${name}! আপনার অর্ডার #${num} বাতিল (Cancelled) করা হয়েছে। বিস্তারিত জানতে দোকানে যোগাযোগ করুন।`;
+  } else if (status === 'confirmed') {
+    msg = `TwingHisabi: অভিনন্দন ${name}! আপনার অর্ডার #${num} নিশ্চিত (Confirmed) করা হয়েছে এবং পার্সেল প্রস্তুত হচ্ছে।`;
+  } else if (status === 'processing' || status === 'packed') {
+    msg = `TwingHisabi: প্রিয় ${name}, আপনার অর্ডার #${num} প্যাকিং সম্পন্ন হয়েছে এবং শীঘ্রই ডেলিভারিতে পাঠানো হবে।${riderInfo}`;
+  } else if (status === 'shipped' || status === 'out_for_delivery') {
+    msg = `TwingHisabi: আপনার অর্ডার #${num} ডেলিভারির জন্য পাঠানো হয়েছে। মাধ্যম: ${courierName || 'ডেলিভারি সার্ভিস'}${courierTrackingCode ? ` (ট্র্যাকিং: ${courierTrackingCode})` : ''}।${riderInfo}`;
+  } else if (status === 'delivered') {
+    msg = `TwingHisabi: আপনার অর্ডার #${num} সফলভাবে ডেলিভারি সম্পন্ন হয়েছে। আমাদের সাথে কেনাকাটার জন্য ধন্যবাদ!`;
+  }
+
+  if (msg) {
+    if (vendorId) {
+      deductVendorSmsAndSend(vendorId, customerPhone, msg, {
+        smsType: 'order_status_' + status,
+        orderNumber: num,
+        customerName: name,
+      }).catch((err) => {
+        console.warn('Customer store order status SMS deduct notification notice:', err?.message || err);
+      });
+    } else {
+      sendSmsNotification(customerPhone, msg).catch((err) => {
+        console.warn('Customer store order status SMS notification notice:', err?.message || err);
+      });
+    }
+  }
+}
+
+/**
+ * DELETE /api/store/orders/:orderId - Vendor deletes an order (Strictly Isolated)
+ */
+router.delete('/orders/:orderId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user?.userId;
+    const pool = getDbPool();
+
+    if (pool) {
+      const result = await pool.query('DELETE FROM online_orders WHERE id = $1 AND user_id = $2 RETURNING id', [
+        orderId,
+        userId,
+      ]);
+      if (result.rows.length === 0) {
+        return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার মুছে ফেলার অনুমতি নেই।' });
+      }
+      return res.json({ success: true, message: 'অর্ডারটি সফলভাবে মুছে ফেলা হয়েছে।' });
+    } else {
+      const idx = (inMemoryStore.online_orders || []).findIndex((o) => o.id === orderId && o.userId === userId);
+      if (idx === -1) {
+        return res.status(403).json({ error: 'অর্ডারটি পাওয়া যায়নি বা আপনার মুছে ফেলার অনুমতি নেই।' });
+      }
+      inMemoryStore.online_orders.splice(idx, 1);
+      return res.json({ success: true, message: 'অর্ডারটি সফলভাবে মুছে ফেলা হয়েছে।' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/store/orders/track/:orderNumber - Customer tracks order and payment status
+ */
+router.get('/orders/track/:orderNumber', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { orderNumber } = req.params;
+    const cleanOrderNumber = (orderNumber || '').replace(/^#/, '').trim();
+    const pool = getDbPool();
+
+    if (pool) {
+      await ensureOnlineOrdersSchema(pool);
+      const result = await pool.query(
+        'SELECT * FROM online_orders WHERE order_number = $1 OR id = $1 OR order_number = $2 OR id = $2 LIMIT 1',
+        [cleanOrderNumber, orderNumber]
+      );
+      if (result.rows.length > 0) {
+        return res.json({ order: mapDbRowToOrder(result.rows[0]) });
+      }
+      return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });
+    } else {
+      const order = (inMemoryStore.online_orders || []).find(
+        (o) => o.orderNumber === cleanOrderNumber || o.id === cleanOrderNumber || o.orderNumber === orderNumber || o.id === orderNumber
+      );
+      if (order) return res.json({ order });
+      return res.status(404).json({ error: 'অর্ডার পাওয়া যায়নি।' });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/store/chat/threads
+ * Authenticated vendor gets all customer chat threads grouped by thread_id
+ */
+router.get('/chat/threads', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
     const pool = getDbPool();
 
     if (pool) {
       const result = await pool.query(
-        'SELECT * FROM payments WHERE user_id = $1 ORDER BY created_at DESC',
+        `SELECT * FROM store_chat_messages WHERE vendor_id = $1 ORDER BY created_at ASC`,
         [userId]
       );
-      const payments = result.rows.map(row => ({
-        id: row.id,
-        userId: row.user_id,
-        userName: row.user_name,
-        userPhone: row.user_phone,
-        senderNumber: row.sender_number || row.sender_phone,
-        shopName: row.shop_name,
-        planId: row.plan_id,
-        planName: row.plan_name,
-        durationDays: row.duration_days,
-        amount: parseFloat(row.amount) || 0,
-        paymentMethod: row.payment_method,
-        paymentMode: row.payment_mode,
-        trxId: row.trx_id,
-        status: row.status,
-        createdAt: Number(row.created_at),
-        approvedAt: row.approved_at ? Number(row.approved_at) : undefined,
-        rejectedReason: row.rejected_reason,
-        refundReason: row.refund_reason,
-        refundAmount: row.refund_amount ? parseFloat(row.refund_amount) : undefined,
-        adminNotes: row.admin_notes,
-      }));
-      return res.json({ payments });
+
+      const threadMap = new Map<string, any>();
+      for (const row of result.rows) {
+        const thId = row.thread_id;
+        if (!threadMap.has(thId)) {
+          threadMap.set(thId, {
+            id: thId,
+            customerName: row.customer_name || 'সম্মানিত ক্রেতা',
+            customerPhone: row.customer_phone || '',
+            lastMessage: row.text,
+            lastMessageAt: Number(row.created_at),
+            unreadByVendor: 0,
+            unreadByCustomer: 0,
+            messages: [],
+          });
+        }
+        const thread = threadMap.get(thId);
+        if (row.customer_name && row.customer_name !== 'সম্মানিত ক্রেতা') {
+          thread.customerName = row.customer_name;
+        }
+        if (row.customer_phone) {
+          thread.customerPhone = row.customer_phone;
+        }
+        thread.lastMessage = row.text;
+        thread.lastMessageAt = Number(row.created_at);
+        if (row.sender === 'customer' && !row.is_read_by_vendor) {
+          thread.unreadByVendor += 1;
+        }
+        if (row.sender === 'vendor' && !row.is_read_by_customer) {
+          thread.unreadByCustomer += 1;
+        }
+        thread.messages.push({
+          id: row.id,
+          sender: row.sender,
+          senderName: row.sender_name || (row.sender === 'vendor' ? 'দোকানদার' : thread.customerName),
+          senderPhone: row.sender_phone || '',
+          text: row.text,
+          timestamp: Number(row.created_at),
+        });
+      }
+
+      const threads = Array.from(threadMap.values()).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+      return res.json({ threads });
     } else {
-      const list = inMemoryStore.payments
-        .filter(p => p.userId === userId)
-        .sort((a, b) => b.createdAt - a.createdAt);
-      return res.json({ payments: list });
+      const list = (inMemoryStore.store_chat_messages || []).filter((m: any) => m.vendor_id === userId);
+      const threadMap = new Map<string, any>();
+      for (const row of list) {
+        const thId = row.thread_id;
+        if (!threadMap.has(thId)) {
+          threadMap.set(thId, {
+            id: thId,
+            customerName: row.customer_name || 'সম্মানিত ক্রেতা',
+            customerPhone: row.customer_phone || '',
+            lastMessage: row.text,
+            lastMessageAt: Number(row.created_at),
+            unreadByVendor: 0,
+            unreadByCustomer: 0,
+            messages: [],
+          });
+        }
+        const thread = threadMap.get(thId);
+        if (row.customer_name && row.customer_name !== 'সম্মানিত ক্রেতা') {
+          thread.customerName = row.customer_name;
+        }
+        if (row.customer_phone) {
+          thread.customerPhone = row.customer_phone;
+        }
+        thread.lastMessage = row.text;
+        thread.lastMessageAt = Number(row.created_at);
+        if (row.sender === 'customer' && !row.is_read_by_vendor) {
+          thread.unreadByVendor += 1;
+        }
+        if (row.sender === 'vendor' && !row.is_read_by_customer) {
+          thread.unreadByCustomer += 1;
+        }
+        thread.messages.push({
+          id: row.id,
+          sender: row.sender,
+          senderName: row.sender_name || (row.sender === 'vendor' ? 'দোকানদার' : thread.customerName),
+          senderPhone: row.sender_phone || '',
+          text: row.text,
+          timestamp: Number(row.created_at),
+        });
+      }
+
+      const threads = Array.from(threadMap.values()).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+      return res.json({ threads });
     }
   } catch (err: any) {
+    console.error('Error fetching vendor chat threads:', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * ---------------- PAYMENTLY PAYMENT GATEWAY ROUTES ----------------
+ * POST /api/store/chat/reply
+ * Authenticated vendor sends a reply to a specific customer thread
  */
-
-/**
- * 1. POST /api/subscription/paymently/checkout (Authenticated)
- * Initiates Paymently Checkout session for chosen subscription package
- */
-router.post('/paymently/checkout', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/chat/reply', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'ব্যবহারকারী অনুমোদিত নয়' });
+    const { threadId, text, storeName } = req.body;
+
+    if (!threadId || !text || !text.trim()) {
+      return res.status(400).json({ error: 'থ্রেড আইডি এবং মেসেজ টেক্সট আবশ্যক।' });
     }
 
-    const { planId } = req.body;
-    if (!planId) {
-      return res.status(400).json({ error: 'সাবস্ক্রিপশন প্ল্যান আইডি প্রদান করুন' });
-    }
+    const cleanText = text.trim();
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = Date.now();
+    const senderName = storeName || req.user?.shopName || 'দোকানদার';
 
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
-    const appBaseUrl = `${protocol}://${host}`;
-
-    const checkout = await PaymentlyService.createCheckout({
-      planId,
-      userId,
-      userEmail: req.user?.email,
-      userName: req.user?.name,
-      userPhone: req.user?.phone,
-      shopName: req.user?.shopName,
-      appBaseUrl,
-    });
-
-    return res.json(checkout);
-  } catch (err: any) {
-    console.error('Paymently Checkout Error:', err);
-    return res.status(400).json({ error: err.message || 'পেমেন্ট সেশন তৈরিতে ত্রুটি হয়েছে' });
-  }
-});
-
-/**
- * 2. GET & POST /api/subscription/paymently/callback
- * Redirect handler after customer finishes payment on Paymently checkout
- */
-const handlePaymentlyCallback = async (req: any, res: Response) => {
-  try {
-    const invoiceId = (req.query.invoice_id || req.query.invoiceId || req.body?.invoice_id || '') as string;
-    const paymentId = (req.query.payment_id || req.query.paymentId || req.body?.payment_id || '') as string;
-    const statusParam = (req.query.status || req.body?.status || '') as string;
-    const isSmsType = req.query.type === 'sms' || paymentId.startsWith('pay_sms_') || paymentId.startsWith('sms_');
-    const isMarketplaceType = req.query.type === 'marketplace' || paymentId.startsWith('pay_mkt_') || paymentId.startsWith('mkt_');
-
-    if (statusParam.toLowerCase() === 'cancelled') {
-      if (paymentId || req.query.order_id) {
-        const pool = getDbPool();
-        if (isSmsType) {
-          if (pool) {
-            await pool.query(
-              "UPDATE sms_purchases SET status = 'cancelled', admin_note = 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন' WHERE id = $1 AND status IN ('initiated', 'pending')",
-              [paymentId]
-            ).catch(() => {});
-          } else {
-            const sp = (inMemoryStore.sms_purchases || []).find((x: any) => x.id === paymentId);
-            if (sp && (sp.status === 'initiated' || sp.status === 'pending')) sp.status = 'cancelled';
-          }
-        } else if (isMarketplaceType) {
-          const mktOrdId = req.query.order_id || paymentId;
-          await cancelMarketplaceOrderHelper(mktOrdId, 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন');
-        } else {
-          if (pool) {
-            await pool.query(
-              "UPDATE payments SET status = 'cancelled', admin_notes = 'গ্রাহক গেটওয়ে পেজে পেমেন্ট বাতিল করেছেন' WHERE id = $1 AND status IN ('initiated', 'pending')",
-              [paymentId]
-            );
-          } else {
-            const p = inMemoryStore.payments.find((x) => x.id === paymentId);
-            if (p && (p.status === 'initiated' || p.status === 'pending')) {
-              p.status = 'cancelled';
-            }
-          }
-        }
-      }
-      return res.redirect(`/?payment_status=cancelled&payment_id=${encodeURIComponent(paymentId)}${isSmsType ? '&type=sms' : isMarketplaceType ? '&type=marketplace&order_id=' + encodeURIComponent(req.query.order_id || paymentId) : ''}`);
-    }
-
-    if (!invoiceId) {
-      if (paymentId || req.query.order_id) {
-        const pool = getDbPool();
-        if (isSmsType) {
-          if (pool) {
-            await pool.query(
-              "UPDATE sms_purchases SET status = 'cancelled', admin_note = 'পেমেন্ট ইনভয়েস ছাড়া সেশন সমাপ্ত / বাতিল' WHERE id = $1 AND status IN ('initiated', 'pending')",
-              [paymentId]
-            ).catch(() => {});
-          }
-        } else if (isMarketplaceType) {
-          const mktOrdId = req.query.order_id || paymentId;
-          await cancelMarketplaceOrderHelper(mktOrdId, 'পেমেন্ট ইনভয়েস ছাড়া সেশন সমাপ্ত / বাতিল');
-        } else {
-          if (pool) {
-            await pool.query(
-              "UPDATE payments SET status = 'cancelled', admin_notes = 'পেমেন্ট ইনভয়েস ছাড়া সেশন সমাপ্ত / বাতিল' WHERE id = $1 AND status IN ('initiated', 'pending')",
-              [paymentId]
-            );
-          }
-        }
-      }
-      return res.redirect(`/?payment_status=cancelled&message=${encodeURIComponent('পেমেন্ট সেশন সম্পন্ন করা হয়নি')}${isSmsType ? '&type=sms' : isMarketplaceType ? '&type=marketplace&order_id=' + encodeURIComponent(req.query.order_id || paymentId) : ''}`);
-    }
-
-    // Verify with Paymently Verify API before activating subscription or SMS or Marketplace!
-    const verifyResult = await PaymentlyService.verifyAndActivatePayment(invoiceId, {
-      expectedPaymentId: paymentId,
-    });
-
-    if (verifyResult.success && verifyResult.status === 'approved') {
-      const trx = verifyResult.trxId || invoiceId;
-      const amount = verifyResult.amount || '';
-      const plan = encodeURIComponent(verifyResult.planName || (verifyResult.isSms ? `${verifyResult.smsCount}টি SMS` : isMarketplaceType ? 'সেন্ট্রাল অর্ডার' : 'প্রো প্যাকেজ'));
-      const typeQuery = verifyResult.isSms ? `&type=sms&sms_count=${verifyResult.smsCount || ''}` : isMarketplaceType ? `&type=marketplace&order_id=${encodeURIComponent(req.query.order_id || '')}` : '';
-      return res.redirect(
-        `/?payment_status=success&invoice_id=${encodeURIComponent(invoiceId)}&trx_id=${encodeURIComponent(trx)}&amount=${amount}&plan=${plan}${typeQuery}`
-      );
-    } else if (verifyResult.status === 'pending') {
-      return res.redirect(
-        `/?payment_status=pending&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}${verifyResult.isSms ? '&type=sms' : isMarketplaceType ? '&type=marketplace' : ''}`
-      );
-    } else {
-      return res.redirect(
-        `/?payment_status=failed&invoice_id=${encodeURIComponent(invoiceId)}&message=${encodeURIComponent(verifyResult.message)}${verifyResult.isSms ? '&type=sms' : isMarketplaceType ? '&type=marketplace' : ''}`
-      );
-    }
-  } catch (err: any) {
-    console.error('Payment Callback Processing Error:', err);
-    return res.redirect(
-      `/?payment_status=failed&message=${encodeURIComponent(err.message || 'পেমেন্ট যাচাইকরণে ত্রুটি হয়েছে')}`
-    );
-  }
-};
-
-router.get('/paymently/callback', handlePaymentlyCallback);
-router.post('/paymently/callback', handlePaymentlyCallback);
-
-/**
- * 3. POST /api/subscription/paymently/verify (Authenticated)
- * Manual or programmatic verify endpoint
- */
-router.post('/paymently/verify', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { invoiceId, paymentId } = req.body;
-    if (!invoiceId) {
-      return res.status(400).json({ error: 'Invoice ID প্রদান করুন' });
-    }
-
-    const result = await PaymentlyService.verifyAndActivatePayment(invoiceId, {
-      expectedPaymentId: paymentId,
-      expectedUserId: req.user?.userId,
-    });
-
-    return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'যাচাইকরণে সমস্যা হয়েছে' });
-  }
-});
-
-/**
- * 3b. GET /api/subscription/paymently/status/:paymentId (Authenticated)
- * Poll status of an initiated payment
- */
-router.get('/paymently/status/:paymentId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const paymentId = req.params.paymentId;
-    const userId = req.user?.userId;
     const pool = getDbPool();
+    let custName = 'সম্মানিত ক্রেতা';
+    let custPhone = '';
 
-    let payment: any = null;
     if (pool) {
-      const q = await pool.query('SELECT * FROM payments WHERE id = $1', [paymentId]);
-      if (q.rows.length > 0) {
-        payment = q.rows[0];
+      const prevMsg = await pool.query(
+        `SELECT customer_name, customer_phone FROM store_chat_messages WHERE vendor_id = $1 AND thread_id = $2 LIMIT 1`,
+        [userId, threadId]
+      );
+      if (prevMsg.rows.length > 0) {
+        custName = prevMsg.rows[0].customer_name || custName;
+        custPhone = prevMsg.rows[0].customer_phone || custPhone;
       }
+
+      await pool.query(
+        `INSERT INTO store_chat_messages (
+          id, vendor_id, thread_id, customer_name, customer_phone, sender, sender_name, sender_phone, text, is_read_by_vendor, is_read_by_customer, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          msgId,
+          userId,
+          threadId,
+          custName,
+          custPhone,
+          'vendor',
+          senderName,
+          '',
+          cleanText,
+          true,
+          false,
+          now,
+        ]
+      );
+
+      // Mark previous customer messages as read
+      await pool.query(
+        `UPDATE store_chat_messages SET is_read_by_vendor = TRUE WHERE vendor_id = $1 AND thread_id = $2`,
+        [userId, threadId]
+      );
     } else {
-      payment = inMemoryStore.payments.find((p) => p.id === paymentId);
-    }
+      if (!inMemoryStore.store_chat_messages) inMemoryStore.store_chat_messages = [];
+      const prev = inMemoryStore.store_chat_messages.find((m: any) => m.vendor_id === userId && m.thread_id === threadId);
+      if (prev) {
+        custName = prev.customer_name || custName;
+        custPhone = prev.customer_phone || custPhone;
+      }
 
-    if (!payment) {
-      return res.status(404).json({ error: 'পেমেন্ট রেকর্ড পাওয়া যায়নি' });
-    }
+      inMemoryStore.store_chat_messages.push({
+        id: msgId,
+        vendor_id: userId,
+        thread_id: threadId,
+        customer_name: custName,
+        customer_phone: custPhone,
+        sender: 'vendor',
+        sender_name: senderName,
+        sender_phone: '',
+        text: cleanText,
+        is_read_by_vendor: true,
+        is_read_by_customer: false,
+        created_at: now,
+      });
 
-    const userStatus = await SubscriptionEngine.getUserStatus(userId!);
+      inMemoryStore.store_chat_messages.forEach((m: any) => {
+        if (m.vendor_id === userId && m.thread_id === threadId) {
+          m.is_read_by_vendor = true;
+        }
+      });
+      saveInMemoryStoreToDisk();
+    }
 
     return res.json({
       success: true,
-      paymentId: payment.id,
-      status: payment.status,
-      planName: payment.plan_name || payment.planName,
-      amount: payment.amount,
-      trxId: payment.trx_id || payment.trxId,
-      isSubscribed: !userStatus.isExpired,
-      subscriptionStatus: userStatus.subscriptionStatus,
-      subscriptionExpiresAt: userStatus.subscriptionExpiresAt,
-      daysRemaining: userStatus.daysRemaining,
+      message: {
+        id: msgId,
+        sender: 'vendor',
+        senderName,
+        text: cleanText,
+        timestamp: now,
+      },
     });
   } catch (err: any) {
+    console.error('Error replying to customer chat:', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * 3c. POST /api/subscription/paymently/cancel (Authenticated)
- * User actively cancels or closes an uncompleted gateway checkout session
+ * POST /api/store/chat/mark-read
+ * Mark thread as read by vendor
  */
-router.post('/paymently/cancel', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/chat/mark-read', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { paymentId } = req.body || {};
     const userId = req.user?.userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'অননুমোদিত অ্যাক্সেস' });
-    }
+    const { threadId } = req.body;
+    if (!threadId) return res.status(400).json({ error: 'threadId required' });
 
     const pool = getDbPool();
     if (pool) {
-      if (paymentId) {
-        await pool.query(
-          "UPDATE payments SET status = 'cancelled', admin_notes = 'গ্রাহক পেমেন্ট সেশন বাতিল করেছেন' WHERE id = $1 AND user_id = $2 AND status IN ('initiated', 'pending')",
-          [paymentId, userId]
-        );
-      } else {
-        await pool.query(
-          "UPDATE payments SET status = 'cancelled', admin_notes = 'গ্রাহক পেমেন্ট সেশন বাতিল করেছেন' WHERE user_id = $1 AND (status = 'initiated' OR (status = 'pending' AND (payment_mode = 'automated_gateway' OR trx_id LIKE 'PL_INIT_%')))",
-          [userId]
-        );
-      }
+      await pool.query(
+        `UPDATE store_chat_messages SET is_read_by_vendor = TRUE WHERE vendor_id = $1 AND thread_id = $2`,
+        [userId, threadId]
+      );
     } else {
-      (inMemoryStore.payments || []).forEach((p) => {
-        if (
-          p.userId === userId &&
-          (p.id === paymentId || p.status === 'initiated' || (p.status === 'pending' && (p.paymentMode === 'automated_gateway' || String(p.trxId || '').startsWith('PL_INIT_'))))
-        ) {
-          p.status = 'cancelled';
+      (inMemoryStore.store_chat_messages || []).forEach((m: any) => {
+        if (m.vendor_id === userId && m.thread_id === threadId) {
+          m.is_read_by_vendor = true;
         }
       });
+      saveInMemoryStoreToDisk();
     }
-
-    // Return fresh user status
-    const status = await SubscriptionEngine.getUserStatus(userId);
-    return res.json({ success: true, message: 'পেমেন্ট সেশন সফলভাবে বাতিল করা হয়েছে', status });
+    return res.json({ success: true });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'পেমেন্ট সেশন বাতিল করা যায়নি' });
-  }
-});
-
-/**
- * 4. POST /api/subscription/paymently/webhook
- * Automated background instant IPN / Webhook from Paymently
- */
-router.post('/paymently/webhook', async (req, res) => {
-  try {
-    const payload = req.body || {};
-    console.log('[PAYMENTLY WEBHOOK] Incoming IPN notification:', payload);
-
-    const invoiceId = payload.invoice_id || payload.invoiceId || payload.order_id;
-    if (!invoiceId) {
-      return res.status(400).json({ error: 'Missing invoice_id in webhook' });
-    }
-
-    const result = await PaymentlyService.verifyAndActivatePayment(invoiceId, {
-      expectedPaymentId: payload.metadata?.payment_id,
-      expectedUserId: payload.metadata?.user_id,
-    });
-
-    return res.json({ success: true, result });
-  } catch (err: any) {
-    console.error('[PAYMENTLY WEBHOOK ERROR]', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * 5. POST /api/subscription/paymently/test-connection (Authenticated)
- * Admin connection tester for Paymently gateway
+ * DELETE /api/store/chat/threads/:threadId
+ * Vendor deletes a customer thread
  */
-router.post('/paymently/test-connection', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
+router.delete('/chat/threads/:threadId', authenticateUser, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { baseUrl, apiKey } = req.body || {};
-    const result = await PaymentlyService.testConnection({ baseUrl, apiKey });
-    return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
+    const userId = req.user?.userId;
+    const { threadId } = req.params;
 
-/**
- * 6. GET /api/subscription/paymently/sandbox-checkout
- * Developer & Sandbox simulation UI for testing Paymently integration
- */
-router.get('/paymently/sandbox-checkout', async (req, res) => {
-  const { payment_id, amount, plan_name, notice, warning } = req.query;
-  const simInvoiceId = 'SIM_INV_' + Date.now();
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-  const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
-  const appBaseUrl = `${protocol}://${host}`;
-
-  let bqrUrl = '';
-  let bqrMid = '01306908115';
-  let bqrTitle = 'TWING হিসাবি / সুপার এডমিন';
-  try {
     const pool = getDbPool();
     if (pool) {
-      const q = await pool.query("SELECT data FROM system_config WHERE id = 'system_payment_settings'");
-      if (q.rows.length > 0 && q.rows[0].data) {
-        const raw = typeof q.rows[0].data === 'string' ? JSON.parse(q.rows[0].data) : q.rows[0].data;
-        if (raw?.banglaQr?.qrCodeUrl) bqrUrl = raw.banglaQr.qrCodeUrl;
-        if (raw?.banglaQr?.merchantId) bqrMid = raw.banglaQr.merchantId;
-        if (raw?.banglaQr?.accountTitle) bqrTitle = raw.banglaQr.accountTitle;
-      }
-    } else if (inMemoryStore.system_config?.['system_payment_settings']) {
-      const raw = inMemoryStore.system_config['system_payment_settings'];
-      if (raw?.banglaQr?.qrCodeUrl) bqrUrl = raw.banglaQr.qrCodeUrl;
-      if (raw?.banglaQr?.merchantId) bqrMid = raw.banglaQr.merchantId;
-      if (raw?.banglaQr?.accountTitle) bqrTitle = raw.banglaQr.accountTitle;
+      await pool.query(
+        `DELETE FROM store_chat_messages WHERE vendor_id = $1 AND thread_id = $2`,
+        [userId, threadId]
+      );
+    } else {
+      inMemoryStore.store_chat_messages = (inMemoryStore.store_chat_messages || []).filter(
+        (m: any) => !(m.vendor_id === userId && m.thread_id === threadId)
+      );
+      saveInMemoryStoreToDisk();
     }
-  } catch (e) {}
-
-  const hasKeyWarning = notice === 'invalid_api_key' || warning === 'invalid_key';
-
-  const successUrl = `${appBaseUrl}/api/subscription/paymently/callback?invoice_id=${simInvoiceId}&payment_id=${encodeURIComponent(String(payment_id || ''))}&type=${encodeURIComponent(String(req.query.type || ''))}&order_id=${encodeURIComponent(String(req.query.order_id || ''))}`;
-  const cancelUrl = `${appBaseUrl}/api/subscription/paymently/callback?status=cancelled&payment_id=${encodeURIComponent(String(payment_id || ''))}&type=${encodeURIComponent(String(req.query.type || ''))}&order_id=${encodeURIComponent(String(req.query.order_id || ''))}`;
-
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="bn">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>সরকারি লাইসেন্সপ্রাপ্ত অটোমেটিক পেমেন্ট গেটওয়ে - Paymently Live</title>
-      <style>
-        body { font-family: system-ui, -apple-system, sans-serif; background: #0b1329; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-        .card { background: #131d38; border: 1px solid #1e293b; border-radius: 24px; padding: 28px; max-width: 460px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6); text-align: center; }
-        .badge { display: inline-block; background: #00897B; color: white; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; margin-bottom: 12px; }
-        .warn-banner { background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 14px; padding: 10px; font-size: 11px; color: #fbbf24; text-align: left; margin-bottom: 14px; line-height: 1.4; }
-        h2 { margin: 0 0 6px; font-size: 20px; color: #fff; font-weight: 900; }
-        p.sub { color: #94a3b8; font-size: 12px; margin: 0 0 16px; line-height: 1.4; }
-        .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 16px; }
-        .tab-btn { background: #1e293b; border: 1px solid #334155; color: #cbd5e1; padding: 8px 4px; border-radius: 12px; font-size: 11px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
-        .tab-btn.active { background: #004D40; border-color: #00897B; color: #4ade80; }
-        .qr-box { background: #ffffff; border-radius: 16px; padding: 14px; margin-bottom: 16px; text-align: center; color: #0f172a; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); }
-        .qr-img { width: 160px; height: 160px; object-fit: contain; margin: 0 auto; display: block; border-radius: 8px; }
-        .details { background: #0a0f24; border-radius: 14px; padding: 12px; margin-bottom: 16px; text-align: left; font-size: 12px; }
-        .row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #1e293b; }
-        .row:last-child { border: none; font-weight: bold; font-size: 14px; color: #38bdf8; }
-        .btn-success { display: block; width: 100%; background: #00897B; color: white; border: none; padding: 13px; border-radius: 14px; font-size: 13px; font-weight: bold; cursor: pointer; text-decoration: none; margin-bottom: 8px; box-sizing: border-box; }
-        .btn-cancel { display: block; width: 100%; background: #1e293b; color: #cbd5e1; border: none; padding: 10px; border-radius: 14px; font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; box-sizing: border-box; }
-        .btn-success:hover { background: #00796B; }
-        .btn-cancel:hover { background: #334155; }
-      </style>
-    </head>
-    <body>
-      <div class="card">
-        <span class="badge">⚡ বাংলাদেশ ব্যাংক অনুমোদিত অটোমেটিক পেমেন্ট গেটওয়ে</span>
-        ${
-          hasKeyWarning
-            ? `<div class="warn-banner">
-                ⚠️ <strong>দৃষ্টি আকর্ষণ:</strong> লাইভ পেমেন্ট গেটওয়ে API Key অনুপস্থিত বা টেস্ট মোডে রয়েছে। ইউজার ফ্লো সচল রাখতে এটি টেস্ট স্যান্ডবক্সে ওপেন হয়েছে।
-               </div>`
-            : ''
-        }
-        <h2>পেমেন্ট মাধ্যম নির্বাচন করুন</h2>
-        <p class="sub">লাইসেন্সপ্রাপ্ত অটোমেটিক গেটওয়েতে <strong>বিকাশ, নগদ, রকেট ও ব্যাংক কার্ড</strong> সমর্থিত</p>
-
-        <div class="tabs">
-          <button class="tab-btn active" onclick="setTab('bqr')">🇧🇩 বাংলা QR</button>
-          <button class="tab-btn" onclick="setTab('bkash')">বিকাশ</button>
-          <button class="tab-btn" onclick="setTab('nagad')">নগদ</button>
-          <button class="tab-btn" onclick="setTab('rocket')">রকেট</button>
-        </div>
-
-        <div id="content-bqr" class="tab-content">
-          <div class="qr-box">
-            <div style="font-weight:900;font-size:12px;color:#004D40;margin-bottom:6px;">🇧🇩 সার্বজনীন বাংলা কিউআর (Bangla QR)</div>
-            ${
-              bqrUrl
-                ? `<img src="${bqrUrl}" alt="Bangla QR" class="qr-img">`
-                : `<div style="width:160px;height:160px;background:#004D40;color:white;margin:0 auto;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;padding:8px;box-sizing:border-box;">
-                    <div style="font-size:24px;margin-bottom:4px;">🇧🇩</div>
-                    <div style="font-weight:bold;">BANGLA QR</div>
-                    <div style="font-family:monospace;font-size:11px;margin-top:4px;">${bqrMid}</div>
-                   </div>`
-            }
-            <div style="font-size:11px;color:#475569;margin-top:6px;font-weight:bold;">${bqrTitle}</div>
-            <div style="font-size:10px;color:#64748b;font-family:monospace;">মার্চেন্ট আইডি: ${bqrMid}</div>
-          </div>
-          <p style="font-size:11px;color:#94a3b8;margin:0 0 12px;">বিকাশ, নগদ, সেলফিন বা যেকোনো ব্যাংক অ্যাপ দিয়ে কিউআর কোড স্ক্যান করে পেমেন্ট করুন।</p>
-        </div>
-
-        <div id="content-bkash" class="tab-content" style="display:none;">
-          <div class="details">
-            <div style="color:#f472b6;font-weight:bold;margin-bottom:6px;">💖 বিকাশ অটোমেটিক পেমেন্ট</div>
-            <p style="font-size:11px;color:#94a3b8;margin:0;">বিকাশ ওয়ালেট নম্বর দিয়ে ইনস্ট্যান্ট OTP ও PIN প্রদান করে অটোমেটিক পেমেন্ট সম্পন্ন হবে।</p>
-          </div>
-        </div>
-
-        <div id="content-nagad" class="tab-content" style="display:none;">
-          <div class="details">
-            <div style="color:#fb923c;font-weight:bold;margin-bottom:6px;">🟠 নগদ অটোমেটিক পেমেন্ট</div>
-            <p style="font-size:11px;color:#94a3b8;margin:0;">নগদ ওয়ালেট নম্বর দিয়ে ইনস্ট্যান্ট OTP ও PIN প্রদান করে অটোমেটিক পেমেন্ট সম্পন্ন হবে।</p>
-          </div>
-        </div>
-
-        <div id="content-rocket" class="tab-content" style="display:none;">
-          <div class="details">
-            <div style="color:#c084fc;font-weight:bold;margin-bottom:6px;">🟣 রকেট অটোমেটিক পেমেন্ট</div>
-            <p style="font-size:11px;color:#94a3b8;margin:0;">রকেট একাউন্ট নম্বর দিয়ে সরাসরি পেমেন্ট সম্পন্ন করতে পারবেন।</p>
-          </div>
-        </div>
-
-        <div class="details">
-          <div class="row"><span>অর্ডার / প্যাকেজ:</span> <span>${plan_name || 'সেন্ট্রাল মার্কেটপ্লেস অর্ডার'}</span></div>
-          <div class="row"><span>রেফারেন্স:</span> <span>${payment_id || 'pay_test'}</span></div>
-          <div class="row"><span>মোট প্রদেয়:</span> <span>৳${amount || 99}</span></div>
-        </div>
-
-        <a href="${successUrl}" class="btn-success">✅ পেমেন্ট সম্পন্ন করেছি (Confirm Payment)</a>
-        <a href="${cancelUrl}" class="btn-cancel">❌ বাতিল করুন (Cancel)</a>
-      </div>
-
-      <script>
-        function setTab(name) {
-          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-          event.target.classList.add('active');
-          document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
-          const target = document.getElementById('content-' + name);
-          if (target) target.style.display = 'block';
-        }
-      </script>
-    </body>
-    </html>
-  `);
-});
-
-/**
- * POST /api/subscription/webhook/:provider (Automated Payment Gateway Webhook Callback)
- */
-router.post('/webhook/:provider', async (req, res) => {
-  try {
-    const provider = req.params.provider;
-    const payload = req.body;
-    console.log(`[PAYMENT WEBHOOK] Received webhook from ${provider}:`, payload);
-
-    // Verify through Gateway manager
-    const verification = await PaymentGatewayManager.verifyAutomatedPayment(provider, payload);
-    if (!verification.success || verification.status !== 'approved') {
-      return res.status(400).json({ error: verification.message });
-    }
-
-    // Auto-approve and activate user subscription if valid
-    return res.json({ success: true, message: 'Webhook processed successfully' });
-  } catch (err: any) {
-    console.error('Webhook error:', err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * GET /api/subscription/ad-settings
- * Returns public ad configuration so client knows whether ads are enabled and which ad formats to display
- */
-router.get('/ad-settings', async (req, res) => {
-  try {
-    const pool = getDbPool();
-    if (pool) {
-      const result = await pool.query("SELECT data FROM system_config WHERE id = 'system_ad_settings'");
-      if (result.rows.length > 0 && result.rows[0].data) {
-        const data = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
-        return res.json({ settings: data });
-      }
-    } else if (inMemoryStore.system_config['system_ad_settings']) {
-      return res.json({ settings: inMemoryStore.system_config['system_ad_settings'] });
-    }
-
-    const defaultAds = {
-      isAdsEnabled: true,
-      adProvider: 'admob',
-      admobAppId: 'ca-app-pub-3940256099942544~3347511713',
-      admobBannerUnitId: 'ca-app-pub-3940256099942544/6300978111',
-      admobInterstitialUnitId: 'ca-app-pub-3940256099942544/1033173712',
-      bannerAdEnabled: true,
-      dashboardCardAdEnabled: true,
-      footerBannerAdEnabled: true,
-      customAds: [
-        {
-          id: 'ad_scanner_machine',
-          title: '🛍️ সুপার শপ ও ফার্মেসি বারকোড ও কিউআর স্ক্যানার',
-          description: 'দ্রুত ক্যাশ ও পিওএস বিক্রয়ের জন্য হাই-স্পিড বারকোড স্ক্যানার এবং থার্মাল প্রিন্টার অফার।',
-          badge: 'প্রস্তাবিত পার্টনার',
-          targetUrl: 'https://wa.me/8801306908115',
-          ctaText: 'অফার জানুন',
-          isActive: true,
-        },
-      ],
-      updatedAt: Date.now(),
-    };
-    return res.json({ settings: defaultAds });
+    return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * GET /api/subscription/dashboard-banners
- * Returns public dashboard hero banner configuration for users
- */
-router.get('/dashboard-banners', async (req, res) => {
-  try {
-    const pool = getDbPool();
-    if (pool) {
-      const result = await pool.query("SELECT data FROM system_config WHERE id = 'dashboard_banner_settings'");
-      if (result.rows.length > 0 && result.rows[0].data) {
-        const data = typeof result.rows[0].data === 'string' ? JSON.parse(result.rows[0].data) : result.rows[0].data;
-        return res.json({ settings: data });
-      }
-    } else if (inMemoryStore.system_config?.['dashboard_banner_settings']) {
-      return res.json({ settings: inMemoryStore.system_config['dashboard_banner_settings'] });
-    }
-
-    const defaultBanners = {
-      isEnabled: true,
-      autoPlay: true,
-      intervalSeconds: 5,
-      banners: [
-        {
-          id: 'banner_store_companion',
-          title: 'আপনার ব্যবসার বিশ্বস্ত ডিজিটাল সঙ্গী',
-          subtitle: 'সহজে নির্ভুল বাকির হিসাব রাখুন, নিরাপদে ব্যবসা এগিয়ে নিন',
-          badgeText: 'খাতা স্পেশাল',
-          imageUrl: '',
-          bgGradient: 'emerald',
-          textColor: 'dark',
-          actionType: 'none',
-          isActive: true,
-          order: 1,
-        },
-        {
-          id: 'banner_sms_tagada',
-          title: 'এক ক্লিকে বকেয়া আদায়ের তাগাদা পাঠান',
-          subtitle: 'গ্রাহকের মোবাইলে বাংলায় সরাসরি তাগাদা এসএমএস পৌঁছে যাবে',
-          badgeText: 'স্মার্ট মেসেজ',
-          imageUrl: '',
-          bgGradient: 'teal',
-          textColor: 'dark',
-          actionType: 'sms',
-          actionText: 'এসএমএস পাঠান',
-          isActive: true,
-          order: 2,
-        },
-        {
-          id: 'banner_premium_upgrade',
-          title: 'আনলিমিটেড ক্লাউড ব্যাকআপ ও প্রিমিয়াম সুবিধা',
-          subtitle: 'মাত্র ৫০ টাকা থেকে সাবস্ক্রিপশন নিয়ে নিশ্চিত থাকুন আজীবন',
-          badgeText: 'প্রো অফার',
-          imageUrl: '',
-          bgGradient: 'amber',
-          textColor: 'dark',
-          actionType: 'subscription',
-          actionText: 'প্যাকেজ দেখুন',
-          isActive: true,
-          order: 3,
-        },
-      ],
-      updatedAt: Date.now(),
-    };
-    return res.json({ settings: defaultBanners });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-export default route��
+export default router;

@@ -164,4 +164,4 @@ export const StorefrontInboxTab: React.FC<StorefrontInboxTabProps> = ({
       </div>
     </div>
   );
-��
+};

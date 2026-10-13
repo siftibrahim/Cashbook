@@ -7326,4 +7326,4 @@ export const CentralMarketplaceAdminTab: React.FC<CentralMarketplaceAdminTabProp
       )}
     </div>
   );
-��
+};

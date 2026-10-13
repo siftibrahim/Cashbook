@@ -826,4 +826,5 @@ export const StorefrontOrderTracker: React.FC<StorefrontOrderTrackerProps> = ({
         )}
       </div>
     </div>
-  )��
+  );
+};

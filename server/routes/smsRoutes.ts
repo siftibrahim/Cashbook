@@ -696,4 +696,4 @@ router.get('/my-purchases', async (req: AuthenticatedRequest, res: Response) => 
   }
 });
 
-export default rout��
+export default router;

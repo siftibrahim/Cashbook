@@ -148,3 +148,4 @@ export const StorefrontMoreTab: React.FC<StorefrontMoreTabProps> = ({
       )}
     </div>
   );
+};

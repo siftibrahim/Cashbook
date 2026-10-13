@@ -838,4 +838,4 @@ export const AdsManagementTab: React.FC<AdsManagementTabProps> = ({ onShowToast 
       )}
     </div>
   );
-};��
+};

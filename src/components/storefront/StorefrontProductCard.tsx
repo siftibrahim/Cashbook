@@ -179,3 +179,5 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
         )}
       </div>
     </div>
+  );
+};

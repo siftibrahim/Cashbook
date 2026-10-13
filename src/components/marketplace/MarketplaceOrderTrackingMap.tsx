@@ -537,4 +537,5 @@ export const MarketplaceOrderTrackingMap: React.FC<MarketplaceOrderTrackingMapPr
         </div>
       </div>
     </div>
-��
+  );
+};

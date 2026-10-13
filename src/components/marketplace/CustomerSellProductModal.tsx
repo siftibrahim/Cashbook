@@ -66,7 +66,7 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
     try {
       const base64List: string[] = [];
       for (const f of validation.imageFiles) {
-        const b64 = await fileToBase64(f, 800, 0.72);
+        const b64 = await fileToBase64(f);
         base64List.push(b64);
       }
       setImages((prev) => [...prev, ...base64List].slice(0, 4));
@@ -79,16 +79,8 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
     setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSelectSample = (sampleUrl: string) => {
-    setErrorMsg('');
-    setImages((prev) => {
-      if (prev.includes(sampleUrl)) return prev;
-      return [...prev, sampleUrl].slice(0, 4);
-    });
-  };
-
-  const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
     setErrorMsg('');
 
     if (!name.trim()) {
@@ -102,29 +94,29 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
       return;
     }
 
-    const finalImages = images.length > 0 ? images : [
-      'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80'
-    ];
+    if (images.length === 0) {
+      setErrorMsg('অনুগ্রহ করে পণ্যের অন্তত একটি ছবি (Image) আপলোড করুন।');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       const product = marketplaceSocialService.uploadCustomerProduct({
-        name: name.trim(),
+        name,
         category,
         salePrice: priceNum,
         regularPrice: regularPrice ? parseFloat(regularPrice) : undefined,
         condition,
-        description: description.trim(),
-        images: finalImages,
+        description,
+        images,
       });
 
       setIsSubmitting(false);
       onSuccess(product);
       onClose();
     } catch (err: any) {
-      console.error('Upload product failure:', err);
       setIsSubmitting(false);
-      setErrorMsg(err?.message || 'পণ্য আপলোড করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
+      setErrorMsg(err.message || 'পণ্য আপলোড ব্যর্থ হয়েছে।');
     }
   };
 
@@ -281,7 +273,7 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*, image/png, image/jpeg, image/jpg, image/webp"
+                accept="image/png, image/jpeg, image/webp"
                 multiple
                 onChange={handleFileChange}
                 className="hidden"
@@ -300,7 +292,7 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
                     গ্যালারি বা ক্যামেরা থেকে ছবি আপলোড করুন
                   </span>
                   <span className="text-[10px] text-slate-400">
-                    JPG, PNG বা WEBP ছবি গ্রহণযোগ্য (ভিডিও গ্রহণযোগ্য নয়)
+                    শুধুমাত্র JPG, PNG বা WEBP ছবি গ্রহণযোগ্য (ভিডিও গ্রহণযোগ্য নয়)
                   </span>
                 </button>
 
@@ -321,39 +313,8 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
                     ))}
                   </div>
                 )}
-
-                {/* Sample quick picks if no image uploaded */}
-                {images.length === 0 && (
-                  <div className="pt-1">
-                    <p className="text-[11px] font-bold text-slate-500 mb-1.5">অথবা নমুনা ছবি থেকে বেছে নিন:</p>
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                      {[
-                        { label: 'স্মার্ট ঘড়ি', url: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=400&q=80' },
-                        { label: 'হেডফোন', url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=400&q=80' },
-                        { label: 'ক্যামেরা', url: 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=400&q=80' },
-                        { label: 'পোশাক', url: 'https://images.unsplash.com/photo-1583394838336-acd977736f90?auto=format&fit=crop&w=400&q=80' },
-                      ].map((s, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => handleSelectSample(s.url)}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 text-[11px] font-bold rounded-lg transition border border-slate-200 shrink-0 cursor-pointer flex items-center gap-1"
-                        >
-                          <span>+ {s.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
-
-            {errorMsg && (
-              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
-                <span>{errorMsg}</span>
-              </div>
-            )}
 
             {/* Submit Buttons */}
             <div className="pt-2 flex items-center justify-end gap-2.5">
@@ -366,18 +327,16 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
               </button>
               <button
                 type="submit"
-                onClick={(e) => {
-                  if (e) handleSubmit(e);
-                }}
                 disabled={isSubmitting}
-                className="px-6 py-2.5 text-xs font-black text-white bg-[#1877F2] hover:bg-blue-700 active:scale-95 rounded-xl transition shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="px-6 py-2.5 text-xs font-black text-white bg-[#1877F2] hover:bg-blue-700 rounded-xl transition shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 <Sparkles className="w-4 h-4" />
-                <span>{isSubmitting ? 'আপলোড হচ্ছে...' : 'পণ্য আপলোড / পোস্ট করুন'}</span>
+                <span>{isSubmitting ? 'আপলোড হচ্ছে...' : 'পণ্য প্রকাশ করুন'}</span>
               </button>
             </div>
           </form>
         </motion.div>
       </div>
     </AnimatePresence>
-��
+  );
+};

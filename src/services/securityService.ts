@@ -1,191 +1,268 @@
-import { normalizePhoneNumber } from '../utils/storage';
+/**
+ * Security Service - Cryptographic utilities, rate limiting, and session security
+ */
 
-interface OfflineCredentialRecord {
-  userId: string;
-  phone: string;
-  normalizedPhone: string;
-  email: string;
-  shopName: string;
-  name: string;
-  role: string;
-  salt: string;
-  pinHash: string; // SHA-256 salted hash
-  userData: any;
-  lastLoginAt: number;
+const RATE_LIMIT_STORAGE_KEY = 'ibrahim_security_login_attempts_v1';
+const OTP_STORAGE_KEY = 'ibrahim_security_otp_records_v1';
+const SALT = 'khata_app_secure_salt_2026_';
+
+// Configuration
+export const SECURITY_CONFIG = {
+  MAX_LOGIN_ATTEMPTS: 5,
+  LOCKOUT_DURATION_MS: 15 * 60 * 1000, // 15 minutes lockout
+  OTP_VALIDITY_MS: 10 * 60 * 1000, // 10 minutes OTP validity
+};
+
+export interface LoginAttemptRecord {
+  identifier: string;
+  failedCount: number;
+  lockedUntil?: number;
+  lastAttemptAt: number;
 }
 
-const OFFLINE_CREDENTIALS_KEY = 'twing_offline_credentials_vault_v1';
-
-/**
- * Generates a random cryptographic salt
- */
-function generateSalt(): string {
-  if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
-    const array = new Uint8Array(16);
-    window.crypto.getRandomValues(array);
-    return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join('');
-  }
-  return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-}
-
-/**
- * Computes a salted SHA-256 hash using the Web Crypto API with fallback
- */
-export async function hashPinWithSalt(pin: string, salt: string): Promise<string> {
-  const combined = `twing_salt_${salt}_pin_${pin.trim()}`;
-  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
-    try {
-      const msgBuffer = new TextEncoder().encode(combined);
-      const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-    } catch {
-      // fallback
-    }
-  }
-
-  // Pure JS DJB2/FNV-1a 64-bit hash fallback if crypto.subtle is restricted in iframe/HTTP
-  let h1 = 0xdeadbeef ^ 0;
-  let h2 = 0x41c6ce57 ^ 0;
-  for (let i = 0; i < combined.length; i++) {
-    const ch = combined.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+export interface OtpRecord {
+  id: string;
+  emailOrPhone: string;
+  token: string;
+  expiresAt: number;
+  isUsed: boolean;
+  purpose: 'password_reset' | 'admin_verification';
 }
 
 /**
- * Retrieves all stored offline credentials
+ * Hash a password using SHA-256 with salt via Web Crypto API
  */
-export function getOfflineCredentialsList(): OfflineCredentialRecord[] {
+export async function hashPassword(plainPassword: string): Promise<string> {
+  if (!plainPassword) return '';
   try {
-    const raw = localStorage.getItem(OFFLINE_CREDENTIALS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const encoder = new TextEncoder();
+    const data = encoder.encode(SALT + plainPassword);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   } catch (e) {
-    console.warn('Error reading offline credentials:', e);
-    return [];
+    // Fallback simple deterministic hash if crypto.subtle is unavailable
+    let hash = 0;
+    const str = SALT + plainPassword;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash |= 0;
+    }
+    return 'h_' + Math.abs(hash).toString(16);
   }
 }
 
 /**
- * Stores or updates a user's offline credential hash upon online login/registration
+ * Verify a plain password against a stored hash or legacy plain string
  */
-export async function saveOfflineCredential(user: any, rawPin: string): Promise<void> {
-  if (!user || !user.id || !rawPin) return;
-
-  try {
-    const cleanPhone = (user.phone || '').trim();
-    const normPhone = normalizePhoneNumber(cleanPhone);
-    const salt = generateSalt();
-    const pinHash = await hashPinWithSalt(rawPin, salt);
-
-    const record: OfflineCredentialRecord = {
-      userId: user.id,
-      phone: cleanPhone,
-      normalizedPhone: normPhone,
-      email: (user.email || '').trim().toLowerCase(),
-      shopName: user.shopName || user.shop_name || 'à¦à¦®à¦¾à¦° à¦¦à§à¦à¦¾à¦¨',
-      name: user.name || 'à¦¦à§à¦à¦¾à¦¨à¦¦à¦¾à¦°',
-      role: user.role || 'user',
-      salt,
-      pinHash,
-      userData: {
-        id: user.id,
-        name: user.name,
-        phone: cleanPhone,
-        email: user.email,
-        shopName: user.shopName || user.shop_name,
-        role: user.role || 'user',
-        subscriptionPlan: user.subscriptionPlan || 'à¦«à§à¦°à¦¿ à¦à§à¦°à¦¾à§à¦¾à¦² (à§§à§ª à¦¦à¦¿à¦¨)',
-        subscriptionStatus: user.subscriptionStatus || 'trial',
-        subscriptionExpiresAt: user.subscriptionExpiresAt || Date.now() + 14 * 86400000,
-      },
-      lastLoginAt: Date.now(),
-    };
-
-    const list = getOfflineCredentialsList();
-    const existingIndex = list.findIndex(
-      (c) =>
-        c.userId === user.id ||
-        (normPhone && c.normalizedPhone && normPhone === c.normalizedPhone) ||
-        (user.email && c.email === user.email.toLowerCase())
-    );
-
-    if (existingIndex >= 0) {
-      list[existingIndex] = record;
-    } else {
-      list.push(record);
-    }
-
-    localStorage.setItem(OFFLINE_CREDENTIALS_KEY, JSON.stringify(list));
-  } catch (err) {
-    console.error('Failed to save offline credential:', err);
+export async function verifyPassword(plainPassword: string, storedHashOrPlain: string): Promise<boolean> {
+  if (!plainPassword || !storedHashOrPlain) return false;
+  
+  // If stored value is already a hashed string
+  const computedHash = await hashPassword(plainPassword);
+  if (computedHash === storedHashOrPlain) {
+    return true;
   }
+
+  // Backwards compatibility for existing legacy plain text passwords
+  if (plainPassword === storedHashOrPlain) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
- * Verifies offline login using Phone/Identifier + PIN
+ * Check if an identifier (email, phone, username) is currently locked out
  */
-export async function verifyOfflinePinLogin(
-  identifier: string,
-  rawPin: string
-): Promise<{ success: boolean; user?: any; error?: string }> {
-  const cleanIdent = identifier.trim().toLowerCase();
-  const normPhone = normalizePhoneNumber(cleanIdent);
-
-  if (!cleanIdent || !rawPin) {
-    return { success: false, error: 'à¦®à§à¦¬à¦¾à¦à¦² à¦¨à¦®à§à¦¬à¦° à¦ à¦à§à¦ªà¦¨ à¦ªà¦¿à¦¨ à¦¦à¦¿à¦¨' };
+export function checkLoginRateLimit(identifier: string): { isLocked: boolean; remainingMinutes: number; remainingSeconds: number; attemptsLeft: number } {
+  if (!identifier) {
+    return { isLocked: false, remainingMinutes: 0, remainingSeconds: 0, attemptsLeft: SECURITY_CONFIG.MAX_LOGIN_ATTEMPTS };
   }
 
-  const list = getOfflineCredentialsList();
-  if (list.length === 0) {
+  const cleanId = identifier.trim().toLowerCase();
+  const records = getAttemptRecords();
+  const record = records[cleanId];
+
+  if (!record) {
+    return { isLocked: false, remainingMinutes: 0, remainingSeconds: 0, attemptsLeft: SECURITY_CONFIG.MAX_LOGIN_ATTEMPTS };
+  }
+
+  const now = Date.now();
+  if (record.lockedUntil && record.lockedUntil > now) {
+    const remainingMs = record.lockedUntil - now;
     return {
-      success: false,
-      error: 'à¦à¦ à¦¡à¦¿à¦­à¦¾à¦à¦¸à§ à¦ªà§à¦°à§à¦¬à§ à¦à§à¦¨à§ à¦à§à¦¯à¦¾à¦à¦¾à¦à¦¨à§à¦ à¦²à¦à¦à¦¨ à¦à¦°à¦¾ à¦¹à§à¦¨à¦¿à¥¤ à¦ªà§à¦°à¦¥à¦®à¦¬à¦¾à¦°à§à¦° à¦à¦¨à§à¦¯ à¦à¦¨à§à¦à¦¾à¦°à¦¨à§à¦ à¦¸à¦à¦¯à§à¦ à¦¦à¦¿à§à§ à¦²à¦à¦à¦¨ à¦à¦°à§à¦¨à¥¤',
+      isLocked: true,
+      remainingMinutes: Math.ceil(remainingMs / (60 * 1000)),
+      remainingSeconds: Math.ceil(remainingMs / 1000),
+      attemptsLeft: 0,
     };
   }
 
-  const matchedRecord = list.find((c) => {
-    if (normPhone && c.normalizedPhone && normPhone.length >= 6 && c.normalizedPhone.endsWith(normPhone.slice(-10))) {
-      return true;
-    }
-    if (c.email && c.email.toLowerCase() === cleanIdent) {
-      return true;
-    }
-    if (c.userId === identifier.trim()) {
-      return true;
-    }
-    return false;
-  });
-
-  if (!matchedRecord) {
-    return {
-      success: false,
-      error: 'à¦à¦ à¦®à§à¦¬à¦¾à¦à¦² à¦¨à¦®à§à¦¬à¦° à¦¦à¦¿à§à§ à¦à¦ à¦¡à¦¿à¦­à¦¾à¦à¦¸à§ à¦à§à¦¨à§ à¦¸à¦à¦°à¦à§à¦·à¦¿à¦¤ à¦à¦«à¦²à¦¾à¦à¦¨ à¦à¦¾à¦¤à¦¾ à¦ªà¦¾à¦à§à¦¾ à¦¯à¦¾à§à¦¨à¦¿à¥¤',
-    };
+  // If lockout expired, reset
+  if (record.lockedUntil && record.lockedUntil <= now) {
+    delete records[cleanId];
+    saveAttemptRecords(records);
+    return { isLocked: false, remainingMinutes: 0, remainingSeconds: 0, attemptsLeft: SECURITY_CONFIG.MAX_LOGIN_ATTEMPTS };
   }
 
-  const computedHash = await hashPinWithSalt(rawPin, matchedRecord.salt);
-  if (computedHash !== matchedRecord.pinHash) {
-    return {
-      success: false,
-      error: 'â à¦­à§à¦² à¦à§à¦ªà¦¨ à¦ªà¦¿à¦¨ à¦à§à¦¡! à¦¸à¦ à¦¿à¦ à¦ªà¦¿à¦¨ à¦ªà§à¦°à¦¦à¦¾à¦¨ à¦à¦°à§à¦¨à¥¤',
-    };
-  }
-
-  // Update last login
-  matchedRecord.lastLoginAt = Date.now();
-  localStorage.setItem(OFFLINE_CREDENTIALS_KEY, JSON.stringify(list));
-
+  const attemptsLeft = Math.max(0, SECURITY_CONFIG.MAX_LOGIN_ATTEMPTS - record.failedCount);
   return {
-    success: true,
-    user: matchedRecord.userData,
+    isLocked: false,
+    remainingMinutes: 0,
+    remainingSeconds: 0,
+    attemptsLeft,
   };
 }
 
-Æ
+/**
+ * Record a failed login attempt
+ */
+export function recordFailedLoginAttempt(identifier: string): { isLockedNow: boolean; remainingMinutes: number; attemptsLeft: number } {
+  const cleanId = identifier.trim().toLowerCase();
+  const records = getAttemptRecords();
+  const now = Date.now();
+
+  const record: LoginAttemptRecord = records[cleanId] || {
+    identifier: cleanId,
+    failedCount: 0,
+    lastAttemptAt: now,
+  };
+
+  record.failedCount += 1;
+  record.lastAttemptAt = now;
+
+  let isLockedNow = false;
+  let remainingMinutes = 0;
+
+  if (record.failedCount >= SECURITY_CONFIG.MAX_LOGIN_ATTEMPTS) {
+    record.lockedUntil = now + SECURITY_CONFIG.LOCKOUT_DURATION_MS;
+    isLockedNow = true;
+    remainingMinutes = Math.ceil(SECURITY_CONFIG.LOCKOUT_DURATION_MS / (60 * 1000));
+  }
+
+  records[cleanId] = record;
+  saveAttemptRecords(records);
+
+  const attemptsLeft = Math.max(0, SECURITY_CONFIG.MAX_LOGIN_ATTEMPTS - record.failedCount);
+  return { isLockedNow, remainingMinutes, attemptsLeft };
+}
+
+/**
+ * Clear login attempts upon successful authentication
+ */
+export function clearLoginAttempts(identifier: string): void {
+  const cleanId = identifier.trim().toLowerCase();
+  const records = getAttemptRecords();
+  if (records[cleanId]) {
+    delete records[cleanId];
+    saveAttemptRecords(records);
+  }
+}
+
+// Helpers for attempt storage
+function getAttemptRecords(): Record<string, LoginAttemptRecord> {
+  try {
+    const raw = localStorage.getItem(RATE_LIMIT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveAttemptRecords(records: Record<string, LoginAttemptRecord>): void {
+  try {
+    localStorage.setItem(RATE_LIMIT_STORAGE_KEY, JSON.stringify(records));
+  } catch (e) {
+    console.error('Failed to save rate limit records', e);
+  }
+}
+
+/**
+ * Generate a 6-digit secure OTP for password reset or phone verification
+ */
+export function generateSecureOtp(emailOrPhone: string, purpose: 'password_reset' | 'admin_verification' = 'password_reset'): { otp: string; expiresAt: number } {
+  const cleanKey = emailOrPhone.trim().toLowerCase();
+  // Generate cryptographically random 6 digits
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  const otp = (100000 + (array[0] % 900000)).toString();
+  const expiresAt = Date.now() + SECURITY_CONFIG.OTP_VALIDITY_MS;
+
+  const records = getOtpRecords();
+  records[cleanKey] = {
+    id: 'otp_' + Date.now(),
+    emailOrPhone: cleanKey,
+    token: otp,
+    expiresAt,
+    isUsed: false,
+    purpose,
+  };
+  saveOtpRecords(records);
+
+  return { otp, expiresAt };
+}
+
+/**
+ * Verify a submitted OTP
+ */
+export function verifySubmittedOtp(emailOrPhone: string, submittedOtp: string): { isValid: boolean; error?: string } {
+  const cleanKey = emailOrPhone.trim().toLowerCase();
+  const cleanOtp = submittedOtp.trim();
+
+  const records = getOtpRecords();
+  const record = records[cleanKey];
+
+  if (!record) {
+    return { isValid: false, error: 'কোনো ওটিপি কোড পাঠানো হয়নি বা মেয়াদোত্তীর্ণ হয়েছে।' };
+  }
+
+  if (record.isUsed) {
+    return { isValid: false, error: 'এই ওটিপি কোডটি ইতিমধ্যে ব্যবহার করা হয়েছে।' };
+  }
+
+  if (Date.now() > record.expiresAt) {
+    delete records[cleanKey];
+    saveOtpRecords(records);
+    return { isValid: false, error: 'ওটিপি কোডের মেয়াদ (১০ মিনিট) শেষ হয়েছে। নতুন কোড রিকোয়েস্ট করুন।' };
+  }
+
+  if (record.token !== cleanOtp) {
+    return { isValid: false, error: 'ভুল ওটিপি কোড! অনুগ্রহ করে সঠিক ৬ ডিজিটের কোড দিন।' };
+  }
+
+  // Mark as used
+  record.isUsed = true;
+  records[cleanKey] = record;
+  saveOtpRecords(records);
+
+  return { isValid: true };
+}
+
+function getOtpRecords(): Record<string, OtpRecord> {
+  try {
+    const raw = localStorage.getItem(OTP_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveOtpRecords(records: Record<string, OtpRecord>): void {
+  try {
+    localStorage.setItem(OTP_STORAGE_KEY, JSON.stringify(records));
+  } catch (e) {
+    console.error('Failed to save OTP records', e);
+  }
+}
+
+/**
+ * Sanitize strings to prevent XSS / malicious injection
+ */
+export function sanitizeInput(input: string): string {
+  if (!input) return '';
+  return input
+    .replace(/[<>]/g, '')
+    .trim();
+}

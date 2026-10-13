@@ -265,3 +265,5 @@ export async function dynamicSubdomainMiddleware(
       error: 'Internal Server Error',
       message: 'Failed to resolve store domain.',
     });
+  }
+}

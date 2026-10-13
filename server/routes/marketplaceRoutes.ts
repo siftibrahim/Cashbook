@@ -32,7 +32,6 @@ import {
   getMarketplaceFriendsData,
   sendMarketplaceFriendRequest,
   respondMarketplaceFriendRequest,
-  unfriendMarketplaceUsers,
   updateMarketplaceUserProfile,
 } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
@@ -2027,7 +2026,6 @@ router.post('/social/posts', async (req: Request, res: Response) => {
     };
 
     const saved = saveMarketplacePost(newPost);
-    realtimeEvents.broadcast('social:post_created', { post: saved });
     return res.json({ success: true, post: saved });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2047,10 +2045,6 @@ router.post('/social/posts/:id/react', async (req: Request, res: Response) => {
     }
 
     const result = reactMarketplacePost(id, userId, reactionType, userProfile);
-    realtimeEvents.broadcast('social:post_reacted', { postId: id, post: result.post });
-    if (result.notification) {
-      realtimeEvents.broadcastToUser(result.notification.recipientId, 'social:notification', result.notification);
-    }
     return res.json({ success: true, post: result.post });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2080,10 +2074,6 @@ router.post('/social/posts/:id/comment', async (req: Request, res: Response) => 
     };
 
     const result = commentMarketplacePost(id, comment);
-    realtimeEvents.broadcast('social:comment', { postId: id, post: result.post, comment });
-    if (result.notification) {
-      realtimeEvents.broadcastToUser(result.notification.recipientId, 'social:notification', result.notification);
-    }
     return res.json({ success: true, post: result.post, comment });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2098,9 +2088,6 @@ router.delete('/social/posts/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const ok = deleteMarketplacePost(id);
-    if (ok) {
-      realtimeEvents.broadcast('social:post_deleted', { postId: id });
-    }
     return res.json({ success: ok });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2314,7 +2301,6 @@ router.post('/social/friends/request', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'অনুরোধের তথ্য অসম্পূর্ণ' });
     }
     const request = sendMarketplaceFriendRequest(senderProfile, receiverId);
-    realtimeEvents.broadcastToUser(receiverId, 'social:friend_request', request);
     return res.json({ success: true, request, message: 'ফ্রেন্ড রিকোয়েস্ট পাঠানো হয়েছে!' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2332,46 +2318,6 @@ router.post('/social/friends/respond', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'রিকোয়েস্ট আইডি ও অ্যাকশন আবশ্যক' });
     }
     const result = respondMarketplaceFriendRequest(requestId, action, responderProfile);
-    if (result.request) {
-      realtimeEvents.broadcastToUser(result.request.senderId, 'social:friend_request_responded', {
-        requestId,
-        action,
-        request: result.request,
-        responder: responderProfile,
-      });
-      realtimeEvents.broadcastToUser(result.request.receiverId, 'social:friend_request_responded', {
-        requestId,
-        action,
-        request: result.request,
-      });
-    }
-    return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
- * POST /api/marketplace/social/friends/unfriend
- * Unfriend a user
- */
-router.post('/social/friends/unfriend', async (req: Request, res: Response) => {
-  try {
-    const { userId, targetUserId } = req.body;
-    if (!userId || !targetUserId) {
-      return res.status(400).json({ success: false, error: 'ইউজার ও টার্গেট আইডি আবশ্যক' });
-    }
-    const result = unfriendMarketplaceUsers(userId, targetUserId);
-    realtimeEvents.broadcastToUser(targetUserId, 'social:friendship_updated', {
-      userId,
-      targetUserId,
-      status: 'unfriended',
-    });
-    realtimeEvents.broadcastToUser(userId, 'social:friendship_updated', {
-      userId,
-      targetUserId,
-      status: 'unfriended',
-    });
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2417,9 +2363,6 @@ router.post('/social/messages', async (req: Request, res: Response) => {
     };
 
     const saved = saveMarketplaceChatMessage(msg);
-    // Broadcast directly to recipient and echo to sender for real-time instant synchronization
-    realtimeEvents.broadcastToUser(receiverId, 'social:message', saved);
-    realtimeEvents.broadcastToUser(senderId, 'social:message_sent', saved);
     return res.json({ success: true, message: saved });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2435,8 +2378,6 @@ router.post('/social/messages/read', async (req: Request, res: Response) => {
     const { userId, senderId } = req.body;
     if (userId && senderId) {
       markMarketplaceChatMessagesRead(userId, senderId);
-      // Real-time notify the original sender that their message has been seen!
-      realtimeEvents.broadcastToUser(senderId, 'social:message_read', { userId, senderId });
     }
     return res.json({ success: true });
   } catch (err: any) {
@@ -3645,9 +3586,8 @@ router.get('/events', (req: Request, res: Response) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
-  const userId = (req.query.userId as string) || (req.query.id as string) || 'all';
   const clientId = `mkt_track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  realtimeEvents.addClient(clientId, userId, res, 'marketplace_customer');
+  realtimeEvents.addClient(clientId, 'all', res, 'marketplace_customer');
 
   res.write(`event: connected\ndata: ${JSON.stringify({ status: 'connected', time: Date.now() })}\n\n`);
 

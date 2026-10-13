@@ -235,4 +235,5 @@ export const AppSplashIntro: React.FC<AppSplashIntroProps> = ({
         </motion.div>
       )}
     </AnimatePresence>
- :
+  );
+};

@@ -398,4 +398,5 @@ export interface Coupon {
   usedCount?: number;
   isActive: boolean;
   description?: string;
-�%
+}
+

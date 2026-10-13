@@ -433,4 +433,5 @@ export const FacebookMessengerView: React.FC<FacebookMessengerViewProps> = ({
         />
       )}
     </div>
-  ��
+  );
+};

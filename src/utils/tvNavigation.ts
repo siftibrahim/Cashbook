@@ -1,3 +1,11 @@
+/**
+ * Smart TV Remote & Keyboard Spatial Navigation Engine
+ * Provides complete directional (D-Pad: ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Enter, Back)
+ * navigation across menus, buttons, inputs, tables, and product lists on Smart TVs.
+ * Supports Android TV, Google TV, Samsung Tizen, LG webOS, Fire TV, and Desktop keyboards.
+ */
+
+// TV Browser Detection
 export function isSmartTv(): boolean {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
   const ua = (navigator.userAgent || '').toLowerCase();

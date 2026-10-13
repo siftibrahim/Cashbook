@@ -635,4 +635,5 @@ export async function migrateFromRemoteDatabase(sourceUrl: string) {
     success: true,
     message: `মাইগ্রেশন সফল! ${summary.users} ইউজার, ${summary.customers} কাস্টমার, ${summary.transactions} লেনদেন, ${summary.products} পণ্য, ${summary.expenses} খরচ CockroachDB-তে স্থানান্তরিত হয়েছে।`,
     summary,
-P�
+  };
+}

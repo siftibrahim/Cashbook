@@ -149,4 +149,4 @@ export const StorefrontCategoryGrid: React.FC<StorefrontCategoryGridProps> = ({
       </div>
     </div>
   );
-}��
+};

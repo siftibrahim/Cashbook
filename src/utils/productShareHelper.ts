@@ -90,4 +90,5 @@ export async function copyProductLinkToClipboard(productUrl: string): Promise<bo
     return successful;
   } catch {
     return false;
-��
+  }
+}

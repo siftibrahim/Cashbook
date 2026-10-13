@@ -1,166 +1,124 @@
 import { Router, Response } from 'express';
-import { getDbPool, inMemoryStore, ensureUserExistsInPostgres, saveInMemoryStoreToDisk } from '../db';
+import { getDbPool, inMemoryStore } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 
 const router = Router();
-
-// Protect all customer routes with user authentication
 router.use(authenticateUser);
 
 /**
- * GET /api/customers - List all customers for logged in user
+ * GET /api/support/messages - Get support message history for logged-in user
  */
-router.get('/', async (req: AuthenticatedRequest, res: Response) => {
+router.get('/messages', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
     const pool = getDbPool();
 
     if (pool) {
       const result = await pool.query(
-        'SELECT * FROM customers WHERE user_id = $1 ORDER BY updated_at DESC',
+        'SELECT * FROM support_messages WHERE user_id = $1 ORDER BY created_at ASC',
         [userId]
       );
-      const customers = result.rows.map(row => ({
+      const messages = result.rows.map(row => ({
         id: row.id,
-        name: row.name,
-        phone: row.phone || '',
-        address: row.address || '',
-        balance: parseFloat(row.balance) || 0,
-        category: row.category || 'regular',
-        creditLimit: parseFloat(row.credit_limit) || 10000,
-        notes: row.notes || '',
+        userId: row.user_id,
+        userName: row.user_name,
+        userPhone: row.user_phone,
+        shopName: row.shop_name,
+        sender: row.sender,
+        senderName: row.sender_name,
+        text: row.text,
         createdAt: Number(row.created_at),
-        updatedAt: Number(row.updated_at),
+        isReadByAdmin: row.is_read_by_admin,
+        isReadByUser: row.is_read_by_user,
       }));
-      return res.json({ customers });
+
+      // Mark messages as read by user
+      await pool.query('UPDATE support_messages SET is_read_by_user = TRUE WHERE user_id = $1', [userId]);
+
+      return res.json({ messages });
     } else {
-      const list = inMemoryStore.customers
-        .filter(c => c.userId === userId)
-        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-      return res.json({ customers: list });
+      const list = inMemoryStore.support_messages
+        .filter(m => m.userId === userId)
+        .sort((a, b) => a.createdAt - b.createdAt);
+      list.forEach(m => { m.isReadByUser = true; });
+      return res.json({ messages: list });
     }
   } catch (err: any) {
-    console.error('Error fetching customers:', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
 /**
- * POST /api/customers - Add or Update Customer
+ * POST /api/support/send - Send a support message from user
  */
-router.post('/', async (req: AuthenticatedRequest, res: Response) => {
+router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
-    const { id, name, phone, address, balance, category, creditLimit, notes } = req.body;
+    const { text } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ error: 'কাস্টমারের নাম আবশ্যক' });
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'মেসেজের বিবরণ লিখুন' });
     }
 
-    const customerId = id || 'cust_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    const msgId = 'msg_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
     const now = Date.now();
-    const cleanBalance = parseFloat(balance) || 0;
-    const cleanCreditLimit = parseFloat(creditLimit) || 10000;
+    const cleanText = text.trim();
 
     const pool = getDbPool();
+    let userName = req.user?.email || 'User';
+    let userPhone = '';
+    let shopName = req.user?.shopName || 'Shop';
+
     if (pool) {
-      const validUserId = await ensureUserExistsInPostgres(pool, userId, req.user);
-      await pool.query(`
-        INSERT INTO customers (
-          id, user_id, name, phone, address, balance, category, credit_limit, notes, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          phone = EXCLUDED.phone,
-          address = EXCLUDED.address,
-          balance = EXCLUDED.balance,
-          category = EXCLUDED.category,
-          credit_limit = EXCLUDED.credit_limit,
-          notes = EXCLUDED.notes,
-          updated_at = EXCLUDED.updated_at
-      `, [
-        customerId, validUserId, name.trim(), phone || '', address || '',
-        cleanBalance, category || 'regular', cleanCreditLimit, notes || '',
-        now, now
-      ]);
-
-      // Update total customers count on user
-      const countRes = await pool.query('SELECT COUNT(*) FROM customers WHERE user_id = $1', [validUserId]);
-      const totalCust = parseInt(countRes.rows[0].count, 10);
-      await pool.query('UPDATE users SET total_customers = $1 WHERE id = $2', [totalCust, validUserId]);
-    } else {
-      const idx = inMemoryStore.customers.findIndex(c => c.id === customerId);
-      const custObj = {
-        id: customerId,
-        userId,
-        name: name.trim(),
-        phone: phone || '',
-        address: address || '',
-        balance: cleanBalance,
-        category: category || 'regular',
-        creditLimit: cleanCreditLimit,
-        notes: notes || '',
-        createdAt: idx >= 0 ? inMemoryStore.customers[idx].createdAt : now,
-        updatedAt: now,
-      };
-
-      if (idx >= 0) {
-        inMemoryStore.customers[idx] = custObj;
-      } else {
-        inMemoryStore.customers.push(custObj);
+      const uRes = await pool.query('SELECT name, phone, shop_name FROM users WHERE id = $1', [userId]);
+      if (uRes.rows.length > 0) {
+        userName = uRes.rows[0].name;
+        userPhone = uRes.rows[0].phone;
+        shopName = uRes.rows[0].shop_name;
       }
-      saveInMemoryStoreToDisk();
+
+      await pool.query(`
+        INSERT INTO support_messages (
+          id, user_id, user_name, user_phone, shop_name, sender, sender_name, text,
+          is_read_by_admin, is_read_by_user, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `, [
+        msgId, userId, userName, userPhone, shopName, 'user', userName, cleanText,
+        false, true, now
+      ]);
+    } else {
+      inMemoryStore.support_messages.push({
+        id: msgId,
+        userId,
+        userName,
+        userPhone,
+        shopName,
+        sender: 'user',
+        senderName: userName,
+        text: cleanText,
+        isReadByAdmin: false,
+        isReadByUser: true,
+        createdAt: now,
+      });
     }
 
     return res.json({
-      message: '✅ কাস্টমার তথ্য সংরক্ষিত হয়েছে',
-      customer: {
-        id: customerId,
-        name: name.trim(),
-        phone: phone || '',
-        address: address || '',
-        balance: cleanBalance,
-        category: category || 'regular',
-        creditLimit: cleanCreditLimit,
-        notes: notes || '',
+      message: '✅ মেসেজ পাঠানো হয়েছে',
+      supportMessage: {
+        id: msgId,
+        userId,
+        userName,
+        userPhone,
+        shopName,
+        sender: 'user',
+        senderName: userName,
+        text: cleanText,
         createdAt: now,
-        updatedAt: now,
       },
     });
   } catch (err: any) {
-    console.error('Error saving customer:', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * DELETE /api/customers/:id - Delete Customer and their transactions
- */
-router.delete('/:id', async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const userId = req.user?.userId;
-    const customerId = req.params.id;
-
-    const pool = getDbPool();
-    if (pool) {
-      // Cascading delete deletes transactions automatically
-      await pool.query('DELETE FROM customers WHERE id = $1 AND user_id = $2', [customerId, userId]);
-      await pool.query('DELETE FROM transactions WHERE customer_id = $1 AND user_id = $2', [customerId, userId]);
-      
-      const countRes = await pool.query('SELECT COUNT(*) FROM customers WHERE user_id = $1', [userId]);
-      const totalCust = parseInt(countRes.rows[0].count, 10);
-      await pool.query('UPDATE users SET total_customers = $1 WHERE id = $2', [totalCust, userId]);
-    } else {
-      inMemoryStore.customers = inMemoryStore.customers.filter(c => !(c.id === customerId && (c.userId === userId || !c.userId)));
-      inMemoryStore.transactions = inMemoryStore.transactions.filter(t => !(t.customerId === customerId && (t.userId === userId || !t.userId)));
-      saveInMemoryStoreToDisk();
-    }
-
-    return res.json({ message: '✅ কাস্টমার এবং তার সকল লেনদেন ডিলিট করা হয়েছে' });
-  } catch (err: any) {
-    console.error('Error deleting customer:', err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-export default rou��
+export default router;

@@ -36,7 +36,7 @@ class RealtimeEventBus {
     const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
 
     for (const client of this.clients.values()) {
-      if (userId === 'all' || client.userId === userId) {
+      if (userId === 'all' || client.userId === userId || client.userId === 'admin_broadcast') {
         try {
           client.res.write(payload);
         } catch (err) {

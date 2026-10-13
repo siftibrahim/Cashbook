@@ -1,148 +1,51 @@
-import React, { useState, useMemo } from 'react';
-import { Product, StoreProfile } from '../types';
-import { formatMoney, getTodayDateString, formatBanglaDate } from '../utils/storage';
-import { executeSafePrint, downloadReceiptPDF } from '../utils/printHelper';
+import React, { useState } from 'react';
+import { Customer, Transaction, StoreProfile } from '../types';
+import { formatMoney, formatBanglaDate, getTodayDateString } from '../utils/storage';
+import { executeSafePrint, downloadReceiptPDF, downloadReceiptImage } from '../utils/printHelper';
 import {
-  X,
   Printer,
-  Download,
-  Search,
-  Package,
-  AlertTriangle,
-  CheckCircle2,
-  TrendingUp,
-  Boxes,
-  Layers,
-  ArrowUpDown,
-  Filter,
-  ArrowRight,
-  Sparkles,
+  Copy,
+  X,
+  Store,
+  MessageCircle,
+  Check,
+  Loader2,
+  FileText,
+  Image as ImageIcon,
 } from 'lucide-react';
+import { BangladeshClock } from './BangladeshClock';
 
-interface InventoryReportModalProps {
+interface ReportModalProps {
   isOpen: boolean;
-  onClose: () => void;
-  products: Product[];
+  customer: Customer | null;
+  transactions: Transaction[];
   store: StoreProfile;
-  onNavigateToInventory?: () => void;
-  onShowToast?: (msg: string) => void;
+  onClose: () => void;
+  onShowToast: (msg: string) => void;
 }
 
-export const InventoryReportModal: React.FC<InventoryReportModalProps> = ({
+export const ReportModal: React.FC<ReportModalProps> = ({
   isOpen,
-  onClose,
-  products = [],
+  customer,
+  transactions,
   store,
-  onNavigateToInventory,
+  onClose,
   onShowToast,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'low_stock' | 'out_of_stock' | 'in_stock'>('all');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'name' | 'stock_desc' | 'stock_asc' | 'value_desc'>('stock_desc');
+  const [copied, setCopied] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
-  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isPdfDownloading, setIsPdfDownloading] = useState(false);
+  const [isImgDownloading, setIsImgDownloading] = useState(false);
 
-  // Extract all categories
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    products.forEach((p) => {
-      if (p.category && p.category.trim()) {
-        set.add(p.category.trim());
-      }
-    });
-    return Array.from(set);
-  }, [products]);
-
-  // Overall Inventory Financial Metrics
-  const summaryMetrics = useMemo(() => {
-    let totalStockQty = 0;
-    let totalBuyCost = 0;
-    let totalSaleValue = 0;
-    let lowStockCount = 0;
-    let outOfStockCount = 0;
-    let inStockCount = 0;
-
-    products.forEach((p) => {
-      const stock = Number(p.stock || 0);
-      const buyPrice = Number(p.buyPrice || 0);
-      const salePrice = Number(p.salePrice || 0);
-      const minStock = Number(p.minStock || 5);
-
-      totalStockQty += stock;
-      totalBuyCost += stock > 0 ? stock * buyPrice : 0;
-      totalSaleValue += stock > 0 ? stock * salePrice : 0;
-
-      if (stock <= 0) {
-        outOfStockCount++;
-      } else if (stock <= minStock) {
-        lowStockCount++;
-      } else {
-        inStockCount++;
-      }
-    });
-
-    const expectedProfit = Math.max(0, totalSaleValue - totalBuyCost);
-
-    return {
-      totalProducts: products.length,
-      totalStockQty,
-      totalBuyCost,
-      totalSaleValue,
-      expectedProfit,
-      lowStockCount,
-      outOfStockCount,
-      inStockCount,
-    };
-  }, [products]);
-
-  // Filtered & Sorted Product List
-  const filteredProducts = useMemo(() => {
-    return products
-      .filter((p) => {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesQuery =
-          !q ||
-          p.name.toLowerCase().includes(q) ||
-          (p.sku && p.sku.toLowerCase().includes(q)) ||
-          (p.barcode && p.barcode.toLowerCase().includes(q)) ||
-          (p.category && p.category.toLowerCase().includes(q));
-
-        if (!matchesQuery) return false;
-
-        if (selectedCategory !== 'all' && p.category !== selectedCategory) {
-          return false;
-        }
-
-        const stock = Number(p.stock || 0);
-        const minStock = Number(p.minStock || 5);
-
-        if (filterType === 'out_of_stock') return stock <= 0;
-        if (filterType === 'low_stock') return stock > 0 && stock <= minStock;
-        if (filterType === 'in_stock') return stock > minStock;
-
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortBy === 'name') return a.name.localeCompare(b.name, 'bn');
-        if (sortBy === 'stock_desc') return (b.stock || 0) - (a.stock || 0);
-        if (sortBy === 'stock_asc') return (a.stock || 0) - (b.stock || 0);
-        if (sortBy === 'value_desc') {
-          const valA = (a.stock || 0) * (a.salePrice || 0);
-          const valB = (b.stock || 0) * (b.salePrice || 0);
-          return valB - valA;
-        }
-        return 0;
-      });
-  }, [products, searchQuery, filterType, selectedCategory, sortBy]);
-
-  if (!isOpen) return null;
+  if (!isOpen || !customer) return null;
 
   const today = getTodayDateString();
 
+  // Safe Non-Crashing Print Handler
   const handlePrint = () => {
     setIsPrinting(true);
-    if (onShowToast) onShowToast('🖨️ ইনভেন্টরি রিপোর্ট প্রিন্ট হচ্ছে...');
+    onShowToast('🖨️ প্রিন্ট ডায়ালগ প্রস্তুত করা হচ্ছে...');
+
     setTimeout(() => {
       executeSafePrint(() => {
         setIsPrinting(false);
@@ -150,365 +53,294 @@ export const InventoryReportModal: React.FC<InventoryReportModalProps> = ({
     }, 150);
   };
 
+  // Safe PDF Download
   const handleDownloadPDF = async () => {
-    setIsDownloadingPdf(true);
-    const filename = `Inventory_Report_${store.name.replace(/\s+/g, '_')}_${today}`;
-    await downloadReceiptPDF('printable-inventory-report', filename, onShowToast);
-    setIsDownloadingPdf(false);
+    setIsPdfDownloading(true);
+    const filename = `Statement_${customer.name.replace(/\s+/g, '_')}_${today}`;
+    await downloadReceiptPDF('print-report-container', filename, onShowToast);
+    setIsPdfDownloading(false);
+  };
+
+  // Safe Image Download
+  const handleDownloadImage = async () => {
+    setIsImgDownloading(true);
+    const filename = `Statement_${customer.name.replace(/\s+/g, '_')}_${today}`;
+    await downloadReceiptImage('print-report-container', filename, onShowToast);
+    setIsImgDownloading(false);
+  };
+
+  // Send receipt via WhatsApp
+  const handleSendWhatsApp = () => {
+    let msg = `*${store.name} — কাস্টমার বাকি মেমো*\n`;
+    msg += `👤 কাস্টমার: *${customer.name}*\n`;
+    if (customer.phone) msg += `📞 মোবাইল: ${customer.phone}\n`;
+    if (customer.address) msg += `📍 ঠিকানা: ${customer.address}\n`;
+    msg += `📅 তারিখ: ${formatBanglaDate(today)}\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `*সর্বশেষ লেনদেনের হিসাব:*\n`;
+
+    transactions.slice(0, 8).forEach((t) => {
+      msg += `• ${formatBanglaDate(t.date)}: ${
+        t.type === 'sale' ? '🔴 দিলাম ৳' : '🟢 পেলাম ৳'
+      }${formatMoney(t.amount)} (${t.description || '-'})\n`;
+    });
+
+    msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `💰 *বর্তমান মোট বকেয়া: ৳ ${formatMoney(customer.balance)}*\n\n`;
+    msg += `দোকান: ${store.name} (প্রো: ${store.owner})\n`;
+    msg += `📞 যোগাযোগ: ${store.phone}`;
+
+    const cleanPhone = customer.phone ? customer.phone.replace(/[^0-9]/g, '') : '';
+    const formattedPhone = cleanPhone.startsWith('88')
+      ? cleanPhone
+      : cleanPhone.length === 11
+      ? '88' + cleanPhone
+      : cleanPhone;
+
+    const waUrl = formattedPhone
+      ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(msg)}`
+      : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+
+    try {
+      window.open(waUrl, '_blank');
+    } catch {
+      window.location.href = waUrl;
+    }
+    onShowToast('হোয়াটসঅ্যাপে রসিদ পাঠানো হচ্ছে...');
+  };
+
+  const handleCopyText = () => {
+    let text = `*${store.name} — হিসাব স্টেটমেন্ট*\n`;
+    text += `কাস্টমার: ${customer.name} | মোবাইল: ${customer.phone || '-'}\n`;
+    text += `তারিখ: ${formatBanglaDate(today)}\n`;
+    text += `-----------------------------------------\n`;
+    transactions.slice(0, 10).forEach((t) => {
+      text += `${formatBanglaDate(t.date)}: ${t.type === 'sale' ? 'দিলাম ৳' : 'পেলাম ৳'}${formatMoney(
+        t.amount
+      )} (${t.description || '-'})\n`;
+    });
+    text += `-----------------------------------------\n`;
+    text += `*বর্তমান মোট বকেয়া: ৳ ${formatMoney(customer.balance)}*\n`;
+    text += `দোকান: ${store.name} | ফোন: ${store.phone}`;
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopied(true);
+      onShowToast('হিসাব বিবরণী টেক্সট কপি হয়েছে!');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      onShowToast('কপি করতে সমস্যা হয়েছে।');
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-in fade-in">
-      <div className="bg-slate-50 w-full max-w-5xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[95vh]">
-        {/* Header */}
-        <div className="bg-[#004D40] text-white p-3.5 sm:p-5 flex items-center justify-between shrink-0 shadow-md">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-teal-800/80 flex items-center justify-center border border-teal-600/50 shadow-inner shrink-0">
-              <Boxes className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-300" />
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-in fade-in">
+      <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-300 flex flex-col my-auto max-h-[calc(100dvh-1rem)] sm:max-h-[92vh] overflow-hidden animate-in zoom-in-95">
+        {/* Header - Screen Only */}
+        <div className="bg-[#004D40] text-white px-4 sm:px-6 py-3.5 flex items-center justify-between shadow-md shrink-0 no-print">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-teal-300">
+              <Printer className="w-4 h-4" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-black tracking-tight">
-                  ইনভেন্টরি ও স্টক রিপোর্ট
-                </h3>
-                <span className="px-2 py-0.5 rounded-md bg-emerald-400/20 text-emerald-300 text-[10px] font-bold border border-emerald-400/30">
-                  {summaryMetrics.totalProducts} টি পণ্য
-                </span>
-              </div>
-              <p className="text-xs text-teal-100/90 font-medium">
-                {store.name} • রিপোর্ট তারিখ: {formatBanglaDate(today)}
+              <h3 className="text-sm sm:text-base font-bold text-white">হিসাব রসিদ ও স্টেটমেন্ট</h3>
+              <p className="text-[11px] text-teal-100 font-mono">
+                {customer.name} {customer.phone ? `(${customer.phone})` : ''}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handlePrint}
-              disabled={isPrinting}
-              className="px-2.5 sm:px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-              title="প্রিন্ট করুন"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">প্রিন্ট</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDownloadPDF}
-              disabled={isDownloadingPdf}
-              className="px-2.5 sm:px-3.5 py-1.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-              title="পিডিএফ সংরক্ষণ"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">পিডিএফ</span>
-            </button>
-
+            <div className="hidden sm:block">
+              <BangladeshClock className="text-teal-200 text-xs bg-teal-900/40 px-2.5 py-1 rounded-lg border border-teal-700/50" />
+            </div>
             <button
               type="button"
               onClick={onClose}
-              className="w-8 h-8 rounded-xl bg-teal-900/60 hover:bg-rose-600 text-teal-100 hover:text-white flex items-center justify-center cursor-pointer transition ml-1"
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-teal-100 transition cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Scrollable Content */}
-        <div className="p-3 sm:p-5 overflow-y-auto space-y-4 smooth-scroll-container">
-          {/* 1. Summary KPI Metric Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
-            {/* মোট কেনা মূল্য / ক্রয় বিনিয়োগ */}
-            <div className="bg-white p-3 rounded-2xl border border-slate-200/90 shadow-2xs">
-              <span className="text-[10.5px] font-bold text-slate-500 block">মোট ক্রয় মূল্য (বিনিয়োগ)</span>
-              <p className="text-base sm:text-lg font-black text-slate-900 mt-0.5">
-                ৳{formatMoney(summaryMetrics.totalBuyCost)}
-              </p>
-              <span className="text-[9.5px] text-slate-400 font-medium">কেনা দামের মোট মূল্য</span>
-            </div>
-
-            {/* সম্ভাব্য মোট বিক্রয় মূল্য */}
-            <div className="bg-white p-3 rounded-2xl border border-emerald-200 shadow-2xs bg-emerald-50/30">
-              <span className="text-[10.5px] font-bold text-emerald-800 block">সম্ভাব্য বিক্রয় মূল্য</span>
-              <p className="text-base sm:text-lg font-black text-emerald-700 mt-0.5">
-                ৳{formatMoney(summaryMetrics.totalSaleValue)}
-              </p>
-              <span className="text-[9.5px] text-emerald-600 font-medium">সব বিক্রি হলে আয়</span>
-            </div>
-
-            {/* সম্ভাব্য মোট মুনাফা */}
-            <div className="bg-white p-3 rounded-2xl border border-teal-200 shadow-2xs bg-teal-50/30">
-              <span className="text-[10.5px] font-bold text-teal-800 block">সম্ভাব্য মোট লাভ</span>
-              <p className="text-base sm:text-lg font-black text-teal-700 mt-0.5">
-                ৳{formatMoney(summaryMetrics.expectedProfit)}
-              </p>
-              <span className="text-[9.5px] text-teal-600 font-medium">বিক্রয় মূল্য - ক্রয় মূল্য</span>
-            </div>
-
-            {/* মোট স্টক পরিমাণ */}
-            <div className="bg-white p-3 rounded-2xl border border-slate-200/90 shadow-2xs">
-              <span className="text-[10.5px] font-bold text-slate-500 block">মোট পণ্য ও স্টক</span>
-              <p className="text-base sm:text-lg font-black text-slate-900 mt-0.5">
-                {summaryMetrics.totalStockQty} <span className="text-xs font-bold text-slate-500">ইউনিট</span>
-              </p>
-              <span className="text-[9.5px] text-slate-400 font-medium">{summaryMetrics.totalProducts} টি আলাদা আইটেম</span>
-            </div>
-
-            {/* স্টক সতর্কবার্তা */}
-            <div className="bg-white p-3 rounded-2xl border border-amber-200 shadow-2xs col-span-2 sm:col-span-1">
-              <span className="text-[10.5px] font-bold text-amber-800 block">স্টক সতর্কতা</span>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-sm font-black text-amber-600">
-                  {summaryMetrics.lowStockCount} কম
-                </span>
-                <span className="text-slate-300">|</span>
-                <span className="text-sm font-black text-rose-600">
-                  {summaryMetrics.outOfStockCount} শেষ
-                </span>
+        {/* Printable Area - Target for Print & Image Capture */}
+        <div
+          id="print-report-container"
+          className="flex-1 overflow-y-auto p-4 sm:p-6 bg-white space-y-4 text-slate-900"
+        >
+          {/* Header */}
+          <div className="text-center pb-4 border-b-2 border-slate-900">
+            <div className="flex justify-center mb-1">
+              <div className="w-9 h-9 rounded-xl bg-[#004D40] text-white flex items-center justify-center font-black shadow-sm">
+                <Store className="w-5 h-5" />
               </div>
-              <span className="text-[9.5px] text-amber-700 font-medium">পুনরায় অর্ডার জরুরি</span>
             </div>
+            <h2 className="text-2xl font-black tracking-tight text-slate-950">{store.name}</h2>
+            <p className="text-xs text-slate-900 font-bold mt-0.5">
+              প্রো: {store.owner} | 📞 {store.phone}
+            </p>
+            <p className="text-[11px] text-slate-700 font-medium">{store.address}</p>
+            <span className="inline-block mt-2 px-3.5 py-0.5 rounded-full bg-slate-100 border border-slate-800 text-[11px] font-black text-slate-950 uppercase">
+              কাস্টমার বাকি মেমো
+            </span>
           </div>
 
-          {/* 2. Filters & Search Bar */}
-          <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-2.5">
-            <div className="relative w-full sm:w-72">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="পণ্য, বারকোড বা ক্যাটাগরি খুঁজুন..."
-                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-teal-500 bg-slate-50 focus:bg-white"
-              />
-            </div>
-
-            {/* Filter Pills */}
-            <div className="flex items-center gap-1 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-              <button
-                type="button"
-                onClick={() => setFilterType('all')}
-                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition whitespace-nowrap cursor-pointer ${
-                  filterType === 'all'
-                    ? 'bg-[#004D40] text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                সকল ({summaryMetrics.totalProducts})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setFilterType('low_stock')}
-                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition whitespace-nowrap cursor-pointer ${
-                  filterType === 'low_stock'
-                    ? 'bg-amber-600 text-white shadow-2xs'
-                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200/60'
-                }`}
-              >
-                কম স্টক ({summaryMetrics.lowStockCount})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setFilterType('out_of_stock')}
-                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition whitespace-nowrap cursor-pointer ${
-                  filterType === 'out_of_stock'
-                    ? 'bg-rose-600 text-white shadow-2xs'
-                    : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
-                }`}
-              >
-                স্টক শেষ ({summaryMetrics.outOfStockCount})
-              </button>
-            </div>
-
-            {/* Category Dropdown */}
-            {categories.length > 0 && (
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="w-full sm:w-auto text-xs font-bold py-1.5 px-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-700"
-              >
-                <option value="all">সকল ক্যাটাগরি</option>
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {/* 3. Printable & Viewable Inventory Table */}
-          <div id="printable-inventory-report" className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-            {/* Printable Report Header */}
-            <div className="p-4 border-b border-slate-100 hidden print:block">
-              <div className="text-center pb-2 border-b border-slate-200">
-                <h2 className="text-xl font-black text-slate-900">{store.name}</h2>
-                <p className="text-xs text-slate-600">{store.address} • {store.phone}</p>
-                <h3 className="text-sm font-bold text-[#004D40] mt-1">ইনভেন্টরি ও পণ্য স্টক রিপোর্ট</h3>
-                <p className="text-[10px] text-slate-500">রিপোর্টের তারিখ: {formatBanglaDate(today)}</p>
-              </div>
-              <div className="grid grid-cols-4 gap-2 pt-2 text-xs">
-                <div>মোট পণ্য: <strong>{summaryMetrics.totalProducts} টি</strong></div>
-                <div>মোট স্টক: <strong>{summaryMetrics.totalStockQty} ইউনিট</strong></div>
-                <div>মোট ক্রয় মূল্য: <strong>৳{formatMoney(summaryMetrics.totalBuyCost)}</strong></div>
-                <div>সম্ভাব্য বিক্রয় মূল্য: <strong>৳{formatMoney(summaryMetrics.totalSaleValue)}</strong></div>
-              </div>
-            </div>
-
-            {/* Product Table */}
-            {filteredProducts.length === 0 ? (
-              <div className="p-10 text-center flex flex-col items-center justify-center">
-                <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
-                  <Package className="w-7 h-7" />
-                </div>
-                <h4 className="text-sm font-bold text-slate-700">কোনো পণ্যের স্টক পাওয়া যায়নি</h4>
-                <p className="text-xs text-slate-400 mt-1 max-w-sm">
-                  {products.length === 0
-                    ? 'আপনার ইনভেন্টরিতে এখনো কোনো পণ্য যুক্ত করা হয়নি। ইনভেন্টরি পেজে গিয়ে পণ্য যুক্ত করুন।'
-                    : 'আপনার দেওয়া ফিল্টার বা সার্চের সাথে মিল রয়েছে এমন কোনো পণ্য পাওয়া যায়নি।'}
+          {/* Customer Meta */}
+          <div className="flex justify-between text-xs bg-slate-100 p-3.5 rounded-2xl border border-slate-400">
+            <div>
+              <p>
+                <span className="text-slate-700 font-bold">কাস্টমার:</span>{' '}
+                <strong className="text-slate-950 font-black text-sm">{customer.name}</strong>
+              </p>
+              <p className="mt-0.5">
+                <span className="text-slate-700 font-bold">মোবাইল:</span>{' '}
+                <span className="font-mono font-bold text-slate-950">{customer.phone || 'দেওয়া হয়নি'}</span>
+              </p>
+              {customer.address && (
+                <p className="mt-0.5">
+                  <span className="text-slate-700 font-bold">ঠিকানা:</span>{' '}
+                  <span className="font-medium text-slate-900">{customer.address}</span>
                 </p>
-                {onNavigateToInventory && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onNavigateToInventory();
-                    }}
-                    className="mt-4 px-4 py-2 bg-[#004D40] hover:bg-[#00382e] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-                  >
-                    <span>ইনভেন্টরিতে পণ্য যুক্ত করুন</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                )}
+              )}
+            </div>
+            <div className="text-right">
+              <p>
+                <span className="text-slate-700 font-bold">তারিখ:</span>{' '}
+                <span className="font-black text-slate-950">{formatBanglaDate(today)}</span>
+              </p>
+              <div className="mt-1">
+                <span className="text-slate-700 font-bold text-[11px]">বর্তমান মোট বকেয়া:</span>
+                <strong className="text-red-700 font-black text-lg block leading-tight">
+                  ৳ {formatMoney(customer.balance)}
+                </strong>
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100/90 text-slate-700 font-bold border-b border-slate-200">
-                      <th className="p-2.5 sm:p-3 text-center w-10">নং</th>
-                      <th className="p-2.5 sm:p-3">পণ্যের বিবরণ</th>
-                      <th className="p-2.5 sm:p-3 hidden sm:table-cell">ক্যাটাগরি</th>
-                      <th className="p-2.5 sm:p-3 text-center">বর্তমান স্টক</th>
-                      <th className="p-2.5 sm:p-3 text-right">ক্রয় মূল্য</th>
-                      <th className="p-2.5 sm:p-3 text-right">বিক্রয় মূল্য</th>
-                      <th className="p-2.5 sm:p-3 text-right hidden md:table-cell">মোট ক্রয় মূল্য</th>
-                      <th className="p-2.5 sm:p-3 text-right">মোট বিক্রয় মূল্য</th>
-                      <th className="p-2.5 sm:p-3 text-center no-print">স্ট্যাটাস</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredProducts.map((p, idx) => {
-                      const stock = Number(p.stock || 0);
-                      const buyPrice = Number(p.buyPrice || 0);
-                      const salePrice = Number(p.salePrice || 0);
-                      const minStock = Number(p.minStock || 5);
-                      const totalBuy = stock * buyPrice;
-                      const totalSale = stock * salePrice;
-
-                      let statusBadge = (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          পর্যাপ্ত স্টক
-                        </span>
-                      );
-                      if (stock <= 0) {
-                        statusBadge = (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                            স্টক শেষ
-                          </span>
-                        );
-                      } else if (stock <= minStock) {
-                        statusBadge = (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            কম স্টক
-                          </span>
-                        );
-                      }
-
-                      return (
-                        <tr key={p.id} className="hover:bg-slate-50 transition">
-                          <td className="p-2.5 sm:p-3 text-center text-slate-400 font-bold">{idx + 1}</td>
-                          <td className="p-2.5 sm:p-3">
-                            <div className="font-bold text-slate-800">{p.name}</div>
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              {p.sku || p.barcode ? `কোড: ${p.sku || p.barcode}` : ''}
-                            </div>
-                          </td>
-                          <td className="p-2.5 sm:p-3 text-slate-600 hidden sm:table-cell">
-                            {p.category || '-'}
-                          </td>
-                          <td className="p-2.5 sm:p-3 text-center">
-                            <span className="font-black text-slate-800 text-sm">{stock}</span>
-                            <span className="text-[10px] text-slate-400 ml-1">{p.unit || 'টি'}</span>
-                          </td>
-                          <td className="p-2.5 sm:p-3 text-right text-slate-700 font-semibold">
-                            ৳{formatMoney(buyPrice)}
-                          </td>
-                          <td className="p-2.5 sm:p-3 text-right text-emerald-700 font-black">
-                            ৳{formatMoney(salePrice)}
-                          </td>
-                          <td className="p-2.5 sm:p-3 text-right text-slate-600 font-bold hidden md:table-cell">
-                            ৳{formatMoney(totalBuy)}
-                          </td>
-                          <td className="p-2.5 sm:p-3 text-right text-slate-900 font-black">
-                            ৳{formatMoney(totalSale)}
-                          </td>
-                          <td className="p-2.5 sm:p-3 text-center no-print">
-                            {statusBadge}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  {/* Table Footer Totals */}
-                  <tfoot>
-                    <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
-                      <td colSpan={3} className="p-2.5 sm:p-3 text-right">
-                        মোট যোগফল:
-                      </td>
-                      <td className="p-2.5 sm:p-3 text-center text-teal-800">
-                        {filteredProducts.reduce((sum, p) => sum + (p.stock || 0), 0)}
-                      </td>
-                      <td colSpan={2} className="hidden md:table-cell"></td>
-                      <td className="p-2.5 sm:p-3 text-right text-slate-800 hidden md:table-cell">
-                        ৳{formatMoney(filteredProducts.reduce((sum, p) => sum + (p.stock || 0) * (p.buyPrice || 0), 0))}
-                      </td>
-                      <td className="p-2.5 sm:p-3 text-right text-emerald-800">
-                        ৳{formatMoney(filteredProducts.reduce((sum, p) => sum + (p.stock || 0) * (p.salePrice || 0), 0))}
-                      </td>
-                      <td className="no-print"></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
+            </div>
           </div>
 
-          {/* Quick Footer / Navigation */}
-          {onNavigateToInventory && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 flex flex-col sm:flex-row items-center justify-between gap-2 no-print">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span className="text-xs text-emerald-900 font-semibold">
-                  নতুন পণ্য যুক্ত করতে বা স্টক সংশোধন করতে ইনভেন্টরি ম্যানেজারে যান
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onNavigateToInventory();
-                }}
-                className="px-3.5 py-1.5 bg-[#004D40] hover:bg-[#003930] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0 shadow-xs"
-              >
-                <span>ইনভেন্টরি পেজে যান</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+          {/* Table */}
+          <div className="border-2 border-slate-600 rounded-xl overflow-hidden shadow-2xs">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-200 font-black border-b-2 border-slate-600 text-slate-950">
+                <tr>
+                  <th className="p-2.5 border-r border-slate-600">তারিখ</th>
+                  <th className="p-2.5 border-r border-slate-600">বিবরণ</th>
+                  <th className="p-2.5 text-right border-r border-slate-600 text-red-700">দিলাম (৳)</th>
+                  <th className="p-2.5 text-right border-r border-slate-600 text-emerald-800">
+                    পেলাম (৳)
+                  </th>
+                  <th className="p-2.5 text-right text-slate-950">জের (৳)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-400">
+                {transactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-4 text-center text-slate-600 font-bold">
+                      কোনো লেনদেনের হিসাব পাওয়া যায়নি
+                    </td>
+                  </tr>
+                ) : (
+                  transactions.map((t) => (
+                    <tr key={t.id} className="hover:bg-slate-50">
+                      <td className="p-2.5 border-r border-slate-400 whitespace-nowrap">
+                        <div className="font-black text-slate-900">{formatBanglaDate(t.date)}</div>
+                        <div className="text-[10px] text-slate-700 font-medium">{t.time}</div>
+                      </td>
+                      <td className="p-2.5 border-r border-slate-400 font-bold text-slate-950">
+                        {t.description || (t.type === 'sale' ? 'পণ্য বাকি' : 'জমা')}
+                      </td>
+                      <td className="p-2.5 text-right border-r border-slate-400 font-black text-red-700 whitespace-nowrap">
+                        {t.type === 'sale' ? formatMoney(t.amount) : '-'}
+                      </td>
+                      <td className="p-2.5 text-right border-r border-slate-400 font-black text-emerald-800 whitespace-nowrap">
+                        {t.type === 'payment' ? formatMoney(t.amount) : '-'}
+                      </td>
+                      <td className="p-2.5 text-right font-black text-slate-950 whitespace-nowrap">
+                        ৳ {formatMoney(t.balanceAfter)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Signatures */}
+          <div className="pt-6 flex justify-between text-xs text-slate-800 font-bold">
+            <div className="text-center">
+              <div className="border-t-2 border-slate-600 pt-1 px-4 font-bold">কাস্টমারের স্বাক্ষর</div>
             </div>
-          )}
+            <div className="text-center">
+              <div className="border-t-2 border-slate-600 pt-1 px-4 font-bold">{store.name}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Footer Controls */}
+        <div className="p-3 bg-slate-50 border-t border-slate-300 flex flex-col sm:flex-row justify-between items-center gap-2 no-print shrink-0">
+          <div className="flex w-full sm:w-auto gap-2">
+            <button
+              type="button"
+              onClick={handleSendWhatsApp}
+              className="flex-1 sm:flex-none py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer border border-emerald-500"
+            >
+              <MessageCircle className="w-4 h-4 text-emerald-200" />
+              <span>WhatsApp</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCopyText}
+              className="flex-1 sm:flex-none py-2.5 px-3 bg-slate-700 hover:bg-slate-800 active:scale-95 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copied ? 'কপি হয়েছে' : 'টেক্সট কপি'}</span>
+            </button>
+          </div>
+
+          <div className="flex w-full sm:w-auto gap-2">
+            <button
+              type="button"
+              onClick={handleDownloadPDF}
+              disabled={isPdfDownloading}
+              title="পরিষ্কার PDF ফাইল সংরক্ষণ করুন"
+              className="flex-1 sm:flex-none py-2.5 px-3.5 bg-teal-700 hover:bg-teal-800 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              {isPdfDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4 text-teal-200" />}
+              <span>{isPdfDownloading ? '...' : '📄 PDF ডাউনলোড'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadImage}
+              disabled={isImgDownloading}
+              title="ছবি হিসেবে ডাউনলোড করুন"
+              className="py-2.5 px-2.5 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center cursor-pointer disabled:opacity-50"
+            >
+              {isImgDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrint}
+              disabled={isPrinting}
+              className="flex-1 sm:flex-none py-2.5 px-4 bg-[#004D40] hover:bg-[#00382e] text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-md cursor-pointer border border-teal-700 disabled:opacity-50"
+            >
+              {isPrinting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4 text-teal-200" />}
+              <span>{isPrinting ? 'প্রিন্ট হচ্ছে...' : '🖨️ প্রিন্ট'}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
-  )�*
+  );
+};

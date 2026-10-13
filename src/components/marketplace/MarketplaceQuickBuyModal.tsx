@@ -265,4 +265,5 @@ export const MarketplaceQuickBuyModal: React.FC<MarketplaceQuickBuyModalProps> =
         </motion.div>
       </div>
     </AnimatePresence>
- 
+  );
+};

@@ -318,4 +318,4 @@ export const NetworkStatusBanner: React.FC<NetworkStatusBannerProps> = ({ onShow
       </AnimatePresence>
     </>
   );
-}`w
+};

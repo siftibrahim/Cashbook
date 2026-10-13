@@ -88,4 +88,4 @@ export const AppUpdateModal: React.FC<AppUpdateModalProps> = ({
       </div>
     </div>
   );
-}�
+};

@@ -75,4 +75,4 @@ export const BangladeshClock: React.FC<{ compact?: boolean; className?: string }
       <span className="text-[11px] text-teal-200/80 hidden md:inline">• {dateStr}</span>
     </div>
   );
-�
+};

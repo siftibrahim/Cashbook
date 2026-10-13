@@ -642,4 +642,4 @@ export const DataManagementTab: React.FC<DataManagementTabProps> = ({
       </div>
     </div>
   );
-} 	
+};

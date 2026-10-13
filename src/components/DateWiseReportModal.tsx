@@ -748,4 +748,5 @@ export const DateWiseReportModal: React.FC<DateWiseReportModalProps> = ({
         </div>
       </div>
     </div>
- m
+  );
+};

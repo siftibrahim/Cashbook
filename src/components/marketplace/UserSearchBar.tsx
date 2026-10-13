@@ -272,4 +272,3 @@ export const UserSearchBar: React.FC<UserSearchBarProps> = ({
     </div>
   );
 };
-p2

@@ -826,4 +826,5 @@ export const MarketplaceLiveTrackingMap: React.FC<MarketplaceLiveTrackingMapProp
         </div>
       )}
     </div>
-@m
+  );
+};

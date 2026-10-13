@@ -180,10 +180,11 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
   const displaySearchResults = localSearch.trim() ? searchResults : suggestedUsers;
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs w-full">
-      {/* ========================================================================= */}
-      {/* 1. TOP HEADER SECTION: BRAND + 5 ORDERED NAV BUTTONS + PROFILE ACTIONS   */}
-      {/* ========================================================================= */}
+    <>
+      <header className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-slate-200 shadow-xs w-full">
+        {/* ========================================================================= */}
+        {/* 1. TOP HEADER SECTION: BRAND + 5 ORDERED NAV BUTTONS + PROFILE ACTIONS   */}
+        {/* ========================================================================= */}
       <div className="w-full max-w-[1440px] mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-4">
         
         {/* ১ম অংশ: TWING লোগো (পর্যাপ্ত প্যাডিং, কোনো চাপা ভাব ছাড়া, নিচের লেখা রিমুভড) */}
@@ -573,6 +574,9 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
         </div>
       </div>
     </header>
+    {/* Spacer so that page content never hides under the fixed header & search bar */}
+    <div className="w-full h-[110px] sm:h-[120px] shrink-0" aria-hidden="true" />
+  </>
   );
 };
 

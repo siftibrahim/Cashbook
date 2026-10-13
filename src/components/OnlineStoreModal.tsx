@@ -1,1442 +1,5930 @@
-import React, { useState, useEffect } from 'react';
-import { StoreProfile } from '../types';
-import { AdminSession } from '../types/adminTypes';
+import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Product, OnlineStoreConfig, OnlineOrder, StoreProfile, StoreBanner, Coupon } from '../types';
+import { formatMoney } from '../utils/storage';
 import {
+  X,
+  Globe,
   Store,
-  Lock,
-  Mail,
-  Eye,
-  EyeOff,
-  LogIn,
-  ShieldCheck,
-  Loader2,
-  AlertCircle,
-  Key,
-  UserPlus,
-  User,
-  Phone,
-  CheckCircle2,
-  UserCheck,
-  KeyRound,
+  Share2,
+  ExternalLink,
+  Copy,
+  Check,
   Smartphone,
-  RefreshCw,
-  ArrowLeft,
+  Truck,
+  CreditCard,
+  Settings,
+  Package,
+  ShoppingBag,
+  Clock,
+  ShieldCheck,
+  AlertCircle,
+  HelpCircle,
   Sparkles,
+  RefreshCw,
+  Lock,
+  Phone,
+  MessageCircle,
+  QrCode,
+  ArrowUpRight,
+  ChevronRight,
+  CheckCircle2,
+  Trash2,
+  Eye,
+  DollarSign,
+  Send,
+  Plus,
+  Image as ImageIcon,
+  Upload,
+  XCircle,
+  AlertTriangle,
+  Filter,
+  Save,
+  Tag,
+  Landmark,
+  Edit3,
+  ChevronDown,
+  ChevronUp,
+  Printer,
+  Loader2,
 } from 'lucide-react';
-import { ADMIN_EMAIL } from '../services/adminService';
-import { authApi } from '../services/apiService';
-import {
-  checkLoginRateLimit,
-  recordFailedLoginAttempt,
-  clearLoginAttempts,
-} from '../services/securityService';
-import { PWAInstallButton } from './pwa/PWAInstallButton';
+import { playPaymentChime } from '../utils/audio';
+import { VendorChatInboxTab } from './vendor/VendorChatInboxTab';
+import { VendorMarketplaceHubTab } from './marketplace/VendorMarketplaceHubTab';
+import { VendorOrderControlModal } from './storefront/VendorOrderControlModal';
+import { getTotalUnreadVendorMessages, CHAT_SYNC_EVENT } from '../utils/storeChatStorage';
+import { storeApi } from '../services/apiService';
+import { STOREFRONT_BEST_OFFERS, STOREFRONT_RECENT_PRODUCTS } from '../data/storefrontDemoCatalog';
 
-interface AuthScreenProps {
+interface OnlineStoreModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  config: OnlineStoreConfig;
+  onUpdateConfig: (newConfig: OnlineStoreConfig) => void;
+  products: Product[];
+  orders: OnlineOrder[];
+  onUpdateOrders: (orders: OnlineOrder[]) => void;
   store: StoreProfile;
-  onLoginSuccess: (email: string, role: string, userPayload?: any) => void;
-  onAdminLoginSuccess?: (email: string, session?: AdminSession) => void;
+  onOpenStorefront: () => void;
   onOpenMarketplace?: () => void;
+  onNavigateToTab?: (tab: 'customers' | 'pos' | 'inventory' | 'cashbook') => void;
+  onConvertOrderToSale?: (order: OnlineOrder) => void;
+  onShowToast?: (msg: string) => void;
+  onOpenSubscriptionModal?: () => void;
 }
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({
+type TabType = 'overview' | 'activation_request' | 'domain' | 'settings' | 'catalog' | 'orders' | 'messages' | 'coupons' | 'payments' | 'marketplace';
+
+export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
+  isOpen,
+  onClose,
+  config,
+  onUpdateConfig,
+  products,
+  orders,
+  onUpdateOrders,
   store,
-  onLoginSuccess,
-  onAdminLoginSuccess,
+  onOpenStorefront,
   onOpenMarketplace,
+  onNavigateToTab,
+  onConvertOrderToSale,
+  onShowToast,
+  onOpenSubscriptionModal,
 }) => {
-  // Tabs: 'login' (Unified for User, Super Admin, Staff), 'register', 'reset'
-  const [activeTab, setActiveTab] = useState<'login' | 'register' | 'reset'>('login');
+  const [activeTab, setActiveTab] = useState<TabType>('overview');
 
-  // Unified Login state (User, Super Admin, Staff)
-  const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  // Form states initialized with config
+  const [formData, setFormData] = useState<OnlineStoreConfig>(config);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
-  // 2FA OTP State (for Super Admin & Staff)
-  const [show2FA, setShow2FA] = useState(false);
-  const [twoFaRole, setTwoFaRole] = useState<'super_admin' | 'staff'>('super_admin');
-  const [twoFaStaffId, setTwoFaStaffId] = useState('');
-  const [twoFaStaffName, setTwoFaStaffName] = useState('');
-  const [twoFaPhone, setTwoFaPhone] = useState('');
-  const [twoFaMaskedPhone, setTwoFaMaskedPhone] = useState('');
-  const [twoFaSessionToken, setTwoFaSessionToken] = useState('');
-  const [twoFaOtp, setTwoFaOtp] = useState('');
-  const [twoFaCountdown, setTwoFaCountdown] = useState(0);
-
-  // Shop registration state (11-digit Phone, PIN, Shop Name, Owner Name & SMS OTP)
-  const [regShopName, setRegShopName] = useState('');
-  const [regOwnerName, setRegOwnerName] = useState('');
-  const [regPhone, setRegPhone] = useState('');
-  const [regPin, setRegPin] = useState('');
-  const [showRegPin, setShowRegPin] = useState(false);
-  const [regStep, setRegStep] = useState<'form' | 'otp'>('form');
-  const [regOtp, setRegOtp] = useState('');
-  const [regSessionToken, setRegSessionToken] = useState('');
-  const [regMaskedPhone, setRegMaskedPhone] = useState('');
-  const [regCountdown, setRegCountdown] = useState(0);
-
-  // OTP Password Reset State (User & Super Admin)
-  const [resetStep, setResetStep] = useState<'phone' | 'otp' | 'new_password' | 'success'>('phone');
-  const [resetTarget, setResetTarget] = useState('');
-  const [resetMaskedPhone, setResetMaskedPhone] = useState('');
-  const [resetOtp, setResetOtp] = useState('');
-  const [resetNewPass, setResetNewPass] = useState('');
-  const [resetConfirmPass, setResetConfirmPass] = useState('');
-  const [showResetNewPass, setShowResetNewPass] = useState(false);
-  const [showResetConfirmPass, setShowResetConfirmPass] = useState(false);
-  const [resetCountdown, setResetCountdown] = useState(0);
-  const [isResetForAdmin, setIsResetForAdmin] = useState(false);
-
-  // Status & feedback
-  const [errorMsg, setErrorMsg] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  // Registration OTP Countdown timer
-  useEffect(() => {
-    if (regCountdown <= 0) return;
-    const timer = setInterval(() => {
-      setRegCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [regCountdown]);
-
-  // OTP Countdown timer for Password Reset
-  useEffect(() => {
-    if (resetCountdown <= 0) return;
-    const timer = setInterval(() => {
-      setResetCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [resetCountdown]);
-
-  // 2FA Countdown timer for Admin/Staff
-  useEffect(() => {
-    if (twoFaCountdown <= 0) return;
-    const timer = setInterval(() => {
-      setTwoFaCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [twoFaCountdown]);
-
-  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-    setTimeout(() => {
-      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 150);
-  };
-
-  // Helper for Bengali to English digits
-  const toEnglishDigits = (str: string) => {
-    const bn = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
-    return (str || '').replace(/[০-৯]/g, (d) => String(bn.indexOf(d)));
-  };
-
-  // -------------------------------------------------------------
-  // 1. UNIFIED LOGIN HANDLER (User, Super Admin, Staff)
-  // -------------------------------------------------------------
-  const handleUnifiedLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    const cleanIdentifier = toEnglishDigits(identifier.trim());
-    const cleanPassword = toEnglishDigits(password.trim());
-    if (!cleanIdentifier) {
-      setErrorMsg('অনুগ্রহ করে মোবাইল নম্বর, ইমেইল বা ইউজারনেম দিন');
-      return;
+  // Sync with incoming config prop
+  React.useEffect(() => {
+    if (config) {
+      setFormData(config);
+      setCustomDomainInput(config.customDomain || '');
     }
-    if (!cleanPassword) {
-      setErrorMsg('অনুগ্রহ করে গোপন পাসওয়ার্ড অথবা পিন লিখুন');
-      return;
-    }
+  }, [config]);
 
-    const rateLimit = checkLoginRateLimit(cleanIdentifier.toLowerCase());
-    if (rateLimit.isLocked && rateLimit.remainingMinutes > 0) {
-      setErrorMsg(`⚠️ অতিরিক্ত ভুল চেষ্টার কারণে অ্যাকাউন্টটি সাময়িক লক করা হয়েছে। দয়া করে ${rateLimit.remainingMinutes} মিনিট পর চেষ্টা করুন।`);
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const res = await authApi.login(cleanIdentifier, cleanPassword);
-
-      // Check if 2FA OTP is required (Super Admin or Staff)
-      if (res.requires2FA) {
-        clearLoginAttempts(cleanIdentifier.toLowerCase());
-        clearLoginAttempts(identifier.trim().toLowerCase());
-        setShow2FA(true);
-        setTwoFaRole(res.role === 'staff' ? 'staff' : 'super_admin');
-        setTwoFaStaffId(res.staffId || '');
-        setTwoFaStaffName(res.staffName || '');
-        setTwoFaPhone(res.phone || '');
-        setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
-        setTwoFaSessionToken(res.twoFaSessionToken || '');
-        setTwoFaCountdown(60);
-        setSuccessMsg(res.message || '🔐 আপনার নিবন্ধিত মোবাইল নম্বরে ৬-সংখ্যার ২FA ওটিপি কোড পাঠানো হয়েছে!');
-        return;
-      }
-
-      // Regular User direct login
-      clearLoginAttempts(cleanIdentifier.toLowerCase());
-      clearLoginAttempts(identifier.trim().toLowerCase());
-      setSuccessMsg('✅ দোকানে সফলভাবে প্রবেশ করা হয়েছে!');
-      setTimeout(() => {
-        onLoginSuccess(res.user?.email || cleanIdentifier, 'দোকানদার', res.user);
-      }, 300);
-    } catch (err: any) {
-      console.warn('Unified Auth Error:', err);
-
-      const attempt = recordFailedLoginAttempt(cleanIdentifier.toLowerCase());
-      if (attempt.isLockedNow) {
-        setErrorMsg('❌ ৫ বার ভুল চেষ্টা করায় অ্যাকাউন্টটি সাময়িক লক করা হয়েছে।');
-      } else {
-        let msg = err?.message || '';
-        if (!msg || msg.includes('Failed to fetch') || msg.includes('Network request failed') || msg.includes('NetworkError')) {
-          msg = 'মোবাইল নম্বর/ইমেইল অথবা পাসওয়ার্ড/পিন সঠিক নয়!';
+  // When modal opens, refresh latest status from server
+  React.useEffect(() => {
+    if (isOpen) {
+      storeApi.getOnlineConfig().then((res) => {
+        if (res) {
+          setFormData((prev) => ({
+            ...prev,
+            ...res,
+          }));
+          onUpdateConfig(res);
+          if (res.isStoreAllowedByAdmin && res.adminStoreStatus === 'active') {
+            setActiveTab('overview');
+          }
         }
-        setErrorMsg(`❌ ${msg} (বাকি সুযোগ: ${attempt.attemptsLeft} বার)`);
+      }).catch(() => {});
+    }
+  }, [isOpen]);
+
+  const handleCheckStatus = async () => {
+    try {
+      setIsCheckingStatus(true);
+      const res = await storeApi.getOnlineConfig();
+      if (res) {
+        setFormData(res);
+        onUpdateConfig(res);
+        if (res.isStoreAllowedByAdmin && res.adminStoreStatus === 'active') {
+          if (onShowToast) onShowToast('🎉 সুপার অ্যাডমিন আপনার অনলাইন স্টোর ব্যবহারের অনুমোদন দিয়েছেন!');
+          setActiveTab('overview');
+        } else if (res.adminStoreStatus === 'requested') {
+          if (onShowToast) onShowToast('আপনার আবেদনটি এখনো সুপার অ্যাডমিনের পর্যালোচনায় রয়েছে।');
+        } else {
+          if (onShowToast) onShowToast('অনলাইন স্টোর বর্তমানে সক্রিয় নয়। আবেদন পাঠাতে নিচে ফর্মটি পূরণ করুন।');
+        }
       }
+    } catch {
+      if (onShowToast) onShowToast('স্ট্যাটাস রিফ্রেশ করতে সমস্যা হয়েছে');
     } finally {
-      setLoading(false);
+      setIsCheckingStatus(false);
     }
   };
 
-  // -------------------------------------------------------------
-  // 2. 2FA OTP VERIFICATION HANDLER (Super Admin & Staff)
-  // -------------------------------------------------------------
-  const handleVerify2FASubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
+  const [requestNoteInput, setRequestNoteInput] = useState('');
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [requestSuccessMessage, setRequestSuccessMessage] = useState<string | null>(null);
+  const [customDomainInput, setCustomDomainInput] = useState(config.customDomain || '');
+  const [isVerifyingDomain, setIsVerifyingDomain] = useState(false);
+  const [domainVerifySuccess, setDomainVerifySuccess] = useState<string | null>(null);
+  const [domainError, setDomainError] = useState<string | null>(null);
 
-    const cleanOtp = twoFaOtp.trim();
-    if (!cleanOtp) {
-      setErrorMsg('অনুগ্রহ করে মোবাইলে প্রাপ্ত ৬-সংখ্যার OTP কোড লিখুন');
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedRecord, setCopiedRecord] = useState<string | null>(null);
+  const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<OnlineOrder | null>(null);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [bannerUploadNotice, setBannerUploadNotice] = useState<string | null>(null);
+  const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
+
+  // Online orders filter and step-by-step states
+  const [orderFilter, setOrderFilter] = useState<'all' | 'new' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'pending_verification'>('all');
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Record<string, boolean>>({});
+  const [courierModalOrder, setCourierModalOrder] = useState<OnlineOrder | null>(null);
+  const [courierInputName, setCourierInputName] = useState('Steadfast Courier');
+  const [courierInputCode, setCourierInputCode] = useState('');
+  const [editingStatusOrderId, setEditingStatusOrderId] = useState<string | null>(null);
+  const [rejectModalOrder, setRejectModalOrder] = useState<OnlineOrder | null>(null);
+  const [rejectReasonInput, setRejectReasonInput] = useState('');
+  const [isProcessingPayment, setIsProcessingPayment] = useState<string | null>(null);
+
+  // Delivery status management drafts and submission states
+  const [orderStatusDrafts, setOrderStatusDrafts] = useState<Record<string, OnlineOrder['orderStatus']>>({});
+  const [orderCourierDrafts, setOrderCourierDrafts] = useState<Record<string, { courierName?: string; courierTrackingCode?: string }>>({});
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [statusUpdateSuccessId, setStatusUpdateSuccessId] = useState<string | null>(null);
+
+  // Catalog tab filter states
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [catalogCategory, setCatalogCategory] = useState('all');
+  const [catalogStatusFilter, setCatalogStatusFilter] = useState<'all' | 'published' | 'hidden'>('all');
+  const [catalogViewMode, setCatalogViewMode] = useState<'my_products' | 'demo_products'>('my_products');
+
+  // All reference demo products displayed on storefront
+  const ALL_DEMO_PRODUCTS = useMemo(() => {
+    const map = new Map<string, Product>();
+    [...STOREFRONT_BEST_OFFERS, ...STOREFRONT_RECENT_PRODUCTS].forEach((p) => {
+      if (!map.has(p.id)) map.set(p.id, p);
+    });
+    return Array.from(map.values());
+  }, []);
+
+  const handleDeleteDemoProduct = async (demoId: string, demoName: string) => {
+    const currentDeleted = formData.deletedDemoProductIds || [];
+    if (currentDeleted.includes(demoId)) return;
+    const updatedDeleted = [...currentDeleted, demoId];
+    const updated: OnlineStoreConfig = {
+      ...formData,
+      deletedDemoProductIds: updatedDeleted,
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+    try {
+      await storeApi.saveOnlineConfig(updated);
+    } catch (err) {
+      console.warn('Failed saving demo product deletion:', err);
+    }
+    if (onShowToast) onShowToast(`"${demoName}" ওয়েবসাইট থেকে মুছে ফেলা হয়েছে!`);
+  };
+
+  const handleToggleIncludeDemoProducts = async (enabled: boolean) => {
+    const updated: OnlineStoreConfig = {
+      ...formData,
+      includeDemoProducts: enabled,
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+    try {
+      await storeApi.saveOnlineConfig(updated);
+    } catch (err) {
+      console.warn('Failed saving includeDemoProducts:', err);
+    }
+    if (onShowToast) {
+      onShowToast(enabled ? 'সকল ডেমো পণ্য ওয়েবসাইটে প্রদর্শন চালু হয়েছে।' : 'সকল ডেমো পণ্য ওয়েবসাইট থেকে বন্ধ করা হয়েছে।');
+    }
+  };
+
+  const handleRestoreAllDemoProducts = async () => {
+    const updated: OnlineStoreConfig = {
+      ...formData,
+      deletedDemoProductIds: [],
+      includeDemoProducts: true,
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+    try {
+      await storeApi.saveOnlineConfig(updated);
+    } catch (err) {
+      console.warn('Failed saving restore to server:', err);
+    }
+    if (onShowToast) onShowToast('সকল ডিফল্ট ডেমো পণ্য সফলভাবে পুনরুদ্ধার করা হয়েছে।');
+  };
+
+  const handleDeleteAllDemoProducts = async () => {
+    if (!confirm('আপনি কি ওয়েবসাইটের সকল ডিফল্ট নমুনা পণ্য মুছে ফেলতে চান?')) return;
+    const allIds = ALL_DEMO_PRODUCTS.map((p) => p.id);
+    const updated: OnlineStoreConfig = {
+      ...formData,
+      deletedDemoProductIds: allIds,
+      includeDemoProducts: false,
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+    try {
+      await storeApi.saveOnlineConfig(updated);
+    } catch (err) {
+      console.warn('Failed saving delete all demo products to server:', err);
+    }
+    if (onShowToast) onShowToast('সকল ডিফল্ট ডেমো পণ্য ওয়েবসাইট থেকে মুছে ফেলা হয়েছে!');
+  };
+
+  // Coupon management form states
+  const [newCouponCode, setNewCouponCode] = useState('');
+  const [newCouponType, setNewCouponType] = useState<'percentage' | 'fixed'>('percentage');
+  const [newCouponValue, setNewCouponValue] = useState(10);
+  const [newCouponMinSpend, setNewCouponMinSpend] = useState(500);
+  const [newCouponMaxDiscount, setNewCouponMaxDiscount] = useState<number | undefined>(200);
+  const [newCouponDescription, setNewCouponDescription] = useState('');
+
+  // Personal E-Commerce vs Central Marketplace Source Filter & Control Modal
+  const [orderSourceFilter, setOrderSourceFilter] = useState<'all' | 'personal' | 'marketplace'>('all');
+  const [paymentTabFilter, setPaymentTabFilter] = useState<'all' | 'pending' | 'cod_due' | 'paid' | 'rejected'>('all');
+  const [vendorControlModalOrder, setVendorControlModalOrder] = useState<{
+    order: OnlineOrder;
+    initialTab: 'details' | 'payment' | 'delivery' | 'edit' | 'print';
+  } | null>(null);
+
+  const handleRequestStoreActivation = async () => {
+    try {
+      setIsSubmittingRequest(true);
+      const res = await storeApi.requestOnlineStoreActivation(requestNoteInput.trim() || undefined);
+      setRequestSuccessMessage(res?.message || 'অনলাইন স্টোর চালুর আবেদন সফলভাবে জমা হয়েছে!');
+      const updated = {
+        ...formData,
+        adminStoreStatus: 'requested' as const,
+        adminStoreNote: requestNoteInput.trim() || undefined,
+      };
+      setFormData(updated);
+      onUpdateConfig(updated);
+      if (onShowToast) onShowToast('✅ অনলাইন স্টোর চালুর আবেদন সফলভাবে জমা হয়েছে!');
+    } catch (err: any) {
+      if (onShowToast) onShowToast(`⚠️ রিকোয়েস্ট জমা দিতে সমস্যা হয়েছে: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  };
+
+  const handleCancelStoreActivation = async () => {
+    try {
+      setIsSubmittingRequest(true);
+      await storeApi.cancelOnlineStoreActivation();
+      setRequestSuccessMessage(null);
+      const updated = {
+        ...formData,
+        adminStoreStatus: 'disabled' as const,
+        adminStoreNote: 'আবেদন প্রত্যাহার করা হয়েছে',
+      };
+      setFormData(updated);
+      onUpdateConfig(updated);
+      if (onShowToast) onShowToast('অনলাইন স্টোর আবেদন প্রত্যাহার করা হয়েছে');
+    } catch (err: any) {
+      if (onShowToast) onShowToast(`⚠️ বাতিল করতে সমস্যা হয়েছে: ${err.message || 'ত্রুটি'}`);
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  };
+
+  const handleAddCouponSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = newCouponCode.trim().toUpperCase();
+    if (!code) return;
+    const existing = formData.coupons || [];
+    if (existing.some((c) => c.code.toUpperCase() === code)) {
+      if (onShowToast) onShowToast('⚠️ এই কোডের কুপন ইতোমধ্যে বিদ্যমান আছে!');
       return;
     }
+    const newCoupon: Coupon = {
+      id: `cpn_${Date.now()}`,
+      code,
+      discountType: newCouponType,
+      discountValue: newCouponValue,
+      minOrderAmount: newCouponMinSpend > 0 ? newCouponMinSpend : undefined,
+      maxDiscount: newCouponType === 'percentage' && newCouponMaxDiscount ? newCouponMaxDiscount : undefined,
+      isActive: true,
+      description: newCouponDescription.trim() || undefined,
+    };
+    const updated = {
+      ...formData,
+      coupons: [...existing, newCoupon],
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+    storeApi.saveOnlineConfig(updated).catch(() => {});
+    setNewCouponCode('');
+    setNewCouponDescription('');
+    if (onShowToast) onShowToast(`✅ কুপন '${code}' সফলভাবে যুক্ত হয়েছে!`);
+  };
 
-    setLoading(true);
+  const handleToggleCoupon = (code: string) => {
+    const existing = formData.coupons || [];
+    const updated = {
+      ...formData,
+      coupons: existing.map((c) => (c.code === code ? { ...c, isActive: !c.isActive } : c)),
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+  };
+
+  const handleDeleteCoupon = (code: string) => {
+    if (confirm(`আপনি কি '${code}' কুপনটি ডিলিট করতে চান?`)) {
+      const existing = formData.coupons || [];
+      const updated = {
+        ...formData,
+        coupons: existing.filter((c) => c.code !== code),
+      };
+      setFormData(updated);
+      onUpdateConfig(updated);
+      if (onShowToast) onShowToast(`কুপন '${code}' মুছে ফেলা হয়েছে।`);
+    }
+  };
+
+  // Load unread customer messages count and listen to chat sync
+  React.useEffect(() => {
+    const syncUnread = async () => {
+      try {
+        const serverThreads = await storeApi.getChatThreads();
+        if (serverThreads && serverThreads.length > 0) {
+          const totalUnread = serverThreads.reduce((sum, t) => sum + (t.unreadByVendor || 0), 0);
+          setUnreadMessageCount(totalUnread);
+          return;
+        }
+      } catch {}
+      setUnreadMessageCount(getTotalUnreadVendorMessages());
+    };
+
+    syncUnread();
+    const interval = setInterval(syncUnread, 4000);
+    const handleSync = () => {
+      syncUnread();
+    };
+    window.addEventListener(CHAT_SYNC_EVENT, handleSync);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener(CHAT_SYNC_EVENT, handleSync);
+    };
+  }, []);
+
+  // Sync formData when config changes
+  React.useEffect(() => {
+    setFormData(config);
+    setCustomDomainInput(config.customDomain || '');
+  }, [config]);
+
+  if (!isOpen) return null;
+
+  const currentDomainDisplay = formData.customDomainVerified && formData.customDomain
+    ? formData.customDomain
+    : `${formData.storeSlug || 'shop'}.twinghisabi.site`;
+
+  const handleAcceptPayment = async (order: OnlineOrder) => {
+    if (order.orderSource === 'marketplace' || Boolean(order.masterOrderId)) {
+      if (onShowToast) {
+        onShowToast('🔒 সেন্ট্রাল মার্কেটপ্লেস অর্ডারের পেমেন্ট শুধুমাত্র সুপার এডমিন যাচাই করে পারমিশন দেন।');
+      }
+      return;
+    }
     try {
-      const res = await authApi.verifyAdmin2FA({
-        otp: cleanOtp,
-        twoFaSessionToken,
-        role: twoFaRole,
-        staffId: twoFaStaffId,
-        phone: twoFaPhone,
-      });
+      setIsProcessingPayment(order.id);
+      const now = Date.now();
+      const nextOrderStatus = order.orderStatus === 'pending' ? ('confirmed' as const) : order.orderStatus;
+      const updatedOrders = orders.map((o) =>
+        o.id === order.id
+          ? {
+              ...o,
+              paymentStatus: 'paid' as const,
+              paidAmount: o.totalAmount,
+              dueAmount: 0,
+              paymentReviewedAt: now,
+              orderStatus: nextOrderStatus,
+              updatedAt: now,
+            }
+          : o
+      );
+      onUpdateOrders(updatedOrders);
 
-      if (!res.token) {
-        setErrorMsg('❌ 2FA যাচাইকরণ ব্যর্থ হয়েছে। সঠিক ওটিপি দিন।');
-        setLoading(false);
-        return;
+      // 1. Sync to customer localStorage on this browser
+      try {
+        const rawCustomerOrders = localStorage.getItem('ibrahim_khata_online_customer_orders_v1');
+        if (rawCustomerOrders) {
+          const custOrders: OnlineOrder[] = JSON.parse(rawCustomerOrders);
+          const updatedCustOrders = custOrders.map((co) =>
+            co.id === order.id || co.orderNumber === order.orderNumber
+              ? {
+                  ...co,
+                  paymentStatus: 'paid' as const,
+                  paidAmount: co.totalAmount,
+                  dueAmount: 0,
+                  paymentReviewedAt: now,
+                  orderStatus: nextOrderStatus,
+                  updatedAt: now,
+                }
+              : co
+          );
+          localStorage.setItem('ibrahim_khata_online_customer_orders_v1', JSON.stringify(updatedCustOrders));
+        }
+      } catch (err) {
+        console.warn('Customer storage sync:', err);
       }
 
-      if (twoFaRole === 'staff' || res.role === 'staff') {
-        const staffEmail = res.staff?.email || identifier || 'staff@twing.com';
-        setSuccessMsg(`✅ ২FA যাচাইকরণ সফল! স্বাগতম ${res.staff?.name || twoFaStaffName || 'স্টাফ মেম্বার'}!`);
-        setTimeout(() => {
-          if (onAdminLoginSuccess) {
-            onAdminLoginSuccess(staffEmail, {
-              role: 'staff',
-              email: staffEmail,
-              staffData: res.staff,
+      // 2. Dispatch global event
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('twing_order_updated', {
+            detail: {
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              paymentStatus: 'paid',
+              orderStatus: nextOrderStatus,
+              updatedAt: now,
+            },
+          })
+        );
+      }
+
+      // 3. Persist to server database safely
+      try {
+        const serverOrd = await storeApi.updatePaymentStatus(order.id, 'accept');
+        if (serverOrd) {
+          onUpdateOrders(updatedOrders.map((o) => (o.id === order.id ? { ...o, ...serverOrd } : o)));
+        }
+      } catch (apiErr) {
+        console.warn('API updatePaymentStatus error (optimistic update preserved):', apiErr);
+      }
+
+      if (onShowToast) {
+        onShowToast(`✅ অর্ডার #${order.orderNumber} এর পেমেন্ট একসেপ্ট ও ভেরিফাই সম্পন্ন হয়েছে!`);
+      }
+    } catch (e: any) {
+      console.error(e);
+      if (onShowToast) {
+        onShowToast(`⚠️ সমস্যা হয়েছে: ${e.message || 'ত্রুটি'}`);
+      }
+    } finally {
+      setIsProcessingPayment(null);
+    }
+  };
+
+  const handleCollectCodPayment = async (order: OnlineOrder) => {
+    if (order.orderSource === 'marketplace' || Boolean(order.masterOrderId)) return;
+    try {
+      setIsProcessingPayment(order.id);
+      const now = Date.now();
+      const updatedOrders = orders.map((o) =>
+        o.id === order.id
+          ? {
+              ...o,
+              paymentStatus: 'paid' as const,
+              paidAmount: o.totalAmount,
+              dueAmount: 0,
+              codCollectedAmount: o.totalAmount,
+              collectedAt: now,
+              updatedAt: now,
+            }
+          : o
+      );
+      onUpdateOrders(updatedOrders);
+
+      // 1. Sync to customer storage
+      try {
+        const rawCustomerOrders = localStorage.getItem('ibrahim_khata_online_customer_orders_v1');
+        if (rawCustomerOrders) {
+          const custOrders: OnlineOrder[] = JSON.parse(rawCustomerOrders);
+          const updatedCustOrders = custOrders.map((co) =>
+            co.id === order.id || co.orderNumber === order.orderNumber
+              ? {
+                  ...co,
+                  paymentStatus: 'paid' as const,
+                  paidAmount: co.totalAmount,
+                  dueAmount: 0,
+                  codCollectedAmount: co.totalAmount,
+                  collectedAt: now,
+                  updatedAt: now,
+                }
+              : co
+          );
+          localStorage.setItem('ibrahim_khata_online_customer_orders_v1', JSON.stringify(updatedCustOrders));
+        }
+      } catch (err) {
+        console.warn('Customer storage sync:', err);
+      }
+
+      // 2. Dispatch event
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('twing_order_updated', {
+            detail: {
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              paymentStatus: 'paid',
+              updatedAt: now,
+            },
+          })
+        );
+      }
+
+      // 3. Persist to server backend gracefully
+      try {
+        const serverOrd = await storeApi.updatePaymentStatus(order.id, 'cod_collect');
+        if (serverOrd) {
+          onUpdateOrders(updatedOrders.map((o) => (o.id === order.id ? { ...o, ...serverOrd } : o)));
+        }
+      } catch (apiErr) {
+        console.warn('API updatePaymentStatus cod_collect error:', apiErr);
+      }
+
+      if (onShowToast) {
+        onShowToast(`💵 অর্ডার #${order.orderNumber} এর COD আদায় (৳${formatMoney(order.totalAmount)}) সফল হয়েছে!`);
+      }
+    } catch (e: any) {
+      console.error(e);
+      if (onShowToast) {
+        onShowToast(`⚠️ সমস্যা হয়েছে: ${e.message || 'ত্রুটি'}`);
+      }
+    } finally {
+      setIsProcessingPayment(null);
+    }
+  };
+
+  const handleOpenRejectModal = (order: OnlineOrder) => {
+    setRejectModalOrder(order);
+    setRejectReasonInput('ভুল TrxID বা অ্যাকাউন্টে টাকা ক্রেডিট হয়নি');
+  };
+
+  const handleConfirmRejectPayment = async () => {
+    if (!rejectModalOrder) return;
+    try {
+      setIsProcessingPayment(rejectModalOrder.id);
+      const now = Date.now();
+      const reason = rejectReasonInput.trim() || 'ভুল TrxID বা টাকা পাওয়া যায়নি';
+      const updatedOrders = orders.map((o) =>
+        o.id === rejectModalOrder.id
+          ? {
+              ...o,
+              paymentStatus: 'rejected' as const,
+              paymentRejectReason: reason,
+              paymentReviewedAt: now,
+              updatedAt: now,
+            }
+          : o
+      );
+      onUpdateOrders(updatedOrders);
+      await storeApi.updatePaymentStatus(rejectModalOrder.id, 'reject', reason);
+      if (onShowToast) {
+        onShowToast(`❌ অর্ডার #${rejectModalOrder.orderNumber} এর পেমেন্ট রিজেক্ট করা হয়েছে।`);
+      }
+      setRejectModalOrder(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsProcessingPayment(null);
+    }
+  };
+
+  const handleResetPaymentStatus = async (order: OnlineOrder) => {
+    try {
+      setIsProcessingPayment(order.id);
+      const now = Date.now();
+      const updatedOrders = orders.map((o) =>
+        o.id === order.id
+          ? {
+              ...o,
+              paymentStatus: 'pending_verification' as const,
+              paymentRejectReason: undefined,
+              updatedAt: now,
+            }
+          : o
+      );
+      onUpdateOrders(updatedOrders);
+      await storeApi.updatePaymentStatus(order.id, 'reset');
+      if (onShowToast) {
+        onShowToast(`🔄 পেমেন্ট স্ট্যাটাস পুনরায় যাচাই অপেক্ষমাণ করা হয়েছে।`);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsProcessingPayment(null);
+    }
+  };
+
+  const copyToClipboard = (text: string, type?: string) => {
+    navigator.clipboard.writeText(text);
+    if (type) {
+      setCopiedRecord(type);
+      setTimeout(() => setCopiedRecord(null), 2000);
+    } else {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
+  };
+
+  const handleBannerFileUpload = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      if (onShowToast) onShowToast('⚠️ অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1200;
+        let width = img.width;
+        let height = img.height;
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+          let finalUrl = dataUrl;
+          try {
+            const blob = await (await fetch(dataUrl)).blob();
+            const uploadFormData = new FormData();
+            uploadFormData.append('file', blob, file.name || 'banner.jpg');
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/media/upload', {
+              method: 'POST',
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+              body: uploadFormData,
             });
-          } else {
-            onLoginSuccess(staffEmail, 'staff', res.staff);
+            if (res.ok) {
+              const resData = await res.json();
+              if (resData.url) finalUrl = resData.url;
+            }
+          } catch (err) {
+            // fallback to dataUrl
           }
-        }, 400);
-      } else {
-        const adminMail = res.user?.email || ADMIN_EMAIL;
-        setSuccessMsg('✅ ২FA যাচাইকরণ সফল! সুপার অ্যাডমিন ড্যাশবোর্ডে প্রবেশ করছেন...');
-        setTimeout(() => {
-          if (onAdminLoginSuccess) {
-            onAdminLoginSuccess(adminMail, {
-              role: 'super_admin',
-              email: adminMail,
-            });
-          } else {
-            onLoginSuccess(adminMail, 'admin', res.user);
-          }
-        }, 400);
-      }
-    } catch (err: any) {
-      console.warn('Verify 2FA Error:', err);
-      setErrorMsg(err.message || '❌ ভুল অথবা মেয়াদোত্তীর্ণ 2FA OTP কোড!');
-    } finally {
-      setLoading(false);
-    }
+
+          const newBannerItem: StoreBanner = {
+            id: `banner_${Date.now()}`,
+            imageUrl: finalUrl,
+            title: formData.bannerTitle || formData.storeName,
+            subtitle: formData.bannerSubtitle || '',
+            tag: formData.bannerTag || 'স্পেশাল অফার',
+            active: true,
+          };
+
+          const currentBanners = Array.isArray(formData.banners) ? [...formData.banners] : [];
+          const updatedBanners = [...currentBanners, newBannerItem];
+
+          const updated = {
+            ...formData,
+            bannerUrl: finalUrl,
+            bannerStyle: 'image' as const,
+            banners: updatedBanners,
+          };
+          setFormData(updated);
+          onUpdateConfig(updated);
+          setEditingBannerId(newBannerItem.id);
+          setBannerUploadNotice('✅ নতুন ব্যানার যুক্ত হয়েছে! নিচে টাইটেল ও পণ্য লিংক দিন।');
+          setTimeout(() => setBannerUploadNotice(null), 5000);
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
-  const handleResend2FAOtp = async () => {
-    setErrorMsg('');
-    setSuccessMsg('');
-    setLoading(true);
-    try {
-      const cleanIdentifier = identifier.trim();
-      const res = await authApi.login(cleanIdentifier, password);
-      if (res.twoFaSessionToken) {
-        setTwoFaSessionToken(res.twoFaSessionToken);
-      }
-      setTwoFaCountdown(60);
-      setSuccessMsg('✅ নতুন ২FA ওটিপি কোড পাঠানো হয়েছে!');
-    } catch (err: any) {
-      setErrorMsg(err.message || 'ওটিপি পুনরায় পাঠাতে ব্যর্থ হয়েছে');
-    } finally {
-      setLoading(false);
-    }
+  const handleUpdateBannerItem = (bannerId: string, updates: Partial<StoreBanner>) => {
+    const existing = Array.isArray(formData.banners) ? [...formData.banners] : [];
+    const updatedBanners = existing.map((b) =>
+      b.id === bannerId ? { ...b, ...updates } : b
+    );
+    const updated = {
+      ...formData,
+      banners: updatedBanners,
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
   };
 
-  // -------------------------------------------------------------
-  // 3. NEW SHOP REGISTRATION HANDLERS (11-digit Mobile, PIN & SMS OTP)
-  // -------------------------------------------------------------
-  const handleSendRegOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
+  const handleRemoveBanner = (bannerId: string) => {
+    const existing = Array.isArray(formData.banners) ? [...formData.banners] : [];
+    const updatedBanners = existing.filter((b) => b.id !== bannerId);
+    const updated = {
+      ...formData,
+      banners: updatedBanners,
+      bannerUrl: updatedBanners[0]?.imageUrl || '',
+    };
+    if (editingBannerId === bannerId) {
+      setEditingBannerId(null);
+    }
+    setFormData(updated);
+    onUpdateConfig(updated);
+  };
 
-    const cleanShop = regShopName.trim();
-    const cleanOwner = regOwnerName.trim();
-    const cleanPhone = toEnglishDigits(regPhone.trim()).replace(/\D/g, '');
-    const cleanPin = regPin.trim();
+  const handleToggleBannerActive = (bannerId: string) => {
+    const existing = Array.isArray(formData.banners) ? [...formData.banners] : [];
+    const updatedBanners = existing.map((b) =>
+      b.id === bannerId ? { ...b, active: b.active === false } : b
+    );
+    const updated = {
+      ...formData,
+      banners: updatedBanners,
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+  };
 
-    if (!cleanShop) {
-      setErrorMsg('অনুগ্রহ করে দোকানের নাম লিখুন');
+  const handleAddPresetBanner = (presetUrl: string, presetLabel: string) => {
+    const cleanTitle = presetLabel.replace(/^[^\w\s\u0980-\u09FF]+/, '').trim() || formData.storeName;
+    const newBannerItem: StoreBanner = {
+      id: `banner_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      imageUrl: presetUrl,
+      title: cleanTitle,
+      subtitle: 'সেরা মানের পণ্য ও অবিশ্বাস্য মূল্যছাড়!',
+      tag: '🔥 হট অফার',
+      buttonText: 'এখনই অর্ডার করুন',
+      active: true,
+    };
+    const currentBanners = Array.isArray(formData.banners) ? [...formData.banners] : [];
+    const updatedBanners = [...currentBanners, newBannerItem];
+    const updated = {
+      ...formData,
+      bannerUrl: presetUrl,
+      bannerStyle: 'image' as const,
+      banners: updatedBanners,
+    };
+    setFormData(updated);
+    onUpdateConfig(updated);
+    setEditingBannerId(newBannerItem.id);
+    setBannerUploadNotice('✅ প্রিসেট ব্যানার যুক্ত হয়েছে! আপনি চাইলে টাইটেল ও পণ্য লিংক পরিবর্তন করতে পারেন।');
+    setTimeout(() => setBannerUploadNotice(null), 5000);
+  };
+
+  const handleLogoFileUpload = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      if (onShowToast) onShowToast('⚠️ অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
       return;
     }
-    if (!cleanPhone || cleanPhone.length !== 11 || !cleanPhone.startsWith('01')) {
-      setErrorMsg('❌ অনুগ্রহ করে ১১-সংখ্যার সঠিক বাংলাদেশি মোবাইল নম্বর দিন (যেমন: 017XXXXXXXX)');
-      return;
-    }
-    if (!cleanPin || cleanPin.length < 4) {
-      setErrorMsg('গোপন পিন ন্যূনতম ৪ সংখ্যার হতে হবে');
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const res = await authApi.sendRegistrationOtp({
-        shopName: cleanShop,
-        name: cleanOwner,
-        phone: cleanPhone,
-      });
-
-      setRegPhone(cleanPhone);
-      setRegSessionToken(res.sessionToken || '');
-      setRegMaskedPhone(res.maskedPhone || cleanPhone);
-      setRegStep('otp');
-      setRegOtp('');
-      setRegCountdown(60);
-      setSuccessMsg(res.message || '✅ আপনার মোবাইলে ৬-সংখ্যার OTP ভেরিফিকেশন কোড পাঠানো হয়েছে!');
-    } catch (err: any) {
-      console.error('Send Reg OTP Error:', err);
-      setErrorMsg(err.message || 'OTP পাঠাতে ব্যর্থ হয়েছে। অনুগ্রহ করে মোবাইল নম্বরটি পরীক্ষা করুন।');
-    } finally {
-      setLoading(false);
-    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 400;
+        let width = img.width;
+        let height = img.height;
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/png');
+          const updated = {
+            ...formData,
+            logoUrl: dataUrl,
+          };
+          setFormData(updated);
+          onUpdateConfig(updated);
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
-  const handleVerifyRegOtpAndRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    const cleanOtp = toEnglishDigits(regOtp.trim()).replace(/\D/g, '');
-    if (!cleanOtp) {
-      setErrorMsg('অনুগ্রহ করে মোবাইলে প্রাপ্ত ৬-সংখ্যার OTP কোড লিখুন');
+  const handlePaymentQrFileUpload = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      if (onShowToast) onShowToast('⚠️ অনুগ্রহ করে একটি ছবি ফাইল নির্বাচন করুন (JPG, PNG, WebP)');
       return;
     }
-
-    setLoading(true);
-
-    try {
-      const cleanPhone = toEnglishDigits(regPhone.trim()).replace(/\D/g, '');
-      const cleanShop = regShopName.trim();
-      const cleanOwner = regOwnerName.trim() || cleanShop;
-      const cleanPin = regPin.trim();
-
-      const res = await authApi.register({
-        shopName: cleanShop,
-        name: cleanOwner,
-        phone: cleanPhone,
-        pin: cleanPin,
-        password: cleanPin,
-        otp: cleanOtp,
-        sessionToken: regSessionToken,
-      });
-
-      setSuccessMsg(res.message || '🎉 আপনার নতুন দোকান সফলভাবে খোলা হয়েছে! স্বাগতম...');
-      setTimeout(() => {
-        onLoginSuccess(res.user?.phone || cleanPhone, cleanOwner || 'দোকানদার', res.user);
-      }, 400);
-    } catch (err: any) {
-      console.error('Verify & Register Error:', err);
-      setErrorMsg(err.message || 'দোকান তৈরিতে সমস্যা হয়েছে। সঠিক ওটিপি দিন।');
-    } finally {
-      setLoading(false);
-    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 600;
+        let width = img.width;
+        let height = img.height;
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+          setFormData((prev) => ({ ...prev, vendorPaymentQrUrl: dataUrl }));
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
-  const handleResendRegOtp = async () => {
-    setErrorMsg('');
-    setSuccessMsg('');
-    setLoading(true);
-    try {
-      const cleanShop = regShopName.trim();
-      const cleanOwner = regOwnerName.trim();
-      const cleanPhone = toEnglishDigits(regPhone.trim()).replace(/\D/g, '');
-
-      const res = await authApi.sendRegistrationOtp({
-        shopName: cleanShop,
-        name: cleanOwner,
-        phone: cleanPhone,
-      });
-      if (res.sessionToken) {
-        setRegSessionToken(res.sessionToken);
-      }
-      setRegCountdown(60);
-      setSuccessMsg('✅ নতুন ভেরিফিকেশন ওটিপি কোড পাঠানো হয়েছে!');
-    } catch (err: any) {
-      setErrorMsg(err.message || 'ওটিপি পুনরায় পাঠাতে ব্যর্থ হয়েছে');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // -------------------------------------------------------------
-  // 4. MOBILE SMS OTP PASSWORD RESET HANDLERS
-  // -------------------------------------------------------------
-  const handleSendResetOtp = async (e?: React.FormEvent) => {
+  const handleSaveSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-    const target = toEnglishDigits(resetTarget.trim());
-    if (!target) {
-      setErrorMsg('অনুগ্রহ করে আপনার রেজিস্টার্ড মোবাইল নম্বর লিখুন');
-      return;
+    if (isSavingSettings) return;
+
+    const finalStoreName = (formData.storeName || '').trim() || (store?.name || '').trim() || 'আমার অনলাইন স্টোর';
+    const payload: OnlineStoreConfig = {
+      ...formData,
+      storeName: finalStoreName,
+    };
+
+    setIsSavingSettings(true);
+
+    // 1. Instantly save to local state and localStorage for complete offline & session safety
+    try {
+      setFormData(payload);
+      onUpdateConfig(payload);
+    } catch (e) {
+      console.warn('Local update note:', e);
     }
 
-    setLoading(true);
+    // 2. Persist to API
     try {
-      const res = await authApi.sendResetOtp({ phone: target, identifier: target });
-      setResetMaskedPhone(res.maskedPhone || target);
-      setIsResetForAdmin(!!res.isSuperAdmin);
-      setSuccessMsg(res.message || '✅ আপনার মোবাইলে ৬-সংখ্যার OTP কোড পাঠানো হয়েছে!');
-      setResetStep('otp');
-      setResetCountdown(60);
+      const saved = await storeApi.saveOnlineConfig(payload);
+      const mergedConfig = { ...payload, ...saved };
+      setFormData(mergedConfig);
+      onUpdateConfig(mergedConfig);
+
+      setSaveSuccessNotice(true);
+      try { playPaymentChime(); } catch {}
+
+      if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+        try { navigator.vibrate(50); } catch {}
+      }
+
+      if (onShowToast) {
+        onShowToast('✅ অনলাইন স্টোর সেটিংস ও ব্যানার সফলভাবে সংরক্ষিত হয়েছে!');
+      }
+
+      setTimeout(() => setSaveSuccessNotice(false), 5000);
     } catch (err: any) {
-      console.error('Send OTP Error:', err);
-      setErrorMsg(err.message || 'OTP পাঠাতে ব্যর্থ হয়েছে। সঠিক মোবাইল নম্বর দিন।');
+      console.error('Error saving online store settings:', err);
+      // Local changes are already saved safely; notify user gracefully
+      setSaveSuccessNotice(true);
+      if (onShowToast) {
+        onShowToast('✅ সেটিংস ডিভাইসে সংরক্ষিত হয়েছে! (ক্লাউড অটো-সিন্ক সক্রিয় থাকবে)');
+      }
+      setTimeout(() => setSaveSuccessNotice(false), 4000);
     } finally {
-      setLoading(false);
+      setIsSavingSettings(false);
     }
   };
 
-  const handleVerifyResetOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-    const cleanOtp = toEnglishDigits(resetOtp.trim());
-    if (!cleanOtp) {
-      setErrorMsg('অনুগ্রহ করে ৬-সংখ্যার OTP কোড লিখুন');
+  const handleVerifyCustomDomain = async () => {
+    const domain = customDomainInput.trim().toLowerCase().replace(/https?:\/\//, '').replace(/\/.*$/, '');
+    if (!domain || !domain.includes('.')) {
+      if (onShowToast) {
+        onShowToast('⚠️ অনুগ্রহ করে সঠিক ডোমেন নাম লিখুন (যেমন: www.myshopbd.com অথবা mybrand.com)');
+      }
       return;
     }
 
-    setLoading(true);
+    setDomainError(null);
+    setIsVerifyingDomain(true);
     try {
-      const target = toEnglishDigits(resetTarget.trim());
-      const res = await authApi.verifyResetOtp(target, cleanOtp);
-      setSuccessMsg(res.message || '✅ OTP সফলভাবে যাচাই হয়েছে!');
-      setResetStep('new_password');
+      const res = await storeApi.verifyCustomDomain(domain);
+      const updated: OnlineStoreConfig = {
+        ...formData,
+        customDomain: domain,
+        customDomainVerified: true,
+        customDomainStatus: 'verified',
+        customDomainVerifiedAt: Date.now(),
+      };
+      setFormData(updated);
+      onUpdateConfig(updated);
+      setDomainVerifySuccess(res.message || 'অভিনন্দন! আপনার কাস্টম ডোমেন সফলভাবে ভেরিফাই ও সংযুক্ত হয়েছে। ফ্রি SSL সক্রিয়!');
+      if (onShowToast) {
+        onShowToast('✅ কাস্টম ডোমেন সফলভাবে সংযুক্ত হয়েছে!');
+      }
+      setTimeout(() => setDomainVerifySuccess(null), 6000);
     } catch (err: any) {
-      console.error('Verify OTP Error:', err);
-      setErrorMsg(err.message || '❌ ভুল অথবা মেয়াদোত্তীর্ণ OTP কোড!');
+      console.error('Domain verify error:', err);
+      const msg = err.message || 'ডোমেন ভেরিফিকেশন ব্যর্থ হয়েছে। অনুগ্রহ করে DNS রেকর্ড চেক করুন।';
+      setDomainError(msg);
+      if (onShowToast) {
+        onShowToast(`⚠️ ${msg}`);
+      }
     } finally {
-      setLoading(false);
+      setIsVerifyingDomain(false);
     }
   };
 
-  const handleSaveNewPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    const cleanNewPass = toEnglishDigits(resetNewPass.trim());
-    const cleanConfirmPass = toEnglishDigits(resetConfirmPass.trim());
-
-    if (cleanNewPass.length < 4) {
-      setErrorMsg('নতুন পিন ন্যূনতম ৪ সংখ্যার হতে হবে');
-      return;
-    }
-    if (cleanNewPass !== cleanConfirmPass) {
-      setErrorMsg('উভয় পিন হুবহু একই হতে হবে!');
-      return;
-    }
-
-    setLoading(true);
+  const handleDisconnectDomain = async () => {
     try {
-      const res = await authApi.resetPasswordWithOtp({
-        phone: resetTarget,
-        otp: resetOtp,
-        newPassword: resetNewPass,
-      });
-      setSuccessMsg(res.message || '🎉 পিন সফলভাবে পরিবর্তিত হয়েছে!');
-      setResetStep('success');
+      await storeApi.disconnectCustomDomain();
+      const updated: OnlineStoreConfig = {
+        ...formData,
+        customDomain: '',
+        customDomainVerified: false,
+        customDomainStatus: 'pending',
+      };
+      setCustomDomainInput('');
+      setFormData(updated);
+      onUpdateConfig(updated);
+      setDomainError(null);
+      if (onShowToast) {
+        onShowToast('✅ কাস্টম ডোমেন ডিসকানেক্ট করা হয়েছে।');
+      }
     } catch (err: any) {
-      console.error('Reset Password Error:', err);
-      setErrorMsg(err.message || 'পিন রিসেট করতে সমস্যা হয়েছে');
-    } finally {
-      setLoading(false);
+      if (onShowToast) {
+        onShowToast(`⚠️ ${err.message || 'ডোমেন ডিসকানেক্ট করতে সমস্যা হয়েছে।'}`);
+      }
     }
   };
+
+  const handleToggleProductPublish = (productId: string) => {
+    const currentList = formData.publishedProductIds || [];
+    let updatedList: string[];
+    if (currentList.length === 0) {
+      // If initially empty, all products are considered published, so disabling this one means including all except this one
+      updatedList = products.map((p) => p.id).filter((id) => id !== productId);
+    } else if (currentList.includes(productId)) {
+      updatedList = currentList.filter((id) => id !== productId);
+    } else {
+      updatedList = [...currentList, productId];
+    }
+
+    const updated = { ...formData, publishedProductIds: updatedList };
+    setFormData(updated);
+    onUpdateConfig(updated);
+  };
+
+  const handleSubmitOrderStatus = async (
+    orderId: string,
+    forcedStatus?: OnlineOrder['orderStatus'],
+    courierData?: { courierName?: string; courierTrackingCode?: string }
+  ) => {
+    const ord = orders.find((o) => o.id === orderId);
+    if (!ord) return;
+
+    const newStatus = forcedStatus || orderStatusDrafts[orderId] || ord.orderStatus;
+    const courierDraft = courierData || orderCourierDrafts[orderId];
+    const courierName = courierDraft?.courierName !== undefined ? courierDraft.courierName : ord.courierName;
+    const courierTrackingCode = courierDraft?.courierTrackingCode !== undefined ? courierDraft.courierTrackingCode : ord.courierTrackingCode;
+
+    setUpdatingOrderId(orderId);
+    const now = Date.now();
+    const isDelivered = newStatus === 'delivered';
+    try {
+      const updatedOrders = orders.map((o) =>
+        o.id === orderId || o.orderNumber === ord.orderNumber || o.orderNumber === orderId
+          ? {
+              ...o,
+              orderStatus: newStatus,
+              paymentStatus: isDelivered ? ('paid' as const) : o.paymentStatus,
+              paidAmount: isDelivered ? o.totalAmount : o.paidAmount,
+              dueAmount: isDelivered ? 0 : o.dueAmount,
+              codCollectedAmount: isDelivered ? o.totalAmount : o.codCollectedAmount,
+              collectedAt: isDelivered ? now : o.collectedAt,
+              courierName: courierName || undefined,
+              courierTrackingCode: courierTrackingCode || undefined,
+              updatedAt: now,
+            }
+          : o
+      );
+      onUpdateOrders(updatedOrders);
+
+      // 1. Sync to customer localStorage on this browser
+      try {
+        const rawCustomerOrders = localStorage.getItem('ibrahim_khata_online_customer_orders_v1');
+        if (rawCustomerOrders) {
+          const custOrders: OnlineOrder[] = JSON.parse(rawCustomerOrders);
+          const updatedCustOrders = custOrders.map((co) =>
+            co.id === orderId || co.orderNumber === ord.orderNumber || co.orderNumber === orderId
+              ? {
+                  ...co,
+                  orderStatus: newStatus,
+                  courierName: courierName || undefined,
+                  courierTrackingCode: courierTrackingCode || undefined,
+                  updatedAt: now,
+                }
+              : co
+          );
+          localStorage.setItem('ibrahim_khata_online_customer_orders_v1', JSON.stringify(updatedCustOrders));
+        }
+      } catch (err) {
+        console.warn('Failed to sync to customer localStorage:', err);
+      }
+
+      // 2. Dispatch global event for instant UI sync
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('twing_order_updated', {
+            detail: {
+              orderId,
+              orderNumber: ord.orderNumber,
+              orderStatus: newStatus,
+              courierName,
+              courierTrackingCode,
+              updatedAt: now,
+            },
+          })
+        );
+      }
+
+      // 3. Persist to server database safely
+      try {
+        const serverRes = await storeApi.updateOrderStatus(orderId, newStatus, {
+          courierName: courierName || undefined,
+          courierTrackingCode: courierTrackingCode || undefined,
+        });
+
+        if (serverRes) {
+          const finalOrders = updatedOrders.map((o) =>
+            o.id === orderId || o.orderNumber === ord.orderNumber || o.orderNumber === orderId ? { ...o, ...serverRes } : o
+          );
+          onUpdateOrders(finalOrders);
+        }
+      } catch (serverErr: any) {
+        console.warn('Server status update warning:', serverErr);
+        if (serverErr?.data?.needsSmsRecharge || serverErr?.message?.includes('ব্যালেন্স') || serverErr?.message?.includes('sms')) {
+          // Revert local optimistic update
+          onUpdateOrders(orders);
+          if (onShowToast) {
+            onShowToast(`⚠️ ${serverErr?.message || 'আপনার অ্যাকাউন্টে কোনো এসএমএস ব্যালেন্স নেই! ট্র্যাকিং আপডেট পাঠাতে মেসেজ রিচার্জ করুন।'}`);
+          }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('twing_open_sms_recharge', { detail: { tab: 'packages' } }));
+          }
+          return;
+        }
+      }
+
+      setStatusUpdateSuccessId(orderId);
+      setTimeout(() => {
+        setStatusUpdateSuccessId((cur) => (cur === orderId ? null : cur));
+      }, 5000);
+
+      const statusBnName =
+        newStatus === 'pending'
+          ? 'নতুন (অপেক্ষমান)'
+          : newStatus === 'confirmed'
+          ? 'নিশ্চিত'
+          : newStatus === 'processing'
+          ? 'প্যাকিং চলছে'
+          : newStatus === 'shipped'
+          ? 'কুরিয়ারে পাঠানো হয়েছে'
+          : newStatus === 'delivered'
+          ? 'ডেলিভারি সম্পন্ন'
+          : 'বাতিল';
+
+      if (onShowToast) {
+        onShowToast(`✅ অর্ডার #${ord.orderNumber} এর স্ট্যাটাস '${statusBnName}' আপডেট হয়েছে!`);
+      }
+    } catch (err: any) {
+      console.error('Failed to submit order status update:', err);
+      if (onShowToast) {
+        onShowToast(`⚠️ স্ট্যাটাস আপডেট করতে সমস্যা হয়েছে: ${err.message || 'Error'}`);
+      }
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: OnlineOrder['orderStatus']) => {
+    setOrderStatusDrafts((prev) => ({ ...prev, [orderId]: newStatus }));
+    await handleSubmitOrderStatus(orderId, newStatus);
+  };
+
+  const handleGenerateTestOrder = async () => {
+    const sampleProduct = products[0] || {
+      id: 'prd_demo',
+      name: 'প্রিমিয়াম সুতি পাঞ্জাবি / টি-শার্ট',
+      salePrice: 750,
+      unit: 'টি',
+    };
+
+    const testOrder: OnlineOrder = {
+      id: `ord_${Date.now()}_test`,
+      orderNumber: `ORD-${Date.now().toString().slice(-6)}`,
+      customerName: 'তানভীর আহমেদ (টেস্ট গ্রাহক)',
+      customerPhone: '01712345678',
+      customerAddress: 'হাউস ১২, রোড ৪, ধানমন্ডি, ঢাকা',
+      deliveryArea: 'inside_dhaka',
+      deliveryCharge: formData.deliveryInsideDhaka || 60,
+      items: [
+        {
+          productId: sampleProduct.id,
+          productName: sampleProduct.name,
+          unitPrice: sampleProduct.salePrice,
+          quantity: 2,
+          unit: sampleProduct.unit || 'টি',
+          total: sampleProduct.salePrice * 2,
+        },
+      ],
+      subtotal: sampleProduct.salePrice * 2,
+      totalAmount: sampleProduct.salePrice * 2 + (formData.deliveryInsideDhaka || 60),
+      paymentMethod: 'bkash',
+      paymentStatus: 'pending_verification',
+      trxId: `TRX${Date.now().toString().slice(-8).toUpperCase()}`,
+      senderPhone: '01712345678',
+      orderStatus: 'pending',
+      notes: 'অফিস টাইমে ডেলিভারি দিলে ভালো হয়।',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    onUpdateOrders([testOrder, ...orders]);
+    setActiveTab('orders');
+    setOrderFilter('new');
+    if (onShowToast) {
+      onShowToast(`🎉 টেস্ট অর্ডার #${testOrder.orderNumber} যুক্ত হয়েছে!`);
+    }
+
+    try {
+      await storeApi.placeOrder(testOrder);
+    } catch (e) {
+      console.warn('Test order backend sync notice:', e);
+    }
+  };
+
+  const handleShareOnWhatsApp = () => {
+    const text = `🛍️ আসসালামু আলাইকুম! আমাদের অনলাইন শপ এখন সম্পূর্ণ লাইভ।\nঘরে বসেই সেরা মূল্যে পছন্দের পণ্য অর্ডার করতে ভিজিট করুন:\n👉 https://${currentDomainDisplay}\n\nধন্যবাদ,\n${formData.storeName}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const isProductPublished = (prodId: string) => {
+    if (!formData.publishedProductIds || formData.publishedProductIds.length === 0) {
+      return true;
+    }
+    return formData.publishedProductIds.includes(prodId);
+  };
+
+  const isStoreDisabledByAdmin = formData.isStoreAllowedByAdmin === false || formData.adminStoreStatus === 'disabled';
+  const isStorePendingReview = formData.adminStoreStatus === 'requested';
+  const shouldShowActivationGate = isStoreDisabledByAdmin || isStorePendingReview;
 
   return (
-    <div className="flex-1 w-full min-h-[100dvh] overflow-y-auto smooth-scroll-container flex flex-col justify-start lg:justify-center items-center p-3.5 sm:p-6 lg:p-8 py-6 bg-[#030712] text-slate-100 selection:bg-emerald-500 selection:text-white">
-      <div className="w-full max-w-md lg:max-w-5xl xl:max-w-6xl my-auto grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-12 items-center">
-        {/* Left Column for Large Displays (Desktop / Laptop / Monitor) */}
-        <div className="hidden lg:flex lg:col-span-5 xl:col-span-6 flex-col justify-center space-y-6 pr-2">
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              <span>স্মার্ট ডিজিটাল খাতা ও POS সফটওয়্যার</span>
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex justify-center items-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden">
+        {/* Modal Header */}
+        <div className="bg-gradient-to-r from-[#004D40] to-[#00695C] text-white p-4 sm:p-5 flex items-center justify-between shrink-0 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-white/15 flex items-center justify-center border border-white/25">
+              <Globe className="w-5 h-5 sm:w-6 sm:h-6 text-teal-200" />
             </div>
-            <h2 className="text-3xl xl:text-4xl font-black text-white leading-tight tracking-tight">
-              দোকানের দৈনন্দিন হিসাব <br />
-              <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
-                ১০০% নির্ভুল ও সহজ
-              </span>
-            </h2>
-            <p className="text-sm text-slate-300 leading-relaxed">
-              বাকি খাতা, নগদ বিক্রি, কাস্টমার তালিকা ও অটোমেটিক SMS তাগাদা পাঠান নিমেষেই। মোবাইল, কম্পিউটার বা ট্যাবলেট—সব ডিসপ্লেতেই সহজে ব্যবহারযোগ্য।
-            </p>
-          </div>
-
-          {/* Feature List Cards */}
-          <div className="space-y-3">
-            <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
-                <Store className="w-5 h-5" />
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base sm:text-lg font-black tracking-tight">
+                  {shouldShowActivationGate ? 'অনলাইন ই-কমার্স স্টোর' : 'অনলাইন ই-কমার্স স্টোর ও ডোমেন'}
+                </h2>
+                <span
+                  className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                    isStorePendingReview
+                      ? 'bg-amber-300 text-slate-950 animate-pulse'
+                      : isStoreDisabledByAdmin
+                      ? 'bg-rose-500 text-white'
+                      : formData.isEnabled
+                      ? 'bg-emerald-400 text-slate-950'
+                      : 'bg-red-400 text-slate-950'
+                  }`}
+                >
+                  {isStorePendingReview
+                    ? '⏳ আবেদন পর্যালোচনায়'
+                    : isStoreDisabledByAdmin
+                    ? '🔒 সুপার অ্যাডমিন অনুমতি প্রয়োজন'
+                    : formData.isEnabled
+                    ? '● স্টোর লাইভ'
+                    : '○ অফলাইন'}
+                </span>
               </div>
-              <div>
-                <h4 className="text-sm font-bold text-white">ডিজিটাল খাতা ও দ্রুত POS বিক্রি</h4>
-                <p className="text-xs text-slate-400 mt-0.5">খুচরা ও বাকি বিক্রি, মেমো প্রিন্ট ও দৈনিক ক্যাশ হিসাব</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0 border border-teal-500/30">
-                <Smartphone className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-white">ফ্রি SMS বাকি তাগাদা</h4>
-                <p className="text-xs text-slate-400 mt-0.5">এক ক্লিকে বকেয়া গ্রাহকদের মোবাইলে সরাসরি SMS তাগাদা</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3.5 p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800">
-              <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-white">১০০% ক্লাউড ডাটা নিরাপত্তা</h4>
-                <p className="text-xs text-slate-400 mt-0.5">মোবাইল হারালেও ডাটা নিরাপদ, ক্লাউডে আজীবন সংরক্ষিত</p>
-              </div>
+              <p className="text-xs text-teal-100 font-medium mt-0.5">
+                {shouldShowActivationGate
+                  ? 'ই-কমার্স অপশন ব্যবহারের জন্য সুপার অ্যাডমিনের অনুমতি প্রয়োজন'
+                  : 'আপনার নিজস্ব ওয়েবসাইট ও ডোমেনে ২৪/৭ অনলাইন ব্যবসা পরিচালনা করুন'}
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 pt-1 text-xs text-slate-400">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>সাপোর্ট ও যেকোনো প্রয়োজনে হেল্পলাইন: <span className="font-mono text-emerald-400 font-bold">০১৩০৬ ৯০৮১১৫</span></span>
-          </div>
+          <div className="flex items-center gap-2">
+            {shouldShowActivationGate ? (
+              <button
+                type="button"
+                onClick={handleCheckStatus}
+                disabled={isCheckingStatus}
+                className="px-3.5 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs bg-white/20 hover:bg-white/30 text-white disabled:opacity-50"
+                title="সুপার অ্যাডমিন অনুমতি দিয়েছেন কিনা রিফ্রেশ করুন"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">{isCheckingStatus ? 'যাচাই হচ্ছে...' : 'স্ট্যাটাস রিফ্রেশ'}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenStorefront}
+                className="px-3 py-1.5 font-black text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm bg-amber-400 hover:bg-amber-300 text-slate-950"
+                title="ওয়েবসাইট দেখুন"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">স্টোর দেখুন</span>
+              </button>
+            )}
 
-          {/* Direct Link to Central Marketplace */}
-          <div className="pt-2">
+            {onOpenMarketplace && (
+              <button
+                type="button"
+                onClick={onOpenMarketplace}
+                className="px-3 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm bg-teal-800 hover:bg-teal-700 text-white border border-teal-600/50"
+                title="সেন্ট্রাল মার্কেটপ্লেস মল দেখুন"
+              >
+                <Store className="w-3.5 h-3.5 text-amber-300" />
+                <span className="hidden sm:inline">সেন্ট্রাল মল</span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => {
-                if (onOpenMarketplace) {
-                  onOpenMarketplace();
-                } else {
-                  // Fallback: check current host
-                  if (window.location.hostname.includes('twinghisabi.site')) {
-                    window.location.href = 'https://centralmarketplace.twinghisabi.site';
-                  } else {
-                    const u = new URL(window.location.href);
-                    u.searchParams.set('marketplace', '1');
-                    window.location.href = u.toString();
-                  }
-                }
-              }}
-              className="w-full text-left flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-teal-500/20 border border-amber-400/40 hover:border-amber-300 transition-all duration-200 group cursor-pointer shadow-lg shadow-amber-950/20"
+              onClick={onClose}
+              className="p-1.5 rounded-xl hover:bg-white/20 text-teal-100 hover:text-white transition cursor-pointer"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-md group-hover:scale-105 transition-transform">
-                  <Sparkles className="w-5 h-5 text-slate-950" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-sm font-black text-amber-300 group-hover:text-amber-200">
-                      সেন্ট্রাল মার্কেটপ্লেস ব্রাউজ করুন
-                    </h4>
-                    <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-400 text-slate-950">
-                      লাইভ শপ
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 mt-0.5">
-                    দেশজুড়ে ভেরিফাইড মার্চেন্টদের খাঁটি পণ্য সরাসরি কিনুন
-                  </p>
-                </div>
-              </div>
-              <span className="text-amber-300 font-extrabold text-sm group-hover:translate-x-1 transition-transform">
-                &rarr;
-              </span>
+              <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Right Column: The Login / Registration Card Container */}
-        <div className="w-full lg:col-span-7 xl:col-span-6">
-          <div className="bg-[#0B132B]/95 rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-800 backdrop-blur-md">
-            {/* Direct Marketplace quick action button for mobile / top card */}
-            <div className="mb-4 lg:hidden">
-              <button
-                type="button"
-                onClick={() => {
-                  if (onOpenMarketplace) {
-                    onOpenMarketplace();
-                  } else {
-                    if (window.location.hostname.includes('twinghisabi.site')) {
-                      window.location.href = 'https://centralmarketplace.twinghisabi.site';
-                    } else {
-                      const u = new URL(window.location.href);
-                      u.searchParams.set('marketplace', '1');
-                      window.location.href = u.toString();
-                    }
-                  }
-                }}
-                className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-teal-500/20 border border-amber-400/30 text-amber-300 hover:text-amber-200 text-xs font-black transition cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>সেন্ট্রাল মার্কেটপ্লেস দেখুন ও কেনাকাটা করুন</span>
-                </div>
-                <span>&rarr;</span>
-              </button>
-            </div>
-            {/* Brand Header */}
-            <div className="text-center mb-6">
-              <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-[#00382E] shadow-xl shadow-teal-950/50 mb-3 border-2 border-[#00796B] overflow-hidden">
-                <img
-                  src="/icon-192.png"
-                  alt="TwingHisabi"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                TwingHisabi – সহজ হিসাব ও ব্যবসা ব্যবস্থাপনা
-              </h1>
-              <p className="text-xs sm:text-sm text-emerald-300/90 mt-1.5 font-medium">
-                TwingHisabi হলো সহজ ও আধুনিক হিসাব এবং ব্যবসা ব্যবস্থাপনার প্ল্যাটফর্ম।
-              </p>
-            </div>
+        {/* Tab Navigation - Only visible when permission is granted by Super Admin */}
+        {!shouldShowActivationGate && (
+        <div className="flex border-b border-slate-200 bg-slate-50 px-3 sm:px-5 gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveTab('overview')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'overview'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Store className="w-4 h-4 text-teal-700" />
+            <span>ওভারভিউ ও শেয়ার</span>
+          </button>
 
-          {/* 2 Main Segmented Tabs (Unified Login & Registration) */}
-          {activeTab !== 'reset' && (
-            <div className="flex bg-slate-900/90 p-1 rounded-2xl border border-slate-800 mb-6 text-xs font-bold shadow-inner">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('login');
-                  setShow2FA(false);
-                  setErrorMsg('');
-                  setSuccessMsg('');
-                }}
-                className={`flex-1 py-2 sm:py-2.5 rounded-xl transition-all duration-200 cursor-pointer text-center flex items-center justify-center gap-1.5 ${
-                  activeTab === 'login'
-                    ? 'bg-emerald-500 text-slate-950 shadow-md font-black scale-[1.02]'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>প্রবেশ / লগইন</span>
-              </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('domain')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'domain'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Globe className="w-4 h-4 text-indigo-600" />
+            <span>কাস্টম ডোমেন</span>
+            {formData.customDomainVerified && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            )}
+          </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('register');
-                  setShow2FA(false);
-                  setErrorMsg('');
-                  setSuccessMsg('');
-                }}
-                className={`flex-1 py-2 sm:py-2.5 rounded-xl transition-all duration-200 cursor-pointer text-center flex items-center justify-center gap-1.5 ${
-                  activeTab === 'register'
-                    ? 'bg-emerald-500 text-slate-950 shadow-md font-black scale-[1.02]'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>নতুন দোকান (ফ্রি)</span>
-              </button>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => setActiveTab('orders')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'orders'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <ShoppingBag className="w-4 h-4 text-emerald-600" />
+            <span>অনলাইন অর্ডার ({orders.length})</span>
+            {orders.filter((o) => o.orderStatus === 'pending').length > 0 && (
+              <span className="px-1.5 py-0.2 bg-red-500 text-white rounded-full text-[10px] font-black">
+                {orders.filter((o) => o.orderStatus === 'pending').length}
+              </span>
+            )}
+          </button>
 
-          {/* Error Message Box */}
-          {errorMsg && (
-            <div className="mb-4 text-xs bg-rose-950/60 text-rose-300 p-3.5 rounded-2xl border border-rose-800/80 font-bold flex items-start gap-2 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div className="leading-relaxed">{errorMsg}</div>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => setActiveTab('catalog')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'catalog'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Package className="w-4 h-4 text-amber-600" />
+            <span>পণ্য ক্যাটালগ ({products.length})</span>
+          </button>
 
-          {/* Success Message Box */}
-          {successMsg && (
-            <div className="mb-4 text-xs bg-emerald-950/60 text-emerald-300 p-3.5 rounded-2xl border border-emerald-800/80 font-bold flex items-start gap-2 animate-in fade-in">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <div className="leading-relaxed">{successMsg}</div>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => setActiveTab('settings')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'settings'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Settings className="w-4 h-4 text-slate-600" />
+            <span>ই-কমার্স সেটিংস</span>
+          </button>
 
-          {/* ----------------- TAB 1: UNIFIED LOGIN & 2FA VERIFICATION ----------------- */}
-          {activeTab === 'login' && (
-            <div className="space-y-4">
-              {show2FA ? (
-                /* 2FA OTP Screen for Super Admin & Staff */
-                <div className="space-y-3.5 animate-in fade-in">
-                  <div
-                    className={`p-3.5 rounded-2xl border flex items-start gap-2.5 ${
-                      twoFaRole === 'super_admin'
-                        ? 'bg-amber-950/50 border-amber-500/50'
-                        : 'bg-blue-950/50 border-blue-500/50'
-                    }`}
-                  >
-                    <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-black shrink-0 shadow-sm mt-0.5 ${
-                        twoFaRole === 'super_admin'
-                          ? 'bg-amber-500 text-slate-950'
-                          : 'bg-blue-500 text-slate-950'
-                      }`}
-                    >
-                      {twoFaRole === 'super_admin' ? (
-                        <ShieldCheck className="w-5 h-5" />
-                      ) : (
-                        <UserCheck className="w-5 h-5" />
-                      )}
+          <button
+            type="button"
+            onClick={() => setActiveTab('payments')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'payments'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <CreditCard className="w-4 h-4 text-pink-600" />
+            <span>পেমেন্ট গেটওয়ে ও মেথড</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('coupons')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'coupons'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Tag className="w-4 h-4 text-amber-600" />
+            <span>কুপন ও ডিসকাউন্ট ({(formData.coupons || []).length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('messages')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'messages'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <MessageCircle className="w-4 h-4 text-emerald-600" />
+            <span>গ্রাহক মেসেজ ও চ্যাট</span>
+            {unreadMessageCount > 0 && (
+              <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[10px] font-black animate-pulse">
+                {unreadMessageCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('marketplace')}
+            className={`py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold border-b-2 transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
+              activeTab === 'marketplace'
+                ? 'border-teal-700 text-teal-900 bg-white shadow-2xs rounded-t-xl'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Store className="w-4 h-4 text-teal-600" />
+            <span>সেন্ট্রাল মার্কেটপ্লেস</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-teal-100 text-teal-800 text-[10px] font-black">
+              মল
+            </span>
+          </button>
+        </div>
+        )}
+
+        {/* Tab Content Area */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/50">
+          {shouldShowActivationGate ? (
+            <div className="max-w-2xl mx-auto py-4 sm:py-6 space-y-6">
+              {isStorePendingReview ? (
+                /* Pending Review State */
+                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-200 shadow-sm space-y-6 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-700 mx-auto flex items-center justify-center border border-amber-200 shadow-inner">
+                    <Clock className="w-8 h-8 animate-spin text-amber-600" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-black">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                      আবেদন পর্যালোচনায় রয়েছে (Pending Review)
                     </div>
-                    <div>
-                      <h4
-                        className={`text-xs font-black flex items-center gap-1.5 ${
-                          twoFaRole === 'super_admin' ? 'text-amber-300' : 'text-blue-300'
-                        }`}
-                      >
-                        <span>
-                          {twoFaRole === 'super_admin'
-                            ? '👑 সুপার অ্যাডমিন ২FA ভেরিফিকেশন'
-                            : `👤 স্টাফ ২FA ভেরিফিকেশন (${twoFaStaffName || 'স্টাফ মেম্বার'})`}
-                        </span>
-                      </h4>
-                      <p
-                        className={`text-[11px] mt-0.5 leading-relaxed ${
-                          twoFaRole === 'super_admin' ? 'text-amber-200/90' : 'text-blue-200/90'
-                        }`}
-                      >
-                        প্যানেলে প্রবেশের পূর্বে আপনার নিবন্ধিত নম্বরে (
-                        <span className="font-mono font-bold text-white">
-                          {twoFaMaskedPhone || '013****8115'}
-                        </span>
-                        ) পাঠানো ৬-সংখ্যার OTP কোডটি লিখুন।
-                      </p>
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900">
+                      আপনার অনলাইন স্টোর চালুর আবেদন জমা হয়েছে
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-lg mx-auto">
+                      অনলাইন স্টোর ব্যবহার করার জন্য আপনার রিকোয়েস্টটি সুপার অ্যাডমিনের নিকট জমা রয়েছে। সুপার অ্যাডমিন তথ্য যাচাই করে অনুমোদন দিলেই আপনি এখান থেকে আপনার অনলাইন শপ ও ই-কমার্স ব্যবসা সম্পূর্ণ পরিচালনা করতে পারবেন।
+                    </p>
+                  </div>
+
+                  {/* Submitted Info Card */}
+                  <div className="bg-amber-50/80 rounded-2xl p-4 sm:p-5 border border-amber-200/90 text-left space-y-3">
+                    <div className="text-xs font-bold text-amber-900 border-b border-amber-200 pb-2">
+                      আবেদনের বিবরণ:
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">প্রতিষ্ঠানের নাম:</span>
+                        <span className="font-bold text-slate-800">{formData.storeName || store.name || 'আমার দোকান'}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">যোগাযোগ নম্বর:</span>
+                        <span className="font-bold text-slate-800">{formData.phone || store.phone || 'দেওয়া হয়নি'}</span>
+                      </div>
+                    </div>
+                    {formData.adminStoreNote && (
+                      <div className="text-xs pt-1">
+                        <span className="text-slate-500 block text-[11px]">আপনার প্রেরিত নোট:</span>
+                        <p className="font-medium text-amber-950 bg-white/80 p-2.5 rounded-xl border border-amber-200 mt-1">
+                          &ldquo;{formData.adminStoreNote}&rdquo;
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      disabled={isCheckingStatus}
+                      onClick={handleCheckStatus}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#004D40] hover:bg-[#00382e] text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2 active:scale-95 shadow-sm disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                      <span>{isCheckingStatus ? 'যাচাই করা হচ্ছে...' : 'স্ট্যাটাস রিফ্রেশ করুন'}</span>
+                    </button>
+
+                    <a
+                      href={`https://wa.me/8801306908115?text=${encodeURIComponent(
+                        `হ্যালো সুপার অ্যাডমিন, আমি "${formData.storeName || store.name}" এর জন্য ক্যাশবুক ড্যাশবোর্ড থেকে অনলাইন স্টোর ও ই-কমার্স ব্যবহারের আবেদন করেছি। দয়া করে আমার আবেদনটি যাচাই করে অনুমোদন দিন।`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2 active:scale-95 shadow-sm"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>সুপার অ্যাডমিনকে হোয়াটসঅ্যাপে জানান</span>
+                    </a>
+
+                    <button
+                      type="button"
+                      disabled={isSubmittingRequest}
+                      onClick={handleCancelStoreActivation}
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 font-bold text-xs border border-slate-200 hover:border-rose-200 transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
+                    >
+                      <XCircle className="w-4 h-4 text-rose-500" />
+                      <span>আবেদন বাতিল করুন</span>
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500">
+                    জরুরি প্রয়োজনে কল করুন: <span className="font-bold text-slate-700">01306908115</span>
+                  </p>
+                </div>
+              ) : (
+                /* Disabled / Need Permission State */
+                <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
+                  {/* Security Lock Header */}
+                  <div className="text-center space-y-3">
+                    <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center border border-rose-200 shadow-inner">
+                      <Lock className="w-8 h-8 text-rose-600" />
+                    </div>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-100 text-rose-800 text-xs font-bold">
+                      🔒 সুপার অ্যাডমিন অনুমতি প্রয়োজন
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900">
+                      অনলাইন স্টোর ব্যবহারের পূর্বে অনুমতি নিন
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-lg mx-auto">
+                      ইউজার ড্যাশবোর্ড থেকে অনলাইন স্টোর ব্যবহার করতে চাইলে আগে সুপার অ্যাডমিনের কাছে ই-কমার্স অপশন ব্যবহারের অনুমতি নিতে হবে। সুপার অ্যাডমিন অনুমতি দিলে ইউজার এখান থেকে ই-কমার্স ব্যবসা পরিচালনা করতে পারবে।
+                    </p>
+                  </div>
+
+                  {formData.adminStoreNote && (
+                    <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold">পূর্ববর্তী নোট:</span> {formData.adminStoreNote}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Highlights Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <div className="p-3.5 rounded-2xl bg-teal-50/60 border border-teal-100 flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-teal-600 text-white flex items-center justify-center shrink-0">
+                        <Globe className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-teal-950">নিজস্ব ওয়েবসাইট ও ডোমেন</h4>
+                        <p className="text-[11px] text-teal-800 mt-0.5">
+                          কাস্টম ডোমেন অথবা ফ্রি সাবডোমেনে ২৪/৭ আপনার অনলাইন দোকান চলবে।
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-indigo-50/60 border border-indigo-100 flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                        <ShoppingBag className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-indigo-950">অনলাইন অর্ডার ম্যানেজমেন্ট</h4>
+                        <p className="text-[11px] text-indigo-800 mt-0.5">
+                          কাস্টমাররা সরাসরি অর্ডার করতে পারবে এবং এক ক্লিকেই ক্যাশবুকে যুক্ত হবে।
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-100 flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                        <CreditCard className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-emerald-950">বিকাশ / নগদ পেমেন্ট</h4>
+                        <p className="text-[11px] text-emerald-800 mt-0.5">
+                          ক্যাশ অন ডেলিভারি ও ডিজিটাল পেমেন্ট ট্রানজেকশন ভেরিফিকেশন সুবিধা।
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-100 flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0">
+                        <Package className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-amber-950">পণ্য ক্যাটালগ ও ডিসকাউন্ট</h4>
+                        <p className="text-[11px] text-amber-800 mt-0.5">
+                          ছবিসহ আনলিমিটেড পণ্য প্রদর্শন ও কুপন কোড দিয়ে ছাড় দেওয়ার সুবিধা।
+                        </p>
+                      </div>
                     </div>
                   </div>
 
-                  <form onSubmit={handleVerify2FASubmit} className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 mb-1.5 text-center">
-                        ৬-সংখ্যার OTP কোড দিন <span className="text-emerald-400">*</span>
-                      </label>
-                      <div className="relative">
-                        <KeyRound
-                          className={`w-4 h-4 absolute left-3.5 top-3.5 ${
-                            twoFaRole === 'super_admin' ? 'text-amber-400' : 'text-blue-400'
-                          }`}
-                        />
+                  {/* Permission Application Form */}
+                  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+                    <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-slate-800 font-bold text-xs">
+                      <Send className="w-4 h-4 text-teal-700" />
+                      <span>অনুমতির জন্য সুপার অ্যাডমিনের নিকট আবেদন ফর্ম</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                          দোকান / ব্যবসার নাম:
+                        </label>
                         <input
                           type="text"
-                          required
-                          maxLength={6}
-                          autoFocus
-                          value={twoFaOtp}
-                          onFocus={handleInputFocus}
-                          onChange={(e) => setTwoFaOtp(e.target.value.replace(/\D/g, ''))}
-                          placeholder="••••••"
-                          className={`w-full pl-10 pr-4 py-3 bg-slate-900 border rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black focus:outline-none focus:ring-2 ${
-                            twoFaRole === 'super_admin'
-                              ? 'border-amber-500/60 text-amber-300 focus:ring-amber-500'
-                              : 'border-blue-500/60 text-blue-300 focus:ring-blue-500'
-                          }`}
+                          value={formData.storeName || store.name || ''}
+                          readOnly
+                          className="w-full p-2.5 rounded-xl border border-slate-300 text-xs bg-white text-slate-800 font-medium"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                          যোগাযোগের মোবাইল নম্বর:
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.phone || store.phone || ''}
+                          readOnly
+                          className="w-full p-2.5 rounded-xl border border-slate-300 text-xs bg-white text-slate-800 font-medium"
                         />
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-xs pt-1">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        সুপার অ্যাডমিনের উদ্দেশ্যে বার্তা বা বিবরণ (ঐচ্ছিক):
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={requestNoteInput}
+                        onChange={(e) => setRequestNoteInput(e.target.value)}
+                        placeholder="যেমন: আমি আমার দোকানের জন্য অনলাইন স্টোর ও ই-কমার্স সুবিধা চালু করতে চাই। অনুগ্রহ করে ব্যবহারের অনুমতি দিন।"
+                        className="w-full p-3 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+                      />
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
                       <button
                         type="button"
-                        onClick={() => {
-                          setShow2FA(false);
-                          setTwoFaOtp('');
-                          setErrorMsg('');
-                          setSuccessMsg('');
-                        }}
-                        className="text-slate-400 hover:text-slate-200 font-bold flex items-center gap-1 cursor-pointer"
+                        disabled={isCheckingStatus}
+                        onClick={handleCheckStatus}
+                        className="text-xs text-teal-700 hover:text-teal-900 font-bold flex items-center gap-1 cursor-pointer"
                       >
-                        <ArrowLeft className="w-3.5 h-3.5" />
-                        <span>আগের ধাপে ফিরুন</span>
+                        <RefreshCw className={`w-3.5 h-3.5 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                        <span>অনুমোদনের স্ট্যাটাস রিফ্রেশ</span>
                       </button>
 
-                      {twoFaCountdown > 0 ? (
-                        <span className="text-slate-400 text-[11px] font-mono">
-                          পুনরায় কোড: {twoFaCountdown} সেকেন্ড
-                        </span>
+                      <button
+                        type="button"
+                        disabled={isSubmittingRequest}
+                        onClick={handleRequestStoreActivation}
+                        className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition shadow active:scale-95 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        <Send className="w-4 h-4" />
+                        <span>{isSubmittingRequest ? 'আবেদন পাঠানো হচ্ছে...' : 'সুপার অ্যাডমিনের কাছে অনুমতির আবেদন পাঠান'}</span>
+                      </button>
+                    </div>
+
+                    {requestSuccessMessage && (
+                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{requestSuccessMessage}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick Support Footnote */}
+                  <div className="pt-2 text-center text-xs text-slate-500 space-y-1">
+                    <p>
+                      সুপার অ্যাডমিন হেল্পলাইন: <span className="font-bold text-slate-800">01306908115</span>
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      সুপার অ্যাডমিন অনুমোদন দিলে আপনি স্বয়ংক্রিয়ভাবে অনলাইন স্টোর পরিচালনা করার সম্পূর্ণ অ্যাক্সেস পাবেন।
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+          {saveSuccessNotice && (
+            <div className="mb-4 bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-2.5 rounded-2xl flex items-center gap-2 text-xs sm:text-sm font-bold shadow-xs">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>অনলাইন স্টোর তথ্য সফলভাবে সংরক্ষিত হয়েছে!</span>
+            </div>
+          )}
+
+          {domainVerifySuccess && (
+            <div className="mb-4 bg-teal-50 border border-teal-300 text-teal-900 px-4 py-2.5 rounded-2xl flex items-center gap-2 text-xs sm:text-sm font-bold shadow-xs">
+              <ShieldCheck className="w-4 h-4 text-teal-600 shrink-0" />
+              <span>{domainVerifySuccess}</span>
+            </div>
+          )}
+
+          {/* Persistent Store Status Notice Banner across all tabs when not fully approved */}
+          {(isStoreDisabledByAdmin || isStorePendingReview) && activeTab !== 'activation_request' && (
+            <div className="mb-4 p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs bg-amber-50 border-amber-300 text-amber-950">
+              <div className="flex items-center gap-2.5">
+                {isStorePendingReview ? (
+                  <Clock className="w-5 h-5 text-amber-700 animate-spin shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                )}
+                <div className="text-xs">
+                  <span className="font-bold">
+                    {isStorePendingReview
+                      ? 'অনলাইন স্টোর চালুর আবেদন জমা হয়েছে (পর্যালোচনায় রয়েছে)'
+                      : 'অনলাইন স্টোর সুবিধাটি নিষ্ক্রিয় রয়েছে'}
+                  </span>
+                  <p className="text-slate-700 text-[11px] mt-0.5">
+                    {isStorePendingReview
+                      ? 'সুপার অ্যাডমিন অনুমোদন দিলে আপনার অনলাইন শপটি পাবলিকলি সক্রিয় হয়ে যাবে।'
+                      : 'অনলাইন শপ চালু করতে সুপার অ্যাডমিনের কাছে আবেদন পাঠান।'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('activation_request')}
+                className="px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shrink-0 flex items-center gap-1.5 shadow-2xs"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>রিকোয়েস্ট অপশন দেখুন</span>
+              </button>
+            </div>
+          )}
+
+          {/* TAB: ACTIVATION REQUEST & STATUS */}
+          {activeTab === 'activation_request' && (
+            <div className="space-y-6">
+              {/* Request Status Card */}
+              <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/90 shadow-sm space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                        isStorePendingReview
+                          ? 'bg-amber-100 text-amber-700'
+                          : isStoreDisabledByAdmin
+                          ? 'bg-rose-100 text-rose-700'
+                          : 'bg-emerald-100 text-emerald-700'
+                      }`}
+                    >
+                      {isStorePendingReview ? (
+                        <Clock className="w-6 h-6 animate-spin" />
+                      ) : isStoreDisabledByAdmin ? (
+                        <AlertTriangle className="w-6 h-6" />
                       ) : (
-                        <button
-                          type="button"
-                          onClick={handleResend2FAOtp}
-                          className={`hover:underline font-bold flex items-center gap-1 cursor-pointer text-[11px] ${
-                            twoFaRole === 'super_admin' ? 'text-amber-400' : 'text-blue-400'
+                        <ShieldCheck className="w-6 h-6" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-base sm:text-lg font-black text-slate-900">
+                          অনলাইন স্টোর অনুমোদন ও রিকোয়েস্ট অপশন
+                        </h3>
+                        <span
+                          className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                            isStorePendingReview
+                              ? 'bg-amber-200 text-amber-900 animate-pulse'
+                              : isStoreDisabledByAdmin
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-emerald-100 text-emerald-800'
                           }`}
                         >
-                          <RefreshCw className="w-3 h-3" />
-                          <span>পুনরায় OTP পাঠান</span>
+                          {isStorePendingReview
+                            ? '⏳ আবেদন পর্যালোচনায় (Pending)'
+                            : isStoreDisabledByAdmin
+                            ? '🔒 নিষ্ক্রিয় / অনুমোদন প্রয়োজন'
+                            : '✅ অনুমোদিত ও লাইভ (Active)'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        সুপার অ্যাডমিনের অনুমোদন সাপেক্ষে আপনার অনলাইন শপ পাবলিকলি চালু বা বন্ধ থাকে।
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {isStorePendingReview ? (
+                  <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 space-y-4">
+                    <div className="flex items-start gap-3">
+                      <Clock className="w-5 h-5 text-amber-700 mt-0.5 shrink-0" />
+                      <div className="space-y-1">
+                        <h4 className="font-bold text-amber-900 text-sm">
+                          আপনার অনলাইন স্টোর চালুর আবেদন সুপার অ্যাডমিনের পর্যালোচনায় রয়েছে
+                        </h4>
+                        <p className="text-xs text-amber-800">
+                          সুপার অ্যাডমিন আপনার স্টোরের তথ্য যাচাই করে অনুমোদন দিলেই ওয়েবসাইটটি ইন্টারনেট ব্যবহারকারীদের জন্য উন্মুক্ত হয়ে যাবে।
+                        </p>
+                        {formData.adminStoreNote && (
+                          <div className="mt-2.5 p-3 rounded-xl bg-white/90 border border-amber-300/80 text-xs text-amber-950 font-medium">
+                            <span className="font-bold">আপনার পাঠানো নোট:</span> &ldquo;{formData.adminStoreNote}&rdquo;
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2.5 pt-3 border-t border-amber-200">
+                      <button
+                        type="button"
+                        disabled={isSubmittingRequest}
+                        onClick={handleCancelStoreActivation}
+                        className="px-4 py-2 rounded-xl bg-white hover:bg-rose-50 text-rose-700 font-bold text-xs border border-rose-200 transition cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                      >
+                        <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                        <span>{isSubmittingRequest ? 'বাতিল হচ্ছে...' : 'আবেদন প্রত্যাহার / বাতিল করুন'}</span>
+                      </button>
+                      {onOpenSubscriptionModal && (
+                        <button
+                          type="button"
+                          onClick={onOpenSubscriptionModal}
+                          className="px-4 py-2 rounded-xl bg-[#004D40] hover:bg-[#00382e] text-white font-bold text-xs transition cursor-pointer flex items-center gap-1.5"
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>সাবস্ক্রিপশন প্যাকেজ দেখুন ও পেমেন্ট করুন</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : isStoreDisabledByAdmin ? (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-950 space-y-2">
+                      <h4 className="font-bold text-sm text-rose-900 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-600" />
+                        <span>অনলাইন স্টোর সুবিধাটি বর্তমানে নিষ্ক্রিয় রয়েছে</span>
+                      </h4>
+                      <p className="text-xs text-rose-800">
+                        আপনার অনলাইন স্টোর সুবিধাটি চালু করতে নিচে আপনার প্রয়োজনীয়তা বা বার্তা লিখে সুপার অ্যাডমিনের কাছে আবেদন পাঠান।
+                      </p>
+                    </div>
+
+                    {/* Submission Form */}
+                    <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                      <label className="block text-xs font-bold text-slate-800">
+                        সুপার অ্যাডমিনের জন্য নোট বা বার্তা লিখুন (ঐচ্ছিক):
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={requestNoteInput}
+                        onChange={(e) => setRequestNoteInput(e.target.value)}
+                        placeholder="যেমন: আমার মুদি / কাপড়ের দোকানের জন্য অনলাইন স্টোর চালু করতে চাই। ডোমেন ও পেমেন্ট চালু করতে হবে।"
+                        className="w-full p-3 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"
+                      />
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                        <p className="text-[11px] text-slate-500">
+                          আবেদন পাঠানোর পর সুপার অ্যাডমিন প্যানেলে নোটিফিকেশন পাবেন এবং এটি সক্রিয় করবেন।
+                        </p>
+                        <button
+                          type="button"
+                          disabled={isSubmittingRequest}
+                          onClick={handleRequestStoreActivation}
+                          className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition shadow active:scale-95 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 shrink-0"
+                        >
+                          <Send className="w-4 h-4" />
+                          <span>{isSubmittingRequest ? 'পাঠানো হচ্ছে...' : 'অনলাইন স্টোর চালুর আবেদন পাঠান'}</span>
+                        </button>
+                      </div>
+                      {requestSuccessMessage && (
+                        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>{requestSuccessMessage}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* Active Status View */
+                  <div className="space-y-4">
+                    <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 space-y-2">
+                      <div className="flex items-center gap-2 text-emerald-800 font-black text-sm">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                        <span>অভিনন্দন! আপনার অনলাইন স্টোর সুপার অ্যাডমিন অনুমোদিত ও সক্রিয়</span>
+                      </div>
+                      <p className="text-xs text-emerald-900">
+                        আপনার অনলাইন স্টোরটি সফলভাবে লাইভ আছে। যে কেউ যেকোনো স্থান থেকে আপনার দোকানে ভিজিট করে অর্ডার দিতে পারবে।
+                      </p>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+                      <div className="space-y-0.5 text-left w-full sm:w-auto">
+                        <span className="text-[11px] text-slate-500 font-bold uppercase">ওয়েবসাইট লিংক</span>
+                        <div className="font-mono text-xs sm:text-sm font-bold text-slate-800">
+                          https://{currentDomainDisplay}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(`https://${currentDomainDisplay}`)}
+                          className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>{copiedLink ? 'কপি হয়েছে' : 'লিংক কপি'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onOpenStorefront}
+                          className="px-3.5 py-1.5 bg-[#004D40] hover:bg-[#00382e] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>ভিজিট করুন</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Feature Highlights Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-1 shadow-2xs">
+                  <div className="flex items-center gap-2 text-teal-800 font-bold text-xs">
+                    <Globe className="w-4 h-4" />
+                    <span>নিজস্ব ফ্রি সাবডোমেন ও কাস্টম ডোমেন</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    {formData.storeSlug || 'shop'}.twinghisabi.site বা আপনার নিজস্ব ডোমেন যুক্ত করার সুবিধা।
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-1 shadow-2xs">
+                  <div className="flex items-center gap-2 text-indigo-800 font-bold text-xs">
+                    <Package className="w-4 h-4" />
+                    <span>আনলিমিটেড পণ্য ও ছবি</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    দোকানের সব পণ্য ছবি ও ক্যাটাগরিসহ অনলাইনে প্রদর্শন এবং কাস্টমার অর্ডার গ্রহণ।
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-1 shadow-2xs">
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                    <CreditCard className="w-4 h-4" />
+                    <span>বিকাশ, নগদ ও ক্যাশ অন ডেলিভারি</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    কাস্টমাররা সরাসরি বিকাশ বা নগদে পে করে TrxID দিয়ে অর্ডার নিশ্চিত করতে পারে।
+                  </p>
+                </div>
+                <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-1 shadow-2xs">
+                  <div className="flex items-center gap-2 text-purple-800 font-bold text-xs">
+                    <MessageCircle className="w-4 h-4" />
+                    <span>লাইভ চ্যাট ও অর্ডার অ্যালার্ট</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    গ্রাহকদের সাথে ওয়েবসাইটে সরাসরি চ্যাট করুন এবং সাথে সাথে নতুন অর্ডারের নোটিফিকেশন পান।
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 1: OVERVIEW & SHARE */}
+          {activeTab === 'overview' && (
+            <div className="space-y-5">
+              {/* Super Admin Approval & Request Banner */}
+              <div
+                className={`p-4 sm:p-5 rounded-3xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm ${
+                  isStorePendingReview
+                    ? 'bg-amber-50 border-amber-300 text-amber-950'
+                    : isStoreDisabledByAdmin
+                    ? 'bg-rose-50 border-rose-200 text-rose-950'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                      isStorePendingReview
+                        ? 'bg-amber-200 text-amber-800'
+                        : isStoreDisabledByAdmin
+                        ? 'bg-rose-200 text-rose-800'
+                        : 'bg-emerald-200 text-emerald-800'
+                    }`}
+                  >
+                    {isStorePendingReview ? (
+                      <Clock className="w-5 h-5 animate-spin" />
+                    ) : isStoreDisabledByAdmin ? (
+                      <AlertTriangle className="w-5 h-5" />
+                    ) : (
+                      <ShieldCheck className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div>
+                    <h4 className="font-black text-sm">
+                      {isStorePendingReview
+                        ? 'অনলাইন স্টোর চালুর আবেদন সুপার অ্যাডমিনের পর্যালোচনায় রয়েছে'
+                        : isStoreDisabledByAdmin
+                        ? 'অনলাইন স্টোর বর্তমানে নিষ্ক্রিয় (অনুমোদন প্রয়োজন)'
+                        : 'অনলাইন স্টোর সুপার অ্যাডমিন কর্তৃক অনুমোদিত ও সক্রিয়'}
+                    </h4>
+                    <p className="text-xs opacity-90 mt-0.5">
+                      {isStorePendingReview
+                        ? 'সুপার অ্যাডমিন অনুমোদন দিলে আপনার অনলাইন স্টোরটি লাইভ হবে।'
+                        : isStoreDisabledByAdmin
+                        ? 'অনলাইন স্টোর সক্রিয় করতে রিকোয়েস্ট অপশন থেকে সুপার অ্যাডমিনের কাছে আবেদন পাঠান।'
+                        : 'আপনার শপটি সফলভাবে সক্রিয় আছে এবং কাস্টমাররা অনলাইনে অর্ডার দিতে পারবে।'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('activation_request')}
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition active:scale-95 cursor-pointer shrink-0 flex items-center gap-1.5 shadow-xs"
+                >
+                  <Send className="w-3.5 h-3.5 text-amber-400" />
+                  <span>রিকোয়েস্ট অপশন দেখুন</span>
+                </button>
+              </div>
+
+              {/* Store Status Banner */}
+              <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/90 shadow-sm space-y-4">
+                {/* Header row: Status and Live toggle */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-3 w-3">
+                      {formData.isEnabled && (
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      )}
+                      <span
+                        className={`relative inline-flex rounded-full h-3 w-3 ${
+                          formData.isEnabled ? 'bg-emerald-500' : 'bg-slate-400'
+                        }`}
+                      />
+                    </span>
+                    <span className="text-xs font-black text-slate-800 tracking-wide uppercase">
+                      {formData.isEnabled ? 'অনলাইন স্টোর লাইভ ও সক্রিয়' : 'অনলাইন স্টোর বন্ধ'}
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-teal-50 text-teal-800 border border-teal-200">
+                      {formData.customDomainVerified ? 'কাস্টম ডোমেন' : 'সাব-ডোমেন'}
+                    </span>
+                  </div>
+
+                  {/* Toggle Button */}
+                  <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = { ...formData, isEnabled: !formData.isEnabled };
+                        setFormData(updated);
+                        onUpdateConfig(updated);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-1.5 ${
+                        formData.isEnabled
+                          ? 'bg-[#004D40] text-white shadow-xs'
+                          : 'bg-white text-slate-700 shadow-2xs'
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          formData.isEnabled ? 'bg-emerald-300' : 'bg-slate-400'
+                        }`}
+                      />
+                      <span>{formData.isEnabled ? 'স্টোর চালু আছে' : 'স্টোর বন্ধ রাখুন'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Primary Store URL Box (Canonical Wildcard Subdomain) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-500 font-semibold">
+                    <span>আপনার প্রধান স্টোর সাব-ডোমেন (শেয়ার ও প্রচারের ক্যানোনিকাল URL):</span>
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5" /> SSL এনক্রিপ্ট
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50 border-2 border-teal-600/30 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xs w-full min-w-0 overflow-hidden">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
+                      <div className="w-9 h-9 rounded-xl bg-[#004D40] text-white flex items-center justify-center shrink-0 shadow-2xs">
+                        <Globe className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <div className="text-[11px] font-bold text-teal-800 uppercase tracking-wider">
+                          {formData.customDomainVerified && formData.customDomain ? 'কাস্টম ডোমেন' : 'অফিসিয়াল সাব-ডোমেন'}
+                        </div>
+                        <div className="font-mono text-xs sm:text-base font-black text-slate-900 break-all select-all">
+                          https://{currentDomainDisplay}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(`https://${currentDomainDisplay}`)}
+                        className="flex-1 sm:flex-initial px-3.5 py-2.5 bg-white hover:bg-slate-100 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-2xs"
+                      >
+                        {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedLink ? 'কপি হয়েছে' : 'সাব-ডোমেন কপি'}</span>
+                      </button>
+
+                      <a
+                        href={`https://${currentDomainDisplay}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 sm:flex-initial px-3.5 py-2.5 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>ব্রাউজারে ভিজিট</span>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Secondary Fallback Note (Collapsed / Subdued) */}
+                <div className="bg-slate-50/80 border border-slate-200 rounded-xl px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500 w-full min-w-0 overflow-hidden">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                    <span className="font-semibold text-slate-600 shrink-0">অভ্যন্তরীণ ব্যাকআপ লিংক:</span>
+                    <span className="font-mono text-slate-500 truncate min-w-0 block">
+                      {typeof window !== 'undefined' ? `${window.location.origin}/?shop=${formData.storeSlug || 'shop'}` : `https://${currentDomainDisplay}`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = typeof window !== 'undefined' ? `${window.location.origin}/?shop=${formData.storeSlug || 'shop'}` : `https://${currentDomainDisplay}`;
+                      copyToClipboard(url);
+                    }}
+                    className="self-end sm:self-auto px-2 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 rounded text-teal-700 hover:text-teal-900 font-bold shrink-0 cursor-pointer"
+                  >
+                    কপি
+                  </button>
+                </div>
+
+                {/* Fast Action Buttons Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(`https://${currentDomainDisplay}`)}
+                    className="p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 flex flex-col sm:flex-row items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                  >
+                    {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-slate-500" />}
+                    <span>লিংক কপি</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleShareOnWhatsApp}
+                    className="p-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-2xl text-xs font-bold text-emerald-800 flex flex-col sm:flex-row items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                  >
+                    <MessageCircle className="w-4 h-4 text-emerald-600" />
+                    <span>WhatsApp শেয়ার</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onOpenStorefront}
+                    className="p-3 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-2xl text-xs font-bold text-teal-900 flex flex-col sm:flex-row items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                  >
+                    <Eye className="w-4 h-4 text-teal-700" />
+                    <span>ওয়েবসাইট প্রিভিউ</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('domain')}
+                    className="p-3 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-2xl text-xs font-bold text-indigo-900 flex flex-col sm:flex-row items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                  >
+                    <Globe className="w-4 h-4 text-indigo-700" />
+                    <span>ডোমেন সেটিংস</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Fast Stats Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                  <div className="flex items-center justify-between text-slate-500 mb-1">
+                    <span className="text-xs font-semibold">অনলাইন পণ্য</span>
+                    <Package className="w-4 h-4 text-teal-600" />
+                  </div>
+                  <div className="text-xl font-black text-slate-900">{products.length} টি</div>
+                  <div className="text-[11px] text-teal-700 font-bold mt-0.5">সবগুলো স্বয়ংক্রিয় সিঙ্ক</div>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                  <div className="flex items-center justify-between text-slate-500 mb-1">
+                    <span className="text-xs font-semibold">মোট অর্ডার</span>
+                    <ShoppingBag className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div className="text-xl font-black text-slate-900">{orders.length} টি</div>
+                  <div className="text-[11px] text-emerald-700 font-bold mt-0.5">
+                    নতুন: {orders.filter((o) => o.orderStatus === 'pending').length}
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                  <div className="flex items-center justify-between text-slate-500 mb-1">
+                    <span className="text-xs font-semibold">মোট অনলাইন বিক্রি</span>
+                    <DollarSign className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <div className="text-xl font-black text-slate-900">
+                    ৳ {formatMoney(orders.filter((o) => o.orderStatus !== 'cancelled').reduce((acc, o) => acc + o.totalAmount, 0))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-medium mt-0.5">ডেলিভারি সহ</div>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs">
+                  <div className="flex items-center justify-between text-slate-500 mb-1">
+                    <span className="text-xs font-semibold">ডোমেন স্ট্যাটাস</span>
+                    <ShieldCheck className="w-4 h-4 text-teal-600" />
+                  </div>
+                  <div className="text-sm font-black text-slate-900">
+                    {formData.customDomainVerified ? 'কাস্টম ডোমেন' : 'সাব-ডোমেন'}
+                  </div>
+                  <div className="text-[11px] text-emerald-700 font-bold mt-0.5">SSL সুরক্ষিত (HTTPS)</div>
+                </div>
+              </div>
+
+              {/* How it works guidance */}
+              <div className="bg-gradient-to-br from-teal-50 to-emerald-50/50 rounded-3xl p-5 border border-teal-200/70 space-y-3">
+                <h4 className="text-sm font-bold text-teal-950 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span>অনলাইন স্টোরের মাধ্যমে আপনার ব্যবসা বৃদ্ধি করুন</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-slate-700">
+                  <div className="bg-white/80 p-3 rounded-2xl border border-teal-100 space-y-1">
+                    <div className="font-bold text-teal-900">১. পণ্য যুক্ত করুন</div>
+                    <p className="text-slate-600 leading-relaxed">
+                      দোকানের ইনভেনটরিতে পণ্য যুক্ত করলেই স্বয়ংক্রিয়ভাবে আপনার অনলাইন স্টোরে শো করবে।
+                    </p>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-2xl border border-teal-100 space-y-1">
+                    <div className="font-bold text-teal-900">২. লিংক কাস্টমারকে দিন</div>
+                    <p className="text-slate-600 leading-relaxed">
+                      ওয়েবসাইট লিংক দিয়ে কাস্টমারকে সরাসরি অর্ডার করতে বলুন। কোনো অ্যাপ ইন্সটলের দরকার নেই।
+                    </p>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-2xl border border-teal-100 space-y-1">
+                    <div className="font-bold text-teal-900">৩. অর্ডার ও পেমেন্ট নিন</div>
+                    <p className="text-slate-600 leading-relaxed">
+                      কাস্টমার অর্ডার করলে সরাসরি আপনার প্যানেলে অর্ডার আসবে এবং হোয়াটসঅ্যাপে কনফার্ম করতে পারবেন।
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: CUSTOM DOMAIN & SUBDOMAIN */}
+          {activeTab === 'domain' && (
+            <div className="space-y-6">
+              {/* Free Subdomain Setting */}
+              <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs space-y-4">
+                <div className="flex flex-wrap sm:flex-nowrap items-start sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-800 flex items-center justify-center font-black text-sm border border-teal-200 shrink-0">
+                      ১
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-sm sm:text-base text-slate-900">ডাইনামিক ওয়াইল্ডকার্ড সাব-ডোমেন (Dynamic Wildcard Subdomain)</h3>
+                      <p className="text-xs text-slate-500">
+                        আপনার দোকানের নিজস্ব সাব-ডোমেন URL (মূল ডোমেন: <span className="font-mono font-bold text-teal-800">twinghisabi.site</span>)
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold shrink-0">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    ক্যানোনিকাল সক্রিয়
+                  </span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">আপনার দোকানের পছন্দমতো সাব-ডোমেন স্লাগ দিন (৩-৩০ ক্যারেক্টার):</label>
+                  <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center">
+                    <div className="flex-1 flex items-center rounded-xl border border-slate-300 bg-slate-50 px-2.5 sm:px-3 py-2 sm:py-2.5 font-mono text-xs sm:text-sm focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-500/20 focus-within:bg-white shadow-2xs min-w-0 overflow-hidden">
+                      <span className="text-slate-400 font-semibold select-none shrink-0 text-xs">https://</span>
+                      <input
+                        type="text"
+                        value={formData.storeSlug}
+                        onChange={(e) => {
+                          const clean = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+                          setFormData({ ...formData, storeSlug: clean });
+                        }}
+                        className="bg-transparent font-bold text-teal-950 focus:outline-none px-1 flex-1 min-w-0 text-xs sm:text-sm"
+                        placeholder="your-shop-slug"
+                      />
+                      <span className="text-teal-800 font-bold select-none shrink-0 text-xs">.twinghisabi.site</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isSavingSettings}
+                      onClick={() => handleSaveSettings()}
+                      className={`w-full sm:w-auto px-5 py-2.5 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer shrink-0 flex items-center justify-center gap-1.5 ${
+                        isSavingSettings
+                          ? 'bg-teal-700 opacity-80 cursor-wait'
+                          : saveSuccessNotice
+                          ? 'bg-emerald-600 hover:bg-emerald-700'
+                          : 'bg-[#004D40] hover:bg-[#00382E]'
+                      }`}
+                    >
+                      {isSavingSettings ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>সেভ হচ্ছে...</span>
+                        </>
+                      ) : saveSuccessNotice ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-200" />
+                          <span>সেভ হয়েছে!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5" />
+                          <span>সাব-ডোমেন সেভ করুন</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    * শুধুমাত্র ইংরেজি ছোট হাতের অক্ষর (a-z), সংখ্যা (0-9) এবং হাইফেন (-) প্রযোজ্য। যেমন: <span className="font-mono font-bold text-teal-700">tanjinhub</span>, <span className="font-mono font-bold text-teal-700">rahimstore</span>
+                  </p>
+                </div>
+
+                {/* Subdomain Active Canonical Links Display */}
+                <div className="bg-slate-50 border border-teal-600/30 rounded-2xl p-3.5 sm:p-4 space-y-3 text-xs w-full min-w-0 overflow-hidden shadow-2xs">
+                  <div className="space-y-2 w-full min-w-0">
+                    <div className="flex items-center gap-1.5 text-slate-700">
+                      <Globe className="w-4 h-4 text-teal-700 shrink-0" />
+                      <span className="text-[11px] sm:text-xs font-bold">পাবলিক ক্যানোনিকাল সাব-ডোমেন URL:</span>
+                    </div>
+
+                    <div className="bg-white border border-slate-200/90 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full min-w-0 shadow-2xs">
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <a
+                          href={`https://${formData.storeSlug || 'shop'}.twinghisabi.site`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono font-black text-xs sm:text-sm text-teal-950 hover:text-teal-700 hover:underline break-all block select-all tracking-tight"
+                        >
+                          https://{formData.storeSlug || 'shop'}.twinghisabi.site
+                        </a>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(`https://${formData.storeSlug || 'shop'}.twinghisabi.site`)}
+                          className="flex-1 sm:flex-initial px-3.5 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-slate-600" />
+                          <span>কপি</span>
+                        </button>
+                        <a
+                          href={`https://${formData.storeSlug || 'shop'}.twinghisabi.site`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 sm:flex-initial px-3.5 py-2 bg-[#004D40] hover:bg-[#00382E] active:scale-95 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>ব্রাউজারে খুলুন</span>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/90 rounded-xl p-3 border border-slate-200/80 text-[11px] text-slate-600 space-y-1">
+                    <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>হোস্টনেম ভিত্তিক আইসোলেশন ও রাউটিং সক্রিয়</span>
+                    </div>
+                    <p className="leading-relaxed">
+                      প্রতিটি সাব-ডোমেন রিকোয়েস্টে ব্যাকএন্ড <span className="font-mono text-teal-700 font-bold">Host</span> হেডারের মাধ্যমে ভেন্ডরের তথ্য স্বয়ংক্রিয়ভাবে নির্ধারণ করে এবং ডাটাবেজ লেভেলে অন্য কোনো ভেন্ডরের ডাটা অ্যাক্সেস প্রতিরোধ করে।
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Connect Custom Domain (Own Domain) */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold">
+                      ২
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm sm:text-base text-slate-900">
+                        আপনার নিজস্ব ডোমেন যুক্ত করুন (Own Custom Domain)
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        যেমন: আপনার নিজের কেনা .com, .xyz, .com.bd ডোমেন যুক্ত করে প্রফেশনাল ব্র্যান্ড তৈরি করুন
+                      </p>
+                    </div>
+                  </div>
+
+                  {formData.customDomainVerified && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      ভেরিফাইড ও সক্রিয়
+                    </span>
+                  )}
+                </div>
+
+                {/* Input row */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700">ডোমেন নাম লিখুন:</label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <div className="relative flex-1">
+                      <Globe className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                      <input
+                        type="text"
+                        value={customDomainInput}
+                        onChange={(e) => setCustomDomainInput(e.target.value)}
+                        placeholder="যেমন: www.mybrandshop.com অথবা myshop.com"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white font-mono text-xs sm:text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleVerifyCustomDomain}
+                        disabled={isVerifyingDomain || !customDomainInput.trim()}
+                        className="flex-1 sm:flex-initial px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      >
+                        {isVerifyingDomain ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>ভেরিফাই হচ্ছে...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>ভেরিফাই ও সংযুক্ত করুন</span>
+                          </>
+                        )}
+                      </button>
+
+                      {formData.customDomainVerified && (
+                        <button
+                          type="button"
+                          onClick={handleDisconnectDomain}
+                          className="px-3 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs rounded-xl transition cursor-pointer"
+                        >
+                          ডিসকানেক্ট
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {domainVerifySuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-800 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{domainVerifySuccess}</span>
+                  </div>
+                )}
+                {domainError && (
+                  <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-xs font-bold text-red-800 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span>{domainError}</span>
+                  </div>
+                )}
+
+                {/* DNS Configuration Instructions (Zero Hassle) */}
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/90 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                      <HelpCircle className="w-4 h-4 text-indigo-600" />
+                      <span>DNS সেটিংস নির্দেশিকা (যেখান থেকে ডোমেন কিনেছেন সেখানে এন্ট্রি করুন):</span>
+                    </h4>
+                    <span className="text-[11px] text-slate-500 font-medium">ঝামেলামুক্ত ৩ মিনিট সেটআপ</span>
+                  </div>
+
+                  {/* DNS Records Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-slate-500 font-bold">
+                          <th className="pb-2">রেকর্ড টাইপ</th>
+                          <th className="pb-2">নাম / হোস্ট</th>
+                          <th className="pb-2">টার্গেট / ভ্যালু</th>
+                          <th className="pb-2">TTL</th>
+                          <th className="pb-2 text-right">কপি</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200/70 font-mono">
+                        <tr>
+                          <td className="py-2.5 font-bold text-indigo-700">CNAME</td>
+                          <td className="py-2.5 text-slate-800">www</td>
+                          <td className="py-2.5 text-teal-800 font-bold">cname.twinghisabi.site</td>
+                          <td className="py-2.5 text-slate-500">স্বয়ংক্রিয় / 3600</td>
+                          <td className="py-2.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard('cname.twinghisabi.site', 'cname')}
+                              className="p-1 text-slate-500 hover:text-indigo-600"
+                              title="কপি করুন"
+                            >
+                              {copiedRecord === 'cname' ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 font-bold text-indigo-700">A Record</td>
+                          <td className="py-2.5 text-slate-800">@</td>
+                          <td className="py-2.5 text-teal-800 font-bold">76.76.21.21</td>
+                          <td className="py-2.5 text-slate-500">স্বয়ংক্রিয় / 3600</td>
+                          <td className="py-2.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard('76.76.21.21', 'arecord')}
+                              className="p-1 text-slate-500 hover:text-indigo-600"
+                              title="কপি করুন"
+                            >
+                              {copiedRecord === 'arecord' ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="bg-indigo-50/70 border border-indigo-200/60 rounded-xl p-2.5 text-[11px] text-indigo-900 space-y-1">
+                    <p className="font-bold flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-700" />
+                      <span>ফ্রি অটোমেটিক SSL সার্টিফিকেট (HTTPS) অন্তর্ভুক্ত:</span>
+                    </p>
+                    <p className="text-indigo-800/90 leading-relaxed">
+                      ডোমেন কানেক্ট হওয়ার সাথে সাথে স্বয়ংক্রিয়ভাবে বিনামূল্যে SSL সার্টিফিকেট সক্রিয় হয়ে যায়। আপনার ক্রেতারা ব্রাউজারে নিরাপদ তালা আইকন দেখতে পাবেন।
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: STORE SETTINGS & CUSTOMIZER */}
+          {activeTab === 'settings' && (
+            <form onSubmit={handleSaveSettings} className="space-y-6">
+              {/* Section 1: Store Name, Header & Brand Settings */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                    <Store className="w-4 h-4 text-teal-700" />
+                    <span>ই-কমার্স নাম ও হেডার ব্র্যান্ডিং</span>
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <span className="hidden sm:inline-block text-[11px] text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full font-bold">
+                      হেডার এবং পুরো সাইটে প্রদর্শিত হবে
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isSavingSettings}
+                      onClick={() => handleSaveSettings()}
+                      className={`px-3.5 py-1.5 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5 ${
+                        isSavingSettings
+                          ? 'bg-teal-700 opacity-80 cursor-wait'
+                          : saveSuccessNotice
+                          ? 'bg-emerald-600'
+                          : 'bg-[#004D40] hover:bg-[#00382E]'
+                      }`}
+                    >
+                      {isSavingSettings ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>সেভ হচ্ছে...</span>
+                        </>
+                      ) : saveSuccessNotice ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-200" />
+                          <span>সংরক্ষিত!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5" />
+                          <span>সেভ করুন</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                      <span>ই-কমার্স স্টোরের নাম *</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        (এটি সরাসরি উপরের হেডারের বামপাশে বড় অক্ষরে দেখা যাবে)
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.storeName}
+                      onChange={(e) => setFormData({ ...formData, storeName: e.target.value })}
+                      placeholder="উদাঃ bikroyhub, Smart Shop, etc."
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">স্টোরের ক্যাটাগরি</label>
+                    <input
+                      type="text"
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      placeholder="উদাঃ স্কিনকেয়ার, ফ্যাশন, গ্যাজেট"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700">স্টোর লোগো / আইকন</label>
+                      {formData.logoUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, logoUrl: '' })}
+                          className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer"
+                        >
+                          লোগো মুছুন
                         </button>
                       )}
                     </div>
 
-                    <button
-                      type="submit"
-                      disabled={loading || twoFaOtp.length < 6}
-                      className={`w-full py-3.5 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2 ${
-                        twoFaRole === 'super_admin'
-                          ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 shadow-amber-950/40'
-                          : 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 shadow-blue-950/40'
-                      }`}
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                          <span>OTP যাচাই করা হচ্ছে...</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-4 h-4 text-slate-950" />
-                          <span>
-                            {twoFaRole === 'super_admin'
-                              ? 'OTP যাচাই করে সুপার অ্যাডমিন প্যানেলে প্রবেশ'
-                              : 'OTP যাচাই করে স্টাফ প্যানেলে প্রবেশ'}
-                          </span>
-                        </>
-                      )}
-                    </button>
-                  </form>
-                </div>
-              ) : (
-                /* Unified Login Form for User, Super Admin, and Staff */
-                <form onSubmit={handleUnifiedLogin} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                      ১১ ডিজিটের মোবাইল নম্বর <span className="text-emerald-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <Phone className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                      <input
-                        type="text"
-                        required
-                        value={identifier}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setIdentifier(e.target.value)}
-                        placeholder="যেমন: ০১XXXXXXXXX"
-                        className="w-full pl-10 pr-4 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 transition tracking-wide"
-                      />
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full">
+                      <div className="flex items-center gap-2 shrink-0">
+                        {formData.logoUrl ? (
+                          <div className="relative group">
+                            <div className="w-10 h-10 rounded-xl border border-slate-200 overflow-hidden bg-white shrink-0 flex items-center justify-center">
+                              <img
+                                src={formData.logoUrl}
+                                alt="Logo"
+                                className="w-full h-full object-contain"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setFormData({ ...formData, logoUrl: '' })}
+                              className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center text-[10px] cursor-pointer hover:bg-rose-600 shadow-xs"
+                              title="লোগো মুছুন"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="w-10 h-10 rounded-xl border border-dashed border-slate-300 bg-slate-50 shrink-0 flex items-center justify-center text-slate-400">
+                            <ImageIcon className="w-5 h-5" />
+                          </div>
+                        )}
+
+                        <label
+                          htmlFor="store-logo-upload"
+                          className="px-3 py-2 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-teal-700" />
+                          <span>ছবি আপলোড</span>
+                        </label>
+                        <input
+                          id="store-logo-upload"
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files?.[0]) {
+                              handleLogoFileUpload(e.target.files[0]);
+                            }
+                          }}
+                        />
+                      </div>
+
+                      <div className="flex-1 min-w-0 w-full">
+                        <input
+                          type="url"
+                          value={formData.logoUrl || ''}
+                          onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
+                          placeholder="অথবা লোগো URL পেস্ট করুন"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  <div>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <label className="block text-xs font-bold text-slate-300">
-                        গোপন পিন (PIN) <span className="text-emerald-400">*</span>
-                      </label>
+                  <div className="sm:col-span-2 space-y-1">
+                    <label className="text-xs font-bold text-slate-700">ট্যাগলাইন বা স্লোগান</label>
+                    <input
+                      type="text"
+                      value={formData.tagline}
+                      onChange={(e) => setFormData({ ...formData, tagline: e.target.value })}
+                      placeholder="উদাঃ সেরা মানের পণ্য ও দ্রুততম হোম ডেলিভারি"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2 space-y-1">
+                    <label className="text-xs font-bold text-slate-700">টপ অ্যানাউন্সমেন্ট ব্যানার টেক্সট</label>
+                    <input
+                      type="text"
+                      value={formData.announcement}
+                      onChange={(e) => setFormData({ ...formData, announcement: e.target.value })}
+                      placeholder="উদাঃ 🎉 ফ্রি ডেলিভারি অফার! প্রথম অর্ডারে বিশেষ ছাড়!"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Top Hero Banner Customization (ব্যানার পরিবর্তন) */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-pink-600" />
+                    <span>উপরের হিরো ব্যানার পরিবর্তন ও কাস্টমাইজেশন</span>
+                  </h3>
+                  <span className="text-[11px] text-pink-700 bg-pink-50 px-2.5 py-1 rounded-full font-bold">
+                    হিরো সেকশন
+                  </span>
+                </div>
+
+                {/* Banner Style Selector */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700">ব্যানারের স্টাইল নির্বাচন করুন:</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, bannerStyle: 'neon' })}
+                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex items-start gap-3 ${
+                        (formData.bannerStyle || 'neon') === 'neon'
+                          ? 'border-pink-500 bg-pink-50/50 shadow-xs ring-1 ring-pink-400'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-pink-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <Sparkles className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-slate-900">🌟 নিয়ন Best Picks ব্যানার</div>
+                        <div className="text-[11px] text-slate-600">
+                          স্ক্রিনশটের হুবহু নিয়ন গ্লো সাইন ও প্রডাক্ট ডিসপ্লে
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, bannerStyle: 'image' })}
+                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex items-start gap-3 ${
+                        formData.bannerStyle === 'image'
+                          ? 'border-teal-600 bg-teal-50/50 shadow-xs ring-1 ring-teal-500'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-teal-700 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <ImageIcon className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-slate-900">🖼️ কাস্টম ফটো ব্যানার</div>
+                        <div className="text-[11px] text-slate-600">
+                          নিজের পছন্দের প্রমোশনাল ছবি বা অফার ব্যানার আপলোড
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub-fields for Neon Banner */}
+                {(formData.bannerStyle || 'neon') === 'neon' && (
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-pink-50/40 to-purple-50/40 border border-pink-200/60 space-y-3">
+                    <div className="text-xs font-bold text-pink-900 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>নিয়ন ব্যানারের টেক্সট সেটিংস</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">ব্যানার টাইটেল</label>
+                        <input
+                          type="text"
+                          value={formData.bannerTitle || ''}
+                          onChange={(e) => setFormData({ ...formData, bannerTitle: e.target.value })}
+                          placeholder="BEST PICKS"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-800"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">ব্যানার ট্যাগ</label>
+                        <input
+                          type="text"
+                          value={formData.bannerTag || ''}
+                          onChange={(e) => setFormData({ ...formData, bannerTag: e.target.value })}
+                          placeholder="OF THE WEEK"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">ডিসকাউন্ট অফার টেক্সট</label>
+                        <input
+                          type="text"
+                          value={formData.bannerDiscountText || ''}
+                          onChange={(e) => setFormData({ ...formData, bannerDiscountText: e.target.value })}
+                          placeholder="UP TO 55% DISCOUNT"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub-fields for Image Banner */}
+                {formData.bannerStyle === 'image' && (
+                  <div className="p-4 rounded-2xl bg-teal-50/40 border border-teal-200/60 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-teal-950 flex items-center gap-1.5">
+                        <ImageIcon className="w-4 h-4 text-teal-700" />
+                        <span>মাল্টিপল ব্যানার ও প্রডাক্ট লিংক ব্যবস্থাপনা ({Array.isArray(formData.banners) ? formData.banners.length : (formData.bannerUrl ? 1 : 0)}টি ব্যানার সক্রিয়)</span>
+                      </div>
+                      {bannerUploadNotice && (
+                        <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-1 rounded-lg">
+                          {bannerUploadNotice}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-slate-600">
+                      💡 আপনি প্রতিটি ব্যানারের উপরে আকর্ষণীয় <strong>টাইটেল/শিরোনাম</strong>, <strong>সাব-টাইটেল</strong>, <strong>ট্যাগ</strong> লিখতে পারবেন এবং গ্রাহকের ক্লিকে সরাসরি নির্দিষ্ট <strong>পণ্য কেনার পেজ</strong> লিংক করতে পারবেন।
+                    </p>
+
+                    {/* List of existing banners with rich customization */}
+                    <div className="space-y-3">
+                      {((Array.isArray(formData.banners) && formData.banners.length > 0)
+                        ? formData.banners
+                        : (formData.bannerUrl ? [{ id: 'banner_init', imageUrl: formData.bannerUrl, title: formData.bannerTitle || 'ব্যানার ১', active: true }] : [])
+                      ).map((b, idx) => {
+                        const isEditing = editingBannerId === b.id;
+                        const linkedProd = b.productId && products ? products.find((p) => p.id === b.productId) : null;
+
+                        return (
+                          <div
+                            key={b.id || idx}
+                            className={`p-3 bg-white rounded-2xl border transition shadow-2xs ${
+                              isEditing ? 'border-teal-500 ring-2 ring-teal-500/20 shadow-sm' : 'border-teal-200 hover:border-teal-400'
+                            }`}
+                          >
+                            {/* Summary Card Header */}
+                            <div className="flex items-center gap-3">
+                              <div className="relative shrink-0">
+                                <img
+                                  src={b.imageUrl}
+                                  alt={b.title || `Banner ${idx + 1}`}
+                                  className="w-20 h-13 object-cover rounded-xl border border-slate-200 bg-slate-100"
+                                  referrerPolicy="no-referrer"
+                                />
+                                {b.tag && (
+                                  <span className="absolute -top-1.5 -left-1 px-1.5 py-0.2 rounded-md bg-amber-400 text-slate-950 font-black text-[8px] uppercase tracking-wider shadow-2xs">
+                                    {b.tag}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                                    {b.title || `ব্যানার #${idx + 1}`}
+                                  </span>
+                                  <span
+                                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                      b.active !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                                    }`}
+                                  >
+                                    {b.active !== false ? 'সক্রিয়' : 'বন্ধ'}
+                                  </span>
+                                </div>
+
+                                {b.subtitle && (
+                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                    {b.subtitle}
+                                  </p>
+                                )}
+
+                                <div className="flex items-center gap-2 flex-wrap mt-1">
+                                  {linkedProd ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                      <ShoppingBag className="w-3 h-3 text-emerald-600" />
+                                      লিংকড পণ্য: {linkedProd.name} (৳{linkedProd.salePrice})
+                                    </span>
+                                  ) : b.linkUrl ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                                      <Globe className="w-3 h-3 text-blue-600" />
+                                      কাস্টম ওয়েব লিংক
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400">
+                                      কোনো নির্দিষ্ট পণ্য লিংক নেই
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingBannerId(isEditing ? null : b.id)}
+                                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition flex items-center gap-1 ${
+                                    isEditing
+                                      ? 'bg-teal-700 text-white'
+                                      : 'bg-teal-50 text-teal-800 hover:bg-teal-100 border border-teal-200'
+                                  }`}
+                                  title="টাইটেল ও লিংক এডিট করুন"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">{isEditing ? 'বন্ধ করুন' : 'এডিট'}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleBannerActive(b.id)}
+                                  className={`px-2 py-1.5 rounded-xl text-[11px] font-bold cursor-pointer transition ${
+                                    b.active !== false
+                                      ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                      : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                  }`}
+                                >
+                                  {b.active !== false ? 'বন্ধ' : 'চালু'}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveBanner(b.id)}
+                                  className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-xl cursor-pointer transition"
+                                  title="ব্যানার মুছুন"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Rich Inline Editing Panel */}
+                            {isEditing && (
+                              <div className="mt-3 pt-3 border-t border-teal-100 space-y-3 bg-teal-50/50 p-3 rounded-xl">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs font-black text-teal-900 flex items-center gap-1.5">
+                                    <Sparkles className="w-3.5 h-3.5 text-teal-700" />
+                                    <span>ব্যানারের লেখা ও প্রোডাক্ট লিংক এডিট করুন</span>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  {/* Banner Title */}
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                                      <span>ব্যানারের প্রধান টাইটেল / শিরোনাম</span>
+                                      <span className="text-rose-500">*</span>
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={b.title || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { title: e.target.value })}
+                                      placeholder="উদাঃ ঈদের স্পেশাল ধামাকা অফার"
+                                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold text-slate-900 focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                                    />
+                                    <p className="text-[10px] text-slate-500">ব্যানারের ছবির উপর বড় ও স্পষ্ট শিরোনাম হিসেবে প্রদর্শিত হবে।</p>
+                                  </div>
+
+                                  {/* Banner Subtitle */}
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-800">ব্যানারের সাব-টাইটেল বা বিবরণ</label>
+                                    <input
+                                      type="text"
+                                      value={b.subtitle || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { subtitle: e.target.value })}
+                                      placeholder="উদাঃ সকল পণ্যে আকর্ষণীয় মূল্যছাড় ও ফ্রি ডেলিভারি!"
+                                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                                    />
+                                    <p className="text-[10px] text-slate-500">টাইটেলের নিচে ছোট ডেসক্রিপশন হিসেবে থাকবে।</p>
+                                  </div>
+
+                                  {/* Banner Tag / Badge */}
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-800">অফার ট্যাগ বা ব্যাজ</label>
+                                    <input
+                                      type="text"
+                                      value={b.tag || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { tag: e.target.value })}
+                                      placeholder="উদাঃ 🔥 ৫০% ছাড় / ⚡ মেগা অফার"
+                                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                                    />
+                                  </div>
+
+                                  {/* CTA Button Text */}
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-800">বাটন টেক্সট</label>
+                                    <input
+                                      type="text"
+                                      value={b.buttonText || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { buttonText: e.target.value })}
+                                      placeholder="উদাঃ এখনই অর্ডার করুন / পণ্যটি দেখুন"
+                                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                                    />
+                                  </div>
+
+                                  {/* Link to Product Dropdown */}
+                                  <div className="sm:col-span-2 space-y-1.5 p-3 rounded-xl bg-emerald-50/80 border border-emerald-300">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                                        <ShoppingBag className="w-4 h-4 text-emerald-700" />
+                                        <span>দোকানের প্রডাক্ট লিংক করুন (গ্রাহক ব্যানারে ক্লিক করলে সরাসরি পণ্যের অর্ডার পপআপ ওপেন হবে):</span>
+                                      </label>
+                                      {b.productId && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdateBannerItem(b.id, { productId: undefined })}
+                                          className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer"
+                                        >
+                                          লিংক সরান
+                                        </button>
+                                      )}
+                                    </div>
+                                    <select
+                                      value={b.productId || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { productId: e.target.value || undefined })}
+                                      className="w-full px-3 py-2 rounded-xl border border-emerald-400 bg-white text-xs sm:text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500/40 focus:outline-none"
+                                    >
+                                      <option value="">-- কোনো নির্দিষ্ট পণ্য লিংক নেই (সাধারণ ব্যানার) --</option>
+                                      {products && products.length > 0 ? (
+                                        products.map((p) => (
+                                          <option key={p.id} value={p.id}>
+                                            📦 {p.name} — ৳{p.salePrice} {p.category ? `[${p.category}]` : ''} {p.stock !== undefined ? `(স্টক: ${p.stock})` : ''}
+                                          </option>
+                                        ))
+                                      ) : (
+                                        <option disabled value="">(দোকানে কোনো পণ্য পাওয়া যায়নি)</option>
+                                      )}
+                                    </select>
+                                    {b.productId && linkedProd && (
+                                      <div className="flex items-center gap-2 text-[11px] text-emerald-900 font-bold bg-white/80 p-2 rounded-lg border border-emerald-200">
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                        <span>সংযুক্ত পণ্য: <strong>{linkedProd.name}</strong> (মূল্য: ৳{linkedProd.salePrice})</span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Custom External Link */}
+                                  <div className="sm:col-span-2 space-y-1">
+                                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                                      <Globe className="w-3.5 h-3.5 text-slate-500" />
+                                      <span>অথবা কাস্টম ওয়েব লিঙ্ক (যদি নির্দিষ্ট প্রডাক্ট ছাড়া অন্য কোনো লিঙ্ক দিতে চান):</span>
+                                    </label>
+                                    <input
+                                      type="url"
+                                      value={b.linkUrl || ''}
+                                      onChange={(e) => handleUpdateBannerItem(b.id, { linkUrl: e.target.value })}
+                                      placeholder="উদাঃ https://..."
+                                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-teal-500/40 focus:outline-none"
+                                    />
+                                  </div>
+
+                                  {/* Live Preview of Banner Overlay */}
+                                  <div className="sm:col-span-2 space-y-1.5 pt-1">
+                                    <div className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                                      <Eye className="w-3.5 h-3.5 text-teal-700" />
+                                      <span>ব্যানার লাইভ প্রিভিউ (ওয়েবসাইটে যেমন প্রদর্শিত হবে):</span>
+                                    </div>
+                                    <div className="relative w-full h-36 sm:h-44 rounded-2xl overflow-hidden border border-slate-300 shadow-sm bg-slate-950">
+                                      <img
+                                        src={b.imageUrl}
+                                        alt={b.title || 'Preview'}
+                                        className="w-full h-full object-cover"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                      <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-transparent flex items-center p-4 sm:p-6">
+                                        <div className="max-w-xs space-y-1.5 text-white">
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            {b.tag && (
+                                              <span className="inline-block px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider">
+                                                {b.tag}
+                                              </span>
+                                            )}
+                                            {linkedProd && (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/90 text-white text-[10px] font-bold">
+                                                <ShoppingBag className="w-3 h-3" />
+                                                <span className="truncate max-w-[120px]">{linkedProd.name}</span>
+                                                <span className="font-black">৳{linkedProd.salePrice}</span>
+                                              </span>
+                                            )}
+                                          </div>
+                                          <h4 className="text-sm sm:text-base font-black leading-tight text-white drop-shadow-md">
+                                            {b.title || 'ব্যানার শিরোনাম এখানে আসবে'}
+                                          </h4>
+                                          {b.subtitle && (
+                                            <p className="text-[10px] sm:text-xs text-slate-200 line-clamp-2">
+                                              {b.subtitle}
+                                            </p>
+                                          )}
+                                          <div className="inline-flex items-center gap-1 px-3 py-1 bg-amber-400 text-slate-950 font-black text-[11px] rounded-lg shadow-xs">
+                                            <span>{b.buttonText || (linkedProd ? 'পণ্যটি কিনুন' : 'এখনই অর্ডার করুন')}</span>
+                                            <ArrowUpRight className="w-3 h-3" />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Done button */}
+                                  <div className="sm:col-span-2 flex justify-end pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingBannerId(null)}
+                                      className="px-4 py-2 bg-teal-800 hover:bg-teal-900 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center gap-1.5"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                      <span>সম্পন্ন করুন</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Direct File Upload Area for New Banner */}
+                    <div className="p-3.5 rounded-xl bg-white border-2 border-dashed border-teal-300 hover:border-teal-500 transition text-center space-y-2">
+                      <div className="py-1 text-slate-500 space-y-0.5">
+                        <Upload className="w-6 h-6 mx-auto text-teal-600" />
+                        <p className="text-xs font-bold text-slate-700">
+                          নতুন ব্যানার ছবি আপলোড করুন
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          সুপারিশকৃত সাইজ: 1200 x 400 পিক্সেল (JPG, PNG, WebP)
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-center gap-2">
+                        <label
+                          htmlFor="banner-file-picker"
+                          className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer active:scale-95"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>গ্যালারি থেকে ছবি নির্বাচন করুন</span>
+                        </label>
+                        <input
+                          id="banner-file-picker"
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files?.[0]) {
+                              handleBannerFileUpload(e.target.files[0]);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Direct URL input to add new banner (Fully responsive to prevent overflow) */}
+                    <div className="flex flex-col sm:flex-row gap-2 w-full">
+                      <input
+                        type="url"
+                        placeholder="অথবা ব্যানার ছবির URL পেস্ট করে যুক্ত করুন..."
+                        className="w-full sm:flex-1 min-w-0 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            handleAddPresetBanner(val, 'নতুন প্রমোশনাল ব্যানার');
+                            (e.target as HTMLInputElement).value = '';
+                          }
+                        }}
+                        id="new-banner-url-input"
+                      />
                       <button
                         type="button"
                         onClick={() => {
-                          setActiveTab('reset');
-                          setResetTarget(identifier);
-                          setErrorMsg('');
-                          setSuccessMsg('');
+                          const input = document.getElementById('new-banner-url-input') as HTMLInputElement;
+                          if (input && input.value.trim()) {
+                            handleAddPresetBanner(input.value.trim(), 'নতুন প্রমোশনাল ব্যানার');
+                            input.value = '';
+                          }
                         }}
-                        className="text-[11px] text-emerald-400 hover:underline font-bold cursor-pointer"
+                        className="w-full sm:w-auto px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold cursor-pointer transition shrink-0 flex items-center justify-center gap-1.5 shadow-xs"
                       >
-                        পিন ভুলে গেছেন?
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>+ ব্যানার যোগ করুন</span>
                       </button>
                     </div>
-                    <div className="relative">
-                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+
+                    {/* Quick Preset Buttons */}
+                    <div className="space-y-1.5 pt-1">
+                      <div className="text-[10px] font-bold text-slate-600">১-ক্লিকে চমৎকার প্রিসেট ব্যানার যুক্ত করুন:</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          {
+                            label: '💄 বিউটি ও স্কিনকেয়ার',
+                            url: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=1000&auto=format&fit=crop&q=80',
+                          },
+                          {
+                            label: '👗 ফ্যাশন ও ক্লথিং',
+                            url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1000&auto=format&fit=crop&q=80',
+                          },
+                          {
+                            label: '📱 গ্যাজেট ও ইলেকট্রনিক্স',
+                            url: 'https://images.unsplash.com/photo-1498049794561-7780e7231661?w=1000&auto=format&fit=crop&q=80',
+                          },
+                          {
+                            label: '🍎 মুদি ও সুপারস্টোর',
+                            url: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=1000&auto=format&fit=crop&q=80',
+                          },
+                        ].map((preset) => (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => handleAddPresetBanner(preset.url, preset.label)}
+                            className="px-2.5 py-1 rounded-lg bg-white border border-teal-300 hover:border-teal-500 text-[10px] font-bold text-teal-900 cursor-pointer shadow-2xs hover:bg-teal-50"
+                          >
+                            + {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Section 3: Payment Gateways (পেমেন্ট গেটওয়ে সেটিংস) */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-indigo-700" />
+                    <span>পেমেন্ট গেটওয়ে সেটিংস (COD, বিকাশ, নগদ, রকেট)</span>
+                  </h3>
+                  <span className="text-[11px] text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full font-bold">
+                    চেকআউটে সক্রিয় থাকবে
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* COD */}
+                  <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-slate-900">ক্যাশ অন ডেলিভারি (COD)</div>
+                        <div className="text-[11px] text-slate-500">পণ্য হাতে পেয়ে নগদ টাকা প্রদান</div>
+                      </div>
                       <input
-                        type={showPassword ? 'text' : 'password'}
-                        required
-                        value={password}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="গোপন পিন লিখুন"
-                        className="w-full pl-10 pr-11 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-white placeholder-slate-500 tracking-wider transition"
+                        type="checkbox"
+                        checked={formData.acceptCOD}
+                        onChange={(e) => setFormData({ ...formData, acceptCOD: e.target.checked })}
+                        className="w-5 h-5 rounded text-teal-600 focus:ring-teal-500 cursor-pointer"
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
                     </div>
                   </div>
 
+                  {/* bKash */}
+                  <div className="p-3.5 rounded-2xl border border-pink-200 bg-pink-50/40 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-pink-900">বিকাশ (bKash) পেমেন্ট</div>
+                        <div className="text-[11px] text-pink-700">গ্রাহক সহজে বিকাশ করে ট্রানজেকশন আইডি দিবে</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptBkash}
+                        onChange={(e) => setFormData({ ...formData, acceptBkash: e.target.checked })}
+                        className="w-5 h-5 rounded text-pink-600 focus:ring-pink-500 cursor-pointer"
+                      />
+                    </div>
+                    {formData.acceptBkash && (
+                      <div className="space-y-2 pt-1">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="col-span-2">
+                            <label className="text-[10px] font-bold text-pink-950">বিকাশ নম্বর</label>
+                            <input
+                              type="text"
+                              value={formData.bkashNumber || ''}
+                              onChange={(e) => setFormData({ ...formData, bkashNumber: e.target.value })}
+                              placeholder="01XXXXXXXXX"
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-pink-300 bg-white text-xs font-semibold text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-pink-950">ধরন</label>
+                            <select
+                              value={formData.bkashType || 'merchant'}
+                              onChange={(e) => setFormData({ ...formData, bkashType: e.target.value as any })}
+                              className="w-full px-2 py-1.5 rounded-lg border border-pink-300 bg-white text-xs font-semibold text-slate-800"
+                            >
+                              <option value="merchant">মার্চেন্ট</option>
+                              <option value="personal">পার্সোনাল</option>
+                              <option value="agent">এজেন্ট</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Nagad */}
+                  <div className="p-3.5 rounded-2xl border border-orange-200 bg-orange-50/40 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-orange-900">নগদ (Nagad) পেমেন্ট</div>
+                        <div className="text-[11px] text-orange-700">নগদ একাউন্টে পেমেন্ট সংগ্রহ</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptNagad}
+                        onChange={(e) => setFormData({ ...formData, acceptNagad: e.target.checked })}
+                        className="w-5 h-5 rounded text-orange-600 focus:ring-orange-500 cursor-pointer"
+                      />
+                    </div>
+                    {formData.acceptNagad && (
+                      <div className="space-y-2 pt-1">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="col-span-2">
+                            <label className="text-[10px] font-bold text-orange-950">নগদ নম্বর</label>
+                            <input
+                              type="text"
+                              value={formData.nagadNumber || ''}
+                              onChange={(e) => setFormData({ ...formData, nagadNumber: e.target.value })}
+                              placeholder="01XXXXXXXXX"
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-orange-300 bg-white text-xs font-semibold text-slate-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-orange-950">ধরন</label>
+                            <select
+                              value={formData.nagadType || 'personal'}
+                              onChange={(e) => setFormData({ ...formData, nagadType: e.target.value as any })}
+                              className="w-full px-2 py-1.5 rounded-lg border border-orange-300 bg-white text-xs font-semibold text-slate-800"
+                            >
+                              <option value="merchant">মার্চেন্ট</option>
+                              <option value="personal">পার্সোনাল</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Rocket */}
+                  <div className="p-3.5 rounded-2xl border border-purple-200 bg-purple-50/40 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-purple-900">রকেট (Rocket) পেমেন্ট</div>
+                        <div className="text-[11px] text-purple-700">ডাচ-বাংলা রকেট একাউন্ট</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptRocket}
+                        onChange={(e) => setFormData({ ...formData, acceptRocket: e.target.checked })}
+                        className="w-5 h-5 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                      />
+                    </div>
+                    {formData.acceptRocket && (
+                      <div className="space-y-2 pt-1">
+                        <div>
+                          <label className="text-[10px] font-bold text-purple-950">রকেট নম্বর</label>
+                          <input
+                            type="text"
+                            value={formData.rocketNumber || ''}
+                            onChange={(e) => setFormData({ ...formData, rocketNumber: e.target.value })}
+                            placeholder="01XXXXXXXXX-X"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-purple-300 bg-white text-xs font-semibold text-slate-800"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payment Instructions Note for Customers */}
+                  <div className="sm:col-span-2 space-y-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      গ্রাহকদের জন্য পেমেন্ট নির্দেশিকা বা বিশেষ নোট
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={formData.paymentInstructions || ''}
+                      onChange={(e) => setFormData({ ...formData, paymentInstructions: e.target.value })}
+                      placeholder="উদাঃ সেন্ড মানি বা পেমেন্ট সম্পন্ন করার পর আপনার TrxID ইনপুট করুন।"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 4: Delivery Fees & Minimum Order Limit */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+                <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                  <Truck className="w-4 h-4 text-emerald-700" />
+                  <span>ডেলিভারি চার্জ ও অর্ডার সেটিংস</span>
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">ঢাকা সিটির ভেতরে ফি (৳)</label>
+                    <input
+                      type="number"
+                      value={formData.deliveryInsideDhaka}
+                      onChange={(e) => setFormData({ ...formData, deliveryInsideDhaka: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">ঢাকার বাইরে ফি (৳)</label>
+                    <input
+                      type="number"
+                      value={formData.deliveryOutsideDhaka}
+                      onChange={(e) => setFormData({ ...formData, deliveryOutsideDhaka: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">কত টাকার উপরে ফ্রি ডেলিভারি (৳)</label>
+                    <input
+                      type="number"
+                      value={formData.freeDeliveryAbove || ''}
+                      onChange={(e) => setFormData({ ...formData, freeDeliveryAbove: Number(e.target.value) || 0 })}
+                      placeholder="উদাঃ 1500"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">সর্বনিম্ন অর্ডার মূল্য (৳)</label>
+                    <input
+                      type="number"
+                      value={formData.minOrderAmount || ''}
+                      onChange={(e) => setFormData({ ...formData, minOrderAmount: Number(e.target.value) || 0 })}
+                      placeholder="উদাঃ 200"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-xs font-bold text-slate-700">সম্ভাব্য ডেলিভারি সময়</label>
+                    <input
+                      type="text"
+                      value={formData.estimatedDeliveryDays || ''}
+                      onChange={(e) => setFormData({ ...formData, estimatedDeliveryDays: e.target.value })}
+                      placeholder="উদাঃ ২৪-৭২ ঘণ্টার মধ্যে হোম ডেলিভারি"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 5: Customer Support & Vendor Chat */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                    <MessageCircle className="w-4 h-4 text-emerald-600" />
+                    <span>কাস্টমার সাপোর্ট মেনু ও ভেন্ডর চ্যাট</span>
+                  </h3>
+                  <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full font-bold">
+                    হেডারের সাপোর্ট মেনুর সাথে যুক্ত
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      ভেন্ডর সাপোর্ট WhatsApp নম্বর *
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.whatsappPhone}
+                      onChange={(e) => setFormData({ ...formData, whatsappPhone: e.target.value })}
+                      placeholder="উদাঃ 017XXXXXXXX"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                    <p className="text-[10px] text-slate-500">
+                      কাস্টমার হেডারের সাপোর্ট মেনু ক্লিক করলে সরাসরি এই নম্বরে হোয়াটসঅ্যাপে চ্যাট শুরু হবে
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">সরাসরি কল নম্বর</label>
+                    <input
+                      type="text"
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      placeholder="উদাঃ 017XXXXXXXX"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">হেল্পলাইন খোলা থাকার সময়সূচি</label>
+                    <input
+                      type="text"
+                      value={formData.supportHours || ''}
+                      onChange={(e) => setFormData({ ...formData, supportHours: e.target.value })}
+                      placeholder="উদাঃ প্রতিদিন সকাল ৯:০০ - রাত ১০:০০"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">WhatsApp ডিফল্ট শুভেচ্ছা বার্তা</label>
+                    <input
+                      type="text"
+                      value={formData.supportWhatsAppMessage || ''}
+                      onChange={(e) => setFormData({ ...formData, supportWhatsAppMessage: e.target.value })}
+                      placeholder="উদাঃ আসসালামু আলাইকুম, আমি আপনার অনলাইন স্টোর থেকে যোগাযোগ করছি।"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Submit Button */}
+              <div className="sticky bottom-0 bg-white/95 backdrop-blur-md p-3 -mx-4 -mb-4 sm:static sm:p-0 sm:m-0 sm:bg-transparent border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 sm:pt-4 shadow-lg sm:shadow-none z-10">
+                <div className="flex items-center gap-2">
+                  {saveSuccessNotice && (
+                    <span className="text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 animate-pulse">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>সকল সেটিংস ও ব্যানার সফলভাবে সংরক্ষিত হয়েছে!</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                   <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-sm cursor-pointer mt-2"
+                    type="button"
+                    onClick={onOpenStorefront}
+                    className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs sm:text-sm rounded-xl flex items-center gap-1.5 transition cursor-pointer"
                   >
-                    {loading ? (
+                    <Eye className="w-4 h-4 text-teal-700" />
+                    <span>স্টোরে ফলাফল দেখুন</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isSavingSettings}
+                    onClick={() => handleSaveSettings()}
+                    className={`flex-1 sm:flex-initial px-6 py-3.5 text-white font-black text-xs sm:text-sm rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center justify-center gap-2 ${
+                      isSavingSettings
+                        ? 'bg-teal-700 opacity-80 cursor-wait'
+                        : saveSuccessNotice
+                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        : 'bg-[#004D40] hover:bg-[#00382E]'
+                    }`}
+                  >
+                    {isSavingSettings ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                        <span>যাচাই করা হচ্ছে...</span>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>সংরক্ষণ করা হচ্ছে...</span>
+                      </>
+                    ) : saveSuccessNotice ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                        <span>সংরক্ষিত হয়েছে!</span>
                       </>
                     ) : (
                       <>
-                        <LogIn className="w-4 h-4 text-slate-950" />
-                        <span>লগইন করুন / প্রবেশ করুন</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                        <span>সকল সেটিংস ও ব্যানার সেভ করুন</span>
                       </>
                     )}
                   </button>
-                </form>
-              )}
-            </div>
+                </div>
+              </div>
+            </form>
           )}
 
-          {/* ----------------- TAB 2: SHOP REGISTRATION (11-digit Mobile, PIN & SMS OTP) ----------------- */}
-          {activeTab === 'register' && (
-            <div className="space-y-4">
-              {regStep === 'form' ? (
-                <form onSubmit={handleSendRegOtp} className="space-y-3.5">
-                  <div className="bg-emerald-950/30 border border-emerald-500/20 rounded-2xl p-3 text-xs text-slate-300">
-                    <p className="font-bold text-emerald-400 flex items-center gap-1.5">
-                      <Smartphone className="w-4 h-4" />
-                      <span>মোবাইল নম্বর ও পিন দিয়ে সহজ রেজিস্ট্রেশন</span>
-                    </p>
-                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                      ইমেইলের প্রয়োজন নেই। শুধুমাত্র ১১ ডিজিটের মোবাইল নম্বর ও গোপন পিন দিয়ে দোকান খুলুন।
-                    </p>
-                  </div>
+          {/* TAB 4: PRODUCT CATALOG */}
+          {activeTab === 'catalog' && (() => {
+            const categories = Array.from(
+              new Set(
+                products
+                  .map((p) => p.category?.trim())
+                  .filter((c): c is string => Boolean(c))
+              )
+            );
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">
-                      দোকানের নাম <span className="text-emerald-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <Store className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                      <input
-                        type="text"
-                        required
-                        value={regShopName}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setRegShopName(e.target.value)}
-                        placeholder="যেমন: ভাই ভাই স্টোর / মেসার্স ট্রেডার্স"
-                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
-                      />
-                    </div>
-                  </div>
+            const filteredProducts = products.filter((prod) => {
+              const isPub = isProductPublished(prod.id);
+              const matchSearch =
+                !catalogSearch ||
+                prod.name.toLowerCase().includes(catalogSearch.toLowerCase()) ||
+                (prod.sku && prod.sku.toLowerCase().includes(catalogSearch.toLowerCase())) ||
+                (prod.category && prod.category.toLowerCase().includes(catalogSearch.toLowerCase()));
+              const matchCat = catalogCategory === 'all' || prod.category === catalogCategory;
+              const matchStatus =
+                catalogStatusFilter === 'all' ||
+                (catalogStatusFilter === 'published' && isPub) ||
+                (catalogStatusFilter === 'hidden' && !isPub);
+              return matchSearch && matchCat && matchStatus;
+            });
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">
-                      আপনার নাম (মালিক / প্রোপ্রাইটর)
-                    </label>
-                    <div className="relative">
-                      <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                      <input
-                        type="text"
-                        value={regOwnerName}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setRegOwnerName(e.target.value)}
-                        placeholder="যেমন: মো: রফিকুল ইসলাম"
-                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
-                      />
-                    </div>
-                  </div>
+            const handlePublishAll = () => {
+              const allIds = products.map((p) => p.id);
+              const updated = {
+                ...formData,
+                publishedProductIds: allIds,
+              };
+              setFormData(updated);
+              onUpdateConfig(updated);
+            };
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">
-                      ১১ ডিজিটের মোবাইল নম্বর <span className="text-emerald-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <Phone className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                      <input
-                        type="tel"
-                        required
-                        maxLength={15}
-                        value={regPhone}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setRegPhone(e.target.value)}
-                        placeholder="০১XXXXXXXXX (১১ ডিজিট)"
-                        className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 font-medium tracking-wide"
-                      />
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      💡 এই নম্বরে তাৎক্ষণিক SMS-এর মাধ্যমে ৬-সংখ্যার ভেরিফিকেশন কোড পাঠানো হবে।
-                    </p>
-                  </div>
+            const handleHideAll = () => {
+              const updated = {
+                ...formData,
+                publishedProductIds: [],
+              };
+              setFormData(updated);
+              onUpdateConfig(updated);
+            };
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">
-                      গোপন পিন (PIN) <span className="text-emerald-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                      <input
-                        type={showRegPin ? 'text' : 'password'}
-                        required
-                        minLength={4}
-                        value={regPin}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setRegPin(e.target.value)}
-                        placeholder="৪ থেকে ৬ সংখ্যার গোপন পিন"
-                        className="w-full pl-10 pr-11 py-2.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 tracking-wider font-medium"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowRegPin(!showRegPin)}
-                        className="absolute right-3.5 top-2.5 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
-                      >
-                        {showRegPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
+            const deletedDemoIds = formData.deletedDemoProductIds || [];
+            const isDemoIncluded = formData.includeDemoProducts !== false;
+            const activeDemoProducts = ALL_DEMO_PRODUCTS.filter((p) => !deletedDemoIds.includes(p.id));
 
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                        <span>SMS কোড পাঠানো হচ্ছে...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Smartphone className="w-4 h-4 text-slate-950" />
-                        <span>মোবাইলে SMS OTP পাঠান ও এগিয়ে যান</span>
-                      </>
-                    )}
-                  </button>
-                </form>
-              ) : (
-                /* Step 2: SMS OTP Verification for Registration */
-                <form onSubmit={handleVerifyRegOtpAndRegister} className="space-y-3.5">
-                  <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-2xl p-3.5 text-xs text-slate-300">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-emerald-400 flex items-center gap-1.5">
-                        <Smartphone className="w-4 h-4" />
-                        <span>SMS কোড প্রেরিত নম্বর:</span>
-                      </span>
-                      <span className="font-mono text-white font-bold text-sm bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-700">
-                        {regMaskedPhone || regPhone}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                      মোবাইলের SMS ইনবক্স চেক করে ৬-সংখ্যার OTP কোডটি নিচে লিখুন।
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1.5 text-center">
-                      ৬-সংখ্যার OTP কোড লিখুন <span className="text-emerald-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <KeyRound className="w-4 h-4 text-emerald-400 absolute left-3.5 top-3.5" />
-                      <input
-                        type="text"
-                        required
-                        maxLength={6}
-                        autoFocus
-                        value={regOtp}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setRegOtp(e.target.value)}
-                        placeholder="••••••"
-                        className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-emerald-500/50 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs pt-1">
+            return (
+              <div className="space-y-4">
+                {/* Catalog Segment Selector: My Products vs Demo Products */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200">
+                  <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
                     <button
                       type="button"
-                      onClick={() => {
-                        setRegStep('form');
-                        setRegOtp('');
-                        setErrorMsg('');
-                        setSuccessMsg('');
-                      }}
-                      className="text-slate-400 hover:text-slate-200 font-bold flex items-center gap-1 cursor-pointer"
+                      onClick={() => setCatalogViewMode('my_products')}
+                      className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                        catalogViewMode === 'my_products'
+                          ? 'bg-white text-teal-900 shadow-xs border border-slate-200/80'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
                     >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>তথ্য পরিবর্তন</span>
+                      <Package className="w-4 h-4 text-teal-700" />
+                      <span>আমার ইনভেন্টরি পণ্য</span>
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-teal-50 text-teal-800 font-extrabold border border-teal-200">
+                        {products.length}
+                      </span>
                     </button>
 
-                    {regCountdown > 0 ? (
-                      <span className="text-slate-400 text-[11px] font-mono">
-                        পুনরায় কোড: {regCountdown} সেকেন্ড
+                    <button
+                      type="button"
+                      onClick={() => setCatalogViewMode('demo_products')}
+                      className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                        catalogViewMode === 'demo_products'
+                          ? 'bg-white text-teal-900 shadow-xs border border-slate-200/80'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                      <span>ডিফল্ট ডেমো পণ্যসমূহ</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                          isDemoIncluded && activeDemoProducts.length > 0
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : 'bg-slate-200 text-slate-500 border-slate-300'
+                        }`}
+                      >
+                        {isDemoIncluded ? activeDemoProducts.length : 0}
                       </span>
-                    ) : (
+                      {deletedDemoIds.length > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-red-50 text-red-700 font-bold border border-red-200">
+                          {deletedDemoIds.length} মুছে ফেলা
+                        </span>
+                      )}
+                    </button>
+                  </div>
+
+                  {catalogViewMode === 'my_products' && (
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         type="button"
-                        onClick={handleResendRegOtp}
-                        className="text-emerald-400 hover:underline font-bold flex items-center gap-1 cursor-pointer text-[11px]"
+                        onClick={handlePublishAll}
+                        className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold cursor-pointer transition"
                       >
-                        <RefreshCw className="w-3 h-3" />
-                        <span>পুনরায় OTP পাঠান</span>
+                        সব সক্রিয় করুন
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleHideAll}
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer transition"
+                      >
+                        সব বন্ধ করুন
+                      </button>
+                      {onNavigateToTab && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onNavigateToTab('inventory');
+                          }}
+                          className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>নতুন পণ্য</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* MY INVENTORY PRODUCTS */}
+                <div className="space-y-4">
+                {/* Filter and Search Bar */}
+                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={catalogSearch}
+                      onChange={(e) => setCatalogSearch(e.target.value)}
+                      placeholder="পণ্য, বারকোড বা ক্যাটাগরি দিয়ে খুঁজুন..."
+                      className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    />
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setCatalogStatusFilter('all')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          catalogStatusFilter === 'all'
+                            ? 'bg-teal-800 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        সব ({products.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCatalogStatusFilter('published')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          catalogStatusFilter === 'published'
+                            ? 'bg-emerald-700 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        সক্রিয় ({products.filter((p) => isProductPublished(p.id)).length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCatalogStatusFilter('hidden')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          catalogStatusFilter === 'hidden'
+                            ? 'bg-slate-700 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        বন্ধ ({products.filter((p) => !isProductPublished(p.id)).length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Category Pills */}
+                  {categories.length > 0 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-1 border-t border-slate-100">
+                      <span className="text-[11px] font-bold text-slate-500 shrink-0 mr-1">ক্যাটাগরি:</span>
+                      <button
+                        type="button"
+                        onClick={() => setCatalogCategory('all')}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition ${
+                          catalogCategory === 'all'
+                            ? 'bg-teal-700 text-white'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        সব ক্যাটাগরি
+                      </button>
+                      {categories.map((cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setCatalogCategory(cat)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition ${
+                            catalogCategory === cat
+                              ? 'bg-teal-700 text-white'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
+                        >
+                          {cat} ({products.filter((p) => p.category === cat).length})
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Product Grid */}
+                {filteredProducts.length === 0 ? (
+                  <div className="bg-white rounded-3xl p-10 border border-slate-200 text-center space-y-3">
+                    <Package className="w-10 h-10 text-slate-400 mx-auto" />
+                    <p className="font-bold text-slate-700 text-sm">কোনো পণ্য পাওয়া যায়নি</p>
+                    <p className="text-xs text-slate-500">
+                      অনুসন্ধান ফিল্টার পরিবর্তন করুন বা নতুন পণ্য যুক্ত করুন।
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {filteredProducts.map((prod) => {
+                      const isPub = isProductPublished(prod.id);
+                      return (
+                        <div
+                          key={prod.id}
+                          className="bg-white p-3.5 rounded-2xl border border-slate-200 flex items-center justify-between gap-3 hover:border-teal-300 transition"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-xs sm:text-sm text-slate-900 truncate">{prod.name}</h4>
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                                  isPub ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                                }`}
+                              >
+                                {isPub ? 'অনলাইনে সক্রিয়' : 'লুকানো'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
+                              <span className="font-bold text-teal-800">৳ {formatMoney(prod.salePrice)}</span>
+                              <span>স্টক: {prod.stock} {prod.unit || 'টি'}</span>
+                              {prod.category && (
+                                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded text-[10px] font-semibold">
+                                  {prod.category}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Toggle Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleProductPublish(prod.id)}
+                            className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer shrink-0 ${
+                              isPub
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                                : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
+                            }`}
+                          >
+                            {isPub ? 'অনলাইন' : 'বন্ধ'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+          </div>
+        );
+      })()}
+
+          {/* TAB 5: ONLINE ORDERS (CLEAN STEP-BY-STEP WORKFLOW) */}
+          {activeTab === 'orders' && (() => {
+            // Strictly exclude orders rejected by Super Admin - "ভেন্ডরসাইট থেকে এটা উধাও হয়ে যাবে"
+            const allVisibleOrders = orders.filter(
+              (o) => !o.isRejectedByAdmin && (o as any).isHiddenFromVendor !== true && o.adminApprovalStatus !== 'rejected'
+            );
+
+            const personalStoreOrdersCount = allVisibleOrders.filter(
+              (o) => o.orderSource !== 'marketplace' && !o.masterOrderId
+            ).length;
+            const centralMarketplaceOrdersCount = allVisibleOrders.filter(
+              (o) => o.orderSource === 'marketplace' || Boolean(o.masterOrderId)
+            ).length;
+
+            // Apply Source Filter (All vs Personal E-Commerce Store vs Central Marketplace)
+            const visibleOrders = allVisibleOrders.filter((o) => {
+              const isMkt = o.orderSource === 'marketplace' || Boolean(o.masterOrderId);
+              if (orderSourceFilter === 'personal') return !isMkt;
+              if (orderSourceFilter === 'marketplace') return isMkt;
+              return true;
+            });
+
+            const newOrdersCount = visibleOrders.filter(
+              (o) => o.orderStatus === 'pending' || (o.orderSource !== 'marketplace' && !o.masterOrderId && o.paymentMethod !== 'cod' && o.paymentStatus === 'pending_verification')
+            ).length;
+
+            const processingOrdersCount = visibleOrders.filter(
+              (o) => o.orderStatus === 'confirmed' || o.orderStatus === 'processing' || o.orderStatus === 'packed'
+            ).length;
+
+            const shippedOrdersCount = visibleOrders.filter(
+              (o) => o.orderStatus === 'shipped' || o.orderStatus === 'out_for_delivery'
+            ).length;
+
+            const deliveredOrdersCount = visibleOrders.filter((o) => o.orderStatus === 'delivered').length;
+
+            const cancelledOrdersCount = visibleOrders.filter((o) => o.orderStatus === 'cancelled' || o.orderStatus === 'returned').length;
+
+            // ONLY Personal Store orders have Vendor Payment Verification! Central Marketplace orders are verified by Super Admin.
+            const pendingPaymentOrdersCount = visibleOrders.filter(
+              (o) =>
+                o.orderSource !== 'marketplace' &&
+                !o.masterOrderId &&
+                o.paymentMethod !== 'cod' &&
+                (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
+            ).length;
+
+            const totalDeliveredRevenue = visibleOrders
+              .filter((o) => o.orderStatus === 'delivered')
+              .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+
+            const filteredOrders = visibleOrders.filter((o) => {
+              if (orderFilter === 'new') {
+                return o.orderStatus === 'pending' || (o.orderSource !== 'marketplace' && !o.masterOrderId && o.paymentMethod !== 'cod' && o.paymentStatus === 'pending_verification');
+              }
+              if (orderFilter === 'processing') {
+                return o.orderStatus === 'confirmed' || o.orderStatus === 'processing' || o.orderStatus === 'packed';
+              }
+              if (orderFilter === 'shipped') {
+                return o.orderStatus === 'shipped' || o.orderStatus === 'out_for_delivery';
+              }
+              if (orderFilter === 'delivered') {
+                return o.orderStatus === 'delivered';
+              }
+              if (orderFilter === 'cancelled') {
+                return o.orderStatus === 'cancelled' || o.orderStatus === 'returned';
+              }
+              if (orderFilter === 'pending_verification') {
+                return (
+                  o.orderSource !== 'marketplace' &&
+                  !o.masterOrderId &&
+                  o.paymentMethod !== 'cod' &&
+                  (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
+                );
+              }
+              return true; // 'all'
+            });
+
+            const statusColors: Record<string, string> = {
+              pending: 'bg-amber-100 text-amber-900 border-amber-300',
+              confirmed: 'bg-blue-100 text-blue-900 border-blue-300',
+              processing: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+              packed: 'bg-purple-100 text-purple-900 border-purple-300',
+              shipped: 'bg-purple-100 text-purple-900 border-purple-300',
+              out_for_delivery: 'bg-cyan-100 text-cyan-900 border-cyan-300',
+              delivered: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+              cancelled: 'bg-rose-100 text-rose-900 border-rose-300',
+              returned: 'bg-rose-100 text-rose-900 border-rose-300',
+            };
+
+            const statusLabels: Record<string, string> = {
+              pending: '🔔 নতুন অর্ডার',
+              confirmed: '🔵 অর্ডার নিশ্চিত (প্যাকিং রেডি)',
+              processing: '📦 প্যাকিং চলছে',
+              packed: '🎁 প্যাকিং সম্পন্ন',
+              shipped: '🚚 কুরিয়ারে হস্তান্তর',
+              out_for_delivery: '🛵 ডেলিভারির পথে',
+              delivered: '✅ ডেলিভারি সম্পন্ন',
+              cancelled: '❌ বাতিল',
+              returned: '↩️ রিটার্ন',
+            };
+
+            return (
+              <div className="space-y-4">
+                {/* GOVERNANCE & ORDER SOURCE SWITCHER BAR */}
+                <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setOrderSourceFilter('all')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${
+                        orderSourceFilter === 'all'
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <span>সকল অর্ডার ({allVisibleOrders.length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOrderSourceFilter('personal')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${
+                        orderSourceFilter === 'personal'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                    >
+                      <span>🏠 পার্সোনাল ই-কমার্স সাইট অর্ডার ({personalStoreOrdersCount})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOrderSourceFilter('marketplace')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${
+                        orderSourceFilter === 'marketplace'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-indigo-50 text-indigo-900 border border-indigo-200 hover:bg-indigo-100'
+                      }`}
+                    >
+                      <span>🏛️ সেন্ট্রাল মার্কেটপ্লেস অর্ডার ({centralMarketplaceOrdersCount})</span>
+                    </button>
+                  </div>
+
+                  <div className="text-[11px] text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/80">
+                    {orderSourceFilter === 'marketplace' ? (
+                      <span>🔒 <strong>সেন্ট্রাল মল অর্ডার:</strong> শুধুমাত্র সুপার এডমিন পেমেন্ট যাচাই করে পারমিশন দেন</span>
+                    ) : (
+                      <span>✅ <strong>পার্সোনাল সাইট অর্ডার:</strong> পেমেন্ট যাচাই, আপডেট ও ডেলিভারি ১০০% আপনি (ভেন্ডর) পরিচালনা করবেন</span>
+                    )}
+                  </div>
+                </div>
+                {/* 4-STEP LIFECYCLE SUMMARY PIPELINE CARDS */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                  {/* Step 1: New */}
+                  <button
+                    type="button"
+                    onClick={() => setOrderFilter('new')}
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer relative overflow-hidden ${
+                      orderFilter === 'new'
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-md ring-2 ring-amber-400/50'
+                        : 'bg-white text-slate-800 border-slate-200 hover:border-amber-300 hover:bg-amber-50/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider opacity-90">ধাপ ১</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                          orderFilter === 'new' ? 'bg-white text-amber-600' : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {newOrdersCount} টি
+                      </span>
+                    </div>
+                    <div className="mt-1 font-black text-sm flex items-center gap-1.5">
+                      <span>🔔 নতুন অর্ডার</span>
+                    </div>
+                    <p className={`text-[10px] mt-0.5 ${orderFilter === 'new' ? 'text-amber-100' : 'text-slate-500'}`}>
+                      কনফার্ম ও একসেপ্ট করুন
+                    </p>
+                  </button>
+
+                  {/* Step 2: Processing */}
+                  <button
+                    type="button"
+                    onClick={() => setOrderFilter('processing')}
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer relative overflow-hidden ${
+                      orderFilter === 'processing'
+                        ? 'bg-blue-600 text-white border-blue-700 shadow-md ring-2 ring-blue-400/50'
+                        : 'bg-white text-slate-800 border-slate-200 hover:border-blue-300 hover:bg-blue-50/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider opacity-90">ধাপ ২</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                          orderFilter === 'processing' ? 'bg-white text-blue-700' : 'bg-blue-100 text-blue-800'
+                        }`}
+                      >
+                        {processingOrdersCount} টি
+                      </span>
+                    </div>
+                    <div className="mt-1 font-black text-sm flex items-center gap-1.5">
+                      <span>📦 প্যাকিং চলছে</span>
+                    </div>
+                    <p className={`text-[10px] mt-0.5 ${orderFilter === 'processing' ? 'text-blue-100' : 'text-slate-500'}`}>
+                      পার্সেল প্রস্তুত করুন
+                    </p>
+                  </button>
+
+                  {/* Step 3: Shipped */}
+                  <button
+                    type="button"
+                    onClick={() => setOrderFilter('shipped')}
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer relative overflow-hidden ${
+                      orderFilter === 'shipped'
+                        ? 'bg-purple-600 text-white border-purple-700 shadow-md ring-2 ring-purple-400/50'
+                        : 'bg-white text-slate-800 border-slate-200 hover:border-purple-300 hover:bg-purple-50/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider opacity-90">ধাপ ৩</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                          orderFilter === 'shipped' ? 'bg-white text-purple-700' : 'bg-purple-100 text-purple-800'
+                        }`}
+                      >
+                        {shippedOrdersCount} টি
+                      </span>
+                    </div>
+                    <div className="mt-1 font-black text-sm flex items-center gap-1.5">
+                      <span>🚚 কুরিয়ারে আছে</span>
+                    </div>
+                    <p className={`text-[10px] mt-0.5 ${orderFilter === 'shipped' ? 'text-purple-100' : 'text-slate-500'}`}>
+                      ডেলিভারির পথে চলমান
+                    </p>
+                  </button>
+
+                  {/* Step 4: Delivered */}
+                  <button
+                    type="button"
+                    onClick={() => setOrderFilter('delivered')}
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer relative overflow-hidden ${
+                      orderFilter === 'delivered'
+                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-400/50'
+                        : 'bg-white text-slate-800 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider opacity-90">ধাপ ৪</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                          orderFilter === 'delivered' ? 'bg-white text-emerald-700' : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {deliveredOrdersCount} টি
+                      </span>
+                    </div>
+                    <div className="mt-1 font-black text-sm flex items-center gap-1.5">
+                      <span>✅ সফল ডেলিভারি</span>
+                    </div>
+                    <p className={`text-[10px] mt-0.5 ${orderFilter === 'delivered' ? 'text-emerald-100' : 'text-slate-500'}`}>
+                      মোট ৳ {formatMoney(totalDeliveredRevenue)}
+                    </p>
+                  </button>
+                </div>
+
+                {/* FILTER TABS & TEST ORDER BUTTON */}
+                <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 text-xs">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setOrderFilter('all')}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                        orderFilter === 'all'
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      সকল ধাপ ({orders.length})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setOrderFilter('new')}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                        orderFilter === 'new'
+                          ? 'bg-amber-500 text-white shadow-xs'
+                          : 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100'
+                      }`}
+                    >
+                      নতুন ({newOrdersCount})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setOrderFilter('processing')}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                        orderFilter === 'processing'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100'
+                      }`}
+                    >
+                      প্যাকিং ({processingOrdersCount})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setOrderFilter('shipped')}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                        orderFilter === 'shipped'
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'bg-purple-50 text-purple-900 border border-purple-200 hover:bg-purple-100'
+                      }`}
+                    >
+                      কুরিয়ারে ({shippedOrdersCount})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setOrderFilter('delivered')}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                        orderFilter === 'delivered'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                    >
+                      সম্পন্ন ({deliveredOrdersCount})
+                    </button>
+
+                    {cancelledOrdersCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setOrderFilter('cancelled')}
+                        className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer ${
+                          orderFilter === 'cancelled'
+                            ? 'bg-rose-600 text-white shadow-xs'
+                            : 'bg-rose-50 text-rose-900 border border-rose-200 hover:bg-rose-100'
+                        }`}
+                      >
+                        বাতিল ({cancelledOrdersCount})
+                      </button>
+                    )}
+
+                    {pendingPaymentOrdersCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setOrderFilter('pending_verification')}
+                        className={`px-3 py-1.5 rounded-xl font-bold transition cursor-pointer flex items-center gap-1 ${
+                          orderFilter === 'pending_verification'
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'bg-amber-100 text-amber-950 border border-amber-300 hover:bg-amber-200'
+                        }`}
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
+                        <span>পেমেন্ট যাচাই বাকি ({pendingPaymentOrdersCount})</span>
                       </button>
                     )}
                   </div>
 
                   <button
-                    type="submit"
-                    disabled={loading || regOtp.length < 6}
-                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
+                    type="button"
+                    onClick={handleGenerateTestOrder}
+                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0"
                   >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                        <span>দোকান অ্যাকাউন্ট তৈরি হচ্ছে...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 text-slate-950" />
-                        <span>OTP যাচাই করে দোকান চালু করুন</span>
-                      </>
-                    )}
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>+ টেস্ট অর্ডার যোগ করুন</span>
                   </button>
-                </form>
-              )}
+                </div>
+
+                {/* ORDERS LIST */}
+                {filteredOrders.length === 0 ? (
+                  <div className="bg-white rounded-3xl p-10 border border-slate-200 text-center space-y-3 shadow-2xs">
+                    <div className="w-14 h-14 rounded-2xl bg-teal-50 text-teal-700 mx-auto flex items-center justify-center">
+                      <ShoppingBag className="w-7 h-7" />
+                    </div>
+                    <h4 className="font-bold text-slate-800 text-base">
+                      {orderFilter === 'new'
+                        ? '🎉 নতুন কোনো অপেক্ষমাণ অর্ডার নেই!'
+                        : orderFilter === 'all'
+                        ? 'এখনো কোনো অনলাইন অর্ডার আসেনি'
+                        : 'এই ধাপে বর্তমানে কোনো অর্ডার নেই'}
+                    </h4>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      {orderFilter === 'new'
+                        ? 'নতুন অর্ডার আসা মাত্রই আপনার ফোনের মতো এখানে তৎক্ষণাৎ অ্যালার্ট চলে আসবে।'
+                        : 'গ্রাহকরা আপনার অনলাইন স্টোরে অর্ডার দিলে এই ধাপে দেখা যাবে।'}
+                    </p>
+                    {orderFilter !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => setOrderFilter('all')}
+                        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                      >
+                        সকল অর্ডার দেখুন
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3.5">
+                    {filteredOrders.map((ord) => {
+                      const isPendingReview =
+                        ord.paymentMethod !== 'cod' &&
+                        (ord.paymentStatus === 'pending_verification' || (!ord.paymentStatus || ord.paymentStatus === 'unpaid'));
+                      const isPaid = ord.paymentStatus === 'paid';
+                      const isRejected = ord.paymentStatus === 'rejected';
+
+                      const isExpanded = !!expandedOrderIds[ord.id];
+                      const isNewStage = ord.orderStatus === 'pending';
+                      const isProcessingStage = ord.orderStatus === 'confirmed' || ord.orderStatus === 'processing';
+                      const isShippedStage = ord.orderStatus === 'shipped';
+                      const isDeliveredStage = ord.orderStatus === 'delivered';
+                      const isCancelledStage = ord.orderStatus === 'cancelled';
+
+                      const isMarketplaceOrder = ord.orderSource === 'marketplace' || Boolean(ord.masterOrderId);
+                      const isMarketplaceLocked = isMarketplaceOrder && (ord.isLockedForVendor || ord.adminApprovalStatus === 'pending_approval' || !ord.isAdminApproved);
+                      const isMarketplaceApproved = isMarketplaceOrder && (ord.isAdminApproved || ord.adminApprovalStatus === 'approved');
+
+                      return (
+                        <div
+                          key={ord.id}
+                          className={`bg-white rounded-2xl border transition-all overflow-hidden ${
+                            isMarketplaceLocked
+                              ? 'border-amber-400 ring-2 ring-amber-300/40 shadow-sm'
+                              : isNewStage
+                              ? 'border-amber-300 ring-2 ring-amber-300/30 shadow-sm'
+                              : isDeliveredStage
+                              ? 'border-slate-200 bg-slate-50/30'
+                              : isCancelledStage
+                              ? 'border-slate-200 opacity-75'
+                              : 'border-slate-200 shadow-2xs'
+                          }`}
+                        >
+                          {/* ORDER CARD HEADER */}
+                          <div className="p-3.5 sm:p-4 bg-slate-50/60 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono font-black text-xs sm:text-sm text-teal-950 bg-teal-50 px-2.5 py-0.5 rounded-lg border border-teal-200/80">
+                                #{ord.orderNumber}
+                              </span>
+
+                              {isMarketplaceOrder && (
+                                <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-800 text-[10px] font-black border border-teal-200">
+                                  সেন্ট্রাল মল
+                                </span>
+                              )}
+
+                              {isMarketplaceLocked ? (
+                                <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 animate-pulse">
+                                  <Lock className="w-3 h-3 text-amber-700" />
+                                  <span>লক (সুপার এডমিনের যাচাই বাকি)</span>
+                                </span>
+                              ) : (
+                                <>
+                                  {isMarketplaceApproved && (
+                                    <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      <span>আনলকড (অনুমোদিত)</span>
+                                    </span>
+                                  )}
+                                  <span
+                                    className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                      statusColors[ord.orderStatus] || statusColors.pending
+                                    }`}
+                                  >
+                                    {statusLabels[ord.orderStatus] || ord.orderStatus}
+                                  </span>
+                                </>
+                              )}
+
+                              {/* Payment Badge */}
+                              <span
+                                className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                                  ord.paymentMethod === 'cod'
+                                    ? 'bg-slate-100 text-slate-700'
+                                    : isPaid
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : isPendingReview
+                                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                    : 'bg-rose-100 text-rose-800'
+                                }`}
+                              >
+                                {ord.paymentMethod === 'cod'
+                                  ? 'ক্যাশ অন ডেলিভারি'
+                                  : ord.paymentMethod.toUpperCase() + (isPaid ? ' (পরিশোধিত)' : isPendingReview ? ' (যাচাই বাকি)' : '')}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-3 text-xs text-slate-400">
+                              <span>
+                                {new Date(ord.createdAt).toLocaleDateString('bn-BD')} •{' '}
+                                {new Date(ord.createdAt).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* CORE CUSTOMER & ORDER INFO */}
+                          <div className="p-3.5 sm:p-4 space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                              {/* Customer Profile */}
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-black text-sm text-slate-900">{ord.customerName}</h4>
+                                  <span className="text-[11px] text-slate-500 font-mono font-bold bg-slate-100 px-2 py-0.5 rounded">
+                                    {ord.customerPhone}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-600 leading-snug">
+                                  {ord.customerAddress} •{' '}
+                                  <span className="text-slate-400">
+                                    ({ord.deliveryArea === 'inside_dhaka' ? 'ঢাকা সিটির ভেতরে' : 'ঢাকার বাইরে'})
+                                  </span>
+                                </p>
+                                {ord.notes && (
+                                  <p className="text-[11px] text-amber-800 bg-amber-50 px-2 py-1 rounded-md border border-amber-200 mt-1 inline-block">
+                                    <strong>গ্রাহক নোট:</strong> {ord.notes}
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Amount & Items Count */}
+                              <div className="text-left sm:text-right shrink-0 bg-slate-50/80 p-2.5 sm:p-0 rounded-xl sm:bg-transparent">
+                                <div className="text-[11px] text-slate-500 font-medium">
+                                  {ord.items.length}টি পণ্য • ডেলিভারি: ৳{formatMoney(ord.deliveryCharge)}
+                                </div>
+                                <div className="font-black text-base sm:text-lg text-teal-900">
+                                  ৳ {formatMoney(ord.totalAmount)}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* CENTRAL MARKETPLACE ORDER ESCROW STATUS NOTICES vs PERSONAL E-COMMERCE VENDOR CONTROL */}
+                            {isMarketplaceOrder ? (
+                              isMarketplaceLocked ? (
+                                <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-3 space-y-1.5 text-xs text-amber-950 shadow-2xs">
+                                  <div className="flex items-center gap-2 font-black text-amber-900">
+                                    <Lock className="w-4 h-4 text-amber-700 shrink-0 animate-pulse" />
+                                    <span>🔒 সেন্ট্রাল মল অর্ডার - শুধুমাত্র সুপার এডমিন পেমেন্ট যাচাই করে পারমিশন দিবেন (লক)</span>
+                                  </div>
+                                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                                    গ্রাহক সেন্ট্রাল মার্কেটপ্লেসের মাধ্যমে অর্ডার দিয়েছেন। নীতি অনুযায়ী শুধুমাত্র সুপার এডমিন পেমেন্ট যাচাই করে পারমিশন দিলে অর্ডারটি আনলক হবে এবং আপনি ডেলিভারি দিতে পারবেন।
+                                  </p>
+                                </div>
+                              ) : isMarketplaceApproved ? (
+                                <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-2.5 text-xs text-emerald-950 flex items-center justify-between gap-2 shadow-2xs flex-wrap">
+                                  <div className="flex items-center gap-1.5 font-bold text-emerald-900">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                    <span>✅ সুপার এডমিন কর্তৃক পেমেন্ট যাচাই সম্পন্ন ও পারমিশন প্রাপ্ত (আনলকড)</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'details' })}
+                                      className="px-2.5 py-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                      title="অর্ডার ও পণ্যের বিস্তারিত তথ্য দেখুন"
+                                    >
+                                      <Eye className="w-3 h-3" /> অর্ডার বিস্তারিত
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'delivery' })}
+                                      className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Truck className="w-3 h-3" /> ডেলিভারি ও কুরিয়ার
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'print' })}
+                                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Printer className="w-3 h-3" /> পার্সেল স্লিপ
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : null
+                            ) : (
+                              /* CLEAN UNIFIED PERSONAL STORE PAYMENT ROW (NO CONFUSING NESTED CARDS) */
+                              <div className="space-y-2">
+                                {isPendingReview ? (
+                                  /* Payment verification needed prompt */
+                                  <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="px-2 py-0.5 rounded bg-amber-200 text-amber-950 text-[10px] font-black uppercase">
+                                          {ord.paymentMethod} পেমেন্ট যাচাই বাকি
+                                        </span>
+                                        {ord.trxId && (
+                                          <span className="font-mono text-xs font-black bg-white px-2 py-0.5 rounded border border-amber-300 text-slate-900 select-all">
+                                            TrxID: {ord.trxId}
+                                          </span>
+                                        )}
+                                        {ord.senderPhone && (
+                                          <span className="text-xs font-mono text-slate-700">
+                                            প্রেরক: {ord.senderPhone}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[11px] text-amber-900">
+                                        গ্রাহক TrxID পাঠিয়েছেন। অ্যাকাউন্টে <strong>৳{formatMoney(ord.totalAmount)}</strong> ক্রেডিট চেক করে একসেপ্ট করুন।
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <button
+                                        type="button"
+                                        disabled={isProcessingPayment === ord.id}
+                                        onClick={() => handleAcceptPayment(ord)}
+                                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition"
+                                      >
+                                        <CheckCircle2 className="w-4 h-4" />
+                                        <span>{isProcessingPayment === ord.id ? 'একসেপ্ট হচ্ছে...' : 'পেমেন্ট একসেপ্ট করুন'}</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isProcessingPayment === ord.id}
+                                        onClick={() => handleOpenRejectModal(ord)}
+                                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition"
+                                      >
+                                        <XCircle className="w-3.5 h-3.5" />
+                                        <span>রিজেক্ট</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : isPaid ? (
+                                  /* Payment already paid */
+                                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-2.5 flex items-center justify-between gap-2 text-xs text-emerald-900 flex-wrap">
+                                    <div className="flex items-center gap-2">
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                      <span className="font-bold">পেমেন্ট পরিশোধিত:</span>
+                                      <span className="font-semibold uppercase">{ord.paymentMethod} (৳{formatMoney(ord.paidAmount || ord.totalAmount)})</span>
+                                      {ord.trxId && (
+                                        <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-emerald-300 text-slate-800">
+                                          TrxID: {ord.trxId}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'print' })}
+                                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <Printer className="w-3 h-3 text-amber-400" />
+                                        <span>চালান প্রিন্ট</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  /* COD (Cash On Delivery) */
+                                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2 flex-wrap text-xs text-slate-700">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-slate-900">💵 ক্যাশ অন ডেলিভারি (COD):</span>
+                                      <span>পণ্য হাতে পেয়ে গ্রাহক <strong>৳{formatMoney(ord.totalAmount)}</strong> পরিশোধ করবেন।</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      disabled={isProcessingPayment === ord.id}
+                                      onClick={() => handleCollectCodPayment(ord)}
+                                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>{isProcessingPayment === ord.id ? 'আদায় হচ্ছে...' : 'COD আদায় সম্পন্ন'}</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* COURIER INFO DISPLAY (If already shipped) */}
+                            {isShippedStage && (
+                              <div className="bg-purple-50/80 border border-purple-200 rounded-xl p-2.5 text-xs text-purple-900 flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <Truck className="w-4 h-4 text-purple-700 shrink-0" />
+                                  <span>
+                                    <strong>কুরিয়ার:</strong> {ord.courierName || 'কুরিয়ার সার্ভিস'}
+                                    {ord.courierTrackingCode && (
+                                      <span className="ml-2 font-mono bg-white px-2 py-0.5 rounded border border-purple-200">
+                                        ট্র্যাকিং: {ord.courierTrackingCode}
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                                <span className="text-[11px] text-purple-700 font-bold">ডেলিভারির পথে</span>
+                              </div>
+                            )}
+
+                            {/* STEP-SPECIFIC ACTION BAR (Clean 1-Click Operations) */}
+                            <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              {/* Left: Communication links */}
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <a
+                                  href={`tel:${ord.customerPhone}`}
+                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1 transition"
+                                >
+                                  <Phone className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>কল দিন</span>
+                                </a>
+
+                                <a
+                                  href={`https://wa.me/88${ord.customerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                                    `আসসালামু আলাইকুম ${ord.customerName} ভাই, আপনার অনলাইন অর্ডার #${ord.orderNumber} এর বিষয়ে যোগাযোগ করছি। মোট বিল: ৳${formatMoney(
+                                      ord.totalAmount
+                                    )}। ধন্যবাদ!`
+                                  )}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1 transition"
+                                >
+                                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>WhatsApp</span>
+                                </a>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedOrderIds((prev) => ({ ...prev, [ord.id]: !prev[ord.id] }))}
+                                  className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-medium flex items-center gap-1 transition cursor-pointer border border-slate-200/80"
+                                >
+                                  <span>পণ্য ও হিসাব</span>
+                                  {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
+
+                              {/* Right: Step Action Buttons & Any-Status Selector */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {isMarketplaceLocked ? (
+                                  <div className="px-3.5 py-2 bg-amber-50 text-amber-900 border border-amber-300 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-2xs">
+                                    <Lock className="w-3.5 h-3.5 text-amber-700 animate-pulse" />
+                                    <span>🔒 সুপার এডমিন পেমেন্ট যাচাই করার আগে স্ট্যাটাস পরিবর্তন লক</span>
+                                  </div>
+                                ) : (
+                                  <>
+                                    {/* Direct Any-Status Changer Dropdown */}
+                                    <select
+                                      value={ord.orderStatus || 'pending'}
+                                      disabled={updatingOrderId === ord.id}
+                                      onChange={(e) => {
+                                        const nextSt = e.target.value as OnlineOrder['orderStatus'];
+                                        if (nextSt === 'shipped') {
+                                          setCourierModalOrder(ord);
+                                          setCourierInputCode(ord.courierTrackingCode || '');
+                                          setCourierInputName(ord.courierName || 'Steadfast Courier');
+                                        } else {
+                                          handleUpdateOrderStatus(ord.id, nextSt);
+                                        }
+                                      }}
+                                      className="px-2.5 py-1.5 rounded-xl border border-teal-300 bg-teal-50/70 text-teal-950 text-xs font-black focus:outline-none focus:ring-2 focus:ring-teal-600 cursor-pointer disabled:opacity-50"
+                                      title="যেকোনো স্ট্যাটাসে পরিবর্তন করুন"
+                                    >
+                                      <option value="pending">⏳ পেন্ডিং (নতুন অর্ডার)</option>
+                                      <option value="confirmed">✅ কনফার্মড</option>
+                                      <option value="processing">📦 প্রস্তুত হচ্ছে (প্রসেসিং)</option>
+                                      <option value="shipped">🚚 কুরিয়ারে পাঠানো হয়েছে (পথে আছে)</option>
+                                      <option value="delivered">🎉 ডেলিভারি সম্পন্ন</option>
+                                      <option value="cancelled">❌ অর্ডার বাতিল</option>
+                                    </select>
+
+                                    {/* Step 1: New -> Confirm Order */}
+                                    {isNewStage && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          disabled={updatingOrderId === ord.id}
+                                          onClick={() => handleUpdateOrderStatus(ord.id, 'confirmed')}
+                                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+                                        >
+                                          <CheckCircle2 className="w-4 h-4" />
+                                          <span>
+                                            {updatingOrderId === ord.id ? 'একসেপ্ট হচ্ছে...' : '✓ অর্ডার একসেপ্ট ও কনফার্ম'}
+                                          </span>
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          disabled={updatingOrderId === ord.id}
+                                          onClick={() => handleUpdateOrderStatus(ord.id, 'cancelled')}
+                                          className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-xl text-xs font-bold transition cursor-pointer active:scale-95 disabled:opacity-50"
+                                        >
+                                          বাতিল
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {/* Step 2: Processing -> Handover to Courier */}
+                                    {isProcessingStage && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setCourierModalOrder(ord);
+                                            setCourierInputCode(ord.courierTrackingCode || '');
+                                            setCourierInputName(ord.courierName || 'Steadfast Courier');
+                                          }}
+                                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95"
+                                        >
+                                          <Truck className="w-3.5 h-3.5" />
+                                          <span>কুরিয়ারে পাঠান</span>
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          disabled={updatingOrderId === ord.id}
+                                          onClick={() => handleUpdateOrderStatus(ord.id, 'delivered')}
+                                          className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold transition cursor-pointer"
+                                        >
+                                          সরাসরি ডেলিভার্ড
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {/* Step 3: Shipped -> Mark Delivered */}
+                                    {isShippedStage && (
+                                      <button
+                                        type="button"
+                                        disabled={updatingOrderId === ord.id}
+                                        onClick={() => handleUpdateOrderStatus(ord.id, 'delivered')}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>ডেলিভারি সম্পন্ন মার্ক করুন</span>
+                                      </button>
+                                    )}
+
+                                    {/* Step 4: Delivered -> Finished Card Actions */}
+                                    {isDeliveredStage && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-emerald-700 font-bold flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>ডেলিভারি সম্পন্ন</span>
+                                        </span>
+
+                                        {onConvertOrderToSale && (
+                                          <button
+                                            type="button"
+                                            onClick={() => onConvertOrderToSale(ord)}
+                                            className="px-3 py-1.5 bg-[#004D40] hover:bg-[#00382E] text-white rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                                          >
+                                            <ShoppingBag className="w-3.5 h-3.5" />
+                                            <span>ক্যাশবুকে যুক্ত</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Cancelled Status Notice */}
+                                    {isCancelledStage && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-rose-700 font-bold flex items-center gap-1 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
+                                          <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                                          <span>অর্ডার বাতিল</span>
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdateOrderStatus(ord.id, 'pending')}
+                                          className="text-[11px] text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                                        >
+                                          পুনরায় চালু
+                                        </button>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* COLLAPSIBLE DETAILS (Items breakdown & statements) */}
+                            {isExpanded && (
+                              <div className="mt-3 pt-3 border-t border-slate-100 space-y-3 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 animate-in fade-in duration-150">
+                                <div className="font-bold text-xs text-slate-800 mb-1 flex items-center justify-between">
+                                  <span>অর্ডারকৃত পণ্য তালিকা:</span>
+                                  <span className="text-slate-500 font-normal">({ord.items.length}টি আইটেম)</span>
+                                </div>
+                                <div className="space-y-2 divide-y divide-slate-200/60">
+                                  {ord.items.map((item, idx) => {
+                                    const variantStr = (item as any).variant || [(item as any).size, (item as any).color].filter(Boolean).join(' • ');
+                                    const desc = (item as any).description || (item as any).productDescription || '';
+                                    const q = Number(item.quantity) || 1;
+                                    const u = item.unit || 'পিস';
+                                    const p = Number(item.unitPrice || (item as any).price || 0);
+                                    const itemTotal = Number(item.total || (item as any).subtotal || p * q);
+
+                                    return (
+                                      <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-700 pt-2 first:pt-0 gap-1">
+                                        <div className="space-y-0.5">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-bold text-slate-900">
+                                              {item.productName}
+                                            </span>
+                                            {variantStr && (
+                                              <span className="px-1.5 py-0.2 rounded bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-bold">
+                                                [{variantStr}]
+                                              </span>
+                                            )}
+                                          </div>
+                                          {desc && (
+                                            <p className="text-[11px] text-slate-500 line-clamp-1">{desc}</p>
+                                          )}
+                                          <span className="text-[11px] text-slate-500 font-mono">
+                                            ৳ {formatMoney(p)} × {q} {u}
+                                          </span>
+                                        </div>
+                                        <span className="font-bold text-slate-900 font-mono self-end sm:self-auto">
+                                          ৳ {formatMoney(itemTotal)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                <div className="border-t border-slate-200 pt-2 space-y-1 text-xs">
+                                  <div className="flex justify-between text-slate-600">
+                                    <span>পণ্যের মোট মূল্য:</span>
+                                    <span>৳ {formatMoney(ord.subtotal)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-slate-600">
+                                    <span>ডেলিভারি চার্জ:</span>
+                                    <span>৳ {formatMoney(ord.deliveryCharge)}</span>
+                                  </div>
+                                  <div className="flex justify-between font-black text-slate-900 pt-1 border-t border-slate-200 text-sm">
+                                    <span>সর্বমোট বিল:</span>
+                                    <span className="text-teal-900 font-mono">৳ {formatMoney(ord.totalAmount)}</span>
+                                  </div>
+                                </div>
+
+                                {/* Manual Override Dropdown */}
+                                <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between gap-2 text-xs">
+                                  <span className="text-slate-500">ম্যানুয়াল স্ট্যাটাস পরিবর্তন:</span>
+                                  <select
+                                    value={ord.orderStatus}
+                                    onChange={(e) => handleUpdateOrderStatus(ord.id, e.target.value as OnlineOrder['orderStatus'])}
+                                    className="px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 cursor-pointer"
+                                  >
+                                    <option value="pending">🟡 নতুন (পেন্ডিং)</option>
+                                    <option value="confirmed">🔵 নিশ্চিত</option>
+                                    <option value="processing">📦 প্যাকিং</option>
+                                    <option value="shipped">🚚 কুরিয়ারে</option>
+                                    <option value="delivered">✅ ডেলিভারি সম্পন্ন</option>
+                                    <option value="cancelled">❌ বাতিল</option>
+                                  </select>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* COURIER DISPATCH POPUP MODAL */}
+                {courierModalOrder && (
+                  <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center">
+                            <Truck className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="font-black text-slate-900 text-sm sm:text-base">কুরিয়ারে পার্সেল পাঠান</h4>
+                            <p className="text-xs text-slate-500">অর্ডার #{courierModalOrder.orderNumber}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCourierModalOrder(null)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-3 text-xs">
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1.5">কুরিয়ার নির্বাচন করুন:</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            {['Steadfast Courier', 'Pathao Courier', 'RedX', 'সুন্দরবন কুরিয়ার'].map((cName) => (
+                              <button
+                                key={cName}
+                                type="button"
+                                onClick={() => setCourierInputName(cName)}
+                                className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition cursor-pointer text-center ${
+                                  courierInputName === cName
+                                    ? 'bg-purple-100 text-purple-900 border-purple-400 font-black'
+                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                {cName}
+                              </button>
+                            ))}
+                          </div>
+                          <input
+                            type="text"
+                            value={courierInputName}
+                            onChange={(e) => setCourierInputName(e.target.value)}
+                            placeholder="অন্য কুরিয়ারের নাম লিখুন"
+                            className="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-purple-600"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-slate-800 mb-1">
+                            ট্র্যাকিং কোড বা কনসাইনমেন্ট আইডি (ঐচ্ছিক):
+                          </label>
+                          <input
+                            type="text"
+                            value={courierInputCode}
+                            onChange={(e) => setCourierInputCode(e.target.value)}
+                            placeholder="যেমন: CID-48924 বা ইনভয়েস নং"
+                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 font-mono focus:outline-hidden focus:ring-1 focus:ring-purple-600"
+                          />
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            💡 সাবমিট করার সাথে সাথে কাস্টমারের মোবাইলে কুরিয়ার ও ট্র্যাকিং কোড সহ এসএমএস চলে যাবে।
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => setCourierModalOrder(null)}
+                          className="px-4 py-2 text-slate-600 hover:text-slate-800 font-bold text-xs cursor-pointer"
+                        >
+                          বাতিল
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const ord = courierModalOrder;
+                            const finalCourierName = (courierInputName || '').trim() || 'Steadfast Courier';
+                            const finalTrackingCode = (courierInputCode || '').trim();
+                            setCourierModalOrder(null);
+                            if (ord) {
+                              setOrderCourierDrafts((prev) => ({
+                                ...prev,
+                                [ord.id]: { courierName: finalCourierName, courierTrackingCode: finalTrackingCode },
+                              }));
+                              setOrderStatusDrafts((prev) => ({ ...prev, [ord.id]: 'shipped' }));
+                              await handleSubmitOrderStatus(ord.id, 'shipped', {
+                                courierName: finalCourierName,
+                                courierTrackingCode: finalTrackingCode,
+                              });
+                            }
+                          }}
+                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black shadow-xs cursor-pointer transition"
+                        >
+                          কুরিয়ারে হস্তান্তর নিশ্চিত করুন
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* REJECT PAYMENT MODAL */}
+          {rejectModalOrder && (
+            <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                      <XCircle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm sm:text-base">পেমেন্ট রিজেক্ট করুন</h4>
+                      <p className="text-xs text-slate-500">অর্ডার #{rejectModalOrder.orderNumber}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setRejectModalOrder(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">গ্রাহকের নাম:</span>
+                      <span className="font-bold text-slate-800">{rejectModalOrder.customerName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">পেমেন্ট মেথড:</span>
+                      <span className="font-bold text-slate-800 uppercase">{rejectModalOrder.paymentMethod}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">প্রদত্ত TrxID:</span>
+                      <span className="font-mono font-bold text-rose-600">{rejectModalOrder.trxId || 'নেই'}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-bold text-slate-800">রিজেক্ট করার কারণ নির্বাচন করুন বা লিখুন:</label>
+                    <div className="flex flex-wrap gap-1.5 pb-1">
+                      {[
+                        'ভুল TrxID দেওয়া হয়েছে',
+                        'অ্যাকাউন্টে টাকা ক্রেডিট হয়নি',
+                        'টাকার পরিমাণ কম পাঠানো হয়েছে',
+                        'অন্য নম্বরে টাকা পাঠানো হয়েছে',
+                      ].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setRejectReasonInput(preset)}
+                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                            rejectReasonInput === preset
+                              ? 'bg-rose-600 text-white border-rose-600'
+                              : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={rejectReasonInput}
+                      onChange={(e) => setRejectReasonInput(e.target.value)}
+                      placeholder="গ্রাহককে কারণ জানানোর জন্য লিখুন..."
+                      className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-rose-500/30 text-xs font-medium text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setRejectModalOrder(null)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                  >
+                    ফিরে যান
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isProcessingPayment === rejectModalOrder.id}
+                    onClick={handleConfirmRejectPayment}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>রিজেক্ট নিশ্চিত করুন</span>
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* ----------------- TAB 3: MOBILE SMS OTP PASSWORD RESET ----------------- */}
-          {activeTab === 'reset' && (
+          {/* TAB 6: CUSTOMER MESSAGES & LIVE CHAT */}
+          {activeTab === 'messages' && (
             <div className="space-y-4">
-              {/* Header */}
-              <div className="text-center pb-1">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-400/20 to-teal-500/20 border border-emerald-500/30 text-emerald-400 mb-2 shadow-md">
-                  <Smartphone className="w-6 h-6" />
+              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-[#004D40] text-white flex items-center justify-center">
+                    <MessageCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">গ্রাহক মেসেজ ও ইনবক্স</h3>
+                    <p className="text-xs text-slate-600">
+                      আপনার অনলাইন স্টোরের সাপোর্ট ড্রয়ার থেকে আসা সকল কাস্টমার বার্তা এখানে পাওয়া যাবে। আপনি এখান থেকেই সরাসরি উত্তর দিতে পারবেন।
+                    </p>
+                  </div>
                 </div>
-                <h3 className="font-black text-white text-base sm:text-lg">
-                  মোবাইল SMS ওটিপি দিয়ে পিন রিসেট
-                </h3>
-                <p className="text-xs text-slate-400 mt-1 font-medium leading-relaxed">
-                  সুপার অ্যাডমিন, স্টাফ ও সাধারণ ইউজার তাদের রেজিস্টার্ড নম্বরে SMS OTP কোড পাবেন
+              </div>
+
+              <VendorChatInboxTab storeName={formData.storeName} />
+            </div>
+          )}
+
+          {/* TAB 7: COUPONS & DISCOUNTS */}
+          {activeTab === 'coupons' && (
+            <div className="space-y-6">
+              {/* Header Card */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                    <Tag className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">কুপন ও প্রমো কোড ব্যবস্থাপনা</h3>
+                    <p className="text-xs text-slate-500">
+                      গ্রাহকদের জন্য বিশেষ ছাড়ের কুপন কোড তৈরি করুন যা চেকআউটের সময় স্বয়ংক্রিয়ভাবে ডিসকাউন্ট প্রযোজ্য করবে।
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Create New Coupon Form */}
+              <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-2xs space-y-4">
+                <h4 className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-teal-700" />
+                  <span>নতুন ডিসকাউন্ট কুপন তৈরি করুন</span>
+                </h4>
+
+                <form onSubmit={handleAddCouponSubmit} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700">কুপন কোড *</label>
+                      <input
+                        type="text"
+                        required
+                        value={newCouponCode}
+                        onChange={(e) => setNewCouponCode(e.target.value.toUpperCase())}
+                        placeholder="উদাঃ EID2026, SAVE50"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 uppercase font-mono font-bold text-slate-900 focus:outline-hidden focus:border-[#00695C]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700">ছাড়ের ধরণ *</label>
+                      <select
+                        value={newCouponType}
+                        onChange={(e) => setNewCouponType(e.target.value as 'percentage' | 'fixed')}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-800 focus:outline-hidden"
+                      >
+                        <option value="percentage">শতাংশ (%) ডিসকাউন্ট</option>
+                        <option value="fixed">নির্দিষ্ট টাকা (৳) ক্যাশ ডিসকাউন্ট</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700">
+                        {newCouponType === 'percentage' ? 'ছাড়ের পরিমাণ (%) *' : 'ছাড়ের পরিমাণ (৳) *'}
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min="1"
+                        value={newCouponValue}
+                        onChange={(e) => setNewCouponValue(Number(e.target.value))}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-900 focus:outline-hidden focus:border-[#00695C]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-700">সর্বনিম্ন অর্ডার মূল্য (৳)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={newCouponMinSpend}
+                        onChange={(e) => setNewCouponMinSpend(Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-800 focus:outline-hidden"
+                      />
+                    </div>
+
+                    {newCouponType === 'percentage' && (
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">সর্বোচ্চ ছাড়ের সীমা (৳)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={newCouponMaxDiscount || ''}
+                          onChange={(e) => setNewCouponMaxDiscount(e.target.value ? Number(e.target.value) : undefined)}
+                          placeholder="সীমাহীন হলে খালি রাখুন"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-800 focus:outline-hidden"
+                        />
+                      </div>
+                    )}
+
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="font-bold text-slate-700">বিবরণ / অফার বার্তা</label>
+                      <input
+                        type="text"
+                        value={newCouponDescription}
+                        onChange={(e) => setNewCouponDescription(e.target.value)}
+                        placeholder="উদাঃ ঈদের বিশেষ ধামাকা অফার! ৫০০ টাকার অর্ডারে ১০% ছাড়।"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-800 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <button
+                      type="submit"
+                      className="px-5 py-2.5 bg-[#00695C] hover:bg-[#004D40] text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>কুপন সেভ করুন</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Existing Coupons List */}
+              <div className="space-y-3">
+                <h4 className="font-bold text-xs sm:text-sm text-slate-900">
+                  বিদ্যমান কুপনসমূহ ({(formData.coupons || []).length})
+                </h4>
+
+                {(formData.coupons || []).length === 0 ? (
+                  <div className="bg-white rounded-3xl p-8 border border-slate-200 text-center space-y-2 text-slate-500">
+                    <Tag className="w-8 h-8 mx-auto text-slate-300" />
+                    <p className="text-xs">এখনও কোনো কুপন তৈরি করা হয়নি। উপরের ফর্ম ব্যবহার করে প্রথম কুপন তৈরি করুন।</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {(formData.coupons || []).map((c) => (
+                      <div
+                        key={c.code}
+                        className={`bg-white rounded-2xl p-4 border transition-all space-y-2.5 ${
+                          c.isActive
+                            ? 'border-emerald-200 shadow-2xs ring-1 ring-emerald-400/20'
+                            : 'border-slate-200 opacity-70'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-black text-sm text-[#004D40] bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">
+                            {c.code}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              c.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {c.isActive ? 'সক্রিয়' : 'নিষ্ক্রিয়'}
+                          </span>
+                        </div>
+
+                        <div className="text-xs space-y-1 text-slate-600">
+                          <div className="font-bold text-slate-900">
+                            ছাড়: {c.discountType === 'percentage' ? `${c.discountValue}% ছাড়` : `৳${formatMoney(c.discountValue)} ফ্ল্যাট ছাড়`}
+                            {c.maxDiscount ? ` (সর্বোচ্চ ৳${c.maxDiscount})` : ''}
+                          </div>
+                          {c.minOrderAmount && <div>সর্বনিম্ন কেনাকাটা: ৳{formatMoney(c.minOrderAmount)}</div>}
+                          {c.description && <div className="text-slate-500 italic text-[11px]">{c.description}</div>}
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleCoupon(c.code)}
+                            className="text-xs font-bold text-teal-800 hover:underline cursor-pointer"
+                          >
+                            {c.isActive ? 'বন্ধ করুন' : 'সক্রিয় করুন'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCoupon(c.code)}
+                            className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            title="কুপন মুছুন"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 8: VENDOR PAYMENT VERIFICATION CENTER & PAYMENT GATEWAYS */}
+          {activeTab === 'payments' && (() => {
+            // Strictly Personal E-Commerce Store orders ONLY! Central Marketplace payments are verified by Super Admin.
+            const personalOrders = orders.filter(
+              (o) => o.orderSource !== 'marketplace' && !o.masterOrderId && !o.isRejectedByAdmin
+            );
+            const pendingVerifyList = personalOrders.filter(
+              (o) =>
+                o.paymentMethod !== 'cod' &&
+                (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
+            );
+            const codAndPartialList = personalOrders.filter(
+              (o) =>
+                o.paymentStatus === 'partial' ||
+                o.paymentStatus === 'partial_paid' ||
+                (o.paymentMethod === 'cod' && o.paymentStatus !== 'paid' && o.orderStatus !== 'cancelled')
+            );
+            const paidList = personalOrders.filter((o) => o.paymentStatus === 'paid');
+            const rejectedList = personalOrders.filter((o) => o.paymentStatus === 'rejected');
+
+            const filteredPaymentOrders = personalOrders.filter((o) => {
+              if (paymentTabFilter === 'pending') {
+                return (
+                  o.paymentMethod !== 'cod' &&
+                  (o.paymentStatus === 'pending_verification' || (!o.paymentStatus || o.paymentStatus === 'unpaid'))
+                );
+              }
+              if (paymentTabFilter === 'cod_due') {
+                return (
+                  o.paymentStatus === 'partial' ||
+                  o.paymentStatus === 'partial_paid' ||
+                  (o.paymentMethod === 'cod' && o.paymentStatus !== 'paid' && o.orderStatus !== 'cancelled')
+                );
+              }
+              if (paymentTabFilter === 'paid') return o.paymentStatus === 'paid';
+              if (paymentTabFilter === 'rejected') return o.paymentStatus === 'rejected';
+              return true;
+            });
+
+            const totalCollectedAmount = personalOrders.reduce(
+              (sum, o) => sum + (o.paymentStatus === 'paid' ? o.totalAmount : (o.paidAmount || 0)),
+              0
+            );
+            const totalDueCodAmount = personalOrders
+              .filter((o) => o.orderStatus !== 'cancelled' && o.paymentStatus !== 'paid')
+              .reduce((sum, o) => sum + Math.max(0, (o.totalAmount || 0) - (o.paidAmount || 0)), 0);
+
+            return (
+            <div className="space-y-6">
+              {/* PERSONAL STORE VENDOR PAYMENT VERIFICATION & COLLECTION DASHBOARD */}
+              <div className="bg-white rounded-3xl p-5 border border-emerald-200 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                      <ShieldCheck className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-black text-slate-900 text-sm sm:text-base">
+                          পার্সোনাল ই-কমার্স পেমেন্ট যাচাই ও ক্যাশ কালেকশন সেন্টার
+                        </h3>
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black border border-emerald-300">
+                          ১০০% ভেন্ডর নিয়ন্ত্রিত
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        আপনার পার্সোনাল ই-কমার্স সাইটের সকল পেমেন্ট (বিকাশ/নগদ/রকেট/উপায়/ব্যাংক TrxID যাচাই, আংশিক অগ্রিম ও COD আদায়) শুধুমাত্র আপনি পরিচালনা করবেন। (সেন্ট্রাল মার্কেটপ্লেস অর্ডারের পেমেন্ট শুধুমাত্র সুপার এডমিন যাচাই করে পারমিশন দেন।)
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Summary Metrics */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTabFilter('pending')}
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+                      paymentTabFilter === 'pending'
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                        : 'bg-amber-50/70 text-amber-950 border-amber-200 hover:bg-amber-100/70'
+                    }`}
+                  >
+                    <p className="text-[11px] font-bold opacity-85">যাচাইয়ের অপেক্ষায় (TrxID)</p>
+                    <p className="text-xl font-black mt-0.5">{pendingVerifyList.length} টি</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTabFilter('cod_due')}
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+                      paymentTabFilter === 'cod_due'
+                        ? 'bg-teal-600 text-white border-teal-700 shadow-sm'
+                        : 'bg-teal-50/70 text-teal-950 border-teal-200 hover:bg-teal-100/70'
+                    }`}
+                  >
+                    <p className="text-[11px] font-bold opacity-85">COD ও ডেলিভারিতে বাকি</p>
+                    <p className="text-xl font-black mt-0.5">৳{formatMoney(totalDueCodAmount)} ({codAndPartialList.length})</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTabFilter('paid')}
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+                      paymentTabFilter === 'paid'
+                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                        : 'bg-emerald-50/70 text-emerald-950 border-emerald-200 hover:bg-emerald-100/70'
+                    }`}
+                  >
+                    <p className="text-[11px] font-bold opacity-85">মোট আদায়কৃত ও পরিশোধিত</p>
+                    <p className="text-xl font-black mt-0.5">৳{formatMoney(totalCollectedAmount)} ({paidList.length})</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTabFilter('all')}
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
+                      paymentTabFilter === 'all'
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                        : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <p className="text-[11px] font-bold opacity-85">সকল পার্সোনাল অর্ডার</p>
+                    <p className="text-xl font-black mt-0.5">{personalOrders.length} টি</p>
+                  </button>
+                </div>
+
+                {/* Personal Store Orders Payment List */}
+                {filteredPaymentOrders.length === 0 ? (
+                  <div className="p-6 text-center bg-slate-50 rounded-2xl border border-slate-200/80 text-xs text-slate-500">
+                    এই ফিল্টারে বর্তমানে কোনো পার্সোনাল ই-কমার্স পেমেন্ট রেকর্ড নেই।
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                    {filteredPaymentOrders.map((ord) => {
+                      const paidAmt = ord.paidAmount ?? (ord.paymentStatus === 'paid' ? ord.totalAmount : 0);
+                      const dueAmt = ord.paymentStatus === 'paid' ? 0 : Math.max(0, (ord.totalAmount || 0) - paidAmt);
+                      return (
+                        <div
+                          key={ord.id}
+                          className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono font-black text-xs text-teal-950 bg-white px-2 py-0.5 rounded border border-slate-300">
+                                #{ord.orderNumber}
+                              </span>
+                              <span className="font-bold text-xs text-slate-900">{ord.customerName}</span>
+                              <span className="text-[11px] font-mono text-slate-500">({ord.customerPhone})</span>
+                              <span className="px-2 py-0.5 rounded bg-teal-100 text-teal-900 text-[10px] font-black uppercase">
+                                {ord.paymentMethod}
+                              </span>
+                              {ord.trxId && (
+                                <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-950 font-mono text-[11px] font-black border border-amber-300 select-all">
+                                  TrxID: {ord.trxId}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-600 flex items-center gap-3 flex-wrap">
+                              <span>মোট বিল: <strong>৳{formatMoney(ord.totalAmount)}</strong></span>
+                              <span className="text-emerald-700 font-bold">জমা: ৳{formatMoney(paidAmt)}</span>
+                              <span className="text-amber-800 font-bold">বাকি/COD: ৳{formatMoney(dueAmt)}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                            {ord.paymentStatus !== 'paid' && (
+                              <button
+                                type="button"
+                                disabled={isProcessingPayment === ord.id}
+                                onClick={() =>
+                                  ord.paymentMethod === 'cod'
+                                    ? handleCollectCodPayment(ord)
+                                    : handleAcceptPayment(ord)
+                                }
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1 cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>{ord.paymentMethod === 'cod' ? 'COD আদায় সম্পন্ন' : 'ভেরিফাই ও একসেপ্ট'}</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setVendorControlModalOrder({ order: ord, initialTab: 'payment' })}
+                              className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-teal-600" />
+                              <span>পেমেন্ট / আংশিক জমা এডিট</span>
+                            </button>
+                            {ord.paymentMethod !== 'cod' && ord.paymentStatus !== 'rejected' && ord.paymentStatus !== 'paid' && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenRejectModal(ord)}
+                                className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold cursor-pointer"
+                              >
+                                রিজেক্ট
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Header Card */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-pink-50 text-pink-600 flex items-center justify-center shrink-0">
+                    <CreditCard className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                      ভেন্ডর পেমেন্ট গেটওয়ে ও মেথড কনফিগারেশন
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      আপনার অনলাইন স্টোরে গ্রাহকদের থেকে সরাসরি টাকা পাওয়ার জন্য নিজস্ব বিকাশ, নগদ, রকেট, উপায়, ব্যাংক হিসাব ও কিউআর কোড যুক্ত করুন।
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isSavingSettings}
+                  onClick={() => handleSaveSettings()}
+                  className={`px-4 py-2 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    isSavingSettings
+                      ? 'bg-teal-700 opacity-80 cursor-wait'
+                      : saveSuccessNotice
+                      ? 'bg-emerald-600'
+                      : 'bg-[#004D40] hover:bg-[#00382e]'
+                  }`}
+                >
+                  {isSavingSettings ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>সেভ হচ্ছে...</span>
+                    </>
+                  ) : saveSuccessNotice ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-200" />
+                      <span>সংরক্ষিত!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>পেমেন্ট সেটিংস সেভ করুন</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Grid of Payment Methods */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. bKash */}
+                <div className={`bg-white rounded-2xl p-5 border transition-all space-y-4 ${formData.acceptBkash ? 'border-pink-300 shadow-xs ring-1 ring-pink-400/20' : 'border-slate-200 opacity-80'}`}>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-pink-100 text-pink-700 font-black text-xs flex items-center justify-center">
+                        bKash
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">বিকাশ (bKash)</h4>
+                        <p className="text-[11px] text-slate-500">মোবাইল ফাইন্যান্সিয়াল সার্ভিস</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptBkash}
+                        onChange={(e) => setFormData({ ...formData, acceptBkash: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-pink-600"></div>
+                    </label>
+                  </div>
+
+                  {formData.acceptBkash && (
+                    <div className="space-y-3 text-xs animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">বিকাশ অ্যাকাউন্ট টাইপ</label>
+                        <select
+                          value={formData.bkashType || 'merchant'}
+                          onChange={(e) => setFormData({ ...formData, bkashType: e.target.value as any })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-semibold text-slate-800 bg-white"
+                        >
+                          <option value="merchant">মার্চেন্ট অ্যাকাউন্ট (Merchant Payment)</option>
+                          <option value="personal">পার্সোনাল অ্যাকাউন্ট (Send Money)</option>
+                          <option value="agent">এজেন্ট অ্যাকাউন্ট (Cash Out)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">বিকাশ নম্বর *</label>
+                        <input
+                          type="tel"
+                          value={formData.bkashNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, bkashNumber: e.target.value })}
+                          placeholder="উদাঃ 017XXXXXXXX"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Nagad */}
+                <div className={`bg-white rounded-2xl p-5 border transition-all space-y-4 ${formData.acceptNagad ? 'border-orange-300 shadow-xs ring-1 ring-orange-400/20' : 'border-slate-200 opacity-80'}`}>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-orange-100 text-orange-700 font-black text-xs flex items-center justify-center">
+                        নগদ
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">নগদ (Nagad)</h4>
+                        <p className="text-[11px] text-slate-500">ডাক বিভাগ ডিজিটাল লেনদেন</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptNagad}
+                        onChange={(e) => setFormData({ ...formData, acceptNagad: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-600"></div>
+                    </label>
+                  </div>
+
+                  {formData.acceptNagad && (
+                    <div className="space-y-3 text-xs animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">নগদ অ্যাকাউন্ট টাইপ</label>
+                        <select
+                          value={formData.nagadType || 'personal'}
+                          onChange={(e) => setFormData({ ...formData, nagadType: e.target.value as any })}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-semibold text-slate-800 bg-white"
+                        >
+                          <option value="merchant">মার্চেন্ট অ্যাকাউন্ট (Merchant)</option>
+                          <option value="personal">পার্সোনাল অ্যাকাউন্ট (Personal)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">নগদ নম্বর *</label>
+                        <input
+                          type="tel"
+                          value={formData.nagadNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, nagadNumber: e.target.value })}
+                          placeholder="উদাঃ 018XXXXXXXX"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Rocket */}
+                <div className={`bg-white rounded-2xl p-5 border transition-all space-y-4 ${formData.acceptRocket ? 'border-purple-300 shadow-xs ring-1 ring-purple-400/20' : 'border-slate-200 opacity-80'}`}>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 font-black text-xs flex items-center justify-center">
+                        রকেট
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">রকেট (Rocket DBBL)</h4>
+                        <p className="text-[11px] text-slate-500">ডাচ্-বাংলা ব্যাংক মোবাইল ব্যাংকিং</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptRocket}
+                        onChange={(e) => setFormData({ ...formData, acceptRocket: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                    </label>
+                  </div>
+
+                  {formData.acceptRocket && (
+                    <div className="space-y-3 text-xs animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">রকেট ১২ ডিজিটের নম্বর *</label>
+                        <input
+                          type="tel"
+                          value={formData.rocketNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, rocketNumber: e.target.value })}
+                          placeholder="উদাঃ 019XXXXXXXXX (চেক ডিজিট সহ)"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Upay */}
+                <div className={`bg-white rounded-2xl p-5 border transition-all space-y-4 ${formData.acceptUpay ? 'border-amber-300 shadow-xs ring-1 ring-amber-400/20' : 'border-slate-200 opacity-80'}`}>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 font-black text-xs flex items-center justify-center">
+                        upay
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">উপায় (Upay UCB)</h4>
+                        <p className="text-[11px] text-slate-500">ইউসিবি ডিজিটাল পেমেন্ট</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptUpay || false}
+                        onChange={(e) => setFormData({ ...formData, acceptUpay: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+                    </label>
+                  </div>
+
+                  {formData.acceptUpay && (
+                    <div className="space-y-3 text-xs animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">উপায় নম্বর *</label>
+                        <input
+                          type="tel"
+                          value={formData.upayNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, upayNumber: e.target.value })}
+                          placeholder="উদাঃ 017XXXXXXXX"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. Bank Transfer */}
+                <div className={`bg-white rounded-2xl p-5 border transition-all space-y-4 md:col-span-2 ${formData.acceptBank ? 'border-blue-300 shadow-xs ring-1 ring-blue-400/20' : 'border-slate-200 opacity-80'}`}>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                        <Landmark className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">সরাসরি ব্যাংক ট্রান্সফার (Bank Transfer / Wire)</h4>
+                        <p className="text-[11px] text-slate-500">গ্রাহক সরাসরি আপনার ব্যবসায়িক ব্যাংক হিসাবে টাকা পাঠাতে পারবে</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptBank || false}
+                        onChange={(e) => setFormData({ ...formData, acceptBank: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {formData.acceptBank && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">ব্যাংকের নাম *</label>
+                        <input
+                          type="text"
+                          value={formData.bankName || ''}
+                          onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+                          placeholder="উদাঃ Islami Bank / DBBL / BRAC Bank"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">অ্যাকাউন্টের নাম (Account Title) *</label>
+                        <input
+                          type="text"
+                          value={formData.bankAccountName || ''}
+                          onChange={(e) => setFormData({ ...formData, bankAccountName: e.target.value })}
+                          placeholder="উদাঃ আপনার প্রতিষ্ঠানের নাম বা ব্যক্তিগত নাম"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">অ্যাকাউন্ট নম্বর *</label>
+                        <input
+                          type="text"
+                          value={formData.bankAccountNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
+                          placeholder="উদাঃ 2050XXXXXXXXXXXXX"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold text-slate-900 bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">শাখার নাম (Branch)</label>
+                        <input
+                          type="text"
+                          value={formData.bankBranchName || ''}
+                          onChange={(e) => setFormData({ ...formData, bankBranchName: e.target.value })}
+                          placeholder="উদাঃ মিরপুর ব্রাঞ্চ, ঢাকা"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-800 bg-white"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-700">রাউটিং নম্বর (Routing No)</label>
+                        <input
+                          type="text"
+                          value={formData.bankRoutingNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, bankRoutingNumber: e.target.value })}
+                          placeholder="উদাঃ 125272635"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono text-slate-800 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 6. Cash on Delivery (COD) */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center">
+                        <Truck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">ক্যাশ অন ডেলিভারি (Cash On Delivery)</h4>
+                        <p className="text-[11px] text-slate-500">পণ্য হাতে পেয়ে ডেলিভারিম্যানকে টাকা পরিশোধ</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptCOD !== false}
+                        onChange={(e) => setFormData({ ...formData, acceptCOD: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#00695C]"></div>
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    এটি সক্রিয় রাখলে গ্রাহক কোনো অগ্রিম টাকা প্রদান ছাড়াই অর্ডার করতে পারবেন। ডেলিভারির সময় কুরিয়ার থেকে টাকা আদায় হবে।
+                  </p>
+                </div>
+
+                {/* 7. Bangla QR & Vendor QR Code */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                        <QrCode className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">বাংলা কিউআর কোড (Bangla QR / Merchant QR)</h4>
+                        <p className="text-[11px] text-slate-500">বিকাশ, নগদ, সেলফিন বা যেকোনো ব্যাংকিং অ্যাপ থেকে সরাসরি স্ক্যান করে পেমেন্ট</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.acceptBanglaQr !== false}
+                        onChange={(e) => setFormData({ ...formData, acceptBanglaQr: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex items-start gap-4">
+                    {formData.vendorPaymentQrUrl ? (
+                      <div className="relative group">
+                        <img
+                          src={formData.vendorPaymentQrUrl}
+                          alt="Vendor Payment QR"
+                          className="w-24 h-24 object-contain rounded-xl border border-emerald-300 bg-white p-1 shadow-2xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, vendorPaymentQrUrl: undefined })}
+                          className="absolute -top-2 -right-2 w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs font-bold shadow-md hover:bg-rose-700 cursor-pointer"
+                          title="কিউআর কোড মুছে ফেলুন"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 flex flex-col items-center justify-center text-slate-400 gap-1">
+                        <QrCode className="w-8 h-8" />
+                        <span className="text-[10px]">QR নেই</span>
+                      </div>
+                    )}
+
+                    <div className="space-y-3 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-800 inline-flex items-center gap-1.5 cursor-pointer transition">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>কিউআর কোডের ছবি আপলোড</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              if (e.target.files?.[0]) handlePaymentQrFileUpload(e.target.files[0]);
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                        {formData.vendorPaymentQrUrl && (
+                          <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100/80 px-2.5 py-1 rounded-lg">
+                            ✓ কিউআর কোড সক্রিয় (কাস্টমার দেখতে পাবে)
+                          </span>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                          বাংলা কিউআর সংশ্লিষ্ট নম্বর বা মার্চেন্ট আইডি (ঐচ্ছিক):
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.banglaQrNumber || ''}
+                          onChange={(e) => setFormData({ ...formData, banglaQrNumber: e.target.value })}
+                          placeholder="উদাঃ 017XXXXXXXX বা মার্চেন্ট আইডি"
+                          className="w-full sm:w-72 p-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        বিকাশ, নগদ, সেলফিন বা যেকোনো মার্চেন্ট বাংলা কিউআর (Bangla QR) এর ছবি আপলোড করুন। কাস্টমার চেকআউট করার সময় কিউআর কোডটি বড় করে স্ক্যান করে সহজে ট্রানজেকশন করতে পারবেন।
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Universal Payment Instructions */}
+              <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-xs sm:text-sm text-slate-900 flex items-center gap-2">
+                    <MessageCircle className="w-4 h-4 text-teal-700" />
+                    <span>গ্রাহকদের জন্য সার্বজনীন পেমেন্ট নির্দেশিকা (Payment Instructions)</span>
+                  </label>
+                </div>
+                <textarea
+                  rows={3}
+                  value={formData.paymentInstructions || ''}
+                  onChange={(e) => setFormData({ ...formData, paymentInstructions: e.target.value })}
+                  placeholder="উদাঃ অনুগ্রহ করে বিকাশ বা নগদে 'মার্চেন্ট পেমেন্ট' অপশন ব্যবহার করে টাকা পাঠান এবং ট্রানজেকশন আইডি (TrxID) দিন।"
+                  className="w-full p-3 rounded-2xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                />
+                <p className="text-[11px] text-slate-500">
+                  চেকআউট পেজে মোবাইল ব্যাংকিং বা ব্যাংক ট্রান্সফার সিলেক্ট করলে গ্রাহকরা এই নির্দেশিকা দেখতে পাবে।
                 </p>
               </div>
 
-              {/* Progress Steps Pill */}
-              <div className="flex items-center justify-between bg-slate-900/80 p-1.5 rounded-xl border border-slate-800 text-[11px] font-bold">
-                <div
-                  className={`flex-1 text-center py-1 rounded-lg transition ${
-                    resetStep === 'phone' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'
+              {/* Bottom Save Action */}
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  disabled={isSavingSettings}
+                  onClick={() => handleSaveSettings()}
+                  className={`w-full sm:w-auto px-6 py-3 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center justify-center gap-2 ${
+                    isSavingSettings
+                      ? 'bg-teal-700 opacity-80 cursor-wait'
+                      : saveSuccessNotice
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-[#004D40] hover:bg-[#00382e]'
                   }`}
                 >
-                  ১. মোবাইল নম্বর
-                </div>
-                <div
-                  className={`flex-1 text-center py-1 rounded-lg transition ${
-                    resetStep === 'otp' ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'
-                  }`}
-                >
-                  ২. OTP কোড
-                </div>
-                <div
-                  className={`flex-1 text-center py-1 rounded-lg transition ${
-                    resetStep === 'new_password'
-                      ? 'bg-emerald-500 text-slate-950 font-black'
-                      : 'text-slate-400'
-                  }`}
-                >
-                  ৩. নতুন পিন
-                </div>
+                  {isSavingSettings ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>সংরক্ষণ করা হচ্ছে...</span>
+                    </>
+                  ) : saveSuccessNotice ? (
+                    <>
+                      <Check className="w-4 h-4 text-emerald-200" />
+                      <span>সংরক্ষিত হয়েছে!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>পেমেন্ট গেটওয়ে সেটিংস সেভ করুন</span>
+                    </>
+                  )}
+                </button>
               </div>
-
-              {/* STEP 1: PHONE INPUT */}
-              {resetStep === 'phone' && (
-                <form onSubmit={handleSendResetOtp} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                      আপনার নিবন্ধিত মোবাইল নম্বর বা ইমেইল <span className="text-emerald-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <Smartphone className="w-4 h-4 text-emerald-400 absolute left-3.5 top-3.5" />
-                      <input
-                        type="text"
-                        required
-                        value={resetTarget}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setResetTarget(e.target.value)}
-                        placeholder="১১ ডিজিটের মোবাইল নম্বর লিখুন"
-                        className="w-full pl-10 pr-4 py-3.5 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500 tracking-wide font-medium"
-                      />
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
-                      💡 আপনি যে মোবাইল নম্বর দিয়ে অ্যাকাউন্ট খুলেছেন শুধুমাত্র সেই নম্বরেই ৬-সংখ্যার OTP মেসেজ পাঠানো হবে।
-                    </p>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                        <span>SMS ওটিপি পাঠানো হচ্ছে...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Smartphone className="w-4 h-4 text-slate-950" />
-                        <span>📩 মোবাইলে OTP কোড পাঠান</span>
-                      </>
-                    )}
-                  </button>
-                </form>
-              )}
-
-              {/* STEP 2: OTP VERIFICATION */}
-              {resetStep === 'otp' && (
-                <form onSubmit={handleVerifyResetOtp} className="space-y-3.5">
-                  <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-2xl p-3 text-xs text-slate-300">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-emerald-400">মোবাইল SMS প্রেরিত:</span>
-                      <span className="font-mono text-white font-bold">{resetMaskedPhone || resetTarget}</span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      মোবাইলের ইনবক্স চেক করে ৬-সংখ্যার OTP কোডটি নিচে লিখুন (মেয়াদ: ১৫ মিনিট)।
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1.5 text-center">
-                      ৬-সংখ্যার OTP কোড দিন <span className="text-emerald-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <KeyRound className="w-4 h-4 text-emerald-400 absolute left-3.5 top-3.5" />
-                      <input
-                        type="text"
-                        required
-                        maxLength={6}
-                        autoFocus
-                        value={resetOtp}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setResetOtp(e.target.value.replace(/\D/g, ''))}
-                        placeholder="••••••"
-                        className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-emerald-500/50 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setResetStep('phone')}
-                      className="text-slate-400 hover:text-slate-200 font-bold flex items-center gap-1 cursor-pointer"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>নম্বর পরিবর্তন</span>
-                    </button>
-
-                    {resetCountdown > 0 ? (
-                      <span className="text-slate-400 text-[11px] font-mono">
-                        পুনরায় কোড: {resetCountdown} সেকেন্ড
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleSendResetOtp()}
-                        className="text-emerald-400 hover:underline font-bold flex items-center gap-1 cursor-pointer text-[11px]"
-                      >
-                        <RefreshCw className="w-3 h-3" />
-                        <span>পুনরায় OTP পাঠান</span>
-                      </button>
-                    )}
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading || resetOtp.length < 6}
-                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                        <span>OTP যাচাই করা হচ্ছে...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 text-slate-950" />
-                        <span>OTP যাচাই করে সামনে বাড়ুন</span>
-                      </>
-                    )}
-                  </button>
-                </form>
-              )}
-
-              {/* STEP 3: SET NEW PIN */}
-              {resetStep === 'new_password' && (
-                <form onSubmit={handleSaveNewPassword} className="space-y-3.5">
-                  <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-2xl p-3 text-xs text-slate-300">
-                    <p className="font-bold text-emerald-400">✅ OTP সফলভাবে যাচাই হয়েছে!</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      এবার আপনার অ্যাকাউন্টের জন্য নতুন একটি গোপন পিন নির্ধারণ করুন।
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">
-                      নতুন গোপন পিন (New PIN) <span className="text-emerald-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                      <input
-                        type={showResetNewPass ? 'text' : 'password'}
-                        required
-                        minLength={4}
-                        autoFocus
-                        value={resetNewPass}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setResetNewPass(e.target.value)}
-                        placeholder="৪ বা ৬ সংখ্যার নতুন পিন"
-                        className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowResetNewPass(!showResetNewPass)}
-                        className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
-                      >
-                        {showResetNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">
-                      পিন নিশ্চিত করুন (Confirm PIN) <span className="text-emerald-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
-                      <input
-                        type={showResetConfirmPass ? 'text' : 'password'}
-                        required
-                        minLength={4}
-                        value={resetConfirmPass}
-                        onFocus={handleInputFocus}
-                        onChange={(e) => setResetConfirmPass(e.target.value)}
-                        placeholder="একই পিন পুনরায় লিখুন"
-                        className="w-full pl-10 pr-10 py-3 text-xs sm:text-sm bg-slate-900/90 border border-slate-700 rounded-2xl focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowResetConfirmPass(!showResetConfirmPass)}
-                        className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
-                      >
-                        {showResetConfirmPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading || resetNewPass.length < 4 || resetNewPass !== resetConfirmPass}
-                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                        <span>পিন আপডেট হচ্ছে...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Lock className="w-4 h-4 text-slate-950" />
-                        <span>🔒 নতুন পিন সেভ করুন</span>
-                      </>
-                    )}
-                  </button>
-                </form>
-              )}
-
-              {/* STEP 4: SUCCESS VIEW */}
-              {resetStep === 'success' && (
-                <div className="text-center py-4 space-y-4">
-                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    <CheckCircle2 className="w-10 h-10" />
-                  </div>
-                  <div>
-                    <h4 className="text-lg font-black text-white">পিন সফলভাবে পরিবর্তিত হয়েছে!</h4>
-                    <p className="text-xs text-slate-300 mt-1">
-                      আপনার নতুন পিনটি এখন সক্রিয় রয়েছে। অনুগ্রহ করে নতুন পিন দিয়ে লগইন করুন।
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const finalTarget = resetTarget.trim();
-                      setIdentifier(finalTarget);
-                      setPassword(resetNewPass);
-                      setActiveTab('login');
-                      setShow2FA(false);
-                      setResetStep('phone');
-                      setResetOtp('');
-                      setResetNewPass('');
-                      setResetConfirmPass('');
-                      setErrorMsg('');
-                      setSuccessMsg('✅ আপনার নতুন পিনটি বসানো হয়েছে। এখন লগইন বাটনে ক্লিক করে দোকানে প্রবেশ করুন।');
-                    }}
-                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-black rounded-2xl shadow-lg text-sm cursor-pointer"
-                  >
-                    লগইন পেজে যান
-                  </button>
-                </div>
-              )}
-
-              {/* Back to Login Links */}
-              {resetStep !== 'success' && (
-                <div className="text-center pt-2 flex items-center justify-center gap-4 text-xs font-bold">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('login');
-                      setErrorMsg('');
-                      setSuccessMsg('');
-                    }}
-                    className="text-emerald-400 hover:underline cursor-pointer flex items-center gap-1"
-                  >
-                    <ArrowLeft className="w-3 h-3" />
-                    <span>লগইন পেজে ফিরে যান</span>
-                  </button>
-                </div>
-              )}
             </div>
+            );
+          })()}
+
+          {/* VENDOR COMPLETE ORDER, PAYMENT, DELIVERY & PARCEL SLIP MODAL */}
+          {vendorControlModalOrder && (
+            <VendorOrderControlModal
+              order={vendorControlModalOrder.order}
+              storeName={formData.storeName || store?.name || 'অনলাইন স্টোর'}
+              storePhone={formData.phone || store?.phone || ''}
+              storeAddress={formData.address || store?.address || ''}
+              initialTab={vendorControlModalOrder.initialTab}
+              onClose={() => setVendorControlModalOrder(null)}
+              onOrderUpdated={(updatedOrder, msg) => {
+                const nextOrders = orders.map((o) => (o.id === updatedOrder.id ? updatedOrder : o));
+                onUpdateOrders(nextOrders);
+                setVendorControlModalOrder((prev) => (prev ? { ...prev, order: updatedOrder } : null));
+                if (msg && onShowToast) {
+                  onShowToast(msg);
+                }
+              }}
+            />
           )}
 
-          {/* PWA Install Button for Home Screen */}
-          <div className="mt-5 pt-4 border-t border-slate-800/80">
-            <PWAInstallButton variant="auth" />
-          </div>
+          {/* TAB 10: CENTRAL MARKETPLACE HUB */}
+          {activeTab === 'marketplace' && (
+            <VendorMarketplaceHubTab
+              products={products}
+              orders={orders}
+              store={store}
+              onOpenMarketplace={onOpenMarketplace}
+              onShowToast={onShowToast}
+              onConvertOrderToSale={onConvertOrderToSale}
+              onUpdateOrders={onUpdateOrders}
+              onUpdateProducts={() => {
+                if (onUpdateOrders) onUpdateOrders([...orders]);
+              }}
+            />
+          )}
+          </>
+          )}
         </div>
       </div>
     </div>
-  </div�W
+  );
+};
