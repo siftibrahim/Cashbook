@@ -180,24 +180,20 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
   const displaySearchResults = localSearch.trim() ? searchResults : suggestedUsers;
 
   return (
-    <>
-      <header className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-slate-200 shadow-xs w-full">
-        {/* ========================================================================= */}
-        {/* 1. TOP HEADER SECTION: BRAND + 5 ORDERED NAV BUTTONS + PROFILE ACTIONS   */}
-        {/* ========================================================================= */}
+    <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs w-full">
+      {/* ========================================================================= */}
+      {/* 1. TOP HEADER SECTION: BRAND + 5 ORDERED NAV BUTTONS + PROFILE ACTIONS   */}
+      {/* ========================================================================= */}
       <div className="w-full max-w-[1440px] mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-4">
         
-        {/* ১ম অংশ: TWING লোগো এবং নিচে ছোট করে ইংরেজিতে Central Marketplace */}
+        {/* ১ম অংশ: TWING লোগো (পর্যাপ্ত প্যাডিং, কোনো চাপা ভাব ছাড়া, নিচের লেখা রিমুভড) */}
         <div
           onClick={() => onTabChange('feed')}
-          className="flex flex-col select-none cursor-pointer group shrink-0 justify-center px-2 sm:px-3 py-1.5 rounded-2xl hover:bg-blue-50/60 transition"
-          title="TWING Central Marketplace"
+          className="flex items-center select-none cursor-pointer group shrink-0 justify-center px-3 sm:px-4 py-2 rounded-2xl hover:bg-blue-50/60 transition"
+          title="TWING"
         >
           <span className="text-2xl sm:text-3xl font-black text-[#1877F2] tracking-tight leading-none group-hover:opacity-95 transition">
             TWING
-          </span>
-          <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-500 leading-tight mt-0.5">
-            Central Marketplace
           </span>
         </div>
 
@@ -480,106 +476,103 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* ২. এই সেকশনের নিচে সার্চ বার সেকশন (শুধুমাত্র পাবলিক ফিডে শো করবে)         */}
+      {/* ২. এই সেকশনের নিচে সার্চ বার সেকশন (DEDICATED SEARCH BAR SECTION BELOW)   */}
       {/* ========================================================================= */}
-      {currentTab === 'feed' && (
-        <div className="w-full bg-slate-50/90 border-t border-slate-200/70 py-2.5 px-3 sm:px-6 shadow-xs">
-          <div className="w-full max-w-[1440px] mx-auto flex items-center justify-center relative" ref={searchRef}>
-            <div className="w-full max-w-2xl relative">
-              <div className="flex items-center bg-white hover:border-slate-300 focus-within:border-[#1877F2] focus-within:ring-3 focus-within:ring-[#1877F2]/15 rounded-full px-4 py-2 border border-slate-200 shadow-xs transition duration-150">
-                <Search className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400 shrink-0 mr-2.5" />
-                <input
-                  type="text"
-                  value={localSearch}
-                  onChange={(e) => setLocalSearch(e.target.value)}
-                  onFocus={() => setSearchFocused(true)}
-                  placeholder="ইউজার, বন্ধু, শপ বা পণ্য খুঁজুন..."
-                  className="w-full bg-transparent text-xs sm:text-sm font-medium focus:outline-hidden text-slate-800 placeholder:text-slate-400"
-                />
-                {localSearch && (
-                  <button
-                    type="button"
-                    onClick={() => setLocalSearch('')}
-                    className="p-1 text-slate-400 hover:text-slate-600 rounded-full transition ml-1"
-                    title="মুছে ফেলুন"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* Live Dropdown Popover for Search / Suggested Users */}
-              {searchFocused && (
-                <div className="absolute top-12 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-50 animate-in fade-in duration-150">
-                  <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-xs font-bold text-slate-700">
-                    <span className="flex items-center gap-1.5">
-                      {localSearch.trim() ? (
-                        <>
-                          <Search className="w-3.5 h-3.5 text-[#1877F2]" />
-                          <span>অনুসন্ধান ফলাফল ({searchResults.length})</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                          <span>সাজেস্টেড নতুন বন্ধু ও ইউজার</span>
-                        </>
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSearchFocused(false)}
-                      className="text-xs text-slate-400 hover:text-slate-600 font-bold px-2 py-0.5 rounded-lg hover:bg-slate-200/50"
-                    >
-                      বন্ধ করুন ✕
-                    </button>
-                  </div>
-
-                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 p-1">
-                    {displaySearchResults.length === 0 ? (
-                      <div className="p-6 text-center text-slate-400 space-y-1">
-                        <p className="text-xs font-bold">কোনো ইউজার পাওয়া যায়নি</p>
-                        <p className="text-[11px]">অন্য নাম বা ইউজারনেম লিখে চেষ্টা করুন</p>
-                      </div>
-                    ) : (
-                      displaySearchResults.map((user) => (
-                        <div
-                          key={user.id}
-                          onClick={() => {
-                            onSelectUser?.(user);
-                            setSearchFocused(false);
-                          }}
-                          className="p-2.5 hover:bg-blue-50/60 rounded-xl transition cursor-pointer flex items-center justify-between gap-2.5"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <img
-                              src={user.avatar}
-                              alt={user.name}
-                              className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
-                            />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1">
-                                <span className="text-xs sm:text-sm font-bold text-slate-800 truncate">{user.name}</span>
-                                {user.isVerified && <ShieldCheck className="w-3.5 h-3.5 text-[#1877F2] shrink-0" />}
-                              </div>
-                              <span className="text-[11px] text-slate-400 block truncate">{user.username}</span>
-                            </div>
-                          </div>
-
-                          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-                            {renderRelationshipAction(user)}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+      <div className="w-full bg-slate-50/90 border-t border-slate-200/70 py-2.5 px-3 sm:px-6 shadow-xs">
+        <div className="w-full max-w-[1440px] mx-auto flex items-center justify-center relative" ref={searchRef}>
+          <div className="w-full max-w-2xl relative">
+            <div className="flex items-center bg-white hover:border-slate-300 focus-within:border-[#1877F2] focus-within:ring-3 focus-within:ring-[#1877F2]/15 rounded-full px-4 py-2 border border-slate-200 shadow-xs transition duration-150">
+              <Search className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400 shrink-0 mr-2.5" />
+              <input
+                type="text"
+                value={localSearch}
+                onChange={(e) => setLocalSearch(e.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                placeholder="ইউজার, বন্ধু, শপ বা পণ্য খুঁজুন..."
+                className="w-full bg-transparent text-xs sm:text-sm font-medium focus:outline-hidden text-slate-800 placeholder:text-slate-400"
+              />
+              {localSearch && (
+                <button
+                  type="button"
+                  onClick={() => setLocalSearch('')}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-full transition ml-1"
+                  title="মুছে ফেলুন"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               )}
             </div>
+
+            {/* Live Dropdown Popover for Search / Suggested Users */}
+            {searchFocused && (
+              <div className="absolute top-12 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-50 animate-in fade-in duration-150">
+                <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-xs font-bold text-slate-700">
+                  <span className="flex items-center gap-1.5">
+                    {localSearch.trim() ? (
+                      <>
+                        <Search className="w-3.5 h-3.5 text-[#1877F2]" />
+                        <span>অনুসন্ধান ফলাফল ({searchResults.length})</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        <span>সাজেস্টেড নতুন বন্ধু ও ইউজার</span>
+                      </>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSearchFocused(false)}
+                    className="text-xs text-slate-400 hover:text-slate-600 font-bold px-2 py-0.5 rounded-lg hover:bg-slate-200/50"
+                  >
+                    বন্ধ করুন ✕
+                  </button>
+                </div>
+
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 p-1">
+                  {displaySearchResults.length === 0 ? (
+                    <div className="p-6 text-center text-slate-400 space-y-1">
+                      <p className="text-xs font-bold">কোনো ইউজার পাওয়া যায়নি</p>
+                      <p className="text-[11px]">অন্য নাম বা ইউজারনেম লিখে চেষ্টা করুন</p>
+                    </div>
+                  ) : (
+                    displaySearchResults.map((user) => (
+                      <div
+                        key={user.id}
+                        onClick={() => {
+                          onSelectUser?.(user);
+                          setSearchFocused(false);
+                        }}
+                        className="p-2.5 hover:bg-blue-50/60 rounded-xl transition cursor-pointer flex items-center justify-between gap-2.5"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img
+                            src={user.avatar}
+                            alt={user.name}
+                            className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs sm:text-sm font-bold text-slate-800 truncate">{user.name}</span>
+                              {user.isVerified && <ShieldCheck className="w-3.5 h-3.5 text-[#1877F2] shrink-0" />}
+                            </div>
+                            <span className="text-[11px] text-slate-400 block truncate">{user.username}</span>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                          {renderRelationshipAction(user)}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </header>
-    {/* Spacer so that page content never hides under the fixed header & search bar */}
-    <div className={`w-full shrink-0 ${currentTab === 'feed' ? 'h-[110px] sm:h-[120px]' : 'h-14 sm:h-16'}`} aria-hidden="true" />
-  </>
-  @h
+  );
+};
+
