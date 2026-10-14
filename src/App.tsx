@@ -182,7 +182,28 @@ export const App: React.FC = () => {
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [isOnlineStoreModalOpen, setIsOnlineStoreModalOpen] = useState(false);
-  const [isMarketplaceViewOpen, setIsMarketplaceViewOpen] = useState<boolean>(false);
+  const [isMarketplaceViewOpen, setIsMarketplaceViewOpen] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const hash = window.location.hash;
+      const path = window.location.pathname;
+      const host = window.location.hostname;
+      return (
+        host.startsWith('centralmarketplace.') ||
+        host === 'centralmarketplace.twinghisabi.site' ||
+        host === 'marketplace.twinghisabi.site' ||
+        path === '/marketplace' ||
+        path.startsWith('/marketplace/') ||
+        path === '/centralmarketplace' ||
+        path.startsWith('/centralmarketplace/') ||
+        hash === '#marketplace' ||
+        params.get('marketplace') === '1' ||
+        params.get('central') === '1' ||
+        params.get('market') === '1'
+      );
+    }
+    return false;
+  });
   const [publicStoreContext, setPublicStoreContext] = useState(() => detectPublicStoreContext());
   const [isMerchantAdminViewForced, setIsMerchantAdminViewForced] = useState(false);
   const [isOnlineStorefrontOpen, setIsOnlineStorefrontOpen] = useState(false);
@@ -1725,19 +1746,28 @@ export const App: React.FC = () => {
     );
   }
 
-  // 2. Unauthenticated User Flow: Show the Login Dashboard (AuthScreen) FIRST!
-  // Ensures user lands on login dashboard, and only enters merchant dashboard after logging in!
-  if (!isLoggedIn) {
-    // If guest clicks "Explore Central Marketplace" from AuthScreen
-    if (isMarketplaceViewOpen) {
-      return (
-        <CentralMarketplacePage
-          onBackToDashboard={() => setIsMarketplaceViewOpen(false)}
-          onMerchantLogin={() => setIsMarketplaceViewOpen(false)}
-        />
-      );
-    }
+  // 2. Central Marketplace Mode: Dedicated for Central Marketplace users (Buyers & Sellers)
+  // TWING Hisabi merchant login interface MUST NOT appear here!
+  // Only Central Marketplace's own Login & Registration interface is displayed.
+  // No one can enter Central Marketplace without logging in or registering first!
+  const isMarketplaceActive = (isMarketplaceViewOpen || publicStoreContext.isCentralMarketplace) && !isMerchantAdminViewForced;
+  if (isMarketplaceActive) {
+    return (
+      <CentralMarketplacePage
+        onBackToDashboard={() => {
+          setIsMarketplaceViewOpen(false);
+          setIsMerchantAdminViewForced(true);
+        }}
+        onMerchantLogin={() => {
+          setIsMarketplaceViewOpen(false);
+          setIsMerchantAdminViewForced(true);
+        }}
+      />
+    );
+  }
 
+  // 3. Unauthenticated TWING Hisabi Merchant: Show TWING Hisabi AuthScreen
+  if (!isLoggedIn) {
     return (
       <div className="w-full h-full min-h-[100dvh] flex flex-col items-center justify-start p-0 text-slate-100 font-sans antialiased overflow-y-auto smooth-scroll-container selection:bg-teal-500 selection:text-white bg-[#030712]">
         {/* Animated Toast Notifications */}
@@ -1769,20 +1799,11 @@ export const App: React.FC = () => {
             setIsAdminPanelOpen(true);
           }}
           onOpenMarketplace={() => {
+            setIsMerchantAdminViewForced(false);
             setIsMarketplaceViewOpen(true);
           }}
         />
       </div>
-    );
-  }
-
-  // 3. Authenticated Merchant manually browsing central marketplace from inside dashboard
-  if (isMarketplaceViewOpen) {
-    return (
-      <CentralMarketplacePage
-        onBackToDashboard={() => setIsMarketplaceViewOpen(false)}
-        onMerchantLogin={() => setIsMarketplaceViewOpen(false)}
-      />
     );
   }
 
@@ -1839,7 +1860,10 @@ export const App: React.FC = () => {
               onLogout={triggerLogoutConfirm}
               onOpenSettings={() => setIsSettingsModalOpen(true)}
               onOpenOnlineStore={() => setIsOnlineStoreModalOpen(true)}
-              onOpenMarketplace={() => setIsMarketplaceViewOpen(true)}
+              onOpenMarketplace={() => {
+                setIsMerchantAdminViewForced(false);
+                setIsMarketplaceViewOpen(true);
+              }}
               onOpenNotifications={() => setIsNotificationModalOpen(true)}
               onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
               onOpenPermissions={() => setIsPermissionsModalOpen(true)}
@@ -1954,7 +1978,10 @@ export const App: React.FC = () => {
                           onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
                           onOpenSettings={() => setIsSettingsModalOpen(true)}
                           onOpenOnlineStore={() => setIsOnlineStoreModalOpen(true)}
-                          onOpenMarketplace={() => setIsMarketplaceViewOpen(true)}
+                          onOpenMarketplace={() => {
+                            setIsMerchantAdminViewForced(false);
+                            setIsMarketplaceViewOpen(true);
+                          }}
                           onlineStoreConfig={onlineStoreConfig}
                           expenses={expenses}
                           products={products}
@@ -2409,6 +2436,7 @@ export const App: React.FC = () => {
           setIsOnlineStorefrontOpen(true);
         }}
         onOpenMarketplace={() => {
+          setIsMerchantAdminViewForced(false);
           setIsOnlineStoreModalOpen(false);
           setIsMarketplaceViewOpen(true);
         }}

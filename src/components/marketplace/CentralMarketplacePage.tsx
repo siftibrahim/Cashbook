@@ -1259,41 +1259,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     return filteredAllProducts.slice(0, allProductsVisibleCount);
   }, [filteredAllProducts, allProductsVisibleCount]);
 
-  // Auto-link logged in TWING Hisabi merchant so they don't have to re-login
-  useEffect(() => {
-    if (currentUser && !isLoggedIn) {
-      const merchantProfile: CustomerProfile = {
-        id: currentUser.id || 'vendor_current',
-        name: currentUser.name || 'TWING মার্চেন্ট',
-        username: `@${(currentUser.name || 'merchant').toLowerCase().replace(/[^a-z0-9_]/g, '_')}`,
-        phone: currentUser.phone || '',
-        address: currentUser.address || 'বাংলাদেশ',
-        location: currentUser.address || 'ঢাকা, বাংলাদেশ',
-        avatar: currentUser.logoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-        coverPhoto: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=80',
-        bio: 'TWING হিসাবি ভেরিফাইড মার্চেন্ট ও ভেন্ডার',
-        isVerified: true,
-        verificationStatus: 'verified',
-        role: 'seller',
-        joinedDate: new Date().toISOString(),
-        followersCount: 15,
-        followingCount: 5,
-        friendsCount: 12,
-        rating: 5,
-        totalSales: 0,
-        totalOrders: 0,
-        friendIds: [],
-        blockedUserIds: [],
-      };
-      setCurrentProfile(merchantProfile);
-      setIsLoggedIn(true);
-      try {
-        localStorage.setItem('twing_customer_profile_v3', JSON.stringify(merchantProfile));
-      } catch {}
-    }
-  }, [currentUser, isLoggedIn]);
-
-  // If not logged in, enforce the authentication gatekeeper!
+  // If not logged in, enforce Central Marketplace's own authentication gatekeeper!
   if (!isLoggedIn) {
     return (
       <MarketplaceAuthGatekeeper

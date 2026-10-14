@@ -299,16 +299,21 @@ export const MarketplaceAuthGatekeeper: React.FC<MarketplaceAuthGatekeeperProps>
   return (
     <div className="min-h-screen bg-[#f0f2f5] flex flex-col justify-center items-center p-4 font-sans text-slate-800 antialiased selection:bg-[#1877F2] selection:text-white">
       {/* Brand Header: TWING Central Marketplace */}
-      <div className="text-center mb-6 max-w-md w-full">
-        <h1 className="text-4xl sm:text-5xl font-black text-[#1877F2] tracking-wider leading-none select-none">
-          TWING
+      <div className="text-center mb-5 max-w-md w-full">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/80 text-[#1877F2] text-xs font-black mb-2">
+          <span>🌐 সেন্ট্রাল মার্কেটপ্লেস</span>
+          <span>•</span>
+          <span>ক্রেতা ও বিক্রেতা পোর্টাল</span>
+        </div>
+        <h1 className="text-3xl sm:text-4xl font-black text-[#1877F2] tracking-wide leading-none select-none">
+          TWING Marketplace
         </h1>
-        <p className="text-xs sm:text-sm font-extrabold text-slate-500 uppercase tracking-widest mt-1.5 select-none">
-          Central Marketplace
+        <p className="text-xs sm:text-sm font-extrabold text-slate-600 uppercase tracking-wider mt-1 select-none">
+          সেন্ট্রাল মার্কেটপ্লেস
         </p>
-        <p className="text-xs text-slate-500 font-medium mt-2">
+        <p className="text-xs text-slate-500 font-medium mt-1.5">
           {mode === 'login'
-            ? 'মার্কেটপ্লেসে প্রবেশ করতে অনুগ্রহ করে লগইন করুন'
+            ? 'মার্কেটপ্লেসে প্রবেশ করতে অনুগ্রহ করে ক্রেতা/বিক্রেতা অ্যাকাউন্টে লগইন করুন'
             : mode === 'register'
             ? 'নতুন অ্যাকাউন্ট রেজিস্ট্রেশন ও মোবাইল নম্বর ভেরিফিকেশন'
             : 'পাসওয়ার্ড পুনরুদ্ধার'}
@@ -815,14 +820,14 @@ export const MarketplaceAuthGatekeeper: React.FC<MarketplaceAuthGatekeeperProps>
 
 
 
-      {/* Return to Dashboard link if available */}
+      {/* Return to TWING Hisabi merchant / store owner login */}
       {onBackToDashboard && (
         <button
           type="button"
           onClick={onBackToDashboard}
-          className="mt-3 flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition cursor-pointer"
+          className="mt-4 flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-slate-900 transition cursor-pointer bg-white px-4 py-2 rounded-xl border border-slate-200/90 shadow-2xs hover:shadow-xs"
         >
-          <span>দোকানের ড্যাশবোর্ডে ফিরে যান</span>
+          <span>দোকানদার / মার্চেন্ট? TWING হিসাবি বিজনেস লগইনে যান</span>
           <ArrowRight className="w-3.5 h-3.5" />
         </button>
       )}

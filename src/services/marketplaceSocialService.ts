@@ -537,9 +537,19 @@ export const marketplaceSocialService = {
       const loggedOut = localStorage.getItem('mkt_fb_logged_out_flag');
       if (loggedOut === 'true') return false;
       const stored = localStorage.getItem(PROFILE_KEY);
-      if (stored) return true;
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.id && (parsed.phone || parsed.name)) {
+          return true;
+        }
+      }
       const verified = localStorage.getItem('twing_verified_customer_profile');
-      if (verified) return true;
+      if (verified) {
+        const v = JSON.parse(verified);
+        if (v && v.id && (v.phone || v.name)) {
+          return true;
+        }
+      }
     } catch (e) {}
     return false;
   },
@@ -781,9 +791,8 @@ export const marketplaceSocialService = {
       }
     } catch (e) {}
 
-    const defaultProfile = INITIAL_PROFILES[0];
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(defaultProfile));
-    return defaultProfile;
+    // In-memory fallback profile only: DO NOT save to localStorage to avoid accidental auto-login
+    return INITIAL_PROFILES[0];
   },
 
   updateCurrentProfile(updates: Partial<CustomerProfile>): CustomerProfile {

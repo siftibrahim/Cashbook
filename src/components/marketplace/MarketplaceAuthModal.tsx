@@ -384,9 +384,6 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
                     required
                   />
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  💡 ডেমো টেস্ট অ্যাকাউন্ট: 01711223344 / 01812345678 (পাসওয়ার্ড: 123456)
-                </p>
               </div>
 
               <div>

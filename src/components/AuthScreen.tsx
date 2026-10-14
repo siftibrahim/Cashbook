@@ -917,58 +917,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       </>
                     )}
                   </button>
-
-                  {/* ⚡ 1-Tap Quick Demo Login Section */}
-                  <div className="pt-3 border-t border-slate-800 space-y-2">
-                    <p className="text-[11px] font-bold text-center text-slate-400">
-                      অথবা টেস্ট করতে ১-ক্লিকে ড্যাশবোর্ডে প্রবেশ করুন:
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIdentifier('01711000000');
-                          setPassword('1234');
-                          setTimeout(() => {
-                            onLoginSuccess('01711000000', 'দোকান মালিক', {
-                              id: 'demo_merchant_user',
-                              phone: '01711000000',
-                              name: 'তানজিন আহমেদ',
-                              shopName: 'বিসমিল্লাহ জেনারেল স্টোর',
-                              role: 'user',
-                            });
-                          }, 100);
-                        }}
-                        className="py-2.5 px-3 bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/30 text-emerald-300 hover:text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <Store className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>ডেমো দোকানদার</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onAdminLoginSuccess) {
-                            onAdminLoginSuccess(ADMIN_EMAIL, {
-                              role: 'super_admin',
-                              email: ADMIN_EMAIL,
-                            });
-                          } else {
-                            onLoginSuccess(ADMIN_EMAIL, 'super_admin', {
-                              id: 'super_admin_usr',
-                              email: ADMIN_EMAIL,
-                              name: 'প্রধান সুপার অ্যাডমিন',
-                              role: 'super_admin',
-                            });
-                          }
-                        }}
-                        className="py-2.5 px-3 bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/30 text-amber-300 hover:text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                        <span>সুপার অ্যাডমিন</span>
-                      </button>
-                    </div>
-                  </div>
                 </form>
               )}
             </div>
