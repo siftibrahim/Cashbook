@@ -18,65 +18,126 @@ import {
   ShoppingBag,
   Share2,
   Flame,
+  Store,
+  ShoppingCart,
+  Check,
 } from 'lucide-react';
 import { CustomerProductItem, CustomerProfile } from '../../types/marketplaceSocial';
+import { MarketplaceProduct } from '../../types';
 import { marketplaceSocialService } from '../../services/marketplaceSocialService';
+import { marketplaceApi } from '../../services/marketplaceService';
 import { formatMoney } from '../../utils/storage';
 import { ShareModal } from './ShareModal';
 import { ProductBoostModal } from './ProductBoostModal';
 
 interface CustomerMarketplaceProductsViewProps {
   currentProfile: CustomerProfile;
+  vendorProducts?: MarketplaceProduct[];
   onOpenSellProductModal: () => void;
   onStartChat: (sellerId: string, productContext?: any) => void;
-  onSelectProduct: (product: CustomerProductItem) => void;
-  onOpenQuickBuy: (product: CustomerProductItem) => void;
+  onSelectProduct: (product: any) => void;
+  onOpenQuickBuy: (product: any) => void;
+  onAddToCart?: (product: any) => void;
+  onVisitVendor?: (vendorId: string, vendorName: string) => void;
   onShowToast: (msg: string) => void;
 }
 
 const CATEGORIES = [
   { id: 'all', label: 'সব ক্যাটাগরি', icon: '🛍️' },
+  { id: 'চাল ও ডাল', label: 'চাল, ডাল ও গ্রোসারি', icon: '🌾' },
+  { id: 'চা ও বিস্কুট', label: 'চা ও বেকারি', icon: '☕' },
   { id: 'মোবাইল ও গ্যাজেট', label: 'মোবাইল ও গ্যাজেট', icon: '📱' },
-  { id: 'কম্পিউটার ও ল্যাপটপ', label: 'কম্পিউটার ও ল্যাপটপ', icon: '💻' },
-  { id: 'ইলেকট্রনিক্স', label: 'ইলেকট্রনিক্স', icon: '⚡' },
+  { id: 'ইলেকট্রনিক্স', label: 'ইলেকট্রনিক্স ও গ্যাজেট', icon: '⚡' },
   { id: 'ফ্যাশন ও পোশাক', label: 'ফ্যাশন ও পোশাক', icon: '👕' },
   { id: 'গৃহস্থালী পণ্য', label: 'গৃহস্থালী পণ্য', icon: '🏠' },
-  { id: 'খাদ্য ও গ্রোসারি', label: 'খাদ্য ও গ্রোসারি', icon: '🍯' },
+  { id: 'স্বাস্থ্য ও ফার্মেসি', label: 'স্বাস্থ্য ও ফার্মেসি', icon: '➕' },
   { id: 'বিউটি ও কেয়ার', label: 'বিউটি ও পার্সোনাল কেয়ার', icon: '✨' },
-  { id: 'বই ও স্টেশনারি', label: 'বই ও স্টেশনারি', icon: '📚' },
   { id: 'অন্যান্য পণ্য', label: 'অন্যান্য পণ্য', icon: '📦' },
+];
+
+const BD_CITIES = [
+  { id: 'all', label: 'সমগ্র বাংলাদেশ' },
+  { id: 'dhaka', label: 'ঢাকা' },
+  { id: 'chittagong', label: 'চট্টগ্রাম' },
+  { id: 'sylhet', label: 'সিলেট' },
+  { id: 'rajshahi', label: 'রাজশাহী' },
+  { id: 'khulna', label: 'খুলনা' },
+  { id: 'barisal', label: 'বরিশাল' },
+  { id: 'rangpur', label: 'রংপুর' },
+  { id: 'cumilla', label: 'কুমিল্লা' },
+];
+
+const PRICE_RANGES = [
+  { id: 'all', label: 'সব দাম' },
+  { id: 'under_1k', label: '৳১,০০০ এর নিচে', min: 0, max: 1000 },
+  { id: '1k_to_5k', label: '৳১,০০০ - ৳৫,০০০', min: 1000, max: 5000 },
+  { id: '5k_to_20k', label: '৳৫,০০০ - ৳২০,০০০', min: 5000, max: 20000 },
+  { id: 'above_20k', label: '৳২০,০০০+', min: 20000, max: Infinity },
 ];
 
 export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProductsViewProps> = ({
   currentProfile,
+  vendorProducts: initialVendorProducts = [],
   onOpenSellProductModal,
   onStartChat,
   onSelectProduct,
   onOpenQuickBuy,
+  onAddToCart,
+  onVisitVendor,
   onShowToast,
 }) => {
-  const [products, setProducts] = useState<CustomerProductItem[]>(() =>
+  const [communityProducts, setCommunityProducts] = useState<CustomerProductItem[]>(() =>
     marketplaceSocialService.getCustomerProducts()
   );
+  const [vendorProducts, setVendorProducts] = useState<MarketplaceProduct[]>(initialVendorProducts);
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'vendor' | 'community'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCity, setSelectedCity] = useState<string>('all');
+  const [selectedPriceRange, setSelectedPriceRange] = useState<string>('all');
   const [selectedCondition, setSelectedCondition] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'price_low' | 'price_high'>('newest');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [boostProduct, setBoostProduct] = useState<CustomerProductItem | null>(null);
-  const [shareProduct, setShareProduct] = useState<CustomerProductItem | null>(null);
+  const [shareProduct, setShareProduct] = useState<any | null>(null);
 
-  const refreshProductsList = () => {
+  // Load Vendor Feed if not passed from parent
+  useEffect(() => {
+    if (initialVendorProducts && initialVendorProducts.length > 0) {
+      setVendorProducts(initialVendorProducts);
+      return;
+    }
+    let isMounted = true;
+    marketplaceApi.getFeed().then((res) => {
+      if (isMounted && res.success && res.products) {
+        setVendorProducts(res.products);
+      }
+    }).catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, [initialVendorProducts]);
+
+  const refreshProductsList = async () => {
     setIsRefreshing(true);
-    marketplaceSocialService.syncWithCloud().finally(() => {
-      setProducts(marketplaceSocialService.getCustomerProducts());
+    try {
+      await marketplaceSocialService.syncWithCloud();
+      setCommunityProducts(marketplaceSocialService.getCustomerProducts());
+      const res = await marketplaceApi.getFeed();
+      if (res.success && res.products) {
+        setVendorProducts(res.products);
+      }
+      onShowToast('🔄 মার্কেটপ্লেস পণ্য আপডেট হয়েছে!');
+    } catch {
+      setCommunityProducts(marketplaceSocialService.getCustomerProducts());
+    } finally {
       setIsRefreshing(false);
-    });
+    }
   };
 
   useEffect(() => {
     const handleSync = () => {
-      setProducts(marketplaceSocialService.getCustomerProducts());
+      setCommunityProducts(marketplaceSocialService.getCustomerProducts());
     };
     window.addEventListener('twing_social_synced', handleSync);
     window.addEventListener('twing_products_updated', handleSync);
@@ -86,9 +147,58 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
     };
   }, []);
 
+  // Normalize vendor products to unified display structure
+  const normalizedVendorProducts = useMemo(() => {
+    return vendorProducts.map((rawV) => {
+      const v = rawV as any;
+      const imagesList = Array.isArray(v.images) && v.images.length > 0 ? v.images : [v.imageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80'];
+      return {
+        id: v.id,
+        name: v.name,
+        description: v.description || '',
+        salePrice: Number(v.salePrice || 0),
+        regularPrice: Number(v.regularPrice || v.originalPrice || v.salePrice || 0),
+        stock: v.stock !== undefined ? Number(v.stock) : 99,
+        category: v.category || 'অন্যান্য পণ্য',
+        condition: 'new' as const,
+        images: imagesList,
+        imageUrl: v.imageUrl || imagesList[0] || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80',
+        sellerId: v.vendorId || 'vendor_shop',
+        sellerName: v.vendorShopName || 'TWING ভেরিফাইড শপ',
+        sellerPhone: v.vendorPhone,
+        sellerLocation: v.vendorAddress || 'বাংলাদেশ',
+        sellerAvatar: v.vendorLogoUrl || v.vendorLogo || 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=150&q=80',
+        isVendor: true,
+        vendorId: v.vendorId,
+        vendorShopName: v.vendorShopName,
+        unit: v.unit,
+        createdAt: v.createdAt || new Date().toISOString(),
+        sellerPaymentSettings: v.sellerPaymentSettings || {
+          acceptsBkash: true,
+          acceptsNagad: true,
+          acceptsRocket: true,
+          acceptsCod: true,
+        },
+      };
+    });
+  }, [vendorProducts]);
+
+  // Combined list based on source filter
+  const combinedList = useMemo(() => {
+    const commMapped = communityProducts.map((c) => ({
+      ...c,
+      isVendor: false,
+      stock: 1,
+    }));
+
+    if (sourceFilter === 'vendor') return normalizedVendorProducts;
+    if (sourceFilter === 'community') return commMapped;
+    return [...normalizedVendorProducts, ...commMapped];
+  }, [normalizedVendorProducts, communityProducts, sourceFilter]);
+
   // Filtered and sorted products
   const filteredProducts = useMemo(() => {
-    let result = [...products];
+    let result = [...combinedList];
 
     // Search query
     if (searchQuery.trim()) {
@@ -112,6 +222,24 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
       });
     }
 
+    // City / Location filter
+    if (selectedCity !== 'all') {
+      const cityObj = BD_CITIES.find((c) => c.id === selectedCity);
+      const query = cityObj ? cityObj.label.toLowerCase() : selectedCity.toLowerCase();
+      result = result.filter((p) => {
+        const loc = (p.sellerLocation || '').toLowerCase();
+        return loc.includes(query);
+      });
+    }
+
+    // Price range filter
+    if (selectedPriceRange !== 'all') {
+      const pr = PRICE_RANGES.find((r) => r.id === selectedPriceRange);
+      if (pr) {
+        result = result.filter((p) => p.salePrice >= pr.min && p.salePrice <= pr.max);
+      }
+    }
+
     // Condition filter
     if (selectedCondition !== 'all') {
       result = result.filter((p) => p.condition === selectedCondition);
@@ -125,16 +253,18 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
       if (sortBy === 'price_high') {
         return b.salePrice - a.salePrice;
       }
-      // Newest
       const timeA = new Date(a.createdAt || 0).getTime();
       const timeB = new Date(b.createdAt || 0).getTime();
       return timeB - timeA;
     });
 
     return result;
-  }, [products, searchQuery, selectedCategory, selectedCondition, sortBy]);
+  }, [combinedList, searchQuery, selectedCategory, selectedCity, selectedPriceRange, selectedCondition, sortBy]);
 
-  const getConditionLabel = (condition: string) => {
+  const getConditionLabel = (condition: string, isVendor?: boolean) => {
+    if (isVendor) {
+      return { label: 'অফিসিয়াল নতুন স্টক', color: 'bg-emerald-600 text-white' };
+    }
     switch (condition) {
       case 'new':
         return { label: 'ব্র্যান্ড নিউ', color: 'bg-emerald-500 text-white' };
@@ -152,21 +282,21 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
   return (
     <div className="w-full max-w-7xl mx-auto space-y-5 pb-16">
       {/* ========================================================================= */}
-      {/* 1. HERO BANNER: CENTRAL MARKETPLACE USER PRODUCTS HUB                     */}
+      {/* 1. HERO BANNER: CENTRAL MARKETPLACE & MULTI-VENDOR HUB                   */}
       {/* ========================================================================= */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#1877F2] via-blue-700 to-indigo-800 text-white p-5 sm:p-8 shadow-xl">
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 backdrop-blur-xs text-xs font-black uppercase tracking-wider text-blue-100">
               <ShoppingBag className="w-3.5 h-3.5" />
-              <span>সেন্ট্রাল মার্কেটপ্লেস • সকল ইউজারের পণ্যসমূহ</span>
+              <span>TWING সেন্ট্রাল মার্কেটপ্লেস • মাল্টি-ভেন্ডার ও সোশ্যাল শপ</span>
             </div>
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight leading-tight">
               সেন্ট্রাল মার্কেটপ্লেস
             </h1>
             <p className="text-xs sm:text-sm text-blue-100 leading-relaxed font-medium">
-              সেন্ট্রাল মার্কেটপ্লেসের সকল ইউজারের আপলোড করা পণ্য এখানে স্বয়ংক্রিয়ভাবে যুক্ত হচ্ছে। 
-              সরাসরি বিক্রেতার সাথে চ্যাট করুন এবং নিশ্চিন্তে কেনাবেচা করুন।
+              ভেন্ডার স্টোরের নিজস্ব ইনভেন্টরি পণ্য এবং সোশ্যাল কমিউনিটির লিস্টিং এক প্ল্যাটফর্মে। 
+              সরাসরি বিক্রেতা ও ভেন্ডারের সাথে চ্যাট করুন, কার্টে যোগ করে অর্ডার করুন এবং নিশ্চিন্তে কেনাবেচা করুন।
             </p>
           </div>
 
@@ -178,29 +308,69 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
               className="px-5 py-3 bg-white hover:bg-blue-50 text-[#1877F2] font-black text-xs sm:text-sm rounded-2xl shadow-lg hover:shadow-xl transition flex items-center gap-2 cursor-pointer transform active:scale-95"
             >
               <Plus className="w-4 h-4 stroke-[3]" />
-              <span>পণ্য বিক্রি করুন / আপলোড করুন</span>
+              <span>পণ্য বিক্রি করুন</span>
             </button>
 
-            {/* Refresh Button */}
+            {/* Refresh Feed */}
             <button
               type="button"
               onClick={refreshProductsList}
               disabled={isRefreshing}
-              className="p-3 bg-white/15 hover:bg-white/25 text-white rounded-2xl transition cursor-pointer backdrop-blur-xs disabled:opacity-50"
-              title="নতুন পণ্য রিফ্রেশ করুন"
+              className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl backdrop-blur-xs transition cursor-pointer"
+              title="রিফ্রেশ করুন"
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
-
-        {/* Decorative background glow */}
-        <div className="absolute -right-16 -top-16 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none" />
-        <div className="absolute -left-16 -bottom-16 w-64 h-64 bg-indigo-500/20 rounded-full blur-2xl pointer-events-none" />
       </div>
 
       {/* ========================================================================= */}
-      {/* 2. SEARCH & FILTER SECTION                                               */}
+      {/* 2. SOURCE FILTER TABS: ALL / VENDOR SHOPS / SOCIAL COMMUNITY              */}
+      {/* ========================================================================= */}
+      <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl max-w-md">
+        <button
+          type="button"
+          onClick={() => setSourceFilter('all')}
+          className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            sourceFilter === 'all'
+              ? 'bg-white text-[#1877F2] shadow-sm font-black'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <ShoppingBag className="w-3.5 h-3.5" />
+          <span>সকল পণ্য ({normalizedVendorProducts.length + communityProducts.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSourceFilter('vendor')}
+          className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            sourceFilter === 'vendor'
+              ? 'bg-white text-emerald-700 shadow-sm font-black'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Store className="w-3.5 h-3.5 text-emerald-600" />
+          <span>ভেন্ডার শপ ({normalizedVendorProducts.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSourceFilter('community')}
+          className={`flex-1 py-2 px-3 text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            sourceFilter === 'community'
+              ? 'bg-white text-indigo-700 shadow-sm font-black'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Package className="w-3.5 h-3.5 text-indigo-600" />
+          <span>কমিউনিটি ({communityProducts.length})</span>
+        </button>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 3. SEARCH & FILTER SECTION                                               */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-5 shadow-xs space-y-3 sm:space-y-4">
         {/* Search Bar + Sort & Condition Controls */}
@@ -212,7 +382,7 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="পণ্য, বিবরণ, ব্র্যান্ড বা বিক্রেতার নাম দিয়ে খুঁজুন..."
+              placeholder="পণ্য, বিবরণ, ব্র্যান্ড বা ভেন্ডারের নাম দিয়ে খুঁজুন..."
               className="w-full pl-10 pr-4 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-[#1877F2] font-medium transition"
             />
             {searchQuery && (
@@ -273,6 +443,47 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
           })}
         </div>
 
+        {/* City Filter & Price Range Filter Controls (Facebook Marketplace Filter) */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
+          {/* Location Selector */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5 text-rose-500" />
+              <span>লোকেশন:</span>
+            </span>
+            <select
+              value={selectedCity}
+              onChange={(e) => setSelectedCity(e.target.value)}
+              className="px-2.5 py-1.5 text-xs font-bold bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-slate-800 focus:outline-hidden cursor-pointer"
+            >
+              {BD_CITIES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Price Range Chips */}
+          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+            <span className="text-[11px] font-bold text-slate-400 mr-1 shrink-0">বাজেট:</span>
+            {PRICE_RANGES.map((pr) => (
+              <button
+                key={pr.id}
+                type="button"
+                onClick={() => setSelectedPriceRange(pr.id)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition cursor-pointer ${
+                  selectedPriceRange === pr.id
+                    ? 'bg-[#1877F2] text-white shadow-2xs font-black'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                }`}
+              >
+                {pr.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Count Bar */}
         <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100">
           <div className="font-bold flex items-center gap-1.5">
@@ -283,13 +494,15 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
             <span>টি পণ্য পাওয়া গেছে</span>
           </div>
 
-          {(searchQuery || selectedCategory !== 'all' || selectedCondition !== 'all') && (
+          {(searchQuery || selectedCategory !== 'all' || selectedCondition !== 'all' || selectedCity !== 'all' || selectedPriceRange !== 'all') && (
             <button
               type="button"
               onClick={() => {
                 setSearchQuery('');
                 setSelectedCategory('all');
                 setSelectedCondition('all');
+                setSelectedCity('all');
+                setSelectedPriceRange('all');
               }}
               className="text-[#1877F2] font-bold hover:underline cursor-pointer"
             >
@@ -300,12 +513,39 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
       </div>
 
       {/* ========================================================================= */}
-      {/* 3. USER PRODUCTS GRID (2-COLS ON MOBILE, 3-4 COLS ON DESKTOP)             */}
+      {/* FLASH DEALS COUNTDOWN BANNER (FACEBOOK MARKETPLACE SPECIAL)               */}
+      {/* ========================================================================= */}
+      <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white p-3.5 sm:p-4 rounded-2xl shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center font-bold text-lg shadow-sm shrink-0">
+            ⚡
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-black text-xs sm:text-sm tracking-tight">আজকের মেগা ফ্ল্যাশ সেল ও ডিসকাউন্ট</h3>
+              <span className="text-[9px] font-black bg-white text-rose-600 px-2 py-0.5 rounded-full uppercase shadow-xs">
+                HOT DEAL
+              </span>
+            </div>
+            <p className="text-[11px] text-white/90 font-medium">সীমিত সময়ের বিশেষ মূল্যছাড় • স্টক শেষ হওয়ার আগেই অর্ডার করুন</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-end sm:self-auto">
+          <div className="flex items-center gap-1.5 font-mono font-black text-xs bg-black/30 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20">
+            <Clock className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+            <span>অফার বাকি: ০৫:২৪:১৮</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 4. PRODUCTS GRID (2-COLS ON MOBILE, 3-4 COLS ON DESKTOP)                  */}
       {/* ========================================================================= */}
       {filteredProducts.length > 0 ? (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
-          {filteredProducts.map((prod) => {
-            const conditionBadge = getConditionLabel(prod.condition);
+          {filteredProducts.map((prod: any) => {
+            const conditionBadge = getConditionLabel(prod.condition, prod.isVendor);
             const mainImage = prod.images?.[0] || prod.imageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80';
             const isOwnProduct = currentProfile && currentProfile.id === prod.sellerId;
 
@@ -327,9 +567,14 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                     }}
                   />
 
-                  {/* Condition Badge (Top Left) */}
-                  <div className="absolute top-2 left-2 z-10">
-                    {prod.isPromoted ? (
+                  {/* Badges (Top Left) */}
+                  <div className="absolute top-2 left-2 z-10 flex flex-col gap-1 items-start">
+                    {prod.isVendor ? (
+                      <span className="text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-xs flex items-center gap-1">
+                        <Store className="w-3 h-3 text-white" />
+                        <span>ভেন্ডার শপ</span>
+                      </span>
+                    ) : prod.isPromoted ? (
                       <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 text-white shadow-md flex items-center gap-1">
                         <Flame className="w-3 h-3 fill-white" />
                         <span>স্পনসরড</span>
@@ -339,6 +584,15 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                         className={`text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs ${conditionBadge.color}`}
                       >
                         {conditionBadge.label}
+                      </span>
+                    )}
+
+                    {/* Stock Badge for vendor products */}
+                    {prod.isVendor && prod.stock !== undefined && (
+                      <span className={`text-[8.5px] font-bold px-1.5 py-0.2 rounded-full ${
+                        prod.stock > 0 ? 'bg-black/60 text-emerald-300' : 'bg-rose-600 text-white'
+                      }`}>
+                        {prod.stock > 0 ? `স্টক: ${prod.stock} টি` : 'স্টক শেষ'}
                       </span>
                     )}
                   </div>
@@ -381,18 +635,33 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                     </div>
                   </div>
 
-                  {/* Seller Info */}
+                  {/* Seller / Vendor Info */}
                   <div className="pt-2 border-t border-slate-100 space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <img
-                        src={prod.sellerAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
-                        alt={prod.sellerName}
-                        className="w-5 h-5 rounded-full object-cover border border-slate-200 shrink-0"
-                      />
-                      <span className="text-[11px] font-bold text-slate-700 truncate">
-                        {prod.sellerName}
-                      </span>
-                      <ShieldCheck className="w-3 h-3 text-[#1877F2] shrink-0" />
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <img
+                          src={prod.sellerAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
+                          alt={prod.sellerName}
+                          className="w-5 h-5 rounded-full object-cover border border-slate-200 shrink-0"
+                        />
+                        <span className="text-[11px] font-bold text-slate-700 truncate">
+                          {prod.sellerName}
+                        </span>
+                        <ShieldCheck className="w-3 h-3 text-[#1877F2] shrink-0" />
+                      </div>
+
+                      {prod.isVendor && onVisitVendor && prod.vendorId && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onVisitVendor(prod.vendorId, prod.sellerName);
+                          }}
+                          className="text-[9px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded-lg border border-emerald-200"
+                        >
+                          দোকান দেখুন
+                        </button>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1 text-[10px] text-slate-500 truncate">
@@ -400,26 +669,26 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                       <span className="truncate">{prod.sellerLocation || 'বাংলাদেশ'}</span>
                     </div>
 
-                    {/* Seller Accepted Payment Methods */}
+                    {/* Accepted Payment Badges */}
                     {prod.sellerPaymentSettings && (
                       <div className="flex flex-wrap items-center gap-1 pt-0.5">
                         {prod.sellerPaymentSettings.acceptsBkash && (
-                          <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-pink-50 text-pink-700 border border-pink-200">
+                          <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-pink-50 text-pink-700 border border-pink-200">
                             বিকাশ
                           </span>
                         )}
                         {prod.sellerPaymentSettings.acceptsNagad && (
-                          <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                          <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200">
                             নগদ
                           </span>
                         )}
                         {prod.sellerPaymentSettings.acceptsRocket && (
-                          <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">
+                          <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200">
                             রকেট
                           </span>
                         )}
                         {prod.sellerPaymentSettings.acceptsCod !== false && (
-                          <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="text-[8px] font-black px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
                             ক্যাশ অন ডেলিভারি
                           </span>
                         )}
@@ -430,7 +699,7 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                   {/* Action Buttons */}
                   <div className="pt-2 space-y-1.5 mt-auto" onClick={(e) => e.stopPropagation()}>
                     <div className="grid grid-cols-2 gap-1.5">
-                      {/* Chat with Seller Button */}
+                      {/* Chat Button */}
                       <button
                         type="button"
                         onClick={() => onStartChat(prod.sellerId, prod)}
@@ -441,40 +710,31 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                         <span>চ্যাট</span>
                       </button>
 
-                      {/* Quick Buy Button */}
-                      <button
-                        type="button"
-                        onClick={() => onOpenQuickBuy(prod)}
-                        className="px-2 py-1.5 bg-[#1877F2] hover:bg-blue-700 text-white font-black text-[11px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
-                        title="সরাসরি কিনুন"
-                      >
-                        <ShoppingBag className="w-3.5 h-3.5" />
-                        <span>কিনুন</span>
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {/* Promote / Boost Button */}
-                      <button
-                        type="button"
-                        onClick={() => setBoostProduct(prod)}
-                        className="px-2 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-black text-[10px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs"
-                        title="সুপার এডমিনের মাধ্যমে পণ্যটি প্রমোট বা বুস্ট করুন"
-                      >
-                        <Zap className="w-3 h-3 fill-white" />
-                        <span>{prod.isPromoted ? 'পুনরায় বুস্ট' : 'প্রমোট / বুস্ট'}</span>
-                      </button>
-
-                      {/* Share Button */}
-                      <button
-                        type="button"
-                        onClick={() => setShareProduct(prod)}
-                        className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
-                        title="শেয়ার করুন"
-                      >
-                        <Share2 className="w-3 h-3 text-slate-500" />
-                        <span>শেয়ার</span>
-                      </button>
+                      {/* Add to Cart or Quick Buy */}
+                      {prod.isVendor && onAddToCart ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onAddToCart(prod);
+                            onShowToast(`🛍️ '${prod.name}' কার্টে যুক্ত হয়েছে!`);
+                          }}
+                          className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                          title="কার্টে যোগ করুন"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          <span>কার্টে যোগ</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onOpenQuickBuy(prod)}
+                          className="px-2 py-1.5 bg-[#1877F2] hover:bg-blue-700 text-white font-black text-[11px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                          title="সরাসরি কিনুন"
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>কিনুন</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -483,31 +743,22 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
           })}
         </div>
       ) : (
-        /* Empty State */
-        <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center space-y-4 max-w-lg mx-auto shadow-sm">
-          <div className="w-16 h-16 rounded-3xl bg-blue-50 text-[#1877F2] flex items-center justify-center mx-auto shadow-inner">
+        <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center space-y-4 shadow-xs">
+          <div className="w-16 h-16 rounded-3xl bg-blue-50 text-[#1877F2] flex items-center justify-center mx-auto">
             <Package className="w-8 h-8" />
           </div>
-          <div className="space-y-1">
-            <h3 className="text-base sm:text-lg font-black text-slate-900">
-              {searchQuery || selectedCategory !== 'all'
-                ? 'কোনো পণ্য খুঁজে পাওয়া যায়নি'
-                : 'এখনও কোনো পণ্য আপলোড করা হয়নি'}
-            </h3>
+          <div className="space-y-1 max-w-sm mx-auto">
+            <h3 className="text-base font-bold text-slate-800">কোনো পণ্য পাওয়া যায়নি</h3>
             <p className="text-xs text-slate-500">
-              {searchQuery || selectedCategory !== 'all'
-                ? 'অনুগ্রহ করে অন্য শব্দ বা ক্যাটাগরি দিয়ে চেষ্টা করুন।'
-                : 'সেন্ট্রাল মার্কেটপ্লেসে আপনিই প্রথম পণ্য আপলোড করুন এবং লক্ষাধিক ক্রেতার কাছে বিক্রি করুন!'}
+              আপনার ফিল্টারের সাথে মিলে এমন কোনো পণ্য এখনও যুক্ত হয়নি।
             </p>
           </div>
-
           <button
             type="button"
             onClick={onOpenSellProductModal}
-            className="px-6 py-3 bg-[#1877F2] hover:bg-blue-700 text-white font-black text-xs sm:text-sm rounded-2xl shadow-md transition inline-flex items-center gap-2 cursor-pointer"
+            className="px-5 py-2.5 bg-[#1877F2] hover:bg-blue-700 text-white text-xs font-black rounded-xl transition cursor-pointer"
           >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            <span>প্রথম পণ্যটি বিক্রি করুন</span>
+            প্রথম পণ্য হিসেবে পোস্ট করুন
           </button>
         </div>
       )}
@@ -515,24 +766,27 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
       {/* Share Modal */}
       {shareProduct && (
         <ShareModal
-          isOpen={true}
+          isOpen={!!shareProduct}
           onClose={() => setShareProduct(null)}
           product={shareProduct}
           currentProfile={currentProfile}
           onShowToast={onShowToast}
-          onSharedSuccess={refreshProductsList}
         />
       )}
 
       {/* Boost Modal */}
       {boostProduct && (
         <ProductBoostModal
-          isOpen={true}
+          isOpen={!!boostProduct}
           onClose={() => setBoostProduct(null)}
           product={boostProduct}
           currentProfile={currentProfile}
+          onBoostSubmitted={() => {
+            refreshProductsList();
+            setBoostProduct(null);
+            onShowToast('🚀 পণ্যটি সফলভাবে স্পনসর করা হয়েছে!');
+          }}
           onShowToast={onShowToast}
-          onBoostSubmitted={refreshProductsList}
         />
       )}
     </div>

@@ -254,3 +254,26 @@ export const ShopSettingsIcon: React.FC<{ className?: string }> = ({ className =
     <circle cx="38" cy="18" r="4" fill="#14B8A6" stroke="#FFFFFF" strokeWidth="1.5" />
   </svg>
 );
+
+// 13. সেন্ট্রাল মার্কেটপ্লেস ও সোশ্যাল মিডিয়া (Central Marketplace & Social) - Blue & Emerald Globe / Shop Bag
+export const CentralMarketplaceIcon: React.FC<{ className?: string }> = ({ className = 'w-11 h-11' }) => (
+  <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    {/* Backdrop circle with shadow */}
+    <rect x="8" y="8" width="40" height="40" rx="12" fill="url(#mktGrad)" />
+    {/* Shopping Bag handle */}
+    <path d="M22 22C22 18.6863 24.6863 16 28 16C31.3137 16 34 18.6863 34 22" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" />
+    {/* Shopping Bag Body */}
+    <path d="M17 22H39L37.5 40H18.5L17 22Z" fill="#FFFFFF" fillOpacity="0.25" stroke="#FFFFFF" strokeWidth="2" strokeLinejoin="round" />
+    {/* Central globe / lightning accent */}
+    <circle cx="28" cy="31" r="5" fill="#FFFFFF" />
+    <path d="M26.5 31L28 28.5L29.5 31H28L28.5 33.5L26.5 31Z" fill="#1877F2" />
+    {/* Notification dot */}
+    <circle cx="39" cy="17" r="4" fill="#EF4444" stroke="#FFFFFF" strokeWidth="1.5" />
+    <defs>
+      <linearGradient id="mktGrad" x1="8" y1="8" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#1877F2" />
+        <stop offset="1" stopColor="#0D9488" />
+      </linearGradient>
+    </defs>
+  </svg>
+);

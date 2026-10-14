@@ -40,6 +40,12 @@ import {
   Play,
   CornerDownRight,
   FileText,
+  Radio,
+  Eye,
+  Volume2,
+  VolumeX,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import {
   CustomerProfile,
@@ -80,6 +86,63 @@ const FEELINGS_LIST = [
   { emoji: '🎉', label: 'নতুন সেল অফার' },
   { emoji: '🍽️', label: 'খাবারের সন্ধানে' },
   { emoji: '✈️', label: 'ভ্রমণ করছি' },
+];
+
+const DEMO_REELS = [
+  {
+    id: 'reel_1',
+    authorName: 'তানজিন ফ্যাশন ও বুটিক',
+    authorAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-woman-modeling-a-purple-dress-in-a-studio-41133-large.mp4',
+    posterUrl: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=800&q=80',
+    caption: 'ঈদ স্পেশাল নতুন ডিজাইনের জর্জেট গাউন ও পার্টি ড্রেস কালেকশন! স্টক সীমিত 🔥✨ #Fashion #EidCollection',
+    likesCount: 342,
+    commentsCount: 56,
+    sharesCount: 19,
+    taggedProduct: {
+      id: 'prod_g1',
+      name: 'ঈদ স্পেশাল পার্টি গাউন (জর্জেট)',
+      salePrice: 2450,
+      regularPrice: 3200,
+      imageUrl: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=400&q=80',
+    },
+  },
+  {
+    id: 'reel_2',
+    authorName: 'গ্যাজেট জোন বাংলাদেশ',
+    authorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-man-holding-a-smartphone-with-a-green-screen-41160-large.mp4',
+    posterUrl: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=800&q=80',
+    caption: 'আল্ট্রা স্মার্টওয়াচ আনবক্সিং ও রিভিউ! ওয়াটারপ্রুফ এবং সুপার AMOLED ডিসপ্লে ⌚⚡ #Gadgets #Smartwatch',
+    likesCount: 890,
+    commentsCount: 142,
+    sharesCount: 85,
+    taggedProduct: {
+      id: 'prod_g2',
+      name: 'T900 আল্ট্রা স্মার্টওয়াচ (AMOLED)',
+      salePrice: 1350,
+      regularPrice: 1950,
+      imageUrl: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=400&q=80',
+    },
+  },
+  {
+    id: 'reel_3',
+    authorName: 'অরগানিক ফুড মার্ট',
+    authorAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-fresh-vegetables-in-a-basket-41166-large.mp4',
+    posterUrl: 'https://images.unsplash.com/photo-1610832958506-aa56368176cf?auto=format&fit=crop&w=800&q=80',
+    caption: 'সুন্দরবনের খাঁটি প্রাকৃতিক মধু ও প্রিমিয়াম ড্রাই ফ্রুটস কালেকশন 🍯🍃 ১০০% খাঁটি গ্যারান্টি!',
+    likesCount: 512,
+    commentsCount: 38,
+    sharesCount: 24,
+    taggedProduct: {
+      id: 'prod_g3',
+      name: 'খাঁটি সুন্দরবনের প্রাকৃতিক মধু (১ কেজি)',
+      salePrice: 850,
+      regularPrice: 1100,
+      imageUrl: 'https://images.unsplash.com/photo-1587049352846-4a222e784d38?auto=format&fit=crop&w=400&q=80',
+    },
+  },
 ];
 
 export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
@@ -126,6 +189,49 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
 
   // Feed Filter: 'all' or 'saved'
   const [feedFilter, setFeedFilter] = useState<'all' | 'saved'>('all');
+
+  // Facebook Sub-Experience: 'feed' (News Feed) | 'reels' (Reels & Videos) | 'live' (Live Shopping Stream)
+  const [feedMode, setFeedMode] = useState<'feed' | 'reels' | 'live'>('feed');
+  const [activeReelIndex, setActiveReelIndex] = useState(0);
+  const [reelLikes, setReelLikes] = useState<Record<string, { liked: boolean; count: number }>>({
+    reel_1: { liked: false, count: 342 },
+    reel_2: { liked: false, count: 890 },
+    reel_3: { liked: false, count: 512 },
+  });
+  const [isReelMuted, setIsReelMuted] = useState(true);
+
+  // Live stream interactive simulation
+  const [liveViewersCount, setLiveViewersCount] = useState(184);
+  const [liveCommentInput, setLiveCommentInput] = useState('');
+  const [liveComments, setLiveComments] = useState<Array<{ id: string; user: string; text: string; time: string }>>([
+    { id: 'lc_1', user: 'রহিম চৌধুরী', text: 'ভাইয়া ব্লুটুথ স্পিকারের ব্যাটারি ব্যাকআপ কত ঘণ্টা?', time: '১ মিনিট আগে' },
+    { id: 'lc_2', user: 'ফাতেমা আক্তার', text: 'অর্ডার কনফার্ম করেছি! কতদিনের মধ্যে পাবো?', time: 'এখন' },
+    { id: 'lc_3', user: 'মোঃ তানভীর', text: 'লাইভ ডিসকাউন্টে দাম কত পড়বে?', time: 'এখন' },
+    { id: 'lc_4', user: 'আফরিন জাহান', text: 'প্রোডাক্টের ওয়ারেন্টি কার্ড সাথে থাকবে?', time: 'এখন' },
+  ]);
+  const [floatingHearts, setFloatingHearts] = useState<Array<{ id: number; left: number }>>([]);
+
+  const triggerLiveHeart = () => {
+    const newHeart = { id: Date.now(), left: Math.floor(Math.random() * 60) + 20 };
+    setFloatingHearts((prev) => [...prev, newHeart]);
+    setTimeout(() => {
+      setFloatingHearts((prev) => prev.filter((h) => h.id !== newHeart.id));
+    }, 2000);
+  };
+
+  const handleSendLiveComment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!liveCommentInput.trim()) return;
+    const newComment = {
+      id: `lc_${Date.now()}`,
+      user: currentProfile.name,
+      text: liveCommentInput.trim(),
+      time: 'এখন',
+    };
+    setLiveComments((prev) => [...prev, newComment]);
+    setLiveCommentInput('');
+    triggerLiveHeart();
+  };
 
   // Floating reactions state
   const [hoveredReactionPostId, setHoveredReactionPostId] = useState<string | null>(null);
@@ -551,9 +657,438 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
       {/* ========================================================================= */}
       <div className="col-span-1 lg:col-span-6 space-y-4">
         {/* ===================================================================== */}
-        {/* STORIES TRAY (FACEBOOK STYLE 24-HOUR STORIES) */}
+        {/* FACEBOOK SUB-EXPERIENCE TABS: FEED | REELS & WATCH | LIVE SHOPPING */}
         {/* ===================================================================== */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-2xs">
+        <div className="bg-white rounded-2xl border border-slate-200 p-1.5 shadow-2xs flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setFeedMode('feed')}
+            className={`flex-1 py-2 px-2.5 sm:px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+              feedMode === 'feed'
+                ? 'bg-[#1877F2] text-white shadow-xs font-black'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>হোম ফিড</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFeedMode('reels')}
+            className={`flex-1 py-2 px-2.5 sm:px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+              feedMode === 'reels'
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-xs font-black'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Video className="w-3.5 h-3.5" />
+            <span>🎬 রিলস ও ভিডিও</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFeedMode('live')}
+            className={`flex-1 py-2 px-2.5 sm:px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer relative ${
+              feedMode === 'live'
+                ? 'bg-rose-600 text-white shadow-xs font-black'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping inline-block" />
+            <span>🔴 লাইভ সেল</span>
+          </button>
+        </div>
+
+        {/* ===================================================================== */}
+        {/* REELS & VIDEO FEED (FACEBOOK REELS EXPERIENCE) */}
+        {/* ===================================================================== */}
+        {feedMode === 'reels' && (
+          <div className="space-y-4 animate-in fade-in">
+            {/* Reel Header & Navigation */}
+            <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-200 p-3 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-600 to-pink-600 text-white flex items-center justify-center shadow-xs">
+                  <Video className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-slate-900 leading-tight">ফেসবুক রিলস ও ভিডিও</h3>
+                  <p className="text-[10px] text-slate-500 font-bold">ভিডিও দেখে সরাসরি পণ্য অর্ডার করুন</p>
+                </div>
+              </div>
+
+              {/* Navigation stepper */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-slate-500 mr-1 font-mono">
+                  {activeReelIndex + 1} / {DEMO_REELS.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveReelIndex((prev) => (prev > 0 ? prev - 1 : DEMO_REELS.length - 1))}
+                  className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                  title="আগের রিল"
+                >
+                  <ChevronUp className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveReelIndex((prev) => (prev < DEMO_REELS.length - 1 ? prev + 1 : 0))}
+                  className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                  title="পরবর্তী রিল"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Active Reel Card */}
+            {(() => {
+              const reel = DEMO_REELS[activeReelIndex] || DEMO_REELS[0];
+              const isLiked = reelLikes[reel.id]?.liked || false;
+              const likesCount = reelLikes[reel.id]?.count ?? reel.likesCount;
+
+              return (
+                <div className="relative w-full max-w-md mx-auto aspect-[9/16] max-h-[640px] bg-black rounded-3xl overflow-hidden shadow-2xl border border-slate-800 flex flex-col justify-between">
+                  {/* Background Video */}
+                  <video
+                    key={reel.videoUrl}
+                    src={reel.videoUrl}
+                    poster={reel.posterUrl}
+                    autoPlay
+                    loop
+                    muted={isReelMuted}
+                    playsInline
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+
+                  {/* Gradient overlays */}
+                  <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/90 pointer-events-none" />
+
+                  {/* Top Bar inside Reel */}
+                  <div className="relative z-10 p-4 flex items-center justify-between text-white">
+                    <span className="inline-flex items-center gap-1 bg-black/50 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-black border border-white/20">
+                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      <span>রিলস • ট্রেন্ডিং</span>
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsReelMuted(!isReelMuted)}
+                      className="p-2 rounded-full bg-black/50 backdrop-blur-md hover:bg-black/80 text-white transition cursor-pointer border border-white/20"
+                      title={isReelMuted ? 'সাউন্ড চালু করুন' : 'মিউট করুন'}
+                    >
+                      {isReelMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+                    </button>
+                  </div>
+
+                  {/* Right Action Rail (Vertical Buttons) */}
+                  <div className="absolute right-3 bottom-24 z-20 flex flex-col items-center gap-3.5">
+                    {/* Love / Like */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReelLikes((prev) => {
+                          const item = prev[reel.id] || { liked: false, count: reel.likesCount };
+                          return {
+                            ...prev,
+                            [reel.id]: {
+                              liked: !item.liked,
+                              count: item.liked ? item.count - 1 : item.count + 1,
+                            },
+                          };
+                        });
+                        onShowToast(isLiked ? 'লাইক প্রত্যাহার করা হয়েছে' : '❤️ রিলসে লাভ রিঅ্যাকশন দেওয়া হয়েছে!');
+                      }}
+                      className="flex flex-col items-center group cursor-pointer"
+                    >
+                      <div className={`w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-md shadow-lg transition active:scale-90 ${
+                        isLiked ? 'bg-rose-600 text-white' : 'bg-black/50 text-white hover:bg-black/70'
+                      }`}>
+                        <Heart className={`w-5 h-5 ${isLiked ? 'fill-white' : ''}`} />
+                      </div>
+                      <span className="text-[11px] font-black text-white drop-shadow mt-1">
+                        {likesCount}
+                      </span>
+                    </button>
+
+                    {/* Comments */}
+                    <button
+                      type="button"
+                      onClick={() => onShowToast('💬 রিলসের কমেন্ট বক্স খোলা হয়েছে')}
+                      className="flex flex-col items-center group cursor-pointer"
+                    >
+                      <div className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center backdrop-blur-md shadow-lg transition active:scale-90">
+                        <MessageCircle className="w-5 h-5" />
+                      </div>
+                      <span className="text-[11px] font-black text-white drop-shadow mt-1">
+                        {reel.commentsCount}
+                      </span>
+                    </button>
+
+                    {/* Share */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShareTarget({ product: reel.taggedProduct });
+                      }}
+                      className="flex flex-col items-center group cursor-pointer"
+                    >
+                      <div className="w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center backdrop-blur-md shadow-lg transition active:scale-90">
+                        <Share2 className="w-5 h-5" />
+                      </div>
+                      <span className="text-[11px] font-black text-white drop-shadow mt-1">
+                        শেয়ার
+                      </span>
+                    </button>
+
+                    {/* Quick Buy Icon */}
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickBuy(reel.taggedProduct)}
+                      className="flex flex-col items-center group cursor-pointer"
+                    >
+                      <div className="w-11 h-11 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center shadow-lg transition active:scale-90 animate-bounce">
+                        <ShoppingBag className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-black text-emerald-300 drop-shadow mt-1">
+                        কিনুন
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Bottom Author & Tagged Product Overlay */}
+                  <div className="relative z-10 p-4 space-y-2.5">
+                    {/* Author Row */}
+                    <div className="flex items-center gap-2.5">
+                      <img
+                        src={reel.authorAvatar}
+                        alt=""
+                        className="w-10 h-10 rounded-full object-cover border-2 border-white ring-2 ring-purple-500 shadow-md"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-black text-sm text-white drop-shadow">{reel.authorName}</span>
+                          <span className="text-[9px] font-black bg-blue-600 text-white px-1.5 py-0.2 rounded-full">ভেরিফাইড</span>
+                        </div>
+                        <p className="text-[11px] text-white/90 drop-shadow line-clamp-2 mt-0.5 font-medium">
+                          {reel.caption}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Tagged Product Pill Card */}
+                    <div className="bg-black/70 backdrop-blur-md border border-white/20 rounded-2xl p-2.5 flex items-center justify-between gap-3 text-white">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <img
+                          src={reel.taggedProduct.imageUrl}
+                          alt=""
+                          className="w-11 h-11 rounded-xl object-cover shrink-0 border border-white/20"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-xs font-black truncate">{reel.taggedProduct.name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-xs font-black text-emerald-400">
+                              ৳ {formatMoney(reel.taggedProduct.salePrice)}
+                            </span>
+                            {reel.taggedProduct.regularPrice && (
+                              <span className="text-[10px] text-slate-400 line-through">
+                                ৳ {formatMoney(reel.taggedProduct.regularPrice)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onStartChat('vendor_reel', reel.taggedProduct)}
+                          className="px-2.5 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white font-bold text-[11px] transition"
+                        >
+                          চ্যাট
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenQuickBuy(reel.taggedProduct)}
+                          className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-black text-xs shadow-md transition"
+                        >
+                          অর্ডার করুন
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ===================================================================== */}
+        {/* LIVE SHOPPING BROADCAST STREAM (FACEBOOK LIVE SELL) */}
+        {/* ===================================================================== */}
+        {feedMode === 'live' && (
+          <div className="space-y-4 animate-in fade-in">
+            {/* Live Header */}
+            <div className="bg-slate-950 text-white rounded-3xl p-4 border border-rose-900/60 shadow-2xl relative overflow-hidden">
+              <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="px-2.5 py-1 rounded-full bg-rose-600 text-white text-[10px] font-black uppercase flex items-center gap-1 shadow-md animate-pulse">
+                    <Radio className="w-3 h-3 text-white" />
+                    <span>LIVE</span>
+                  </span>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-black tracking-tight">
+                      মেগা লাইভ সেল শো • TWING অফিশিয়াল
+                    </h3>
+                    <p className="text-[10px] text-slate-400">হোস্ট: তানজিন আহমেদ & টিম</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-black text-rose-300 border border-white/10">
+                  <Eye className="w-3.5 h-3.5 text-rose-400" />
+                  <span>{liveViewersCount} জন দেখছেন</span>
+                </div>
+              </div>
+
+              {/* Video Player Window with Live Overlay */}
+              <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border border-white/10 mb-3 shadow-lg">
+                <video
+                  src="https://assets.mixkit.co/videos/preview/mixkit-hands-holding-and-opening-a-gift-box-41130-large.mp4"
+                  poster="https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=800&q=80"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+
+                {/* Floating Heart Reactions */}
+                <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                  {floatingHearts.map((h) => (
+                    <span
+                      key={h.id}
+                      style={{ left: `${h.left}%` }}
+                      className="absolute bottom-6 text-2xl animate-float-heart"
+                    >
+                      ❤️
+                    </span>
+                  ))}
+                </div>
+
+                <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded-lg text-[10px] font-bold text-white flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping inline-block" />
+                  <span>HD 1080p • রিয়েল-টাইম ব্রডকাস্ট</span>
+                </div>
+              </div>
+
+              {/* Pinned Flash Deal Banner */}
+              <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-rose-500/20 border-2 border-amber-400/50 rounded-2xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg mb-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-slate-800 shrink-0 border border-amber-400/40">
+                    <img
+                      src="https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=200&q=80"
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                    <span className="absolute top-0 right-0 bg-rose-600 text-white text-[8px] font-black px-1 rounded-bl">
+                      ৫০% OFF
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="inline-flex items-center gap-1 text-[9px] font-black text-amber-300 uppercase tracking-wider mb-0.5">
+                      <Flame className="w-3 h-3 text-amber-400" />
+                      <span>পিন করা লাইভ ডিল (আর মাত্র ৭ মিনিট!)</span>
+                    </div>
+                    <h4 className="text-xs sm:text-sm font-black text-white truncate">
+                      টি৯০০ আল্ট্রা স্মার্টওয়াচ + ব্লুটুথ কম্বো
+                    </h4>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <span className="text-sm font-black text-emerald-400">৳ ৯৫০</span>
+                      <span className="text-[11px] text-slate-400 line-through">৳ ১,৯৫০</span>
+                      <span className="text-[10px] text-amber-300 font-bold bg-amber-950/60 px-1.5 py-0.2 rounded">
+                        স্টক বাকি: ৬টি
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenQuickBuy({
+                        id: 'deal_live_1',
+                        name: 'টি৯০০ আল্ট্রা স্মার্টওয়াচ + ব্লুটুথ প্রো কম্বো',
+                        salePrice: 950,
+                        regularPrice: 1950,
+                        imageUrl: 'https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=400&q=80',
+                      });
+                    }}
+                    className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-slate-950 font-black text-xs shadow-lg transition transform active:scale-95"
+                  >
+                    ⚡ এখনই সরাসরি কিনুন
+                  </button>
+                </div>
+              </div>
+
+              {/* Live Comments Stream */}
+              <div className="bg-slate-900/90 rounded-2xl p-3 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400 border-b border-slate-800 pb-2">
+                  <span>লাইভ চ্যাট ও প্রশ্নাবলী</span>
+                  <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>সরাসরি কমেন্ট চলছে</span>
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                  {liveComments.map((c) => (
+                    <div key={c.id} className="text-xs bg-slate-950/60 p-2 rounded-xl border border-slate-800/80 flex items-start justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-blue-400 mr-1.5">{c.user}:</span>
+                        <span className="text-slate-200">{c.text}</span>
+                      </div>
+                      <span className="text-[9px] text-slate-500 font-mono shrink-0">{c.time}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Live Comment Form */}
+                <form onSubmit={handleSendLiveComment} className="flex items-center gap-2 pt-1">
+                  <input
+                    type="text"
+                    value={liveCommentInput}
+                    onChange={(e) => setLiveCommentInput(e.target.value)}
+                    placeholder="প্রশ্ন লিখুন বা অর্ডার করতে 'BUY' লিখুন..."
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:ring-1 focus:ring-rose-500 font-medium"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3 py-2 bg-[#1877F2] hover:bg-blue-600 text-white rounded-xl font-bold text-xs transition cursor-pointer"
+                  >
+                    পাঠান
+                  </button>
+                  <button
+                    type="button"
+                    onClick={triggerLiveHeart}
+                    className="p-2 bg-rose-600/30 hover:bg-rose-600/50 text-rose-400 hover:text-rose-300 rounded-xl text-sm transition cursor-pointer active:scale-125"
+                    title="লাভ রিঅ্যাকশন দিন"
+                  >
+                    ❤️
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================================== */}
+        {/* REGULAR NEWS FEED (POSTS & STORIES) */}
+        {/* ===================================================================== */}
+        {feedMode === 'feed' && (
+          <>
+            {/* STORIES TRAY (FACEBOOK STYLE 24-HOUR STORIES) */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-2xs">
           <div className="flex items-center gap-3 overflow-x-auto pb-1 scrollbar-none">
             {/* Create Story Card */}
             <div
@@ -1334,6 +1869,8 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
             })
           )}
         </div>
+          </>
+        )}
       </div>
 
       {/* ========================================================================= */}

@@ -36,6 +36,7 @@ interface NavbarProps {
   onLogout: () => void;
   onOpenSettings?: () => void;
   onOpenOnlineStore?: () => void;
+  onOpenMarketplace?: () => void;
   onOpenEcommerceCod?: () => void;
   onOpenNotifications?: () => void;
   onOpenSubscription?: () => void;
@@ -52,6 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   onOpenSettings,
   onOpenOnlineStore,
+  onOpenMarketplace,
   onOpenEcommerceCod,
   onOpenNotifications,
   onOpenSubscription,
@@ -170,6 +172,21 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right: Clean & Elegant Action Bar */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Quick Central Marketplace Button */}
+          {onOpenMarketplace && (
+            <button
+              type="button"
+              onClick={onOpenMarketplace}
+              id="nav-marketplace-btn"
+              title="TWING সেন্ট্রাল মার্কেটপ্লেস ও সোশ্যাল মিডিয়া"
+              className="flex items-center gap-1.5 h-9 sm:h-10 px-2.5 sm:px-3 rounded-xl bg-gradient-to-r from-blue-600 via-[#1877F2] to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md border border-blue-400/30 cursor-pointer active:scale-95 transition"
+            >
+              <Globe className="w-4 h-4 text-white shrink-0" />
+              <span className="text-[11px] sm:text-xs">মার্কেটপ্লেস</span>
+              <span className="hidden sm:inline-block text-[9px] font-black px-1.5 py-0.5 rounded-full bg-white/20 text-white">সোশ্যাল</span>
+            </button>
+          )}
+
           {/* Quick QR Code Button (When available) */}
           {onOpenQrCode && (
             <button
@@ -272,6 +289,38 @@ export const Navbar: React.FC<NavbarProps> = ({
                   variant="drawer"
                   onActionComplete={() => setIsMenuOpen(false)}
                 />
+
+                {/* 🌐 TWING Central Marketplace & Social Feed */}
+                {onOpenMarketplace && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onOpenMarketplace();
+                    }}
+                    className="w-full p-3 rounded-2xl bg-gradient-to-r from-blue-600/20 via-indigo-600/15 to-transparent hover:bg-blue-600/30 border border-blue-500/40 text-left flex items-center justify-between transition cursor-pointer group shadow-xs"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-xl bg-[#1877F2] text-white shadow-md">
+                        <Globe className="w-5 h-5 text-white animate-pulse" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-black text-blue-200 block">
+                            TWING সেন্ট্রাল মার্কেটপ্লেস
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500 text-white font-black animate-pulse">
+                            সোশ্যাল ও শপ
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-blue-100/80 block mt-0.5">
+                          ফেসবুকের মতো সোশ্যাল ফিড, স্টোরিজ, মেসেঞ্জার ও মাল্টি-ভেন্ডার শপ
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-blue-300 group-hover:translate-x-0.5 transition" />
+                  </button>
+                )}
 
                 {/* Subscription Packages */}
                 {isSubscriptionSystemEnabled && onOpenSubscription && (

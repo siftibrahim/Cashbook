@@ -813,12 +813,14 @@ export const MarketplaceAuthGatekeeper: React.FC<MarketplaceAuthGatekeeperProps>
         </div>
       </div>
 
+
+
       {/* Return to Dashboard link if available */}
       {onBackToDashboard && (
         <button
           type="button"
           onClick={onBackToDashboard}
-          className="mt-6 flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition cursor-pointer"
+          className="mt-3 flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition cursor-pointer"
         >
           <span>দোকানের ড্যাশবোর্ডে ফিরে যান</span>
           <ArrowRight className="w-3.5 h-3.5" />

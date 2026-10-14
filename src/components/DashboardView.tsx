@@ -18,6 +18,7 @@ import {
   StockCalculationIcon,
   ReportAnalyticsIcon,
   ShopSettingsIcon,
+  CentralMarketplaceIcon,
 } from './ServiceIcons';
 import {
   Store,
@@ -67,6 +68,7 @@ interface DashboardViewProps {
   onOpenSubscription?: () => void;
   onOpenSettings?: () => void;
   onOpenOnlineStore?: () => void;
+  onOpenMarketplace?: () => void;
   onlineStoreConfig?: OnlineStoreConfig;
   onOpenNewProduct?: () => void;
   onOpenSms?: () => void;
@@ -93,6 +95,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenSalesHistory,
   onOpenSettings,
   onOpenOnlineStore,
+  onOpenMarketplace,
   onlineStoreConfig,
   onOpenSms,
   onOpenSubscription,
@@ -427,6 +430,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       action: onOpenOnlineStore ? onOpenOnlineStore : () => onNavigateToTab('inventory'),
       badge: onlineStoreBadge,
       badgeClass: onlineStoreBadgeClass,
+    },
+    {
+      id: 'marketplace',
+      title: 'মার্কেটপ্লেস',
+      icon: CentralMarketplaceIcon,
+      action: onOpenMarketplace ? onOpenMarketplace : () => {},
+      badge: 'সোশ্যাল ও শপ',
+      badgeClass: 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black animate-pulse shadow-xs',
     },
     {
       id: 'pos_sale',

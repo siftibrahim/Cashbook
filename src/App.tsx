@@ -182,7 +182,7 @@ export const App: React.FC = () => {
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
   const [isOnlineStoreModalOpen, setIsOnlineStoreModalOpen] = useState(false);
-  const [isMarketplaceViewOpen, setIsMarketplaceViewOpen] = useState(false);
+  const [isMarketplaceViewOpen, setIsMarketplaceViewOpen] = useState<boolean>(false);
   const [publicStoreContext, setPublicStoreContext] = useState(() => detectPublicStoreContext());
   const [isMerchantAdminViewForced, setIsMerchantAdminViewForced] = useState(false);
   const [isOnlineStorefrontOpen, setIsOnlineStorefrontOpen] = useState(false);
@@ -811,6 +811,8 @@ export const App: React.FC = () => {
     }
 
     setIsLoggedIn(true);
+    setIsMarketplaceViewOpen(false);
+    setActiveTab('dashboard');
     if (roleName === 'staff' || user?.role === 'staff' || user?.role === 'manager' || (Array.isArray(user?.permissions) && user.permissions.length > 0)) {
       setUserRole('স্টাফ অ্যাকাউন্ট');
       setAdminSession({
@@ -859,6 +861,7 @@ export const App: React.FC = () => {
       console.warn('SignOut error:', err);
     }
     setIsLoggedIn(false);
+    setIsMarketplaceViewOpen(false);
     localStorage.removeItem('ibrahim_is_logged_in');
     localStorage.removeItem('ibrahim_user_role');
     setCustomers([]);
@@ -1710,31 +1713,7 @@ export const App: React.FC = () => {
     setIsOnlineStoreModalOpen(false);
   };
 
-  // If this session is visiting Central Marketplace (e.g. CentralMarketplace.twinghisabi.site, /marketplace, ?marketplace=1)
-  if (publicStoreContext.isCentralMarketplace && !isMerchantAdminViewForced) {
-    return (
-      <CentralMarketplacePage
-        onMerchantLogin={() => {
-          setIsMerchantAdminViewForced(true);
-        }}
-        onBackToDashboard={() => {
-          setIsMerchantAdminViewForced(true);
-        }}
-      />
-    );
-  }
-
-  // Merchant manually browsing central marketplace from inside dashboard
-  if (isMarketplaceViewOpen) {
-    return (
-      <CentralMarketplacePage
-        onBackToDashboard={() => setIsMarketplaceViewOpen(false)}
-        onMerchantLogin={() => setIsMarketplaceViewOpen(false)}
-      />
-    );
-  }
-
-  // If this session is visiting a public storefront (subdomain or ?shop=) and hasn't forced merchant login:
+  // 1. If this session is visiting a public vendor storefront (subdomain or ?shop=) and hasn't forced merchant login:
   if (publicStoreContext.isPublicStore && !isMerchantAdminViewForced) {
     return (
       <PublicStorefrontPage
@@ -1746,33 +1725,19 @@ export const App: React.FC = () => {
     );
   }
 
-  if (isAuthChecking) {
-    return (
-      <div className="w-full h-[100dvh] bg-slate-100 flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-white p-7 rounded-3xl shadow-xl border border-slate-200 text-center flex flex-col items-center gap-3 animate-in fade-in">
-          <div className="w-16 h-16 rounded-2xl bg-[#00382E] text-white flex items-center justify-center shadow-lg border border-[#00796B] overflow-hidden">
-            <img src="/icon-192.png" alt={store.name} className="w-full h-full object-cover" />
-          </div>
-          <h2 className="text-lg font-black text-slate-800 tracking-tight">{store.name}</h2>
-          <div className="flex items-center gap-2 text-xs font-bold text-teal-800 mt-2 bg-teal-50 px-3.5 py-1.5 rounded-full border border-teal-200">
-            <Loader2 className="w-4 h-4 animate-spin text-[#004D40]" />
-            <span>নিরাপত্তা যাচাই করা হচ্ছে...</span>
-          </div>
-          <button
-            type="button"
-            tabIndex={0}
-            onClick={() => setIsAuthChecking(false)}
-            className="mt-2 text-xs font-bold text-teal-700 hover:text-teal-900 focus-visible:ring-2 focus-visible:ring-teal-500 rounded-lg px-3 py-2 cursor-pointer transition-all"
-          >
-            অপেক্ষা না করে প্রবেশ করুন &rarr;
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Dedicated responsive full-screen auth layout for unauthenticated visitors
+  // 2. Unauthenticated User Flow: Show the Login Dashboard (AuthScreen) FIRST!
+  // Ensures user lands on login dashboard, and only enters merchant dashboard after logging in!
   if (!isLoggedIn) {
+    // If guest clicks "Explore Central Marketplace" from AuthScreen
+    if (isMarketplaceViewOpen) {
+      return (
+        <CentralMarketplacePage
+          onBackToDashboard={() => setIsMarketplaceViewOpen(false)}
+          onMerchantLogin={() => setIsMarketplaceViewOpen(false)}
+        />
+      );
+    }
+
     return (
       <div className="w-full h-full min-h-[100dvh] flex flex-col items-center justify-start p-0 text-slate-100 font-sans antialiased overflow-y-auto smooth-scroll-container selection:bg-teal-500 selection:text-white bg-[#030712]">
         {/* Animated Toast Notifications */}
@@ -1808,6 +1773,16 @@ export const App: React.FC = () => {
           }}
         />
       </div>
+    );
+  }
+
+  // 3. Authenticated Merchant manually browsing central marketplace from inside dashboard
+  if (isMarketplaceViewOpen) {
+    return (
+      <CentralMarketplacePage
+        onBackToDashboard={() => setIsMarketplaceViewOpen(false)}
+        onMerchantLogin={() => setIsMarketplaceViewOpen(false)}
+      />
     );
   }
 
@@ -1864,6 +1839,7 @@ export const App: React.FC = () => {
               onLogout={triggerLogoutConfirm}
               onOpenSettings={() => setIsSettingsModalOpen(true)}
               onOpenOnlineStore={() => setIsOnlineStoreModalOpen(true)}
+              onOpenMarketplace={() => setIsMarketplaceViewOpen(true)}
               onOpenNotifications={() => setIsNotificationModalOpen(true)}
               onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
               onOpenPermissions={() => setIsPermissionsModalOpen(true)}
@@ -1978,6 +1954,7 @@ export const App: React.FC = () => {
                           onOpenSubscription={() => setIsSubscriptionModalOpen(true)}
                           onOpenSettings={() => setIsSettingsModalOpen(true)}
                           onOpenOnlineStore={() => setIsOnlineStoreModalOpen(true)}
+                          onOpenMarketplace={() => setIsMarketplaceViewOpen(true)}
                           onlineStoreConfig={onlineStoreConfig}
                           expenses={expenses}
                           products={products}
