@@ -21,6 +21,7 @@ import {
   Sparkles,
   RefreshCw,
   Maximize2,
+  AlertTriangle,
 } from 'lucide-react';
 import { MarketplaceProduct } from '../../types';
 import { formatMoney } from '../../utils/storage';
@@ -315,24 +316,55 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => onAddToCart(product, quantity)}
-                      className="py-3 px-4 bg-white hover:bg-blue-50 text-[#0b63e5] font-bold text-xs sm:text-sm rounded-2xl border border-blue-200 transition cursor-pointer flex items-center justify-center gap-2 active:scale-98 shadow-2xs"
-                    >
-                      <ShoppingCart className="w-4 h-4" />
-                      <span>কার্টে যোগ করুন</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onBuyNow(product, quantity)}
-                      className="py-3 px-4 bg-[#0b63e5] hover:bg-[#094ec2] text-white font-black text-xs sm:text-sm rounded-2xl shadow-md transition cursor-pointer flex items-center justify-center gap-2 active:scale-98"
-                    >
-                      <Zap className="w-4 h-4 fill-white" />
-                      <span>এখনই কিনুন</span>
-                    </button>
-                  </div>
+                  {(() => {
+                    const isOwnProduct = Boolean(
+                      currentProfile && (
+                        currentProfile.id === product.vendorId ||
+                        currentProfile.phone === product.vendorPhone ||
+                        (currentProfile as any).vendorId === product.vendorId
+                      )
+                    );
+                    const isOutOfStock = product.stock !== undefined && product.stock <= 0;
+
+                    if (isOwnProduct) {
+                      return (
+                        <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl text-xs font-bold flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>নিরাপত্তা ও নিয়ম: এটি আপনার নিজস্ব পণ্য। আপনি নিজের তালিকাভুক্ত পণ্য নিজে কিনতে পারবেন না।</span>
+                        </div>
+                      );
+                    }
+
+                    if (isOutOfStock) {
+                      return (
+                        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl text-xs font-bold flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                          <span>দুঃখিত, এই পণ্যটির স্টক বর্তমানে শেষ হয়ে গেছে।</span>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => onAddToCart(product, quantity)}
+                          className="py-3 px-4 bg-white hover:bg-blue-50 text-[#0b63e5] font-bold text-xs sm:text-sm rounded-2xl border border-blue-200 transition cursor-pointer flex items-center justify-center gap-2 active:scale-98 shadow-2xs"
+                        >
+                          <ShoppingCart className="w-4 h-4" />
+                          <span>কার্টে যোগ করুন</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onBuyNow(product, quantity)}
+                          className="py-3 px-4 bg-[#0b63e5] hover:bg-[#094ec2] text-white font-black text-xs sm:text-sm rounded-2xl shadow-md transition cursor-pointer flex items-center justify-center gap-2 active:scale-98"
+                        >
+                          <Zap className="w-4 h-4 fill-white" />
+                          <span>এখনই কিনুন</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {/* Promote & Social Share Row */}
                   <div className="grid grid-cols-2 gap-2.5 pt-1">

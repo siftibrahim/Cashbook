@@ -21,6 +21,7 @@ import {
   Store,
   ShoppingCart,
   Check,
+  AlertTriangle,
 } from 'lucide-react';
 import { CustomerProductItem, CustomerProfile } from '../../types/marketplaceSocial';
 import { MarketplaceProduct } from '../../types';
@@ -547,7 +548,15 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
           {filteredProducts.map((prod: any) => {
             const conditionBadge = getConditionLabel(prod.condition, prod.isVendor);
             const mainImage = prod.images?.[0] || prod.imageUrl || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80';
-            const isOwnProduct = currentProfile && currentProfile.id === prod.sellerId;
+            const isOwnProduct = Boolean(
+              currentProfile && (
+                currentProfile.id === prod.sellerId ||
+                currentProfile.phone === prod.sellerPhone ||
+                (currentProfile as any).vendorId === prod.vendorId ||
+                currentProfile.id === prod.vendorId
+              )
+            );
+            const isOutOfStock = prod.isVendor && prod.stock !== undefined && prod.stock <= 0;
 
             return (
               <div
@@ -710,8 +719,28 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                         <span>চ্যাট</span>
                       </button>
 
-                      {/* Add to Cart or Quick Buy */}
-                      {prod.isVendor && onAddToCart ? (
+                      {/* Add to Cart, Quick Buy, Own Product or Out of Stock */}
+                      {isOwnProduct ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="px-2 py-1.5 bg-slate-100 text-slate-500 font-bold text-[10.5px] rounded-xl flex items-center justify-center gap-1 cursor-not-allowed border border-slate-200"
+                          title="নিরাপত্তা নিয়ম: আপনি নিজের পণ্য নিজে কিনতে পারবেন না"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+                          <span>আপনার পণ্য</span>
+                        </button>
+                      ) : isOutOfStock ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="px-2 py-1.5 bg-rose-50 text-rose-500 font-bold text-[10.5px] rounded-xl flex items-center justify-center gap-1 cursor-not-allowed border border-rose-200"
+                          title="পণ্যটির স্টক শেষ হয়ে গেছে"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                          <span>স্টক শেষ</span>
+                        </button>
+                      ) : prod.isVendor && onAddToCart ? (
                         <button
                           type="button"
                           onClick={() => {

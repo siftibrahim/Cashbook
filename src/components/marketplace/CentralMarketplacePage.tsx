@@ -318,8 +318,8 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [navTab, setNavTab] = useState<'home' | 'vendors' | 'offers' | 'bestselling' | 'new' | 'orders' | 'support'>('home');
   const [mobileBottomTab, setMobileBottomTab] = useState<'home' | 'categories' | 'cart' | 'orders' | 'account'>('home');
 
-  // Facebook Social Marketplace state
-  const [fbTab, setFbTab] = useState<FacebookNavTab>('feed');
+  // Facebook Social Marketplace state - default to 'marketplace' when opening from header
+  const [fbTab, setFbTab] = useState<FacebookNavTab>('marketplace');
   const [currentProfile, setCurrentProfile] = useState<CustomerProfile>(() => marketplaceSocialService.getCurrentProfile());
   const [notifications, setNotifications] = useState<SocialNotification[]>(() => marketplaceSocialService.getNotifications());
   const [conversations, setConversations] = useState<ChatConversation[]>(() => marketplaceSocialService.getConversations());

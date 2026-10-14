@@ -2640,6 +2640,15 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           if (estimatedDeliveryDate !== undefined) order.estimatedDeliveryDate = estimatedDeliveryDate;
           if (deliveryNote !== undefined) order.deliveryNote = deliveryNote;
           if (vendorNote !== undefined) order.vendorNote = vendorNote;
+          if (orderStatus && ['cancelled', 'returned'].includes(orderStatus)) {
+            for (const it of order.items || []) {
+              const p = (inMemoryStore.products || []).find((x: any) => x.id === (it.productId || it.id));
+              if (p) {
+                p.stock = (p.stock || 0) + (Number(it.quantity) || 1);
+                p.updatedAt = now;
+              }
+            }
+          }
           order.updatedAt = now;
           await syncMasterOrderOverallStatus(pool, order.masterOrderId);
           saveInMemoryStoreToDisk();
@@ -2676,6 +2685,25 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
         const memIdx = inMemoryStore.online_orders.findIndex((o) => o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber);
         if (memIdx >= 0) inMemoryStore.online_orders[memIdx] = { ...inMemoryStore.online_orders[memIdx], ...updatedOrder };
         saveInMemoryStoreToDisk();
+      }
+
+      // 📦 Stock Restoration on Cancel or Return
+      if (orderStatus && ['cancelled', 'returned'].includes(orderStatus)) {
+        try {
+          const items = typeof result.rows[0].items === 'string' ? JSON.parse(result.rows[0].items) : (result.rows[0].items || []);
+          for (const it of items) {
+            if (it && (it.productId || it.id)) {
+              const pid = it.productId || it.id;
+              const qty = Number(it.quantity) || 1;
+              await pool.query(
+                'UPDATE products SET stock = stock + $1, updated_at = $2 WHERE id = $3',
+                [qty, now, pid]
+              ).catch(() => {});
+            }
+          }
+        } catch (stockErr) {
+          console.error('Error restoring stock on cancellation/return:', stockErr);
+        }
       }
 
       // Sync parent Central Marketplace Master Order status in real-time
@@ -2741,6 +2769,15 @@ router.put('/orders/:orderId/status', authenticateUser, async (req: Authenticate
           order.collectedAt = now;
           if (orderStatus === 'delivered') {
             order.vendorPayoutStatus = 'eligible';
+          }
+        }
+        if (orderStatus && ['cancelled', 'returned'].includes(orderStatus)) {
+          for (const it of order.items || []) {
+            const p = (inMemoryStore.products || []).find((x: any) => x.id === (it.productId || it.id));
+            if (p) {
+              p.stock = (p.stock || 0) + (Number(it.quantity) || 1);
+              p.updatedAt = now;
+            }
           }
         }
         order.updatedAt = now;

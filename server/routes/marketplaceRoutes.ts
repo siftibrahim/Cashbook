@@ -3361,6 +3361,15 @@ router.post('/checkout', async (req: Request, res: Response) => {
         });
       }
 
+      // 🛡️ Security & Integrity: Prevent buying own listed product
+      const authUserId = (req as any).user?.userId;
+      if (authUserId && (vId === authUserId || item.vendorId === authUserId)) {
+        inFlightCheckoutKeys.delete(dedupeKey);
+        return res.status(400).json({
+          error: `নিরাপত্তা নিয়ম: '${pName}' আপনার নিজস্ব পণ্য। সেন্ট্রাল মার্কেটপ্লেস নিয়মানুযায়ী আপনি নিজের তালিকাভুক্ত পণ্য নিজে অর্ডার করতে পারবেন না।`,
+        });
+      }
+
       if (!vendorItemsMap[vId]) {
         vendorItemsMap[vId] = [];
       }
