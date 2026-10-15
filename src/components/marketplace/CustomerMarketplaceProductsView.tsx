@@ -38,6 +38,7 @@ interface CustomerMarketplaceProductsViewProps {
   onStartChat: (sellerId: string, productContext?: any) => void;
   onSelectProduct: (product: any) => void;
   onOpenQuickBuy: (product: any) => void;
+  onBuyNow?: (product: any) => void;
   onAddToCart?: (product: any) => void;
   onVisitVendor?: (vendorId: string, vendorName: string) => void;
   onShowToast: (msg: string) => void;
@@ -83,6 +84,7 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
   onStartChat,
   onSelectProduct,
   onOpenQuickBuy,
+  onBuyNow,
   onAddToCart,
   onVisitVendor,
   onShowToast,
@@ -297,7 +299,7 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
             </h1>
             <p className="text-xs sm:text-sm text-blue-100 leading-relaxed font-medium">
               ভেন্ডার স্টোরের নিজস্ব ইনভেন্টরি পণ্য এবং সোশ্যাল কমিউনিটির লিস্টিং এক প্ল্যাটফর্মে। 
-              সরাসরি বিক্রেতা ও ভেন্ডারের সাথে চ্যাট করুন, কার্টে যোগ করে অর্ডার করুন এবং নিশ্চিন্তে কেনাবেচা করুন।
+              সরাসরি বিক্রেতা ও ভেন্ডারের সাথে চ্যাট করুন, পণ্য পছন্দ হলে সরাসরি সিঙ্গেল পিস অর্ডার ও চেকআউট করুন।
             </p>
           </div>
 
@@ -740,28 +742,21 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                           <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
                           <span>স্টক শেষ</span>
                         </button>
-                      ) : prod.isVendor && onAddToCart ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onAddToCart(prod);
-                            onShowToast(`🛍️ '${prod.name}' কার্টে যুক্ত হয়েছে!`);
-                          }}
-                          className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
-                          title="কার্টে যোগ করুন"
-                        >
-                          <ShoppingCart className="w-3.5 h-3.5" />
-                          <span>কার্টে যোগ</span>
-                        </button>
                       ) : (
                         <button
                           type="button"
-                          onClick={() => onOpenQuickBuy(prod)}
-                          className="px-2 py-1.5 bg-[#1877F2] hover:bg-blue-700 text-white font-black text-[11px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
-                          title="সরাসরি কিনুন"
+                          onClick={() => {
+                            if (prod.isVendor && onBuyNow) {
+                              onBuyNow(prod);
+                            } else {
+                              onOpenQuickBuy(prod);
+                            }
+                          }}
+                          className="px-2.5 py-1.5 bg-[#1877F2] hover:bg-blue-700 text-white font-black text-[11px] rounded-xl transition flex items-center justify-center gap-1 cursor-pointer shadow-xs active:scale-95"
+                          title="সরাসরি ১ পিস অর্ডার ও চেকআউট"
                         >
-                          <Zap className="w-3.5 h-3.5" />
-                          <span>কিনুন</span>
+                          <Zap className="w-3.5 h-3.5 fill-white" />
+                          <span>সরাসরি অর্ডার</span>
                         </button>
                       )}
                     </div>

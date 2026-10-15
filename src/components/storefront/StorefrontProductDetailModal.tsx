@@ -20,6 +20,7 @@ import {
   Send,
   Globe,
   Smartphone,
+  Zap,
 } from 'lucide-react';
 import { Product, OnlineStoreConfig } from '../../types';
 import { formatMoney } from '../../utils/storage';
@@ -327,31 +328,19 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
             </div>
           </div>
 
-          {/* Action Buttons: Add to Cart + Buy Now */}
-          <div className="grid grid-cols-2 gap-2.5">
+          {/* Action Button: Direct Single Piece Order & Checkout */}
+          <div className="pt-1">
             <button
               type="button"
               disabled={!inStock}
               onClick={() => {
-                onAddToCart(product, selectedQuantity);
+                onBuyNow(product, selectedQuantity || 1);
                 onClose();
               }}
-              className="py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm bg-teal-50 hover:bg-teal-100 text-[#004D40] border border-[#004D40]/30 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer disabled:opacity-40"
+              className="w-full py-3.5 px-4 rounded-2xl font-black text-xs sm:text-sm bg-[#004D40] hover:bg-[#00382E] text-white shadow-md flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer disabled:opacity-40"
             >
-              <ShoppingBag className="w-4 h-4" />
-              <span>কার্টে যোগ করুন</span>
-            </button>
-
-            <button
-              type="button"
-              disabled={!inStock}
-              onClick={() => {
-                onBuyNow(product, selectedQuantity);
-                onClose();
-              }}
-              className="py-3 px-4 rounded-2xl font-black text-xs sm:text-sm bg-[#004D40] hover:bg-[#00382E] text-white shadow-md flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer disabled:opacity-40"
-            >
-              <span>এখনই কিনুন</span>
+              <Zap className="w-4 h-4 fill-white" />
+              <span>সরাসরি অর্ডার ও চেকআউট করুন</span>
             </button>
           </div>
         </div>

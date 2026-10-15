@@ -324,22 +324,7 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
             </button>
           )}
 
-          {/* Marketplace Cart Button */}
-          {currentTab === 'marketplace' && onOpenCart && (
-            <button
-              type="button"
-              onClick={onOpenCart}
-              className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition cursor-pointer active:scale-95"
-              title="শপিং কার্ট"
-            >
-              <ShoppingCart className="w-5 h-5 text-slate-700" />
-              {cartItemCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-[#1877F2] text-white text-[9px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white">
-                  {cartItemCount > 9 ? '9+' : cartItemCount}
-                </span>
-              )}
-            </button>
-          )}
+
 
           {/* User Account / Dropdown */}
           {isLoggedIn ? (

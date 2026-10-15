@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Heart,
   Share2,
+  Zap,
 } from 'lucide-react';
 import { MarketplaceProduct } from '../../types';
 import { formatMoney } from '../../utils/storage';
@@ -23,7 +24,8 @@ interface MarketplaceVendorStoreModalProps {
   isOpen: boolean;
   onClose: () => void;
   products: MarketplaceProduct[];
-  onAddToCart: (product: MarketplaceProduct, quantity: number) => void;
+  onAddToCart?: (product: MarketplaceProduct, quantity: number) => void;
+  onBuyNow?: (product: MarketplaceProduct, quantity: number) => void;
   onViewProduct: (product: MarketplaceProduct) => void;
   wishlistIds: string[];
   onToggleWishlist: (productId: string) => void;
@@ -36,6 +38,7 @@ export const MarketplaceVendorStoreModal: React.FC<MarketplaceVendorStoreModalPr
   onClose,
   products,
   onAddToCart,
+  onBuyNow,
   onViewProduct,
   wishlistIds,
   onToggleWishlist,
@@ -264,16 +267,23 @@ export const MarketplaceVendorStoreModal: React.FC<MarketplaceVendorStoreModalPr
                         </div>
                       </div>
 
-                      {/* Add button */}
+                      {/* Direct order button */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onAddToCart(p, 1);
+                          if (onBuyNow) {
+                            onBuyNow(p, 1);
+                          } else if (onAddToCart) {
+                            onAddToCart(p, 1);
+                          }
+                          onClose();
                         }}
-                        className="mt-2 w-full py-1.5 bg-white hover:bg-[#0b63e5] text-[#0b63e5] hover:text-white border border-[#0b63e5]/30 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1"
+                        className="mt-2 w-full py-2 bg-[#1877F2] hover:bg-blue-700 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 shadow-2xs"
+                        title="সরাসরি ১ পিস অর্ডার করুন"
                       >
-                        <span>কার্টে যোগ করুন</span>
+                        <Zap className="w-3.5 h-3.5 fill-white" />
+                        <span>সরাসরি অর্ডার (১ পিস)</span>
                       </button>
                     </div>
                   );

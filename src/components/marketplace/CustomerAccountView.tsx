@@ -1441,20 +1441,15 @@ export const CustomerAccountView: React.FC<CustomerAccountViewProps> = ({
                     <ShoppingBag className="w-10 h-10 text-slate-300 mx-auto" />
                     <p className="text-slate-600 font-bold text-xs">এখনও কোনো অর্ডার করেননি</p>
                     <p className="text-slate-400 text-[11px]">
-                      সেন্ট্রাল মার্কেটপ্লেসে পছন্দের পণ্য কার্টে যুক্ত করে সহজে কেনাকাটা সম্পন্ন করুন।
+                      সেন্ট্রাল মার্কেটপ্লেসে পছন্দের পণ্য সরাসরি অর্ডার ও চেকআউট করে সহজে কেনাকাটা সম্পন্ন করুন।
                     </p>
-                    {onOpenCart && (
-                      <button
-                        onClick={() => {
-                          onClose();
-                          onOpenCart();
-                        }}
-                        className="mt-2 px-4 py-2 bg-[#0052cc] text-white text-xs font-black rounded-xl hover:bg-blue-700 transition cursor-pointer inline-flex items-center gap-1.5"
-                      >
-                        <span>কার্ট দেখুন</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                    <button
+                      onClick={onClose}
+                      className="mt-2 px-4 py-2 bg-[#1877F2] text-white text-xs font-black rounded-xl hover:bg-blue-700 transition cursor-pointer inline-flex items-center gap-1.5"
+                    >
+                      <span>মার্কেটপ্লেস ব্রাউজ করুন</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 ) : (
                   <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
