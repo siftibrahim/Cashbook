@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, ShoppingBag, Trash2, ArrowRight, Package } from 'lucide-react';
+import { Heart, Zap, Trash2, ArrowRight, Package } from 'lucide-react';
 import { Product } from '../../types';
 import { formatMoney } from '../../utils/storage';
 import { getFallbackProductImage } from '../../utils/productImages';
@@ -118,14 +118,15 @@ export const StorefrontWishlistTab: React.FC<StorefrontWishlistTabProps> = ({
                     type="button"
                     onClick={() => onAddToCart(product)}
                     disabled={!inStock}
-                    className={`w-full py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition cursor-pointer ${
                       inStock
                         ? 'bg-[#004D40] hover:bg-[#00382E] text-white shadow-2xs active:scale-95'
                         : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                     }`}
+                    title="পছন্দ হলে সরাসরি ১ পিস চেকআউট করুন"
                   >
-                    <ShoppingBag className="w-3.5 h-3.5" />
-                    <span>{inStock ? 'কার্টে নিন' : 'স্টক শেষ'}</span>
+                    <Zap className="w-3.5 h-3.5 fill-white" />
+                    <span>{inStock ? 'সরাসরি অর্ডার' : 'স্টক শেষ'}</span>
                   </button>
                 </div>
               </div>

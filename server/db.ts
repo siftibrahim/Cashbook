@@ -105,6 +105,8 @@ export const inMemoryStore: {
   marketplace_groups: any[];
   marketplace_pages: any[];
   marketplace_chat_groups: any[];
+  marketplace_reports: any[];
+  marketplace_boost_requests: any[];
 } = {
   users: [],
   stores: [],
@@ -143,6 +145,8 @@ export const inMemoryStore: {
   marketplace_groups: [],
   marketplace_pages: [],
   marketplace_chat_groups: [],
+  marketplace_reports: [],
+  marketplace_boost_requests: [],
 };
 
 /**
@@ -3193,7 +3197,22 @@ export function getAllMarketplacePosts(): any[] {
   if (!Array.isArray(inMemoryStore.marketplace_posts)) {
     inMemoryStore.marketplace_posts = [];
   }
-  return inMemoryStore.marketplace_posts;
+  const now = Date.now();
+  // Check active boost expiration
+  inMemoryStore.marketplace_posts.forEach((p: any) => {
+    if (p.isPromoted && p.promotedUntil) {
+      if (new Date(p.promotedUntil).getTime() < now) {
+        p.isPromoted = false;
+      }
+    }
+  });
+  // Sort: Promoted/Sponsored posts first, then latest created
+  return [...inMemoryStore.marketplace_posts].sort((a: any, b: any) => {
+    const aPromoted = a.isPromoted ? 1 : 0;
+    const bPromoted = b.isPromoted ? 1 : 0;
+    if (aPromoted !== bPromoted) return bPromoted - aPromoted;
+    return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+  });
 }
 
 export function saveMarketplacePost(post: any): any {
@@ -3308,7 +3327,25 @@ export function getAllMarketplaceProducts(): any[] {
   if (!Array.isArray(inMemoryStore.marketplace_products)) {
     inMemoryStore.marketplace_products = [];
   }
-  return inMemoryStore.marketplace_products;
+  const now = Date.now();
+  inMemoryStore.marketplace_products.forEach((p: any) => {
+    if (p.isPromoted && p.promotedUntil) {
+      if (new Date(p.promotedUntil).getTime() < now) {
+        p.isPromoted = false;
+        p.priorityScore = 0;
+      }
+    }
+  });
+  // Sort: Boosted/Sponsored products first (highest priorityScore), then latest created
+  return [...inMemoryStore.marketplace_products].sort((a: any, b: any) => {
+    const aPromoted = a.isPromoted ? 1 : 0;
+    const bPromoted = b.isPromoted ? 1 : 0;
+    if (aPromoted !== bPromoted) return bPromoted - aPromoted;
+    const aScore = a.priorityScore || 0;
+    const bScore = b.priorityScore || 0;
+    if (aScore !== bScore) return bScore - aScore;
+    return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+  });
 }
 
 export function saveMarketplaceProduct(product: any): any {
@@ -3941,5 +3978,259 @@ export function unfriendMarketplaceUser(userId: string, targetUserId: string): b
   }
   return false;
 }
+
+// -------------------------------------------------------------
+// Marketplace User Reports System (Facebook-style Reporting)
+// -------------------------------------------------------------
+export function getMarketplaceReports(): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_reports)) {
+    inMemoryStore.marketplace_reports = [];
+  }
+  return [...inMemoryStore.marketplace_reports].sort(
+    (a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  );
+}
+
+export function saveMarketplaceReport(report: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_reports)) {
+    inMemoryStore.marketplace_reports = [];
+  }
+  const newReport = {
+    id: report.id || `rep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    reporterId: report.reporterId || 'user_guest',
+    reporterName: report.reporterName || 'বেনামী ব্যবহারকারী',
+    reporterPhone: report.reporterPhone || '',
+    targetType: report.targetType || 'user', // 'user' | 'post' | 'product' | 'comment'
+    targetId: report.targetId,
+    targetName: report.targetName || 'টার্গেট আইটেম',
+    targetUserId: report.targetUserId || report.targetId,
+    targetUserName: report.targetUserName || report.targetName || 'অভিযুক্ত ইউজার',
+    reason: report.reason || 'স্প্যাম / নিয়ম লঙ্ঘন',
+    details: report.details || '',
+    evidenceImageUrl: report.evidenceImageUrl || '',
+    status: 'pending', // 'pending' | 'resolved' | 'dismissed' | 'banned_user'
+    adminNotes: '',
+    createdAt: new Date().toISOString(),
+  };
+
+  inMemoryStore.marketplace_reports.unshift(newReport);
+  saveInMemoryStoreToDisk();
+  return newReport;
+}
+
+export function updateMarketplaceReportStatus(
+  reportId: string,
+  status: 'pending' | 'resolved' | 'dismissed' | 'banned_user',
+  adminNotes?: string,
+  resolvedBy?: string
+): any {
+  if (!Array.isArray(inMemoryStore.marketplace_reports)) return null;
+  const rep = inMemoryStore.marketplace_reports.find((r: any) => r.id === reportId);
+  if (!rep) throw new Error('রিপোর্ট পাওয়া যায়নি');
+
+  rep.status = status;
+  if (adminNotes !== undefined) rep.adminNotes = adminNotes;
+  rep.resolvedAt = new Date().toISOString();
+  rep.resolvedBy = resolvedBy || 'Super Admin';
+
+  // If action is banned_user, also block user in marketplace_users
+  if (status === 'banned_user' && rep.targetUserId) {
+    const user = (inMemoryStore.marketplace_users || []).find((u: any) => u.id === rep.targetUserId);
+    if (user) {
+      user.isBlocked = true;
+      user.blockReason = `রিপোর্টের ভিত্তিতে ব্যান: ${adminNotes || rep.reason}`;
+    }
+  }
+
+  saveInMemoryStoreToDisk();
+  return rep;
+}
+
+export function deleteMarketplaceReport(reportId: string): boolean {
+  if (!Array.isArray(inMemoryStore.marketplace_reports)) return false;
+  const initial = inMemoryStore.marketplace_reports.length;
+  inMemoryStore.marketplace_reports = inMemoryStore.marketplace_reports.filter((r: any) => r.id !== reportId);
+  if (inMemoryStore.marketplace_reports.length !== initial) {
+    saveInMemoryStoreToDisk();
+    return true;
+  }
+  return false;
+}
+
+// -------------------------------------------------------------
+// Marketplace Boost / Promotion Requests Helpers
+// -------------------------------------------------------------
+export function getMarketplaceBoostRequests(): any[] {
+  if (!Array.isArray(inMemoryStore.marketplace_boost_requests)) {
+    inMemoryStore.marketplace_boost_requests = [];
+  }
+  return [...inMemoryStore.marketplace_boost_requests].sort(
+    (a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  );
+}
+
+export function saveMarketplaceBoostRequest(req: any): any {
+  if (!Array.isArray(inMemoryStore.marketplace_boost_requests)) {
+    inMemoryStore.marketplace_boost_requests = [];
+  }
+  const newReq = {
+    id: req.id || `boost_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    productId: req.productId,
+    productName: req.productName,
+    productImage: req.productImage,
+    productPrice: Number(req.productPrice || 0),
+    sellerId: req.sellerId,
+    sellerName: req.sellerName,
+    sellerPhone: req.sellerPhone,
+    packageId: req.packageId,
+    packageName: req.packageName,
+    days: Number(req.days || 7),
+    amount: Number(req.amount || 0),
+    paymentMethod: req.paymentMethod || 'bkash',
+    senderNumber: req.senderNumber || '',
+    trxId: req.trxId || '',
+    status: 'pending', // 'pending' | 'approved' | 'rejected' | 'expired'
+    createdAt: new Date().toISOString(),
+  };
+
+  const existingIdx = inMemoryStore.marketplace_boost_requests.findIndex((b: any) => b.id === newReq.id);
+  if (existingIdx >= 0) {
+    inMemoryStore.marketplace_boost_requests[existingIdx] = { ...inMemoryStore.marketplace_boost_requests[existingIdx], ...newReq };
+  } else {
+    inMemoryStore.marketplace_boost_requests.unshift(newReq);
+  }
+
+  saveInMemoryStoreToDisk();
+  return newReq;
+}
+
+export function approveMarketplaceBoostRequest(
+  boostId: string,
+  days?: number,
+  adminNotes?: string
+): { request: any; product?: any } {
+  if (!Array.isArray(inMemoryStore.marketplace_boost_requests)) {
+    inMemoryStore.marketplace_boost_requests = [];
+  }
+  const req = inMemoryStore.marketplace_boost_requests.find((b: any) => b.id === boostId);
+  if (!req) throw new Error('বুস্ট রিকোয়েস্ট পাওয়া যায়নি');
+
+  const boostDays = days || req.days || 7;
+  const now = new Date();
+  const promotedUntil = new Date(now.getTime() + boostDays * 24 * 60 * 60 * 1000).toISOString();
+
+  req.status = 'approved';
+  req.approvedAt = now.toISOString();
+  req.promotedUntil = promotedUntil;
+  req.adminNotes = adminNotes || 'Super Admin কর্তৃক বুস্ট অনুমোদিত ও সক্রিয়';
+
+  // Find product in marketplace_products and mark as promoted to the VERY TOP
+  let foundProduct: any = null;
+  if (Array.isArray(inMemoryStore.marketplace_products)) {
+    const prod = inMemoryStore.marketplace_products.find((p: any) => p.id === req.productId);
+    if (prod) {
+      prod.isPromoted = true;
+      prod.promotedAt = now.toISOString();
+      prod.promotedUntil = promotedUntil;
+      prod.promotionPackage = req.packageName;
+      prod.priorityScore = 9999;
+      foundProduct = prod;
+    }
+  }
+
+  // Also check general vendor products
+  if (Array.isArray(inMemoryStore.products)) {
+    const vProd = inMemoryStore.products.find((p: any) => p.id === req.productId);
+    if (vProd) {
+      vProd.isPromoted = true;
+      vProd.isFeaturedOnMarketplace = true;
+      vProd.promotedAt = now.toISOString();
+      vProd.promotedUntil = promotedUntil;
+      vProd.priorityScore = 9999;
+      if (!foundProduct) foundProduct = vProd;
+    }
+  }
+
+  // Also check if any post links to this product and boost the post too
+  if (Array.isArray(inMemoryStore.marketplace_posts)) {
+    inMemoryStore.marketplace_posts.forEach((post: any) => {
+      if (post.linkedProduct && post.linkedProduct.id === req.productId) {
+        post.isPromoted = true;
+        post.promotedAt = now.toISOString();
+        post.promotedUntil = promotedUntil;
+      }
+    });
+  }
+
+  // Notify the seller
+  if (req.sellerId) {
+    saveMarketplaceNotification({
+      id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      recipientId: req.sellerId,
+      senderId: 'super_admin',
+      senderName: 'টুইং এডমিন টিম',
+      senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+      type: 'boost_approved',
+      text: `🎉 অভিনন্দন! আপনার পণ্য "${req.productName}" সেন্ট্রাল মার্কেটপ্লেসে ${boostDays} দিনের জন্য সফলভাবে বুস্ট হয়েছে! এটি এখন সবার সামনে প্রদর্শিত হবে।`,
+      targetId: req.productId,
+      read: false,
+      createdAt: now.toISOString(),
+    });
+  }
+
+  saveInMemoryStoreToDisk();
+  return { request: req, product: foundProduct };
+}
+
+export function rejectMarketplaceBoostRequest(boostId: string, reason?: string): any {
+  if (!Array.isArray(inMemoryStore.marketplace_boost_requests)) return null;
+  const req = inMemoryStore.marketplace_boost_requests.find((b: any) => b.id === boostId);
+  if (!req) throw new Error('বুস্ট রিকোয়েস্ট পাওয়া যায়নি');
+
+  req.status = 'rejected';
+  req.rejectedAt = new Date().toISOString();
+  req.rejectionReason = reason || 'পেমেন্ট ভেরিফিকেশন অথবা নিয়মনীতি অমিল';
+
+  // Notify seller
+  if (req.sellerId) {
+    saveMarketplaceNotification({
+      id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      recipientId: req.sellerId,
+      senderId: 'super_admin',
+      senderName: 'টুইং এডমিন টিম',
+      senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+      type: 'boost_rejected',
+      text: `⚠️ দুঃখিত! "${req.productName}" পণ্যের বুস্ট রিকোয়েস্টটি বাতিল করা হয়েছে। কারণ: ${req.rejectionReason}`,
+      targetId: req.productId,
+      read: false,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  saveInMemoryStoreToDisk();
+  return req;
+}
+
+export function stopMarketplaceBoostRequest(boostId: string): any {
+  if (!Array.isArray(inMemoryStore.marketplace_boost_requests)) return null;
+  const req = inMemoryStore.marketplace_boost_requests.find((b: any) => b.id === boostId);
+  if (!req) throw new Error('বুস্ট রিকোয়েস্ট পাওয়া যায়নি');
+
+  req.status = 'expired';
+  req.stoppedAt = new Date().toISOString();
+
+  // Reset product
+  if (Array.isArray(inMemoryStore.marketplace_products)) {
+    const prod = inMemoryStore.marketplace_products.find((p: any) => p.id === req.productId);
+    if (prod) {
+      prod.isPromoted = false;
+      prod.priorityScore = 0;
+    }
+  }
+
+  saveInMemoryStoreToDisk();
+  return req;
+}
+
 
 

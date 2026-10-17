@@ -14,6 +14,7 @@ import {
   SocialStory,
   SocialGroup,
   SocialPage,
+  MarketplaceReport,
 } from '../types/marketplaceSocial';
 
 const PROFILE_KEY = 'mkt_fb_current_profile_v2';
@@ -25,6 +26,7 @@ const PROFILES_DIRECTORY_KEY = 'mkt_fb_profiles_directory_v2';
 const FRIEND_REQUESTS_KEY = 'mkt_fb_friend_requests_v3';
 const USER_FRIENDS_KEY = 'mkt_fb_user_friends_v3';
 const BOOST_REQUESTS_KEY = 'mkt_fb_boost_requests_v1';
+const REPORTS_KEY = 'mkt_fb_reports_v1';
 const STORIES_KEY = 'mkt_fb_stories_v1';
 const GROUPS_KEY = 'mkt_fb_groups_v1';
 const PAGES_KEY = 'mkt_fb_pages_v1';
@@ -73,9 +75,78 @@ export function validateImageFiles(files: FileList | File[]): { valid: boolean; 
   return { valid: imageFiles.length > 0, imageFiles };
 }
 
-// Convert File to base64
+// Safe local storage setter to prevent QuotaExceededError crashes
+export function safeLocalStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    console.warn(`[Storage] Quota issue writing ${key}, purging temporary caches:`, err);
+    try {
+      const temporaryKeys = [
+        'mkt_cached_banners',
+        'mkt_feed_scroll_pos',
+        'mkt_temp_upload_preview',
+      ];
+      temporaryKeys.forEach((k) => localStorage.removeItem(k));
+      localStorage.setItem(key, value);
+    } catch (innerErr) {
+      console.error(`[Storage] Failed to save key "${key}" even after cleanup:`, innerErr);
+    }
+  }
+}
+
+// Convert File to base64 with automatic lightweight canvas compression for images (~30-50KB)
 export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (typeof window !== 'undefined' && file.type && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const rawDataUrl = event.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const maxWidth = 800;
+            const maxHeight = 800;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > maxWidth) {
+                height = Math.round((height * maxWidth) / width);
+                width = maxWidth;
+              }
+            } else {
+              if (height > maxHeight) {
+                width = Math.round((width * maxHeight) / height);
+                height = maxHeight;
+              }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, width, height);
+              ctx.drawImage(img, 0, 0, width, height);
+              const compressed = canvas.toDataURL('image/jpeg', 0.78);
+              resolve(compressed);
+              return;
+            }
+          } catch (e) {
+            // fallback to raw
+          }
+          resolve(rawDataUrl);
+        };
+        img.onerror = () => resolve(rawDataUrl);
+        img.src = rawDataUrl;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = reject;
@@ -591,6 +662,7 @@ export const marketplaceSocialService = {
         window.dispatchEvent(
           new CustomEvent('twing_social_auth_changed', { detail: { isLoggedIn: true, user: data.user } })
         );
+        this.syncWithCloud().catch(() => {});
         return { success: true, user: data.user };
       }
       if (data.needs2Fa) {
@@ -662,6 +734,7 @@ export const marketplaceSocialService = {
         window.dispatchEvent(
           new CustomEvent('twing_social_auth_changed', { detail: { isLoggedIn: true, user: data.user } })
         );
+        this.syncWithCloud().catch(() => {});
         return { success: true, user: data.user };
       }
       return { success: false, error: data.error || 'রেজিস্ট্রেশন ব্যর্থ হয়েছে।' };
@@ -1158,7 +1231,7 @@ export const marketplaceSocialService = {
     };
 
     const updatedPosts = [newPost, ...posts];
-    localStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
+    safeLocalStorageSet(POSTS_KEY, JSON.stringify(updatedPosts));
 
     // Persist post to persistent database on server
     try {
@@ -1168,6 +1241,10 @@ export const marketplaceSocialService = {
         body: JSON.stringify(newPost),
       }).catch((e) => console.debug('Sync post note:', e));
     } catch (e) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_social_posts_updated'));
+    }
 
     return newPost;
   },
@@ -1510,7 +1587,7 @@ export const marketplaceSocialService = {
     };
 
     const updated = [newProduct, ...products];
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updated));
+    safeLocalStorageSet(PRODUCTS_KEY, JSON.stringify(updated));
 
     // Persist user product to backend database
     try {
@@ -1520,6 +1597,10 @@ export const marketplaceSocialService = {
         body: JSON.stringify(newProduct),
       }).catch((e) => console.debug('Sync product note:', e));
     } catch (e) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_products_updated'));
+    }
 
     // Also automatically publish an announcement post on Facebook Feed!
     this.createPost({
@@ -1544,6 +1625,19 @@ export const marketplaceSocialService = {
     });
 
     return newProduct;
+  },
+
+  deleteCustomerProduct(productId: string): void {
+    const products = this.getCustomerProducts().filter((p) => p.id !== productId);
+    safeLocalStorageSet(PRODUCTS_KEY, JSON.stringify(products));
+
+    try {
+      fetch(`/api/marketplace/social/products/${productId}`, { method: 'DELETE' }).catch(() => {});
+    } catch (e) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_products_updated'));
+    }
   },
 
   // Customer to Customer Purchase Order
@@ -2152,74 +2246,125 @@ export const marketplaceSocialService = {
   },
 
   /**
-   * Synchronizes all posts, products, users, friends, messages, and notifications
-   * from the persistent server database into the local client state.
+   * Synchronizes all posts, products, stories, boost requests, reports, users, friends,
+   * messages, and notifications from the persistent server database into the local client state.
    */
   async syncWithCloud(): Promise<void> {
     try {
       const profile = this.getCurrentProfile();
 
       // 1. Sync Posts
-      const postsRes = await fetch('/api/marketplace/social/posts');
-      if (postsRes.ok) {
-        const data = await postsRes.json();
-        if (data.success && Array.isArray(data.posts) && data.posts.length > 0) {
-          localStorage.setItem(POSTS_KEY, JSON.stringify(data.posts));
+      try {
+        const postsRes = await fetch('/api/marketplace/social/posts');
+        if (postsRes.ok) {
+          const data = await postsRes.json();
+          if (data.success && Array.isArray(data.posts) && data.posts.length > 0) {
+            localStorage.setItem(POSTS_KEY, JSON.stringify(data.posts));
+            window.dispatchEvent(new CustomEvent('twing_social_posts_updated'));
+          }
         }
-      }
+      } catch (e) {}
 
-      // 2. Sync Products
-      const prodRes = await fetch('/api/marketplace/social/products');
-      if (prodRes.ok) {
-        const data = await prodRes.json();
-        if (data.success && Array.isArray(data.products) && data.products.length > 0) {
-          localStorage.setItem(PRODUCTS_KEY, JSON.stringify(data.products));
+      // 2. Sync Stories
+      try {
+        const storiesRes = await fetch('/api/marketplace/social/stories');
+        if (storiesRes.ok) {
+          const data = await storiesRes.json();
+          if (data.success && Array.isArray(data.stories)) {
+            localStorage.setItem(STORIES_KEY, JSON.stringify(data.stories));
+            window.dispatchEvent(new CustomEvent('twing_stories_updated'));
+          }
         }
-      }
+      } catch (e) {}
 
-      // 3. Sync User Profiles Directory
-      const usersRes = await fetch('/api/marketplace/social/users');
-      if (usersRes.ok) {
-        const data = await usersRes.json();
-        if (data.success && Array.isArray(data.users) && data.users.length > 0) {
-          localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(data.users));
+      // 3. Sync Products
+      try {
+        const prodRes = await fetch('/api/marketplace/social/products');
+        if (prodRes.ok) {
+          const data = await prodRes.json();
+          if (data.success && Array.isArray(data.products) && data.products.length > 0) {
+            localStorage.setItem(PRODUCTS_KEY, JSON.stringify(data.products));
+            window.dispatchEvent(new CustomEvent('twing_products_updated'));
+          }
         }
-      }
+      } catch (e) {}
+
+      // 4. Sync Boost Requests
+      try {
+        const boostRes = await fetch('/api/marketplace/social/boost-requests');
+        if (boostRes.ok) {
+          const data = await boostRes.json();
+          if (data.success && Array.isArray(data.requests)) {
+            localStorage.setItem(BOOST_REQUESTS_KEY, JSON.stringify(data.requests));
+            window.dispatchEvent(new CustomEvent('twing_boost_requests_updated'));
+          }
+        }
+      } catch (e) {}
+
+      // 5. Sync User Reports
+      try {
+        const repRes = await fetch('/api/marketplace/social/reports');
+        if (repRes.ok) {
+          const data = await repRes.json();
+          if (data.success && Array.isArray(data.reports)) {
+            localStorage.setItem(REPORTS_KEY, JSON.stringify(data.reports));
+            window.dispatchEvent(new CustomEvent('twing_reports_updated'));
+          }
+        }
+      } catch (e) {}
+
+      // 6. Sync User Profiles Directory
+      try {
+        const usersRes = await fetch('/api/marketplace/social/users');
+        if (usersRes.ok) {
+          const data = await usersRes.json();
+          if (data.success && Array.isArray(data.users) && data.users.length > 0) {
+            localStorage.setItem(PROFILES_DIRECTORY_KEY, JSON.stringify(data.users));
+            window.dispatchEvent(new CustomEvent('twing_marketplace_users_updated'));
+          }
+        }
+      } catch (e) {}
 
       if (profile?.id) {
-        // 4. Sync Notifications
-        const notifRes = await fetch(`/api/marketplace/social/notifications/${profile.id}`);
-        if (notifRes.ok) {
-          const data = await notifRes.json();
-          if (data.success && Array.isArray(data.notifications)) {
-            localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(data.notifications));
-          }
-        }
-
-        // 5. Sync Friends & Friend Requests
-        const friendsRes = await fetch(`/api/marketplace/social/friends/${profile.id}`);
-        if (friendsRes.ok) {
-          const data = await friendsRes.json();
-          if (data.success) {
-            if (Array.isArray(data.friends)) {
-              const friendIds = data.friends.map((f: any) => f.id);
-              localStorage.setItem(`${USER_FRIENDS_KEY}_${profile.id}`, JSON.stringify(friendIds));
-            }
-            if (Array.isArray(data.receivedRequests) || Array.isArray(data.sentRequests)) {
-              const allReqs = [...(data.receivedRequests || []), ...(data.sentRequests || [])];
-              localStorage.setItem(FRIEND_REQUESTS_KEY, JSON.stringify(allReqs));
+        // 7. Sync Notifications
+        try {
+          const notifRes = await fetch(`/api/marketplace/social/notifications/${profile.id}`);
+          if (notifRes.ok) {
+            const data = await notifRes.json();
+            if (data.success && Array.isArray(data.notifications)) {
+              localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(data.notifications));
             }
           }
-        }
+        } catch (e) {}
 
-        // 6. Sync Messages
-        const msgRes = await fetch(`/api/marketplace/social/messages/${profile.id}`);
-        if (msgRes.ok) {
-          const data = await msgRes.json();
-          if (data.success && Array.isArray(data.messages)) {
-            localStorage.setItem(MESSAGES_KEY, JSON.stringify(data.messages));
+        // 8. Sync Friends & Friend Requests
+        try {
+          const friendsRes = await fetch(`/api/marketplace/social/friends/${profile.id}`);
+          if (friendsRes.ok) {
+            const data = await friendsRes.json();
+            if (data.success) {
+              if (Array.isArray(data.friends)) {
+                const friendIds = data.friends.map((f: any) => f.id);
+                localStorage.setItem(`${USER_FRIENDS_KEY}_${profile.id}`, JSON.stringify(friendIds));
+              }
+              if (Array.isArray(data.receivedRequests) || Array.isArray(data.sentRequests)) {
+                const allReqs = [...(data.receivedRequests || []), ...(data.sentRequests || [])];
+                localStorage.setItem(FRIEND_REQUESTS_KEY, JSON.stringify(allReqs));
+              }
+            }
           }
-        }
+        } catch (e) {}
+
+        // 9. Sync Messages
+        try {
+          const msgRes = await fetch(`/api/marketplace/social/messages/${profile.id}`);
+          if (msgRes.ok) {
+            const data = await msgRes.json();
+            if (data.success && Array.isArray(data.messages)) {
+              localStorage.setItem(MESSAGES_KEY, JSON.stringify(data.messages));
+            }
+          }
+        } catch (e) {}
       }
 
       if (typeof window !== 'undefined') {
@@ -2241,7 +2386,7 @@ export const marketplaceSocialService = {
     return [];
   },
 
-  createBoostRequest(payload: {
+  async createBoostRequest(payload: {
     productId: string;
     productName: string;
     productImage: string;
@@ -2253,7 +2398,7 @@ export const marketplaceSocialService = {
     paymentMethod: 'bkash' | 'nagad' | 'rocket' | 'manual';
     senderNumber: string;
     trxId: string;
-  }): MarketplaceBoostRequest {
+  }): Promise<MarketplaceBoostRequest> {
     const profile = this.getCurrentProfile();
     const newReq: MarketplaceBoostRequest = {
       id: `boost_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -2280,6 +2425,15 @@ export const marketplaceSocialService = {
     const updated = [newReq, ...requests];
     localStorage.setItem(BOOST_REQUESTS_KEY, JSON.stringify(updated));
 
+    // Send to server persistent database
+    try {
+      await fetch('/api/marketplace/social/boost-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newReq),
+      });
+    } catch (e) {}
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('twing_boost_requests_updated'));
     }
@@ -2287,7 +2441,7 @@ export const marketplaceSocialService = {
     return newReq;
   },
 
-  approveBoostRequest(requestId: string, adminNotes?: string): void {
+  async approveBoostRequest(requestId: string, adminNotes?: string): Promise<void> {
     const requests = this.getBoostRequests();
     const req = requests.find((r) => r.id === requestId);
     if (!req) throw new Error('বুস্ট আবেদন পাওয়া যায়নি');
@@ -2325,12 +2479,21 @@ export const marketplaceSocialService = {
     this.addNotification({
       recipientId: req.sellerId,
       senderId: 'super_admin',
-      senderName: 'সেন্ট্রাল মার্কেটপ্লেস অ্যাডমিন',
+      senderName: 'টুইং এডমিন টিম',
       senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
       type: 'system',
-      text: `🎉 অভিনন্দন! "${req.productName}" পণ্যের ${req.packageName} অনুমোদন হয়েছে। পণ্যটি এখন মার্কেটপ্লেসে স্পনসরড হিসেবে প্রদর্শিত হচ্ছে।`,
+      text: `🎉 অভিনন্দন! "${req.productName}" পণ্যের ${req.packageName} অনুমোদন হয়েছে। পণ্যটি এখন সেন্ট্রাল মার্কেটপ্লেসের সবার সামনে স্পনসরড হিসেবে প্রদর্শিত হচ্ছে।`,
       targetId: req.productId,
     });
+
+    // Call server to persist and boost
+    try {
+      await fetch(`/api/marketplace/social/boost-requests/${requestId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: req.days, adminNotes }),
+      });
+    } catch (e) {}
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('twing_boost_requests_updated'));
@@ -2338,7 +2501,7 @@ export const marketplaceSocialService = {
     }
   },
 
-  rejectBoostRequest(requestId: string, reason?: string): void {
+  async rejectBoostRequest(requestId: string, reason?: string): Promise<void> {
     const requests = this.getBoostRequests();
     const req = requests.find((r) => r.id === requestId);
     if (!req) throw new Error('বুস্ট আবেদন পাওয়া যায়নি');
@@ -2350,19 +2513,27 @@ export const marketplaceSocialService = {
     this.addNotification({
       recipientId: req.sellerId,
       senderId: 'super_admin',
-      senderName: 'সেন্ট্রাল মার্কেটপ্লেস অ্যাডমিন',
+      senderName: 'টুইং এডমিন টিম',
       senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
       type: 'system',
       text: `⚠️ "${req.productName}" পণ্যের বুস্ট আবেদন বাতিল করা হয়েছে। কারণ: ${req.adminNotes}`,
       targetId: req.productId,
     });
 
+    try {
+      await fetch(`/api/marketplace/social/boost-requests/${requestId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+    } catch (e) {}
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('twing_boost_requests_updated'));
     }
   },
 
-  directBoostProduct(productId: string, days: number = 7, packageName: string = 'সুপার এডমিন বুস্ট'): void {
+  async directBoostProduct(productId: string, days: number = 7, packageName: string = 'সুপার এডমিন বুস্ট'): Promise<void> {
     const approvedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + days * 86400000).toISOString();
 
@@ -2385,9 +2556,152 @@ export const marketplaceSocialService = {
       }
     } catch (e) {}
 
+    // Create an auto-approved boost record
+    const dummyReq: MarketplaceBoostRequest = {
+      id: `boost_direct_${Date.now()}`,
+      productId,
+      productName: 'সরাসরি বুস্টকৃত পণ্য',
+      productImage: '',
+      productPrice: 0,
+      sellerId: 'super_admin',
+      sellerName: 'Super Admin',
+      sellerPhone: '',
+      packageId: 'boost_7d',
+      packageName,
+      days,
+      amount: 0,
+      paymentMethod: 'manual',
+      senderNumber: 'admin',
+      trxId: 'ADMIN_DIRECT',
+      status: 'approved',
+      requestedAt: approvedAt,
+      approvedAt,
+      expiresAt,
+      adminNotes: 'Super Admin কর্তৃক সরাসরি মার্কেটপ্লেস বুস্ট প্রদান',
+    };
+
+    const requests = this.getBoostRequests();
+    localStorage.setItem(BOOST_REQUESTS_KEY, JSON.stringify([dummyReq, ...requests]));
+
+    try {
+      await fetch('/api/marketplace/social/boost-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dummyReq),
+      });
+      await fetch(`/api/marketplace/social/boost-requests/${dummyReq.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days, adminNotes: dummyReq.adminNotes }),
+      });
+    } catch (e) {}
+
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('twing_products_updated'));
       window.dispatchEvent(new CustomEvent('twing_boost_requests_updated'));
+      window.dispatchEvent(new CustomEvent('twing_products_updated'));
+    }
+  },
+
+  // ==========================================
+  // User Reports System (Facebook-Style Reporting)
+  // ==========================================
+  getReports(): MarketplaceReport[] {
+    try {
+      const stored = localStorage.getItem(REPORTS_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return [];
+  },
+
+  async createReport(payload: {
+    targetType: 'user' | 'post' | 'product' | 'comment';
+    targetId: string;
+    targetName: string;
+    targetUserId?: string;
+    targetUserName?: string;
+    reason: string;
+    details?: string;
+    evidenceImageUrl?: string;
+  }): Promise<MarketplaceReport> {
+    const profile = this.getCurrentProfile();
+    const newReport: MarketplaceReport = {
+      id: `rep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      reporterId: profile.id,
+      reporterName: profile.name,
+      reporterPhone: profile.phone,
+      targetType: payload.targetType,
+      targetId: payload.targetId,
+      targetName: payload.targetName,
+      targetUserId: payload.targetUserId || payload.targetId,
+      targetUserName: payload.targetUserName || payload.targetName,
+      reason: payload.reason,
+      details: payload.details || '',
+      evidenceImageUrl: payload.evidenceImageUrl || '',
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const reports = this.getReports();
+    const updated = [newReport, ...reports];
+    localStorage.setItem(REPORTS_KEY, JSON.stringify(updated));
+
+    try {
+      await fetch('/api/marketplace/social/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newReport),
+      });
+    } catch (e) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_reports_updated'));
+    }
+
+    return newReport;
+  },
+
+  async updateReportAction(
+    reportId: string,
+    status: 'pending' | 'resolved' | 'dismissed' | 'banned_user',
+    adminNotes?: string
+  ): Promise<void> {
+    const reports = this.getReports();
+    const rep = reports.find((r) => r.id === reportId);
+    if (!rep) throw new Error('রিপোর্ট পাওয়া যায়নি');
+
+    rep.status = status;
+    if (adminNotes) rep.adminNotes = adminNotes;
+    rep.resolvedAt = new Date().toISOString();
+    rep.resolvedBy = 'Super Admin';
+    localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+
+    if (status === 'banned_user' && rep.targetUserId) {
+      this.adminDeleteUser(rep.targetUserId);
+    }
+
+    try {
+      await fetch(`/api/marketplace/social/reports/${reportId}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, adminNotes }),
+      });
+    } catch (e) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_reports_updated'));
+    }
+  },
+
+  async deleteReport(reportId: string): Promise<void> {
+    const reports = this.getReports().filter((r) => r.id !== reportId);
+    localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+
+    try {
+      await fetch(`/api/marketplace/social/reports/${reportId}`, { method: 'DELETE' });
+    } catch (e) {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('twing_reports_updated'));
     }
   },
 
@@ -2591,7 +2905,7 @@ export const marketplaceSocialService = {
 
     const current = this.getStories();
     const updated = [story, ...current];
-    localStorage.setItem(STORIES_KEY, JSON.stringify(updated));
+    safeLocalStorageSet(STORIES_KEY, JSON.stringify(updated));
 
     try {
       fetch('/api/marketplace/social/stories', {
@@ -2610,7 +2924,7 @@ export const marketplaceSocialService = {
 
   deleteStory(storyId: string): void {
     const stories = this.getStories().filter((s) => s.id !== storyId);
-    localStorage.setItem(STORIES_KEY, JSON.stringify(stories));
+    safeLocalStorageSet(STORIES_KEY, JSON.stringify(stories));
     try {
       fetch(`/api/marketplace/social/stories/${storyId}`, { method: 'DELETE' }).catch(() => {});
     } catch (e) {}

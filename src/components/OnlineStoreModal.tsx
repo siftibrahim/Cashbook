@@ -54,7 +54,6 @@ import { VendorMarketplaceHubTab } from './marketplace/VendorMarketplaceHubTab';
 import { VendorOrderControlModal } from './storefront/VendorOrderControlModal';
 import { getTotalUnreadVendorMessages, CHAT_SYNC_EVENT } from '../utils/storeChatStorage';
 import { storeApi } from '../services/apiService';
-import { STOREFRONT_BEST_OFFERS, STOREFRONT_RECENT_PRODUCTS } from '../data/storefrontDemoCatalog';
 
 interface OnlineStoreModalProps {
   isOpen: boolean;
@@ -184,85 +183,6 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategory, setCatalogCategory] = useState('all');
   const [catalogStatusFilter, setCatalogStatusFilter] = useState<'all' | 'published' | 'hidden'>('all');
-  const [catalogViewMode, setCatalogViewMode] = useState<'my_products' | 'demo_products'>('my_products');
-
-  // All reference demo products displayed on storefront
-  const ALL_DEMO_PRODUCTS = useMemo(() => {
-    const map = new Map<string, Product>();
-    [...STOREFRONT_BEST_OFFERS, ...STOREFRONT_RECENT_PRODUCTS].forEach((p) => {
-      if (!map.has(p.id)) map.set(p.id, p);
-    });
-    return Array.from(map.values());
-  }, []);
-
-  const handleDeleteDemoProduct = async (demoId: string, demoName: string) => {
-    const currentDeleted = formData.deletedDemoProductIds || [];
-    if (currentDeleted.includes(demoId)) return;
-    const updatedDeleted = [...currentDeleted, demoId];
-    const updated: OnlineStoreConfig = {
-      ...formData,
-      deletedDemoProductIds: updatedDeleted,
-    };
-    setFormData(updated);
-    onUpdateConfig(updated);
-    try {
-      await storeApi.saveOnlineConfig(updated);
-    } catch (err) {
-      console.warn('Failed saving demo product deletion:', err);
-    }
-    if (onShowToast) onShowToast(`"${demoName}" ওয়েবসাইট থেকে মুছে ফেলা হয়েছে!`);
-  };
-
-  const handleToggleIncludeDemoProducts = async (enabled: boolean) => {
-    const updated: OnlineStoreConfig = {
-      ...formData,
-      includeDemoProducts: enabled,
-    };
-    setFormData(updated);
-    onUpdateConfig(updated);
-    try {
-      await storeApi.saveOnlineConfig(updated);
-    } catch (err) {
-      console.warn('Failed saving includeDemoProducts:', err);
-    }
-    if (onShowToast) {
-      onShowToast(enabled ? 'সকল ডেমো পণ্য ওয়েবসাইটে প্রদর্শন চালু হয়েছে।' : 'সকল ডেমো পণ্য ওয়েবসাইট থেকে বন্ধ করা হয়েছে।');
-    }
-  };
-
-  const handleRestoreAllDemoProducts = async () => {
-    const updated: OnlineStoreConfig = {
-      ...formData,
-      deletedDemoProductIds: [],
-      includeDemoProducts: true,
-    };
-    setFormData(updated);
-    onUpdateConfig(updated);
-    try {
-      await storeApi.saveOnlineConfig(updated);
-    } catch (err) {
-      console.warn('Failed saving restore to server:', err);
-    }
-    if (onShowToast) onShowToast('সকল ডিফল্ট ডেমো পণ্য সফলভাবে পুনরুদ্ধার করা হয়েছে।');
-  };
-
-  const handleDeleteAllDemoProducts = async () => {
-    if (!confirm('আপনি কি ওয়েবসাইটের সকল ডিফল্ট নমুনা পণ্য মুছে ফেলতে চান?')) return;
-    const allIds = ALL_DEMO_PRODUCTS.map((p) => p.id);
-    const updated: OnlineStoreConfig = {
-      ...formData,
-      deletedDemoProductIds: allIds,
-      includeDemoProducts: false,
-    };
-    setFormData(updated);
-    onUpdateConfig(updated);
-    try {
-      await storeApi.saveOnlineConfig(updated);
-    } catch (err) {
-      console.warn('Failed saving delete all demo products to server:', err);
-    }
-    if (onShowToast) onShowToast('সকল ডিফল্ট ডেমো পণ্য ওয়েবসাইট থেকে মুছে ফেলা হয়েছে!');
-  };
 
   // Coupon management form states
   const [newCouponCode, setNewCouponCode] = useState('');
@@ -3614,90 +3534,52 @@ export const OnlineStoreModal: React.FC<OnlineStoreModalProps> = ({
               onUpdateConfig(updated);
             };
 
-            const deletedDemoIds = formData.deletedDemoProductIds || [];
-            const isDemoIncluded = formData.includeDemoProducts !== false;
-            const activeDemoProducts = ALL_DEMO_PRODUCTS.filter((p) => !deletedDemoIds.includes(p.id));
-
             return (
               <div className="space-y-4">
-                {/* Catalog Segment Selector: My Products vs Demo Products */}
+                {/* Catalog Header: My Inventory Products */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200">
-                  <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
-                    <button
-                      type="button"
-                      onClick={() => setCatalogViewMode('my_products')}
-                      className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-                        catalogViewMode === 'my_products'
-                          ? 'bg-white text-teal-900 shadow-xs border border-slate-200/80'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-800 flex items-center justify-center font-bold">
                       <Package className="w-4 h-4 text-teal-700" />
-                      <span>আমার ইনভেন্টরি পণ্য</span>
-                      <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-teal-50 text-teal-800 font-extrabold border border-teal-200">
-                        {products.length}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setCatalogViewMode('demo_products')}
-                      className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-                        catalogViewMode === 'demo_products'
-                          ? 'bg-white text-teal-900 shadow-xs border border-slate-200/80'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <Sparkles className="w-4 h-4 text-amber-500" />
-                      <span>ডিফল্ট ডেমো পণ্যসমূহ</span>
-                      <span
-                        className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
-                          isDemoIncluded && activeDemoProducts.length > 0
-                            ? 'bg-amber-50 text-amber-800 border-amber-200'
-                            : 'bg-slate-200 text-slate-500 border-slate-300'
-                        }`}
-                      >
-                        {isDemoIncluded ? activeDemoProducts.length : 0}
-                      </span>
-                      {deletedDemoIds.length > 0 && (
-                        <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-red-50 text-red-700 font-bold border border-red-200">
-                          {deletedDemoIds.length} মুছে ফেলা
-                        </span>
-                      )}
-                    </button>
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-black text-slate-900">আমার ইনভেন্টরি পণ্য</h4>
+                      <p className="text-[11px] text-slate-500">অনলাইন ই-কমার্স স্টোরে প্রদর্শনের জন্য পণ্য পরিচালনা করুন</p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-teal-100 text-teal-900 font-extrabold border border-teal-200 ml-1">
+                      {products.length} টি পণ্য
+                    </span>
                   </div>
 
-                  {catalogViewMode === 'my_products' && (
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handlePublishAll}
+                      className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold cursor-pointer transition"
+                    >
+                      সব সক্রিয় করুন
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleHideAll}
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer transition"
+                    >
+                      সব বন্ধ করুন
+                    </button>
+                    {onNavigateToTab && (
                       <button
                         type="button"
-                        onClick={handlePublishAll}
-                        className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold cursor-pointer transition"
+                        onClick={() => {
+                          onClose();
+                          onNavigateToTab('inventory');
+                        }}
+                        className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer"
                       >
-                        সব সক্রিয় করুন
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>নতুন পণ্য</span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={handleHideAll}
-                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer transition"
-                      >
-                        সব বন্ধ করুন
-                      </button>
-                      {onNavigateToTab && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onClose();
-                            onNavigateToTab('inventory');
-                          }}
-                          className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>নতুন পণ্য</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
                 {/* MY INVENTORY PRODUCTS */}

@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { validateImageFiles, fileToBase64, marketplaceSocialService } from '../../services/marketplaceSocialService';
+import { compressProductImage, getCatalogStudioImage } from '../../utils/productImages';
 import { CustomerProductItem } from '../../types/marketplaceSocial';
 
 interface CustomerSellProductModalProps {
@@ -66,8 +67,13 @@ export const CustomerSellProductModal: React.FC<CustomerSellProductModalProps> =
     try {
       const base64List: string[] = [];
       for (const f of validation.imageFiles) {
-        const b64 = await fileToBase64(f);
-        base64List.push(b64);
+        try {
+          const compressed = await compressProductImage(f, 800, 800, 0.85);
+          base64List.push(compressed);
+        } catch {
+          const raw = await fileToBase64(f);
+          base64List.push(raw);
+        }
       }
       setImages((prev) => [...prev, ...base64List].slice(0, 4));
     } catch (err: any) {

@@ -64,7 +64,7 @@ import {
 import { formatMoney } from '../../utils/storage';
 import { BlockConfirmModal } from './BlockConfirmModal';
 import { ShareModal } from './ShareModal';
-import { ProductBoostModal } from './ProductBoostModal';
+import { MarketplaceReportModal } from './MarketplaceReportModal';
 import { StoryCreateModal, StoryViewerModal } from './StoryModals';
 import { GroupCreateModal, PageCreateModal } from './CommunityModals';
 
@@ -88,7 +88,7 @@ const FEELINGS_LIST = [
   { emoji: '✈️', label: 'ভ্রমণ করছি' },
 ];
 
-const DEMO_REELS = [
+const FEATURED_REELS = [
   {
     id: 'reel_1',
     authorName: 'তানজিন ফ্যাশন ও বুটিক',
@@ -252,8 +252,8 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
 
   // Modals state
   const [blockTarget, setBlockTarget] = useState<{ id: string; name: string } | null>(null);
-  const [shareTarget, setShareTarget] = useState<{ post?: SocialPost | null; product?: any | null } | null>(null);
-  const [boostTargetProduct, setBoostTargetProduct] = useState<any | null>(null);
+  const [reportPostTarget, setReportPostTarget] = useState<SocialPost | null>(null);
+  const [shareTarget, setShareTarget] = useState<{ post?: SocialPost; product?: any } | null>(null);
   const [activeMenuPostId, setActiveMenuPostId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -270,6 +270,15 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
   }, [propProfile]);
 
   useEffect(() => {
+    // Initial sync with cloud database on feed mount
+    marketplaceSocialService.syncWithCloud().catch(() => {});
+    refreshPosts();
+
+    // Background sync polling every 12 seconds so posts & stories across devices appear in real-time
+    const syncInterval = setInterval(() => {
+      marketplaceSocialService.syncWithCloud().catch(() => {});
+    }, 12000);
+
     const handleSync = (e: any) => {
       if (e.detail) setProfileState(e.detail);
       refreshPosts();
@@ -280,6 +289,7 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
     window.addEventListener('twing_groups_updated', handleSync);
     window.addEventListener('twing_pages_updated', handleSync);
     return () => {
+      clearInterval(syncInterval);
       window.removeEventListener('twing_profile_updated', handleSync);
       window.removeEventListener('twing_social_posts_updated', handleSync);
       window.removeEventListener('twing_stories_updated', handleSync);
@@ -468,17 +478,24 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
     onShowToast(isFollowing ? `${name}-কে ফলো করা হচ্ছে` : `${name}-কে আনফলো করা হয়েছে`);
   };
 
-  // Filter posts
-  const displayedPosts = posts.filter((p) => {
-    if (feedFilter === 'saved') {
-      return (p.savedByUserIds || []).includes(currentProfile.id);
-    }
-    // Check privacy
-    if (p.privacy === 'only_me' && p.authorId !== currentProfile.id) {
-      return false;
-    }
-    return true;
-  });
+  // Filter posts & sort Promoted / Sponsored posts first so all users see them at the top!
+  const displayedPosts = posts
+    .filter((p) => {
+      if (feedFilter === 'saved') {
+        return (p.savedByUserIds || []).includes(currentProfile.id);
+      }
+      // Check privacy
+      if (p.privacy === 'only_me' && p.authorId !== currentProfile.id) {
+        return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const aPromoted = (a as any).isPromoted || (a.linkedProduct && (a.linkedProduct as any).isPromoted) ? 1 : 0;
+      const bPromoted = (b as any).isPromoted || (b.linkedProduct && (b.linkedProduct as any).isPromoted) ? 1 : 0;
+      if (aPromoted !== bPromoted) return bPromoted - aPromoted;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
 
   const trendingProducts = marketplaceSocialService.getCustomerProducts().slice(0, 4);
   const communityDirectory = marketplaceSocialService.getProfilesDirectory().filter((p) => p.id !== currentProfile.id);
@@ -720,11 +737,11 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
               {/* Navigation stepper */}
               <div className="flex items-center gap-1.5">
                 <span className="text-[11px] font-bold text-slate-500 mr-1 font-mono">
-                  {activeReelIndex + 1} / {DEMO_REELS.length}
+                  {activeReelIndex + 1} / {FEATURED_REELS.length}
                 </span>
                 <button
                   type="button"
-                  onClick={() => setActiveReelIndex((prev) => (prev > 0 ? prev - 1 : DEMO_REELS.length - 1))}
+                  onClick={() => setActiveReelIndex((prev) => (prev > 0 ? prev - 1 : FEATURED_REELS.length - 1))}
                   className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
                   title="আগের রিল"
                 >
@@ -732,7 +749,7 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveReelIndex((prev) => (prev < DEMO_REELS.length - 1 ? prev + 1 : 0))}
+                  onClick={() => setActiveReelIndex((prev) => (prev < FEATURED_REELS.length - 1 ? prev + 1 : 0))}
                   className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
                   title="পরবর্তী রিল"
                 >
@@ -743,7 +760,7 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
 
             {/* Active Reel Card */}
             {(() => {
-              const reel = DEMO_REELS[activeReelIndex] || DEMO_REELS[0];
+              const reel = FEATURED_REELS[activeReelIndex] || FEATURED_REELS[0];
               const isLiked = reelLikes[reel.id]?.liked || false;
               const likesCount = reelLikes[reel.id]?.count ?? reel.likesCount;
 
@@ -1453,6 +1470,12 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
                               — {post.feeling.emoji} {post.feeling.label}
                             </span>
                           )}
+                          {Boolean((post as any).isPromoted || (post.linkedProduct && (post.linkedProduct as any).isPromoted)) && (
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-rose-600 text-white flex items-center gap-1 shadow-xs animate-pulse">
+                              <Flame className="w-3 h-3 fill-white" />
+                              <span>স্পনসরড</span>
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-2 text-[10px] text-slate-400 font-semibold pt-0.5">
@@ -1528,7 +1551,7 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  onShowToast('পোস্ট রিপোর্ট জমা হয়েছে। অ্যাডমিন পর্যালোচনা করবেন।');
+                                  setReportPostTarget(post);
                                   setActiveMenuPostId(null);
                                 }}
                                 className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 text-slate-700 cursor-pointer"
@@ -2076,15 +2099,17 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
         />
       )}
 
-      {/* Product Boost Modal */}
-      {boostTargetProduct && (
-        <ProductBoostModal
+      {/* Post Report Modal */}
+      {reportPostTarget && (
+        <MarketplaceReportModal
           isOpen={true}
-          onClose={() => setBoostTargetProduct(null)}
-          product={boostTargetProduct}
-          currentProfile={currentProfile}
+          onClose={() => setReportPostTarget(null)}
+          targetType="post"
+          targetId={reportPostTarget.id}
+          targetName={reportPostTarget.content ? `পোস্ট: "${reportPostTarget.content.slice(0, 30)}..."` : 'মার্কেটপ্লেস পোস্ট'}
+          targetUserId={reportPostTarget.authorId}
+          targetUserName={reportPostTarget.authorName}
           onShowToast={onShowToast}
-          onBoostSubmitted={refreshPosts}
         />
       )}
     </div>

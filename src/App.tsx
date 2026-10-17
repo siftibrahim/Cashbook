@@ -1008,7 +1008,7 @@ export const App: React.FC = () => {
     setConfirmConfig({
       isOpen: true,
       title: 'ডাটা রিসেট নিশ্চিতকরণ',
-      message: 'আপনি কি নিশ্চিত যে ডেমো ডাটা রিসেট করতে চান? এটি ক্লাউড ডাটাবেজেও রিসেট হবে।',
+      message: 'আপনি কি নিশ্চিত যে সমস্ত ডাটা ও ক্যাশ রিসেট করতে চান? এটি ক্লাউড ডাটাবেজেও রিসেট হবে।',
       confirmText: 'হ্যাঁ, রিসেট করুন',
       type: 'warning',
       action: async () => {

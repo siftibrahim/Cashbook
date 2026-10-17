@@ -51,6 +51,15 @@ import {
   getMarketplaceChatGroups,
   toggleFollowMarketplaceUser,
   unfriendMarketplaceUser,
+  getMarketplaceReports,
+  saveMarketplaceReport,
+  updateMarketplaceReportStatus,
+  deleteMarketplaceReport,
+  getMarketplaceBoostRequests,
+  saveMarketplaceBoostRequest,
+  approveMarketplaceBoostRequest,
+  rejectMarketplaceBoostRequest,
+  stopMarketplaceBoostRequest,
 } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { PaymentlyService } from '../services/paymentlyService';
@@ -2739,6 +2748,164 @@ router.post('/social/users/:id/unfriend', async (req: Request, res: Response) =>
     return res.json({ success, message: 'আনফ্রেন্ড সফল হয়েছে।' });
   } catch (err: any) {
     return res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * =========================================================================
+ * MARKETPLACE USER REPORTS REST API (Facebook-style Reporting)
+ * =========================================================================
+ */
+
+// GET /api/marketplace/social/reports
+router.get('/social/reports', async (_req: Request, res: Response) => {
+  try {
+    const reports = getMarketplaceReports();
+    return res.json({ success: true, reports });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/social/reports
+router.post('/social/reports', async (req: Request, res: Response) => {
+  try {
+    const {
+      reporterId,
+      reporterName,
+      reporterPhone,
+      targetType,
+      targetId,
+      targetName,
+      targetUserId,
+      targetUserName,
+      reason,
+      details,
+      evidenceImageUrl,
+    } = req.body;
+
+    if (!targetId || !reason) {
+      return res.status(400).json({ success: false, error: 'টার্গেট ও রিপোর্টের কারণ উল্লেখ করুন' });
+    }
+
+    const saved = saveMarketplaceReport({
+      reporterId,
+      reporterName,
+      reporterPhone,
+      targetType,
+      targetId,
+      targetName,
+      targetUserId,
+      targetUserName,
+      reason,
+      details,
+      evidenceImageUrl,
+    });
+
+    return res.json({
+      success: true,
+      report: saved,
+      message: '✅ আপনার রিপোর্ট সফলভাবে গৃহীত হয়েছে। অ্যাডমিন টিম দ্রুত এটি পর্যালোচনা করে ব্যবস্থা নেবে।',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/social/reports/:id/action
+router.post('/social/reports/:id/action', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, adminNotes, resolvedBy } = req.body;
+    if (!status) {
+      return res.status(400).json({ success: false, error: 'অ্যাকশন স্ট্যাটাস আবশ্যক' });
+    }
+
+    const updated = updateMarketplaceReportStatus(id, status, adminNotes, resolvedBy);
+    return res.json({ success: true, report: updated });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/marketplace/social/reports/:id
+router.delete('/social/reports/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ok = deleteMarketplaceReport(id);
+    return res.json({ success: ok });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * =========================================================================
+ * MARKETPLACE PRODUCT BOOST & PROMOTION REST API
+ * =========================================================================
+ */
+
+// GET /api/marketplace/social/boost-requests
+router.get('/social/boost-requests', async (_req: Request, res: Response) => {
+  try {
+    const requests = getMarketplaceBoostRequests();
+    return res.json({ success: true, requests });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/social/boost-requests
+router.post('/social/boost-requests', async (req: Request, res: Response) => {
+  try {
+    const saved = saveMarketplaceBoostRequest(req.body);
+    return res.json({
+      success: true,
+      request: saved,
+      message: '🚀 বুস্ট সাবস্ক্রিপশন আবেদন সফলভাবে জমা হয়েছে! অ্যাডমিন পেমেন্ট যাচাই করে অনুমোদন করলেই এটি সবার সামনে স্পনসরড হিসেবে প্রদর্শিত হবে।',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/social/boost-requests/:id/approve
+router.post('/social/boost-requests/:id/approve', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { days, adminNotes } = req.body;
+    const result = approveMarketplaceBoostRequest(id, days, adminNotes);
+    return res.json({
+      success: true,
+      request: result.request,
+      product: result.product,
+      message: '✅ বুস্ট সফলভাবে অনুমোদিত হয়েছে! পণ্যটি এখন সেন্ট্রাল মার্কেটপ্লেসের সবার সামনে স্পনসরড হিসেবে সক্রিয় থাকবে।',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/social/boost-requests/:id/reject
+router.post('/social/boost-requests/:id/reject', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const updated = rejectMarketplaceBoostRequest(id, reason);
+    return res.json({ success: true, request: updated, message: 'বুস্ট রিকোয়েস্টটি বাতিল করা হয়েছে।' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/marketplace/social/boost-requests/:id/stop
+router.post('/social/boost-requests/:id/stop', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const updated = stopMarketplaceBoostRequest(id);
+    return res.json({ success: true, request: updated, message: 'বুস্ট সমাপ্ত করা হয়েছে।' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

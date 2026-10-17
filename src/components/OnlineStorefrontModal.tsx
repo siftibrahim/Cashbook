@@ -667,19 +667,11 @@ export const OnlineStorefrontModal: React.FC<OnlineStorefrontModalProps> = ({
     });
   }, [allStoreProducts, selectedCategory, searchQuery]);
 
-  // Cart operations
+  // Single piece direct checkout
   const addToCart = (product: Product, quantityToAdd: number = 1) => {
-    setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: item.quantity + quantityToAdd }
-            : item
-        );
-      }
-      return [...prev, { product, quantity: quantityToAdd }];
-    });
+    setCart([{ product, quantity: 1 }]);
+    setIsCheckoutStep(true);
+    setIsCartOpen(true);
   };
 
   const updateQuantity = (productId: string, delta: number) => {

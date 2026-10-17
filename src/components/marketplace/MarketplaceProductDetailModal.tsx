@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Maximize2,
   AlertTriangle,
+  Flag,
 } from 'lucide-react';
 import { MarketplaceProduct } from '../../types';
 import { formatMoney } from '../../utils/storage';
@@ -29,7 +30,7 @@ import { marketplaceApi } from '../../services/marketplaceService';
 import { marketplaceSocialService } from '../../services/marketplaceSocialService';
 import { triggerConfettiCelebration } from '../../utils/audio';
 import { ShareModal } from './ShareModal';
-import { ProductBoostModal } from './ProductBoostModal';
+import { MarketplaceReportModal } from './MarketplaceReportModal';
 
 interface MarketplaceProductDetailModalProps {
   product: MarketplaceProduct | null;
@@ -63,7 +64,7 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
   const [isCopied, setIsCopied] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [isBoostModalOpen, setIsBoostModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState(() => product?.imageUrl || '');
   const currentProfile = marketplaceSocialService.getCurrentProfile();
 
@@ -344,23 +345,23 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
                     );
                   })()}
 
-                  {/* Promote & Social Share Row */}
+                  {/* Share & Report Row */}
                   <div className="grid grid-cols-2 gap-2.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setIsBoostModalOpen(true)}
-                      className="py-2.5 px-3 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white font-black text-xs rounded-2xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 fill-white" />
-                      <span>পণ্য প্রমোট / বুস্ট করুন</span>
-                    </button>
                     <button
                       type="button"
                       onClick={() => setIsShareModalOpen(true)}
                       className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-2xl border border-slate-200 transition cursor-pointer flex items-center justify-center gap-1.5"
                     >
-                      <Share2 className="w-3.5 h-3.5" />
-                      <span>শেয়ার করুন</span>
+                      <Share2 className="w-3.5 h-3.5 text-blue-600" />
+                      <span>পণ্য শেয়ার করুন</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsReportModalOpen(true)}
+                      className="py-2.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-2xl border border-rose-200 transition cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Flag className="w-3.5 h-3.5 text-rose-600" />
+                      <span>রিপোর্ট করুন</span>
                     </button>
                   </div>
                 </div>
@@ -533,13 +534,16 @@ export const MarketplaceProductDetailModal: React.FC<MarketplaceProductDetailMod
           />
         )}
 
-        {/* Boost Modal */}
-        {isBoostModalOpen && (
-          <ProductBoostModal
+        {/* Report Modal */}
+        {isReportModalOpen && product && (
+          <MarketplaceReportModal
             isOpen={true}
-            onClose={() => setIsBoostModalOpen(false)}
-            product={product}
-            currentProfile={currentProfile}
+            onClose={() => setIsReportModalOpen(false)}
+            targetType="product"
+            targetId={product.id}
+            targetName={product.name}
+            targetUserId={product.vendorId || (product as any).sellerId}
+            targetUserName={(product as any).vendorShopName || (product as any).sellerName || 'মার্কেটপ্লেস বিক্রেতা'}
             onShowToast={onShowToast || (() => {})}
           />
         )}

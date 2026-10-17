@@ -998,8 +998,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
                 <div>
-                  <h5 className="text-xs font-bold text-slate-700">ডেমো ডাটা রিসেট</h5>
-                  <p className="text-[11px] text-slate-500">প্রয়োজনে পরীক্ষামূলক ডাটাতে ফিরে যান</p>
+                  <h5 className="text-xs font-bold text-slate-700">ক্যাশ ও ডাটা রিসেট</h5>
+                  <p className="text-[11px] text-slate-500">প্রয়োজনে নতুন করে শুরু করতে ডাটা রিসেট করুন</p>
                 </div>
                 <button
                   type="button"
@@ -1051,35 +1051,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
                 </div>
 
-                {/* Master Admin Management System Entry - ONLY FOR SUPER ADMIN */}
-                {isSuperAdmin && onOpenAdmin && (
-                  <div className="p-4 bg-gradient-to-r from-[#004D40]/10 via-[#00695C]/5 to-transparent rounded-2xl border-2 border-teal-600 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <ShieldCheck className="w-4 h-4 text-teal-800" />
-                        <h5 className="text-xs sm:text-sm font-black text-slate-900">
-                          সম্পূর্ণ অ্যাডমিন ম্যানেজমেন্ট কনসোল
-                        </h5>
-                        <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-amber-400 text-teal-950">
-                          SUPER ADMIN
-                        </span>
-                      </div>
-                      <p className="text-[11.5px] text-slate-600 mt-0.5">
-                        ইউজার তালিকা, সাবস্ক্রিপশন প্ল্যান, পেমেন্ট অনুমোদন, ইন-অ্যাপ নোটিফিকেশন, অ্যাপ আপডেট ও অডিট লগ পরিচালনা করুন।
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onClose();
-                        onOpenAdmin();
-                      }}
-                      className="px-4 py-2 bg-[#004D40] hover:bg-[#00332c] text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer shrink-0"
-                    >
-                      <span>অ্যাডমিন প্যানেল খুলুন</span>
-                    </button>
-                  </div>
-                )}
+
 
                 {/* Support & Help Desk */}
                 <div className="p-4 bg-teal-50/70 rounded-2xl border border-teal-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">

@@ -292,38 +292,21 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
 
         {/* Footer Actions (Sticky Bottom) */}
         <div className="p-4 border-t border-slate-100 bg-white shadow-lg space-y-3 shrink-0">
-          <div className="flex items-center justify-between gap-3">
-            {/* Quantity Selector */}
+          {/* Single Piece Direct Order Calculation */}
+          <div className="flex items-center justify-between p-3 bg-teal-50/70 rounded-2xl border border-teal-100">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-700">পরিমাণ:</span>
-              <div className="flex items-center bg-slate-100 rounded-xl p-1 border border-slate-200">
-                <button
-                  type="button"
-                  disabled={selectedQuantity <= 1}
-                  onClick={() => setSelectedQuantity((q) => Math.max(1, q - 1))}
-                  className="w-7 h-7 bg-white rounded-lg flex items-center justify-center text-slate-700 font-bold shadow-2xs hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
-                >
-                  <Minus className="w-3.5 h-3.5" />
-                </button>
-                <span className="w-8 text-center text-xs font-black text-slate-900">
-                  {selectedQuantity}
-                </span>
-                <button
-                  type="button"
-                  disabled={!inStock}
-                  onClick={() => setSelectedQuantity((q) => q + 1)}
-                  className="w-7 h-7 bg-white rounded-lg flex items-center justify-center text-slate-700 font-bold shadow-2xs hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
+              <div className="w-8 h-8 rounded-xl bg-[#004D40] text-white flex items-center justify-center font-black text-xs shadow-xs">
+                ১
+              </div>
+              <div>
+                <span className="text-xs font-black text-slate-800 block">সিঙ্গেল পিস অর্ডার</span>
+                <span className="text-[10px] text-slate-500">পছন্দ হলে সরাসরি ১ পিস চেকআউট</span>
               </div>
             </div>
-
-            {/* Total calculation */}
             <div className="text-right">
               <div className="text-[10px] text-slate-500 font-semibold">মোট মূল্য</div>
               <div className="text-base sm:text-lg font-black text-[#004D40]">
-                ৳ {formatMoney(product.salePrice * selectedQuantity)}
+                ৳ {formatMoney(product.salePrice)}
               </div>
             </div>
           </div>
@@ -334,13 +317,13 @@ export const StorefrontProductDetailModal: React.FC<StorefrontProductDetailModal
               type="button"
               disabled={!inStock}
               onClick={() => {
-                onBuyNow(product, selectedQuantity || 1);
+                onBuyNow(product, 1);
                 onClose();
               }}
               className="w-full py-3.5 px-4 rounded-2xl font-black text-xs sm:text-sm bg-[#004D40] hover:bg-[#00382E] text-white shadow-md flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer disabled:opacity-40"
             >
               <Zap className="w-4 h-4 fill-white" />
-              <span>সরাসরি অর্ডার ও চেকআউট করুন</span>
+              <span>সরাসরি অর্ডার ও চেকআউট করুন (১ পিস)</span>
             </button>
           </div>
         </div>

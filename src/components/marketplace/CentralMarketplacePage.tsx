@@ -918,8 +918,14 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     showToast('পণ্যটি কার্ট থেকে সরানো হয়েছে');
   };
 
-  const handleBuyNow = (product: Product, quantity = 1) => {
-    addToCart(product, quantity);
+  const handleBuyNow = (product: any, quantity = 1) => {
+    // Single piece direct checkout
+    setCart([
+      {
+        product,
+        quantity: 1,
+      },
+    ]);
     setIsCartOpen(true);
   };
 
@@ -1417,6 +1423,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
               setFbTab("messenger");
             }}
             onAddToCart={(prod) => addToCart(prod as any)}
+            onBuyNow={handleBuyNow}
             onVisitVendor={(vId, vName) => setSelectedVendorStore({ id: vId, name: vName })}
             onSelectProduct={(prod) => {
               setSelectedProduct({
@@ -1532,6 +1539,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         onClose={() => setSelectedVendorStore(null)}
         products={products}
         onAddToCart={addToCart}
+        onBuyNow={handleBuyNow}
         onViewProduct={(p) => handleSelectProduct(p)}
         wishlistIds={wishlistIds}
         onToggleWishlist={handleToggleWishlist}

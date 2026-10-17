@@ -351,3 +351,24 @@ export interface SocialNotification {
   createdAt: string;
   read: boolean;
 }
+
+export interface MarketplaceReport {
+  id: string;
+  reporterId: string;
+  reporterName: string;
+  reporterPhone?: string;
+  targetType: 'user' | 'post' | 'product' | 'comment';
+  targetId: string;
+  targetName: string;
+  targetUserId?: string;
+  targetUserName?: string;
+  reason: string;
+  details?: string;
+  evidenceImageUrl?: string;
+  status: 'pending' | 'resolved' | 'dismissed' | 'banned_user';
+  adminNotes?: string;
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+}
+
