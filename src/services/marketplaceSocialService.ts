@@ -75,78 +75,9 @@ export function validateImageFiles(files: FileList | File[]): { valid: boolean; 
   return { valid: imageFiles.length > 0, imageFiles };
 }
 
-// Safe local storage setter to prevent QuotaExceededError crashes
-export function safeLocalStorageSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch (err) {
-    console.warn(`[Storage] Quota issue writing ${key}, purging temporary caches:`, err);
-    try {
-      const temporaryKeys = [
-        'mkt_cached_banners',
-        'mkt_feed_scroll_pos',
-        'mkt_temp_upload_preview',
-      ];
-      temporaryKeys.forEach((k) => localStorage.removeItem(k));
-      localStorage.setItem(key, value);
-    } catch (innerErr) {
-      console.error(`[Storage] Failed to save key "${key}" even after cleanup:`, innerErr);
-    }
-  }
-}
-
-// Convert File to base64 with automatic lightweight canvas compression for images (~30-50KB)
+// Convert File to base64
 export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (typeof window !== 'undefined' && file.type && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const rawDataUrl = event.target?.result as string;
-        const img = new Image();
-        img.onload = () => {
-          try {
-            const maxWidth = 800;
-            const maxHeight = 800;
-            let width = img.width;
-            let height = img.height;
-
-            if (width > height) {
-              if (width > maxWidth) {
-                height = Math.round((height * maxWidth) / width);
-                width = maxWidth;
-              }
-            } else {
-              if (height > maxHeight) {
-                width = Math.round((width * maxHeight) / height);
-                height = maxHeight;
-              }
-            }
-
-            const canvas = document.createElement('canvas');
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.fillStyle = '#FFFFFF';
-              ctx.fillRect(0, 0, width, height);
-              ctx.drawImage(img, 0, 0, width, height);
-              const compressed = canvas.toDataURL('image/jpeg', 0.78);
-              resolve(compressed);
-              return;
-            }
-          } catch (e) {
-            // fallback to raw
-          }
-          resolve(rawDataUrl);
-        };
-        img.onerror = () => resolve(rawDataUrl);
-        img.src = rawDataUrl;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-      return;
-    }
-
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = reject;
@@ -662,7 +593,6 @@ export const marketplaceSocialService = {
         window.dispatchEvent(
           new CustomEvent('twing_social_auth_changed', { detail: { isLoggedIn: true, user: data.user } })
         );
-        this.syncWithCloud().catch(() => {});
         return { success: true, user: data.user };
       }
       if (data.needs2Fa) {
@@ -734,7 +664,6 @@ export const marketplaceSocialService = {
         window.dispatchEvent(
           new CustomEvent('twing_social_auth_changed', { detail: { isLoggedIn: true, user: data.user } })
         );
-        this.syncWithCloud().catch(() => {});
         return { success: true, user: data.user };
       }
       return { success: false, error: data.error || 'রেজিস্ট্রেশন ব্যর্থ হয়েছে।' };
@@ -1231,7 +1160,7 @@ export const marketplaceSocialService = {
     };
 
     const updatedPosts = [newPost, ...posts];
-    safeLocalStorageSet(POSTS_KEY, JSON.stringify(updatedPosts));
+    localStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
 
     // Persist post to persistent database on server
     try {
@@ -1241,10 +1170,6 @@ export const marketplaceSocialService = {
         body: JSON.stringify(newPost),
       }).catch((e) => console.debug('Sync post note:', e));
     } catch (e) {}
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('twing_social_posts_updated'));
-    }
 
     return newPost;
   },
@@ -1587,7 +1512,7 @@ export const marketplaceSocialService = {
     };
 
     const updated = [newProduct, ...products];
-    safeLocalStorageSet(PRODUCTS_KEY, JSON.stringify(updated));
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(updated));
 
     // Persist user product to backend database
     try {
@@ -1597,10 +1522,6 @@ export const marketplaceSocialService = {
         body: JSON.stringify(newProduct),
       }).catch((e) => console.debug('Sync product note:', e));
     } catch (e) {}
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('twing_products_updated'));
-    }
 
     // Also automatically publish an announcement post on Facebook Feed!
     this.createPost({
@@ -1625,19 +1546,6 @@ export const marketplaceSocialService = {
     });
 
     return newProduct;
-  },
-
-  deleteCustomerProduct(productId: string): void {
-    const products = this.getCustomerProducts().filter((p) => p.id !== productId);
-    safeLocalStorageSet(PRODUCTS_KEY, JSON.stringify(products));
-
-    try {
-      fetch(`/api/marketplace/social/products/${productId}`, { method: 'DELETE' }).catch(() => {});
-    } catch (e) {}
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('twing_products_updated'));
-    }
   },
 
   // Customer to Customer Purchase Order
@@ -2905,7 +2813,7 @@ export const marketplaceSocialService = {
 
     const current = this.getStories();
     const updated = [story, ...current];
-    safeLocalStorageSet(STORIES_KEY, JSON.stringify(updated));
+    localStorage.setItem(STORIES_KEY, JSON.stringify(updated));
 
     try {
       fetch('/api/marketplace/social/stories', {
@@ -2924,7 +2832,7 @@ export const marketplaceSocialService = {
 
   deleteStory(storyId: string): void {
     const stories = this.getStories().filter((s) => s.id !== storyId);
-    safeLocalStorageSet(STORIES_KEY, JSON.stringify(stories));
+    localStorage.setItem(STORIES_KEY, JSON.stringify(stories));
     try {
       fetch(`/api/marketplace/social/stories/${storyId}`, { method: 'DELETE' }).catch(() => {});
     } catch (e) {}

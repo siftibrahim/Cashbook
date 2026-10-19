@@ -11,16 +11,12 @@
       "address": "বাংলাদেশ",
       "role": "user",
       "status": "active",
-      "subscriptionPlan": "মেয়াদ শেষ (রিনিউ প্রয়োজন)",
-      "subscriptionStatus": "expired",
-      "subscriptionExpiresAt": 1792325796575,
+      "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
+      "subscriptionStatus": "EXPIRED",
+      "subscriptionExpiresAt": 1791364412052,
       "registered_at": 1790154812052,
       "last_active_at": 1791441294117,
-      "notes": null,
-      "lastActiveAt": 1792325797176,
-      "subscription_expires_at": 1792325796575,
-      "subscription_plan": "মেয়াদ শেষ (রিনিউ প্রয়োজন)",
-      "subscription_status": "expired"
+      "notes": null
     },
     {
       "id": "usr_muomg24mrtzt",
@@ -33,16 +29,12 @@
       "address": "বাংলাদেশ",
       "role": "user",
       "status": "active",
-      "subscriptionPlan": "মেয়াদ শেষ (রিনিউ প্রয়োজন)",
-      "subscriptionStatus": "expired",
-      "subscriptionExpiresAt": 1792325796984,
+      "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
+      "subscriptionStatus": "trial",
+      "subscriptionExpiresAt": 1792013568720,
       "registered_at": 1790803968720,
       "last_active_at": 1790842421794,
-      "notes": null,
-      "lastActiveAt": 1792325797581,
-      "subscription_expires_at": 1792325796984,
-      "subscription_plan": "মেয়াদ শেষ (রিনিউ প্রয়োজন)",
-      "subscription_status": "expired"
+      "notes": null
     },
     {
       "id": "usr_mupp4sbguuh1",
@@ -55,23 +47,19 @@
       "address": "বাংলাদেশ",
       "role": "user",
       "status": "active",
-      "subscriptionPlan": "মেয়াদ শেষ (রিনিউ প্রয়োজন)",
-      "subscriptionStatus": "expired",
-      "subscriptionExpiresAt": 1792325796171,
+      "subscriptionPlan": "ফ্রি ট্রায়াল (১৪ দিন)",
+      "subscriptionStatus": "trial",
+      "subscriptionExpiresAt": 1792078547793,
       "registered_at": 1790868947793,
       "last_active_at": 1790868947793,
-      "notes": null,
-      "lastActiveAt": 1792325796774,
-      "subscription_expires_at": 1792325796171,
-      "subscription_plan": "মেয়াদ শেষ (রিনিউ প্রয়োজন)",
-      "subscription_status": "expired"
+      "notes": null
     },
     {
       "id": "usr_super_admin",
       "name": "ইব্রাহিম খলিল (সুপার অ্যাডমিন)",
       "phone": "01306908115",
       "email": "siftibrahim@gmail.com",
-      "password_hash": "$2b$10$3xQMSuE5VpCeEDXIpEYzXO50yVa0Kg85kJ3Bd.LVoo08M8EV7X6ei",
+      "password_hash": "$2b$10$lZKejmjxA6MrREGW.2TudOFb1MLioYkHcJnlCP.yvGc05yID6NThi",
       "shop_name": "TWING হিসাবি",
       "business_type": "জেনারেল স্টোর",
       "address": "ঢাকা, বাংলাদেশ",
@@ -82,8 +70,7 @@
       "subscriptionExpiresAt": 2105147647299,
       "registered_at": 1789787647299,
       "last_active_at": 1789792127578,
-      "notes": null,
-      "lastActiveAt": 1792325986661
+      "notes": null
     }
   ],
   "stores": [],
@@ -511,194 +498,9 @@
   "announcements": [],
   "staff": [],
   "support_messages": [],
-  "system_config": {
-    "super_admin_security": {
-      "id": "super_admin_security",
-      "phone": "01306908115",
-      "email": "siftibrahim@gmail.com",
-      "is2FAEnabled": true,
-      "updatedAt": 1792325984063
-    },
-    "system_payment_settings": {
-      "id": "system_payment_settings",
-      "bkash": {
-        "isEnabled": true,
-        "personal": {
-          "number": "01306908115",
-          "accountType": "personal",
-          "instructions": "বিকাশ অ্যাপ থেকে \"Send Money\" করুন।"
-        }
-      },
-      "nagad": {
-        "isEnabled": true,
-        "personal": {
-          "number": "01306908115",
-          "accountType": "personal",
-          "instructions": "নগদ অ্যাপ থেকে \"Send Money\" করুন।"
-        }
-      },
-      "rocket": {
-        "isEnabled": true,
-        "personal": {
-          "number": "01306908115-8",
-          "accountType": "personal",
-          "instructions": "রকেট অ্যাপ থেকে \"Send Money\" করুন।"
-        }
-      },
-      "upay": {
-        "isEnabled": true,
-        "personal": {
-          "number": "01306908115",
-          "accountType": "personal",
-          "instructions": "উপায় অ্যাপ থেকে \"Send Money\" করুন।"
-        }
-      },
-      "banglaQr": {
-        "isEnabled": true,
-        "accountTitle": "TWING হিসাবি / সুপার এডমিন",
-        "merchantId": "01306908115",
-        "bankOrMfsName": "মিউচুয়াল ট্রাস্ট ব্যাংক / বিকাশ বাংলা কিউআর",
-        "terminalId": "TWING-BQR-01",
-        "routingNumber": "",
-        "qrCodeUrl": "",
-        "qrPayload": "",
-        "instructions": "যেকোনো ব্যাংক বা এমএফএস অ্যাপ (বিকাশ, নগদ, সেলফিন, সিটিটাচ ইত্যাদি) দিয়ে বাংলা কিউআর স্ক্যান করে পেমেন্ট সম্পন্ন করুন এবং ট্রানজেকশন আইডি দিন।"
-      },
-      "bankTransfer": {
-        "isEnabled": true,
-        "accounts": [
-          {
-            "bankName": "Islami Bank Bangladesh Ltd",
-            "accountName": "Ibrahim General Store",
-            "accountNumber": "2050388020123456",
-            "branchName": "Dhanmondi Branch",
-            "routingNumber": "125271458",
-            "instructions": "সরাসরি ব্যাংক কাউন্টারে ডিপোজিট বা অনলাইন ব্যাংকিং ট্রান্সফার করুন।"
-          }
-        ]
-      },
-      "gateways": [],
-      "paymently": {
-        "isEnabled": true,
-        "baseUrl": "https://twinghisabi.paymently.io/api",
-        "apiKey": "r5y3NpBqR9NOlVf8qUmaQm3VaO6GtzkvpQlrr0iC",
-        "isSandbox": false
-      },
-      "updatedAt": 1792325984063,
-      "updatedBy": "siftibrahim@gmail.com"
-    },
-    "app_update_config": {
-      "id": "app_update_config",
-      "versionName": "2.5.0",
-      "versionCode": 25,
-      "minRequiredVersion": "2.0.0",
-      "isForceUpdate": false,
-      "updateTitle": "✨ নতুন আপডেট উপলব্ধ (v2.5.0)",
-      "releaseNotes": "• দ্রুত পিওএস প্রিন্টিং\n• উন্নত ক্লাউড ব্যাকআপ\n• অফলাইন ট্রানজেকশন সাপোর্ট",
-      "downloadUrl": "https://play.google.com/store",
-      "updatedAt": 1792325984063
-    },
-    "sms_gateway_config": {
-      "provider": "bulksmsbd",
-      "apiKey": "NOhILJCtx0DZJWCRBODB",
-      "senderId": "8809648910696",
-      "username": "",
-      "customUrl": "",
-      "isEnabled": true
-    },
-    "system_ad_settings": {
-      "id": "system_ad_settings",
-      "isAdsEnabled": true,
-      "adProvider": "admob",
-      "admobAppId": "ca-app-pub-3940256099942544~3347511713",
-      "admobBannerUnitId": "ca-app-pub-3940256099942544/6300978111",
-      "admobInterstitialUnitId": "ca-app-pub-3940256099942544/1033173712",
-      "bannerAdEnabled": true,
-      "dashboardCardAdEnabled": true,
-      "footerBannerAdEnabled": true,
-      "customAds": [
-        {
-          "id": "ad_scanner_machine",
-          "title": "🛍️ সুপার শপ ও ফার্মেসি বারকোড ও কিউআর স্ক্যানার",
-          "description": "দ্রুত ক্যাশ ও পিওএস বিক্রয়ের জন্য হাই-স্পিড বারকোড স্ক্যানার এবং থার্মাল প্রিন্টার অফার।",
-          "badge": "প্রস্তাবিত পার্টনার",
-          "targetUrl": "https://wa.me/8801306908115",
-          "ctaText": "অফার জানুন",
-          "isActive": true
-        }
-      ],
-      "updatedAt": 1792325984064
-    },
-    "dashboard_banner_settings": {
-      "isEnabled": true,
-      "autoPlay": true,
-      "intervalSeconds": 5,
-      "banners": [
-        {
-          "id": "banner_store_companion",
-          "title": "আপনার ব্যবসার বিশ্বস্ত ডিজিটাল সঙ্গী",
-          "subtitle": "সহজে নির্ভুল বাকির হিসাব রাখুন, নিরাপদে ব্যবসা এগিয়ে নিন",
-          "badgeText": "খাতা স্পেশাল",
-          "imageUrl": "",
-          "bgGradient": "emerald",
-          "textColor": "dark",
-          "actionType": "none",
-          "isActive": true,
-          "order": 1
-        },
-        {
-          "id": "banner_sms_tagada",
-          "title": "এক ক্লিকে বকেয়া আদায়ের তাগাদা পাঠান",
-          "subtitle": "গ্রাহকের মোবাইলে বাংলায় সরাসরি তাগাদা এসএমএস পৌঁছে যাবে",
-          "badgeText": "স্মার্ট মেসেজ",
-          "imageUrl": "",
-          "bgGradient": "teal",
-          "textColor": "dark",
-          "actionType": "sms",
-          "actionText": "এসএমএস পাঠান",
-          "isActive": true,
-          "order": 2
-        },
-        {
-          "id": "banner_premium_upgrade",
-          "title": "আনলিমিটেড ক্লাউড ব্যাকআপ ও প্রিমিয়াম সুবিধা",
-          "subtitle": "মাত্র ৫০ টাকা থেকে সাবস্ক্রিপশন নিয়ে নিশ্চিত থাকুন আজীবন",
-          "badgeText": "প্রো অফার",
-          "imageUrl": "",
-          "bgGradient": "amber",
-          "textColor": "dark",
-          "actionType": "subscription",
-          "actionText": "প্যাকেজ দেখুন",
-          "isActive": true,
-          "order": 3
-        }
-      ],
-      "updatedAt": 1792325984064
-    }
-  },
-  "admin_activity_logs": [
-    {
-      "id": "log_system_init",
-      "adminEmail": "siftibrahim@gmail.com",
-      "action": "SYSTEM_BOOT",
-      "targetEntity": "System",
-      "targetId": "system_core",
-      "targetName": "TWING হিসাবি ক্লাউড",
-      "details": "সুপার অ্যাডমিন সিকিউরিটি, সেন্ট্রাল মার্কেটপ্লেস ও অডিট ইঞ্জিন সক্রিয় করা হয়েছে।",
-      "timestamp": 1792219127360
-    }
-  ],
-  "password_reset_otps": [
-    {
-      "id": "2fa_mvds9za3wibiqd",
-      "phone": "01306908115",
-      "userId": "usr_super_admin",
-      "otp": "856299",
-      "expiresAt": 1792326317691,
-      "verified": false,
-      "createdAt": 1792325417691
-    }
-  ],
+  "system_config": {},
+  "admin_activity_logs": [],
+  "password_reset_otps": [],
   "trusted_devices": [],
   "sms_logs": [],
   "sms_purchases": [],
@@ -827,366 +629,5 @@
     }
   ],
   "marketplace_settings": {},
-  "vendor_payout_requests": [],
-  "marketplace_users": [
-    {
-      "id": "user_current",
-      "name": "সিফাত রায়হান",
-      "username": "@sifat_raihan",
-      "phone": "01306908115",
-      "avatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80",
-      "coverPhoto": "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1200&q=80",
-      "bio": "সেন্ট্রাল মার্কেটপ্লেস ক্রিয়েটর ও এন্টারপ্রেনার 🚀",
-      "location": "উত্তরা, ঢাকা",
-      "address": "সেক্টর ৪, উত্তরা, ঢাকা",
-      "role": "customer",
-      "joinedDate": "মার্চ ২০২৪",
-      "followersCount": 1420,
-      "followingCount": 380,
-      "friendsCount": 54,
-      "rating": 5,
-      "totalSales": 12,
-      "totalOrders": 8,
-      "isVerified": true,
-      "verificationStatus": "verified",
-      "sellerPaymentSettings": {
-        "acceptsBkash": true,
-        "bkashNumber": "01306908115",
-        "bkashType": "personal",
-        "acceptsNagad": true,
-        "nagadNumber": "01306908115",
-        "nagadType": "personal",
-        "acceptsRocket": false,
-        "acceptsCod": true,
-        "instructions": "বিকাশ বা নগদে সেন্ড মানি করে লাস্ট ৪ ডিজিট চ্যাটে জানান।"
-      },
-      "activeSessions": [
-        {
-          "id": "sess_1792325798001",
-          "deviceName": "Desktop Browser",
-          "ip": "127.0.0.1",
-          "loginAt": "2026-10-18T12:16:38.001Z",
-          "isCurrent": true
-        },
-        {
-          "id": "sess_1792325797993",
-          "deviceName": "Desktop Browser",
-          "ip": "127.0.0.1",
-          "loginAt": "2026-10-18T12:16:37.993Z",
-          "isCurrent": true
-        },
-        {
-          "id": "sess_1792325418838",
-          "deviceName": "Desktop Browser",
-          "ip": "127.0.0.1",
-          "loginAt": "2026-10-18T12:10:18.838Z",
-          "isCurrent": true
-        },
-        {
-          "id": "sess_1792224107927",
-          "deviceName": "Desktop Browser",
-          "ip": "127.0.0.1",
-          "loginAt": "2026-10-17T08:01:47.927Z",
-          "isCurrent": true
-        },
-        {
-          "id": "sess_1792224103472",
-          "deviceName": "Desktop Browser",
-          "ip": "127.0.0.1",
-          "loginAt": "2026-10-17T08:01:43.472Z",
-          "isCurrent": true
-        }
-      ],
-      "last_active_at": 1792325798001,
-      "updatedAt": 1792325798001
-    },
-    {
-      "id": "user_tanvir",
-      "name": "তানভীর আহমেদ",
-      "username": "@tanvir_gadgets",
-      "phone": "01711223344",
-      "avatar": "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80",
-      "coverPhoto": "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80",
-      "bio": "অথেনটিক অ্যাপল ও গ্যাজেট রিসেলার 📱✨",
-      "location": "নিউ এলিফ্যান্ট রোড, ঢাকা",
-      "address": "মাল্টিপ্ল্যান সেন্টার, ঢাকা",
-      "role": "seller",
-      "joinedDate": "জানুয়ারি ২০২৪",
-      "followersCount": 3200,
-      "followingCount": 150,
-      "friendsCount": 92,
-      "rating": 4.9,
-      "totalSales": 84,
-      "totalOrders": 15,
-      "isVerified": true,
-      "verificationStatus": "verified",
-      "sellerPaymentSettings": {
-        "acceptsBkash": true,
-        "bkashNumber": "01711223344",
-        "bkashType": "merchant",
-        "acceptsNagad": true,
-        "nagadNumber": "01711223344",
-        "acceptsCod": true,
-        "instructions": "সারা দেশে হোম ডেলিভারি ও ক্যাশ অন ডেলিভারি দেওয়া হয়।"
-      }
-    },
-    {
-      "id": "user_nadia",
-      "name": "নাদিয়া সুলতানা",
-      "username": "@nadia_crafts",
-      "phone": "01998877665",
-      "avatar": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80",
-      "coverPhoto": "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=1200&q=80",
-      "bio": "হ্যান্ডমেড কাঠের কারুশিল্প ও হোম ডেকর 🌿",
-      "location": "মোহাম্মদপুর, ঢাকা",
-      "address": "আসাদ এভিনিউ, ঢাকা",
-      "role": "seller",
-      "joinedDate": "ফেব্রুয়ারি ২০২৪",
-      "followersCount": 1850,
-      "followingCount": 220,
-      "friendsCount": 68,
-      "rating": 5,
-      "totalSales": 45,
-      "totalOrders": 20,
-      "isVerified": true,
-      "verificationStatus": "verified",
-      "sellerPaymentSettings": {
-        "acceptsBkash": true,
-        "bkashNumber": "01998877665",
-        "bkashType": "personal",
-        "acceptsNagad": true,
-        "nagadNumber": "01998877665",
-        "acceptsCod": true
-      }
-    },
-    {
-      "id": "user_shuvo",
-      "name": "শুভ রহমান",
-      "username": "@shuvo_fashion",
-      "phone": "01677889900",
-      "avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80",
-      "coverPhoto": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=80",
-      "bio": "মিনিমালিস্ট ও ওভারসাইজড স্ট্রিটওয়্যার ফ্যাশন 👕",
-      "location": "জিইসি মোড়, চট্টগ্রাম",
-      "address": "জিইসি সার্কেল, চট্টগ্রাম",
-      "role": "seller",
-      "joinedDate": "এপ্রিল ২০২৪",
-      "followersCount": 940,
-      "followingCount": 110,
-      "friendsCount": 42,
-      "rating": 4.8,
-      "totalSales": 31,
-      "totalOrders": 10,
-      "isVerified": true,
-      "verificationStatus": "verified",
-      "sellerPaymentSettings": {
-        "acceptsBkash": true,
-        "bkashNumber": "01677889900",
-        "bkashType": "personal",
-        "acceptsNagad": true,
-        "nagadNumber": "01677889900",
-        "acceptsCod": true
-      }
-    }
-  ],
-  "marketplace_verification_requests": [],
-  "marketplace_posts": [
-    {
-      "id": "post_1",
-      "authorId": "user_tanvir",
-      "authorName": "তানভীর আহমেদ",
-      "authorUsername": "@tanvir_gadgets",
-      "authorAvatar": "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80",
-      "authorVerified": true,
-      "content": "আসসালামু আলাইকুম সবাইকে! আমার নতুন কেনা AirPods Pro 2nd Gen আপগ্রেডের কারণে সেল করে দিচ্ছি। যারা অথেনটিক অ্যাপল প্রোডাক্ট খুঁজছেন ইনবক্স করতে পারেন অথবা নিচে সরাসরি অর্ডার করতে পারেন। ক্যাশ অন ডেলিভারি সাপোর্ট আছে!",
-      "images": [
-        "https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1588423771073-b8903fbb85b5?auto=format&fit=crop&w=800&q=80"
-      ],
-      "feeling": {
-        "emoji": "🎧",
-        "label": "নতুন গ্যাজেট এক্সপ্লোর করছি"
-      },
-      "linkedProduct": {
-        "id": "cprod_1",
-        "name": "Apple AirPods Pro 2nd Gen (Type-C) - একদম ফ্রেশ কন্ডিশন",
-        "salePrice": 18500,
-        "regularPrice": 24500,
-        "imageUrl": "https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?auto=format&fit=crop&w=800&q=80",
-        "category": "ইলেকট্রনিক্স ও গ্যাজেট",
-        "condition": "like_new",
-        "location": "নিউ এলিফ্যান্ট রোড, ঢাকা"
-      },
-      "createdAt": "2026-10-17T05:38:47.014Z",
-      "reactions": {
-        "like": 42,
-        "love": 28,
-        "care": 7,
-        "haha": 1,
-        "wow": 15,
-        "sad": 0,
-        "angry": 0
-      },
-      "userReactions": {},
-      "comments": [
-        {
-          "id": "comm_1",
-          "authorId": "user_current",
-          "authorName": "সিফাত রায়হান",
-          "authorUsername": "@sifat_raihan",
-          "authorAvatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80",
-          "content": "ভাইয়া ব্যাটারি ব্যাকআপ একটানা কতক্ষণ পাওয়া যায়? ঢাকা উত্তরায় কি ক্যাশ অন ডেলিভারি হবে?",
-          "createdAt": "2026-10-17T06:08:47.015Z"
-        },
-        {
-          "id": "comm_2",
-          "authorId": "user_tanvir",
-          "authorName": "তানভীর আহমেদ",
-          "authorUsername": "@tanvir_gadgets",
-          "authorAvatar": "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80",
-          "content": "@sifat_raihan হ্যাঁ ভাইয়া! এএনসি অন রেখে একটানা ৬ ঘণ্টা+ এবং বক্সে ৩০ ঘণ্টা থাকে। উত্তরায় কালকেই ক্যাশ অন ডেলিভারি পাবেন। ইনবক্সে মেসেজ পাঠান প্লিজ।",
-          "createdAt": "2026-10-17T06:26:47.015Z"
-        }
-      ],
-      "sharesCount": 9
-    },
-    {
-      "id": "post_2",
-      "authorId": "user_nadia",
-      "authorName": "নাদিয়া সুলতানা",
-      "authorUsername": "@nadia_crafts",
-      "authorAvatar": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80",
-      "authorVerified": true,
-      "content": "আজকের তৈরি নতুন হ্যান্ডক্রাফট মেহগনি কাঠের টেবিল ল্যাম্পগুলো কেমন হয়েছে বন্ধুরা? ড্রয়িংরুম বা পড়ার টেবিলে একটি দারুণ উষ্ণ আভা এনে দেবে। সেন্ট্রাল মার্কেটপ্লেসের বন্ধুদের জন্য বিশেষ ২৫% ডিসকাউন্ট চলছে! 🌿💡",
-      "images": [
-        "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=800&q=80"
-      ],
-      "feeling": {
-        "emoji": "✨",
-        "label": "আনন্দিত ও ক্রিয়েটিভ মুডে আছি"
-      },
-      "linkedProduct": {
-        "id": "cprod_2",
-        "name": "হাতে তৈরি কাঠের অ্যান্টিক টেবিল ল্যাম্প (Warm Ambient Light)",
-        "salePrice": 1450,
-        "regularPrice": 2200,
-        "imageUrl": "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=800&q=80",
-        "category": "ঘর সাজানো ও লাইফস্টাইল",
-        "condition": "new",
-        "location": "মোহাম্মদপুর, ঢাকা"
-      },
-      "createdAt": "2026-10-16T23:38:47.015Z",
-      "reactions": {
-        "like": 65,
-        "love": 54,
-        "care": 12,
-        "haha": 0,
-        "wow": 22,
-        "sad": 0,
-        "angry": 0
-      },
-      "userReactions": {},
-      "comments": [],
-      "sharesCount": 14
-    }
-  ],
-  "marketplace_products": [
-    {
-      "id": "cprod_1",
-      "sellerId": "user_tanvir",
-      "sellerName": "তানভীর আহমেদ",
-      "sellerUsername": "@tanvir_gadgets",
-      "sellerAvatar": "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=300&q=80",
-      "sellerPhone": "01812345678",
-      "sellerLocation": "নিউ এলিফ্যান্ট রোড, ঢাকা",
-      "name": "Apple AirPods Pro 2nd Gen (Type-C) - একদম ফ্রেশ কন্ডিশন",
-      "description": "সম্পূর্ণ নতুনের মতো, মাত্র ২ মাস হালকা ব্যবহার করা হয়েছে। বক্স, অরিজিনাল কেবল ও সব ইয়ারটিপস সাথে আছে। ব্যাটারি ব্যাকআপ অসাধারণ।",
-      "salePrice": 18500,
-      "regularPrice": 24500,
-      "category": "ইলেকট্রনিক্স ও গ্যাজেট",
-      "condition": "like_new",
-      "images": [
-        "https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1588423771073-b8903fbb85b5?auto=format&fit=crop&w=800&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?auto=format&fit=crop&w=800&q=80",
-      "inStock": true,
-      "sellerPaymentSettings": {
-        "bkashNumber": "01812345678",
-        "bkashType": "personal",
-        "nagadNumber": "01812345678",
-        "nagadType": "personal",
-        "acceptCod": true,
-        "paymentInstructions": "অর্ডার কনফার্ম করার পর ডেলিভারি চার্জ বাবদ ১০০ টাকা বিকাশ করুন।"
-      },
-      "createdAt": "2026-10-17T03:38:47.015Z"
-    },
-    {
-      "id": "cprod_2",
-      "sellerId": "user_nadia",
-      "sellerName": "নাদিয়া সুলতানা",
-      "sellerUsername": "@nadia_crafts",
-      "sellerAvatar": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80",
-      "sellerPhone": "01998877665",
-      "sellerLocation": "মোহাম্মদপুর, ঢাকা",
-      "name": "হাতে তৈরি কাঠের অ্যান্টিক টেবিল ল্যাম্প (Warm Ambient Light)",
-      "description": "১০০% প্রাকৃতিক মেহগনি কাঠে হাতে তৈরি নান্দনিক ল্যাম্প। স্টাডি টেবিল ও ড্রয়িংরুম সাজানোর জন্য উপযুক্ত। সাথে এনার্জি বাল্ব ফ্রি।",
-      "salePrice": 1450,
-      "regularPrice": 2200,
-      "category": "ঘর সাজানো ও লাইফস্টাইল",
-      "condition": "new",
-      "images": [
-        "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=800&q=80",
-        "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=800&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=800&q=80",
-      "inStock": true,
-      "sellerPaymentSettings": {
-        "bkashNumber": "01998877665",
-        "bkashType": "personal",
-        "nagadNumber": "01998877665",
-        "acceptCod": true,
-        "paymentInstructions": "সারা দেশে হোম ডেলিভারি দেওয়া হয়।"
-      },
-      "createdAt": "2026-10-16T19:38:47.015Z"
-    },
-    {
-      "id": "cprod_3",
-      "sellerId": "user_shuvo",
-      "sellerName": "শুভ রহমান",
-      "sellerUsername": "@shuvo_fashion",
-      "sellerAvatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80",
-      "sellerPhone": "01677889900",
-      "sellerLocation": "জিইসি মোড়, চট্টগ্রাম",
-      "name": "হেভি কটন ড্রপ শোল্ডার ওভারসাইজড হুডি (Dark Charcoal, Size L/XL)",
-      "description": "৩৫০+ জিএসএম ১০০% অর্গানিক কটন ফ্লিস। শীতের জন্য অত্যন্ত আরামদায়ক ও ট্রেন্ডি লুক। মাত্র ৩ পিস স্টকে আছে।",
-      "salePrice": 990,
-      "regularPrice": 1650,
-      "category": "ফ্যাশন ও পোশাক",
-      "condition": "new",
-      "images": [
-        "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=800&q=80"
-      ],
-      "imageUrl": "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=800&q=80",
-      "inStock": true,
-      "sellerPaymentSettings": {
-        "bkashNumber": "01677889900",
-        "bkashType": "personal",
-        "nagadNumber": "01677889900",
-        "acceptCod": true
-      },
-      "createdAt": "2026-10-16T11:38:47.015Z"
-    }
-  ],
-  "marketplace_chat_messages": [],
-  "marketplace_notifications": [],
-  "marketplace_friend_requests": [],
-  "marketplace_user_friends": [],
-  "marketplace_stories": [],
-  "marketplace_groups": [],
-  "marketplace_pages": [],
-  "marketplace_chat_groups": [],
-  "marketplace_reports": [],
-  "marketplace_boost_requests": []
+  "vendor_payout_requests": []
 }

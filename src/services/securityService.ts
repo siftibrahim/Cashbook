@@ -8,9 +8,9 @@ const SALT = 'khata_app_secure_salt_2026_';
 
 // Configuration
 export const SECURITY_CONFIG = {
-  MAX_LOGIN_ATTEMPTS: 20, // generous attempt count to prevent accidental lockouts
-  LOCKOUT_DURATION_MS: 60 * 1000, // 1 minute lockout instead of 15 minutes
-  OTP_VALIDITY_MS: 15 * 60 * 1000, // 15 minutes OTP validity
+  MAX_LOGIN_ATTEMPTS: 5,
+  LOCKOUT_DURATION_MS: 15 * 60 * 1000, // 15 minutes lockout
+  OTP_VALIDITY_MS: 10 * 60 * 1000, // 10 minutes OTP validity
 };
 
 export interface LoginAttemptRecord {
@@ -159,15 +159,6 @@ export function clearLoginAttempts(identifier: string): void {
     delete records[cleanId];
     saveAttemptRecords(records);
   }
-}
-
-/**
- * Reset all rate-limit locks across the browser session
- */
-export function resetAllLoginRateLimits(): void {
-  try {
-    localStorage.removeItem(RATE_LIMIT_STORAGE_KEY);
-  } catch (e) {}
 }
 
 // Helpers for attempt storage

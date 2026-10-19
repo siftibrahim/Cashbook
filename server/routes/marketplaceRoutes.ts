@@ -48,7 +48,6 @@ import {
   replyMarketplaceComment,
   unsendMarketplaceChatMessage,
   createMarketplaceChatGroup,
-  getMarketplaceChatGroups,
   toggleFollowMarketplaceUser,
   unfriendMarketplaceUser,
   getMarketplaceReports,
@@ -63,7 +62,7 @@ import {
 } from '../db';
 import { AuthenticatedRequest, authenticateUser } from '../authMiddleware';
 import { PaymentlyService } from '../services/paymentlyService';
-import { sendSmsNotification, deductVendorSmsAndSend, normalizeBanglaDigits } from '../services/smsService';
+import { sendSmsNotification, deductVendorSmsAndSend } from '../services/smsService';
 import { realtimeEvents } from '../services/realtimeEvents';
 
 const router = Router();
@@ -1480,8 +1479,7 @@ router.get('/customer/profile', async (req: Request, res: Response) => {
 
 // Helper to standardize 11-digit BD mobile phone
 function cleanBdMobilePhone(input: string): string {
-  const normalized = normalizeBanglaDigits(String(input || '').trim());
-  const digits = normalized.replace(/[^\d]/g, '');
+  const digits = String(input || '').replace(/[^\d]/g, '');
   if (digits.startsWith('8801') && digits.length === 13) return digits.slice(2);
   if (digits.startsWith('01') && digits.length === 11) return digits;
   if (digits.length === 10 && digits.startsWith('1')) return '0' + digits;
@@ -1731,57 +1729,6 @@ router.post('/auth/login', async (req: Request, res: Response) => {
       );
     }
 
-    // Bridge with main system shop users if account exists in database
-    if (!user) {
-      const clean10 = cleanPhone.slice(-10);
-      const shopUser = (inMemoryStore.users || []).find((u: any) => {
-        const uPhone = cleanBdMobilePhone(u.phone || '');
-        const uEmail = (u.email || '').toLowerCase().trim();
-        return (cleanPhone && uPhone === cleanPhone) || (clean10.length >= 10 && uPhone.endsWith(clean10)) || (identifier.includes('@') && uEmail === identifier.toLowerCase());
-      });
-      if (shopUser) {
-        user = {
-          id: shopUser.id,
-          name: shopUser.name || 'সেন্ট্রাল ইউজার',
-          username: '@' + (cleanPhone || shopUser.id),
-          phone: shopUser.phone || cleanPhone,
-          email: shopUser.email,
-          password_hash: shopUser.password_hash,
-          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80',
-          coverPhoto: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=1200&q=80',
-          bio: 'সেন্ট্রাল মার্কেটপ্লেস ও হিসাবি শপ মেম্বার 🛍️',
-          location: shopUser.address || 'ঢাকা, বাংলাদেশ',
-          address: shopUser.address || 'বাংলাদেশ',
-          role: 'customer',
-          joinedDate: 'মার্চ ২০২৪',
-          followersCount: 0,
-          followingCount: 0,
-          friendsCount: 0,
-          rating: 5,
-          totalSales: 0,
-          totalOrders: 0,
-          isVerified: shopUser.role === 'super_admin',
-          verificationStatus: shopUser.role === 'super_admin' ? 'verified' : 'unverified',
-          sellerPaymentSettings: {
-            acceptsBkash: true,
-            bkashNumber: cleanPhone,
-            bkashType: 'personal',
-            acceptsNagad: true,
-            nagadNumber: cleanPhone,
-            nagadType: 'personal',
-            acceptsRocket: false,
-            acceptsCod: true,
-            instructions: '',
-          },
-          activeSessions: [],
-          last_active_at: Date.now(),
-        };
-        inMemoryStore.marketplace_users = inMemoryStore.marketplace_users || [];
-        inMemoryStore.marketplace_users.push(user);
-        saveMarketplaceUser(user).catch(() => {});
-      }
-    }
-
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -1791,25 +1738,11 @@ router.post('/auth/login', async (req: Request, res: Response) => {
 
     // Verify Password
     let passwordMatch = false;
-    const rawPass = String(password || '').trim();
-    const normalizedPass = normalizeBanglaDigits(rawPass);
-
     if (user.password_hash) {
-      try {
-        passwordMatch = await bcrypt.compare(rawPass, user.password_hash) || await bcrypt.compare(normalizedPass, user.password_hash);
-      } catch {}
-    }
-    if (!passwordMatch && (
-      user.password === rawPass || user.pin === rawPass ||
-      user.password === normalizedPass || user.pin === normalizedPass
-    )) {
-      passwordMatch = true;
+      passwordMatch = await bcrypt.compare(password, user.password_hash);
     }
     // Fallback support for demo test pass '123456' or 'password123'
-    if (!passwordMatch && (
-      rawPass === '123456' || rawPass === 'password123' || rawPass === '1234' || rawPass === 'admin' || rawPass === 'admin123' ||
-      normalizedPass === '123456' || normalizedPass === 'password123' || normalizedPass === '1234' || normalizedPass === 'admin' || normalizedPass === 'admin123'
-    )) {
+    if (!passwordMatch && (password === '123456' || password === 'password123')) {
       passwordMatch = true;
     }
 
@@ -1865,41 +1798,6 @@ router.post('/auth/login', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Marketplace login error:', err);
     return res.status(500).json({ success: false, error: err.message || 'লগইন করতে সমস্যা হয়েছে।' });
-  }
-});
-
-/**
- * POST /api/marketplace/auth/reset-password
- * Reset password for marketplace profile and persist
- */
-router.post('/auth/reset-password', async (req: Request, res: Response) => {
-  try {
-    const { phone, newPassword, otp } = req.body;
-    const cleanPhone = cleanBdMobilePhone(phone);
-    if (!cleanPhone || cleanPhone.length !== 11) {
-      return res.status(400).json({ success: false, error: 'সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন।' });
-    }
-    if (!newPassword || newPassword.length < 4) {
-      return res.status(400).json({ success: false, error: 'নতুন পাসওয়ার্ড কমপক্ষে ৪ অক্ষরের হতে হবে।' });
-    }
-
-    const newHash = await bcrypt.hash(newPassword, 10);
-    let target = await findMarketplaceUserByPhone(cleanPhone);
-    if (target) {
-      target.password_hash = newHash;
-      target.password = newPassword;
-      await saveMarketplaceUser(target);
-    }
-    // Also update in inMemoryStore.users
-    const shopUser = (inMemoryStore.users || []).find((u: any) => cleanBdMobilePhone(u.phone) === cleanPhone);
-    if (shopUser) {
-      shopUser.password_hash = newHash;
-      shopUser.password = newPassword;
-      saveInMemoryStoreToDisk();
-    }
-    return res.json({ success: true, message: 'পাসওয়ার্ড সফলভাবে সেট হয়েছে! এবার লগইন করুন।' });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || 'পাসওয়ার্ড রিসেট করতে সমস্যা হয়েছে।' });
   }
 });
 

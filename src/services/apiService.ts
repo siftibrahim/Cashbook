@@ -230,8 +230,6 @@ export const authApi = {
         sessionToken: string;
         expiresInSeconds?: number;
         isSimulated?: boolean;
-        simulatedOtp?: string;
-        otp?: string;
       }>('/auth/send-registration-otp', {
         method: 'POST',
         body: JSON.stringify(params),
@@ -341,9 +339,6 @@ export const authApi = {
         maskedPhone?: string;
         superAdminEmail?: string;
         message?: string;
-        isSimulated?: boolean;
-        simulatedOtp?: string;
-        otp?: string;
       }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier, email: identifier, password }),
@@ -453,9 +448,6 @@ export const authApi = {
         twoFaSessionToken?: string;
         maskedPhone?: string;
         superAdminEmail?: string;
-        simulatedOtp?: string;
-        otp?: string;
-        isSimulated?: boolean;
       }>('/auth/admin-login', {
         method: 'POST',
         body: JSON.stringify(params),
@@ -513,9 +505,6 @@ export const authApi = {
         phone?: string;
         maskedPhone?: string;
         twoFaSessionToken?: string;
-        simulatedOtp?: string;
-        otp?: string;
-        isSimulated?: boolean;
       }>('/auth/staff-login', {
         method: 'POST',
         body: JSON.stringify({ identifier, password }),
@@ -582,8 +571,6 @@ export const authApi = {
         expiresInSeconds?: number;
         isSuperAdmin?: boolean;
         isSimulated?: boolean;
-        simulatedOtp?: string;
-        otp?: string;
       }>('/auth/send-reset-otp', {
         method: 'POST',
         body: JSON.stringify(params),

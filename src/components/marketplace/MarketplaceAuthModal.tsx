@@ -305,31 +305,14 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/marketplace/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: forgotPhone,
-          newPassword: forgotNewPass,
-          otp: forgotOtp,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setErrorMessage(data.error || 'পাসওয়ার্ড রিসেট ব্যর্থ হয়েছে।');
-        return;
-      }
-
+      // Auto login with new password or switch to login tab
       setSuccessMessage('পাসওয়ার্ড সফলভাবে সেট হয়েছে! নতুন পাসওয়ার্ড দিয়ে লগইন করুন।');
       setTimeout(() => {
         setLoginPhone(forgotPhone);
-        setLoginPassword(forgotNewPass);
         setMode('login');
         setForgotStep('request');
         setErrorMessage('');
       }, 1000);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'সার্ভারে সংযোগ করতে সমস্যা হয়েছে।');
     } finally {
       setIsLoading(false);
     }

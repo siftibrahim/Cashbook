@@ -233,9 +233,7 @@ router.post('/send-registration-otp', async (req, res) => {
       maskedPhone,
       sessionToken,
       expiresInSeconds: 900,
-      isSimulated: true,
-      simulatedOtp: otpCode,
-      otp: otpCode,
+      isSimulated: smsRes?.isSimulated,
     });
   } catch (err: any) {
     console.error('Send Registration OTP Error:', err);
@@ -514,7 +512,7 @@ router.post('/login', async (req, res) => {
     const cleanEmail = rawIdentifier.toLowerCase();
     const cleanPhone = normalizePhone(rawIdentifier);
     const rateLimitKey = `login_${cleanEmail || cleanPhone}_${req.ip}`;
-    const rateLimit = checkRateLimit(rateLimitKey, 30, 2 * 60 * 1000);
+    const rateLimit = checkRateLimit(rateLimitKey, 10, 15 * 60 * 1000);
 
     if (rateLimit.isBlocked) {
       return res.status(429).json({
@@ -528,7 +526,7 @@ router.post('/login', async (req, res) => {
     // ----------------------------------------------------
     // CHECK 1: SUPER ADMIN IDENTIFIER & AUTHENTICATION
     // ----------------------------------------------------
-    let superAdminEmail = 'siftraihan@gmail.com';
+    let superAdminEmail = 'siftibrahim@gmail.com';
     let superAdminPhone = '01306908115';
     let superAdminHash = '';
 
@@ -539,8 +537,12 @@ router.post('/login', async (req, res) => {
         );
         if (adminRes.rows.length > 0) {
           const row = adminRes.rows[0];
-          if (row.email) superAdminEmail = row.email.toLowerCase();
-          if (row.phone) superAdminPhone = row.phone;
+          if (row.email && (row.email.includes('admin') || row.email.includes('siftibrahim'))) {
+            superAdminEmail = row.email.toLowerCase();
+          }
+          if (row.phone) {
+            superAdminPhone = row.phone;
+          }
           if (row.password_hash) superAdminHash = row.password_hash;
         }
       } catch (e) {
@@ -558,25 +560,20 @@ router.post('/login', async (req, res) => {
     // STRICT Super Admin identifier check: ONLY verified Super Admin credentials
     const isSuperAdminIdentifier =
       SUPER_ADMIN_EMAILS.includes(cleanEmail) ||
-      cleanEmail === 'siftraihan@gmail.com' ||
-      cleanEmail === 'siftibrahim@gmail.com' ||
       cleanPhone === '01306908115' ||
       cleanPhone === '01619665875' ||
       rawIdentifier.trim().toLowerCase() === 'admin';
 
     if (isSuperAdminIdentifier) {
       let isSuperValid = false;
-      const validAdminPasswords = ['123456', 'admin', 'admin123', 'password123', '01306908115', 'siftraihan', 'siftibrahim', '1234', '0000', '1111'];
 
+      // Check Password strictly with NO default passwords and NO master pins
       if (superAdminHash) {
-        isSuperValid = await compareAnyPasswordFormat(rawPassword, superAdminHash) || await compareAnyPasswordFormat(normalizedPassword, superAdminHash);
-      }
-      if (!isSuperValid && (
-        validAdminPasswords.includes(rawPassword.trim().toLowerCase()) ||
-        validAdminPasswords.includes(normalizedPassword.toLowerCase())
-      )) {
-        isSuperValid = true;
-        const newHash = await bcrypt.hash(normalizedPassword, 10);
+        isSuperValid = await compareAnyPasswordFormat(rawPassword, superAdminHash);
+      } else {
+        // Owner is logging in with their genuine password for the first time
+        // Hash and store the genuine password so only this password works! NO default password!
+        const newHash = await bcrypt.hash(normalizeBanglaDigits(rawPassword), 10);
         superAdminHash = newHash;
         if (pool) {
           try {
@@ -590,43 +587,60 @@ router.post('/login', async (req, res) => {
           memAdmin.password_hash = newHash;
         }
         saveInMemoryStoreToDisk();
+        isSuperValid = true;
       }
 
       if (isSuperValid) {
         clearRateLimit(rateLimitKey);
 
-        // Direct Login without blocking on 2FA when password is fully validated
-        const token = generateToken({
-          userId: 'usr_super_admin',
-          email: cleanEmail.includes('@') ? cleanEmail : (superAdminEmail || 'siftraihan@gmail.com'),
-          phone: cleanPhone || '01306908115',
-          name: 'ইব্রাহিম খলিল (সুপার অ্যাডমিন)',
-          role: 'super_admin',
-          shopName: 'TWING হিসাবি',
-        });
+        // Trigger 2FA OTP for Super Admin
+        const cleanAdminPhone = normalizePhone(superAdminPhone) || '01306908115';
+        const otpCode = generateOtp();
+        const expiresAt = now + 15 * 60 * 1000;
+        const tempAuthSession = '2fa_' + now.toString(36) + Math.random().toString(36).substring(2, 8);
 
-        const memAdmin = inMemoryStore.users.find(u => u.id === 'usr_super_admin');
-        if (memAdmin) {
-          memAdmin.lastActiveAt = now;
-          saveInMemoryStoreToDisk();
+        if (pool) {
+          try {
+            await pool.query('DELETE FROM password_reset_otps WHERE phone = $1 OR user_id = $2', [cleanAdminPhone, 'usr_super_admin']);
+            await pool.query(
+              `INSERT INTO password_reset_otps (id, phone, user_id, otp, expires_at, verified, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [tempAuthSession, cleanAdminPhone, 'usr_super_admin', otpCode, expiresAt, false, now]
+            );
+          } catch (e) {
+            console.warn('Error storing super admin 2FA OTP in DB:', e);
+          }
         }
+        
+        // Always store in memory for reliability
+        inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(o => o.phone !== cleanAdminPhone && o.userId !== 'usr_super_admin');
+        inMemoryStore.password_reset_otps.push({
+          id: tempAuthSession,
+          phone: cleanAdminPhone,
+          userId: 'usr_super_admin',
+          otp: otpCode,
+          expiresAt,
+          verified: false,
+          createdAt: now,
+        });
+        saveInMemoryStoreToDisk();
+
+        const smsText = `Your Twing Hisabi OTP is ${otpCode}. Valid for 15 minutes. Do not share this OTP with anyone.`;
+        console.log(`🔐 [SUPER ADMIN LOGIN OTP DISPATCH] Recipient: ${cleanAdminPhone} | Code: ${otpCode}`);
+        const smsRes = await sendSmsNotification(cleanAdminPhone, smsText);
+
+        const maskedPhone = cleanAdminPhone.length >= 11
+          ? cleanAdminPhone.substring(0, 3) + '****' + cleanAdminPhone.substring(cleanAdminPhone.length - 4)
+          : cleanAdminPhone;
 
         return res.json({
-          message: '✅ সফলভাবে সুপার অ্যাডমিন ড্যাশবোর্ডে লগইন হয়েছে!',
-          token,
-          requires2FA: false,
+          requires2FA: true,
           role: 'super_admin',
-          user: {
-            id: 'usr_super_admin',
-            name: 'ইব্রাহিম খলিল (সুপার অ্যাডমিন)',
-            phone: cleanPhone || '01306908115',
-            email: cleanEmail.includes('@') ? cleanEmail : (superAdminEmail || 'siftraihan@gmail.com'),
-            shopName: 'TWING হিসাবি',
-            role: 'super_admin',
-            status: 'active',
-            subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
-            subscriptionStatus: 'active',
-          },
+          message: `🔐 সুপার অ্যাডমিন সিকিউরিটি 2FA: ড্যাশবোর্ডে প্রবেশের জন্য আপনার নিবন্ধিত মোবাইল নম্বরে (${maskedPhone}) ওটিপি কোড পাঠানো হয়েছে।`,
+          twoFaSessionToken: tempAuthSession,
+          maskedPhone,
+          superAdminEmail,
+          isSimulated: smsRes.isSimulated,
         });
       }
     }
@@ -682,45 +696,11 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Bridge with Central Marketplace users if account exists there
-    if (!user && inMemoryStore.marketplace_users) {
-      const mktUser = inMemoryStore.marketplace_users.find((u: any) => {
-        const uPhone = normalizePhone(u.phone || '');
-        const uUsername = (u.username || '').toLowerCase().replace(/^@/, '');
-        return (cleanPhone && uPhone === cleanPhone) || (clean10 && uPhone.endsWith(clean10)) || uUsername === rawIdentifier.toLowerCase().replace(/^@/, '');
-      });
-      if (mktUser) {
-        user = {
-          id: mktUser.id,
-          name: mktUser.name,
-          phone: mktUser.phone || cleanPhone,
-          email: mktUser.email || `${cleanPhone}@twing.com`,
-          shop_name: mktUser.name ? `${mktUser.name}-এর স্টোর` : 'মাই শপ',
-          password_hash: mktUser.password_hash,
-          role: 'user',
-          status: 'active',
-          registered_at: mktUser.createdAt || Date.now(),
-        };
-      }
-    }
-
     let isUserMatch = false;
     if (user) {
       const storedHash = user.password_hash || user.passwordHash || user.password || user.pin;
       if (storedHash) {
-        isUserMatch = await compareAnyPasswordFormat(rawPassword, storedHash) || await compareAnyPasswordFormat(normalizedPassword, storedHash);
-      }
-      if (!isUserMatch && (
-        user.password === rawPassword || user.pin === rawPassword ||
-        user.password === normalizedPassword || user.pin === normalizedPassword
-      )) {
-        isUserMatch = true;
-      }
-      if (!isUserMatch && (
-        rawPassword === '123456' || rawPassword === 'password123' || rawPassword === '1234' ||
-        normalizedPassword === '123456' || normalizedPassword === 'password123' || normalizedPassword === '1234'
-      )) {
-        isUserMatch = true;
+        isUserMatch = await compareAnyPasswordFormat(rawPassword, storedHash);
       }
     }
 
@@ -868,8 +848,6 @@ router.post('/login', async (req, res) => {
           message: `🔐 স্টাফ সিকিউরিটি 2FA: প্যানেলে প্রবেশের জন্য আপনার মোবাইলে (${maskedPhone}) ওটিপি কোড পাঠানো হয়েছে।`,
           twoFaSessionToken: tempAuthSession,
           isSimulated: smsRes.isSimulated,
-          simulatedOtp: otpCode,
-          otp: otpCode,
         });
       }
     }
@@ -957,7 +935,6 @@ router.post('/admin-login', async (req, res) => {
       const isIdentifierMatch =
         !rawId ||
         cleanId === superAdminEmail.toLowerCase() ||
-        cleanId === 'siftraihan@gmail.com' ||
         cleanId === 'siftibrahim@gmail.com' ||
         cleanId === DEFAULT_ADMIN_EMAIL.toLowerCase() ||
         cleanId === 'admin' ||
@@ -969,18 +946,13 @@ router.post('/admin-login', async (req, res) => {
         return res.status(401).json({ error: '❌ ভুল সুপার অ্যাডমিন মোবাইল নম্বর বা ইমেইল!' });
       }
 
-      const validAdminPasswords = ['123456', 'admin', 'admin123', 'password123', '01306908115', 'siftraihan', 'siftibrahim', '1234', '0000', '1111'];
-      const normalizedAdminPass = normalizeBanglaDigits(cleanPassword);
-
       if (superAdminHash) {
-        // Compare strictly against the password hash in DB / memory
-        isCredentialValid = await compareAnyPasswordFormat(cleanPassword, superAdminHash) || await compareAnyPasswordFormat(normalizedAdminPass, superAdminHash);
-      }
-      if (!isCredentialValid && (
-        validAdminPasswords.includes(cleanPassword.toLowerCase()) ||
-        validAdminPasswords.includes(normalizedAdminPass.toLowerCase())
-      )) {
-        isCredentialValid = true;
+        // Compare strictly against the single password hash in DB
+        try {
+          isCredentialValid = await bcrypt.compare(cleanPassword, superAdminHash);
+        } catch {
+          isCredentialValid = false;
+        }
       }
 
       if (!isCredentialValid) {
@@ -989,7 +961,8 @@ router.post('/admin-login', async (req, res) => {
 
     clearRateLimit(rateLimitKey);
 
-    // TWO-FACTOR AUTHENTICATION (2FA) OTP
+    // MANDATORY TWO-FACTOR AUTHENTICATION (2FA) OTP
+    // Even when email & password are correct, Super Admin CANNOT enter dashboard without OTP verification
     const cleanAdminPhone = normalizePhone(superAdminPhone) || '01306908115';
     const otpCode = generateOtp();
     const now = Date.now();
@@ -1036,9 +1009,7 @@ router.post('/admin-login', async (req, res) => {
       twoFaSessionToken: tempAuthSession,
       maskedPhone,
       superAdminEmail,
-      isSimulated: true,
-      simulatedOtp: otpCode,
-      otp: otpCode,
+      isSimulated: smsRes.isSimulated,
       gatewayResponse: smsRes.gatewayResponse,
     });
   } catch (err: any) {
@@ -1096,10 +1067,6 @@ router.post('/admin-verify-2fa', async (req, res) => {
         isOtpValid = true;
         memOtp.verified = true;
       }
-    }
-
-    if (!isOtpValid && (cleanOtp === '123456' || (twoFaSessionToken && twoFaSessionToken.startsWith('2fa_')))) {
-      isOtpValid = true;
     }
 
     if (!isOtpValid) {
@@ -1562,7 +1529,6 @@ router.post('/send-reset-otp', async (req, res) => {
 
     // 1. Check if genuine Super Admin identifier
     const isSuperAdminIdentifier =
-      cleanEmail === 'siftraihan@gmail.com' ||
       cleanEmail === 'siftibrahim@gmail.com' ||
       cleanEmail === 'admin@twing.com' ||
       cleanPhone === '01306908115' ||
@@ -1574,7 +1540,7 @@ router.post('/send-reset-otp', async (req, res) => {
         id: 'usr_super_admin',
         name: 'সুপার অ্যাডমিন',
         phone: '01306908115',
-        email: cleanEmail.includes('@') ? cleanEmail : 'siftraihan@gmail.com',
+        email: 'siftibrahim@gmail.com',
         role: 'super_admin',
       };
     }
@@ -1717,9 +1683,7 @@ router.post('/send-reset-otp', async (req, res) => {
       sessionToken: otpId,
       maskedPhone,
       phone: recipientPhone,
-      isSimulated: true,
-      simulatedOtp: otpCode,
-      otp: otpCode,
+      isSimulated: smsRes?.isSimulated,
     });
   } catch (err: any) {
     console.error('Send Reset OTP Error:', err);
@@ -1773,10 +1737,6 @@ router.post('/verify-reset-otp', async (req, res) => {
         otpRecord = memOtp;
         isOtpValid = true;
       }
-    }
-
-    if (!isOtpValid && cleanOtp === '123456') {
-      isOtpValid = true;
     }
 
     if (!isOtpValid) {
@@ -1843,10 +1803,6 @@ router.post('/reset-password-with-otp', async (req, res) => {
       if (memOtp) isOtpValid = true;
     }
 
-    if (!isOtpValid && cleanOtp === '123456') {
-      isOtpValid = true;
-    }
-
     if (!isOtpValid) {
       return res.status(400).json({ error: '❌ অনুগ্রহ করে প্রথমে ওটিপি (OTP) যাচাই করুন।' });
     }
@@ -1856,7 +1812,6 @@ router.post('/reset-password-with-otp', async (req, res) => {
     const isSuperAdminPhone =
       cleanPhone === '01306908115' ||
       cleanPhone === '01619665875' ||
-      cleanEmail === 'siftraihan@gmail.com' ||
       cleanEmail === 'admin@twing.com' ||
       cleanEmail === 'siftibrahim@gmail.com';
 

@@ -253,7 +253,6 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
   // Modals state
   const [blockTarget, setBlockTarget] = useState<{ id: string; name: string } | null>(null);
   const [reportPostTarget, setReportPostTarget] = useState<SocialPost | null>(null);
-  const [shareTarget, setShareTarget] = useState<{ post?: SocialPost; product?: any } | null>(null);
   const [activeMenuPostId, setActiveMenuPostId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -478,24 +477,17 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
     onShowToast(isFollowing ? `${name}-কে ফলো করা হচ্ছে` : `${name}-কে আনফলো করা হয়েছে`);
   };
 
-  // Filter posts & sort Promoted / Sponsored posts first so all users see them at the top!
-  const displayedPosts = posts
-    .filter((p) => {
-      if (feedFilter === 'saved') {
-        return (p.savedByUserIds || []).includes(currentProfile.id);
-      }
-      // Check privacy
-      if (p.privacy === 'only_me' && p.authorId !== currentProfile.id) {
-        return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      const aPromoted = (a as any).isPromoted || (a.linkedProduct && (a.linkedProduct as any).isPromoted) ? 1 : 0;
-      const bPromoted = (b as any).isPromoted || (b.linkedProduct && (b.linkedProduct as any).isPromoted) ? 1 : 0;
-      if (aPromoted !== bPromoted) return bPromoted - aPromoted;
-      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-    });
+  // Filter posts
+  const displayedPosts = posts.filter((p) => {
+    if (feedFilter === 'saved') {
+      return (p.savedByUserIds || []).includes(currentProfile.id);
+    }
+    // Check privacy
+    if (p.privacy === 'only_me' && p.authorId !== currentProfile.id) {
+      return false;
+    }
+    return true;
+  });
 
   const trendingProducts = marketplaceSocialService.getCustomerProducts().slice(0, 4);
   const communityDirectory = marketplaceSocialService.getProfilesDirectory().filter((p) => p.id !== currentProfile.id);
@@ -1468,12 +1460,6 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
                           {post.feeling && (
                             <span className="text-xs text-slate-500 font-medium">
                               — {post.feeling.emoji} {post.feeling.label}
-                            </span>
-                          )}
-                          {Boolean((post as any).isPromoted || (post.linkedProduct && (post.linkedProduct as any).isPromoted)) && (
-                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-rose-600 text-white flex items-center gap-1 shadow-xs animate-pulse">
-                              <Flame className="w-3 h-3 fill-white" />
-                              <span>স্পনসরড</span>
                             </span>
                           )}
                         </div>
