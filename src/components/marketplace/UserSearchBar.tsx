@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { CustomerProfile } from '../../types/marketplaceSocial';
 import { marketplaceSocialService } from '../../services/marketplaceSocialService';
+import { UserAvatar } from './UserAvatar';
 
 interface UserSearchBarProps {
   onSelectUser: (user: CustomerProfile) => void;
@@ -44,12 +45,36 @@ export const UserSearchBar: React.FC<UserSearchBarProps> = ({
   }, [query]);
 
   useEffect(() => {
-    if (query.trim()) {
-      const found = marketplaceSocialService.searchUsers(query);
-      setResults(found);
-    } else {
-      setResults([]);
-    }
+    let isCancelled = false;
+    const fetchUsers = async () => {
+      if (!query.trim()) {
+        setResults([]);
+        return;
+      }
+      // 1. Immediate fast local filter
+      const localResults = marketplaceSocialService.searchUsers(query);
+      if (!isCancelled) setResults(localResults);
+
+      // 2. Query persistent server database to find any new registered users in real-time
+      try {
+        const res = await fetch(`/api/marketplace/social/users?q=${encodeURIComponent(query.trim())}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.users) && !isCancelled) {
+            const map = new Map<string, CustomerProfile>();
+            localResults.forEach((u) => map.set(u.id, u));
+            data.users.forEach((u: CustomerProfile) => map.set(u.id, { ...map.get(u.id), ...u }));
+            setResults(Array.from(map.values()));
+          }
+        }
+      } catch (e) {}
+    };
+
+    const timer = setTimeout(fetchUsers, 120);
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
   }, [query]);
 
   // Click outside to close dropdown
@@ -220,10 +245,11 @@ export const UserSearchBar: React.FC<UserSearchBarProps> = ({
                   >
                     {/* User Info */}
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <img
+                      <UserAvatar
                         src={user.avatar}
-                        alt={user.name}
-                        className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border border-slate-200 shrink-0"
+                        name={user.name}
+                        size="md"
+                        isVerified={user.isVerified}
                       />
                       <div className="min-w-0">
                         <div className="flex items-center gap-1">

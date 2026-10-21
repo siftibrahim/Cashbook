@@ -1,7 +1,7 @@
 {
   "name": "TwingHisabi – টুইংহিসাবি | সহজ হিসাব ও ব্যবসা ব্যবস্থাপনা",
   "description": "TwingHisabi হলো সহজ ও আধুনিক হিসাব এবং ব্যবসা ব্যবস্থাপনার প্ল্যাটফর্ম।",
-  "requestFramePermissions": ["camera"],
+  "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
 

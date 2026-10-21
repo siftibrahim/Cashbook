@@ -27,9 +27,10 @@ import {
   LogOut,
   Sparkles,
   Zap,
-  Flame,
   Flag,
   CheckCircle2,
+  Video,
+  Flame,
 } from 'lucide-react';
 import {
   CustomerProfile,
@@ -41,10 +42,13 @@ import {
   validateImageFiles,
   fileToBase64,
 } from '../../services/marketplaceSocialService';
+import { callService } from '../../services/callService';
 import { formatMoney } from '../../utils/storage';
 import { BlockConfirmModal } from './BlockConfirmModal';
 import { ProductBoostModal } from './ProductBoostModal';
 import { MarketplaceReportModal } from './MarketplaceReportModal';
+import { CustomerEditProductModal } from './CustomerEditProductModal';
+import { UserAvatar } from './UserAvatar';
 
 interface FacebookProfileViewProps {
   profile: CustomerProfile;
@@ -100,6 +104,7 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
     return (current.followingUserIds || []).includes(profile.id);
   });
   const [selectedBoostProduct, setSelectedBoostProduct] = useState<CustomerProductItem | null>(null);
+  const [editingProduct, setEditingProduct] = useState<CustomerProductItem | null>(null);
   const [isReportUserModalOpen, setIsReportUserModalOpen] = useState(false);
 
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -315,10 +320,11 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
             {/* Avatar & Basic Info */}
             <div className="flex items-end gap-3.5 sm:gap-4">
               <div className="relative">
-                <img
+                <UserAvatar
                   src={isOwnProfile ? currentAvatar : profile.avatar}
-                  alt={isOwnProfile ? editName : profile.name}
-                  className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-white shadow-md object-cover bg-white"
+                  name={isOwnProfile ? editName : profile.name}
+                  size="2xl"
+                  className="ring-4 ring-white shadow-md"
                 />
                 {isOwnProfile && (
                   <>
@@ -396,6 +402,28 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
                       </span>
                     </button>
                   )}
+                  {/* Test WhatsApp Call Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      callService.receiveIncomingCall(
+                        {
+                          id: 'user_ayesha',
+                          name: 'আয়েশা খাতুন',
+                          avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=300&q=80',
+                          phone: '01755667788',
+                          username: '@ayesha_kitchen',
+                        },
+                        'video'
+                      );
+                    }}
+                    className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-black rounded-xl flex items-center gap-1.5 transition border border-emerald-200 cursor-pointer"
+                    title="হোয়াটসঅ্যাপ টেস্ট কল রিসিভ করুন"
+                  >
+                    <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="hidden sm:inline">টেস্ট কল</span>
+                  </button>
+
                   {onOpenSettings && (
                     <button
                       type="button"
@@ -489,6 +517,50 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
                   >
                     <MessageCircle className="w-3.5 h-3.5 text-[#1877F2]" />
                     <span>মেসেজ</span>
+                  </button>
+
+                  {/* WhatsApp Audio Call */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      callService.startCall(
+                        {
+                          id: profile.id,
+                          name: profile.name,
+                          avatar: profile.avatar,
+                          phone: profile.phone,
+                          username: profile.username,
+                        },
+                        'audio'
+                      );
+                    }}
+                    className="px-3 py-2 bg-[#25D366] hover:bg-emerald-600 active:scale-95 text-white text-xs font-black rounded-xl flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                    title="হোয়াটসঅ্যাপ অডিও কল দিন"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>অডিও কল</span>
+                  </button>
+
+                  {/* WhatsApp Video Call */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      callService.startCall(
+                        {
+                          id: profile.id,
+                          name: profile.name,
+                          avatar: profile.avatar,
+                          phone: profile.phone,
+                          username: profile.username,
+                        },
+                        'video'
+                      );
+                    }}
+                    className="px-3 py-2 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white text-xs font-black rounded-xl flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                    title="হোয়াটসঅ্যাপ ভিডিও কল দিন"
+                  >
+                    <Video className="w-3.5 h-3.5" />
+                    <span>ভিডিও কল</span>
                   </button>
 
                   {/* Block */}
@@ -767,6 +839,34 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
                         )}
                       </div>
 
+                      {/* Product Action Buttons: Edit/Update to Feed & Delete */}
+                      <div className="grid grid-cols-2 gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingProduct(prod)}
+                          className="py-1.5 px-2 bg-blue-50 hover:bg-blue-100 text-[#1877F2] font-black text-[11px] rounded-xl flex items-center justify-center gap-1 transition border border-blue-200 cursor-pointer"
+                          title="পণ্য এডিট করুন ও পাবলিক ফিডে আপডেট প্রকাশ করুন"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>এডিট ও আপডেট</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`আপনি কি "${prod.name}" পণ্যটি মুছে ফেলতে চান?`)) {
+                              marketplaceSocialService.deleteCustomerProduct(prod.id);
+                              onShowToast?.('পণ্যটি সফলভাবে মুছে ফেলা হয়েছে।');
+                              window.dispatchEvent(new CustomEvent('twing_customer_products_updated'));
+                            }
+                          }}
+                          className="py-1.5 px-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-[11px] rounded-xl flex items-center justify-center gap-1 transition border border-rose-200 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>মুছে ফেলুন</span>
+                        </button>
+                      </div>
+
                       {/* Boost Product Button - Exclusive to user profile! */}
                       <button
                         type="button"
@@ -965,6 +1065,26 @@ export const FacebookProfileView: React.FC<FacebookProfileViewProps> = ({
           targetUserId={profile.id}
           targetUserName={profile.name}
           onShowToast={onShowToast || (() => {})}
+        />
+      )}
+
+      {/* Customer Product Edit & Public Feed Update Modal */}
+      {editingProduct && (
+        <CustomerEditProductModal
+          isOpen={true}
+          product={editingProduct}
+          onClose={() => setEditingProduct(null)}
+          onSuccess={() => {
+            setEditingProduct(null);
+            if (onShowToast) onShowToast('🎉 পণ্য সফলভাবে আপডেট হয়েছে এবং পাবলিক ফিডে প্রকাশিত হয়েছে!');
+            window.dispatchEvent(new CustomEvent('twing_customer_products_updated'));
+            window.dispatchEvent(new CustomEvent('twing_social_posts_updated'));
+          }}
+          onDelete={() => {
+            setEditingProduct(null);
+            if (onShowToast) onShowToast('পণ্যটি সফলভাবে মুছে ফেলা হয়েছে।');
+            window.dispatchEvent(new CustomEvent('twing_customer_products_updated'));
+          }}
         />
       )}
     </div>

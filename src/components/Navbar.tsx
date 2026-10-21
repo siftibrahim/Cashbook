@@ -172,20 +172,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right: Clean & Elegant Action Bar */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {/* Quick Central Marketplace Button */}
-          {onOpenMarketplace && (
-            <button
-              type="button"
-              onClick={onOpenMarketplace}
-              id="nav-marketplace-btn"
-              title="TWING সেন্ট্রাল মার্কেটপ্লেস ও সোশ্যাল মিডিয়া"
-              className="flex items-center gap-1.5 h-9 sm:h-10 px-2.5 sm:px-3 rounded-xl bg-gradient-to-r from-blue-600 via-[#1877F2] to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md border border-blue-400/30 cursor-pointer active:scale-95 transition"
-            >
-              <Globe className="w-4 h-4 text-white shrink-0" />
-              <span className="text-[11px] sm:text-xs">মার্কেটপ্লেস</span>
-              <span className="hidden sm:inline-block text-[9px] font-black px-1.5 py-0.5 rounded-full bg-white/20 text-white">সোশ্যাল</span>
-            </button>
-          )}
+
 
           {/* Quick QR Code Button (When available) */}
           {onOpenQrCode && (

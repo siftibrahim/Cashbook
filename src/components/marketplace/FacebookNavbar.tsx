@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { CustomerProfile } from '../../types/marketplaceSocial';
 import { marketplaceSocialService } from '../../services/marketplaceSocialService';
+import { UserAvatar } from './UserAvatar';
 
 export type FacebookNavTab = 'feed' | 'marketplace' | 'messenger' | 'notifications' | 'profile';
 
@@ -43,6 +44,7 @@ interface FacebookNavbarProps {
   onOpenAuthModal?: () => void;
   onOpenSettingsModal?: () => void;
   onOpenVerificationModal?: () => void;
+  onOpenProfileWizard?: () => void;
   onLogout?: () => void;
   onShowToast?: (msg: string) => void;
 }
@@ -65,6 +67,7 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
   onOpenAuthModal,
   onOpenSettingsModal,
   onOpenVerificationModal,
+  onOpenProfileWizard,
   onLogout,
   onShowToast,
 }) => {
@@ -329,22 +332,18 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
           {/* User Account / Dropdown */}
           {isLoggedIn ? (
             <>
-              {/* User Avatar - Clean & Crystal Clear, Consistent sizing */}
+              {/* User Avatar - Clean & Authentic (No Fake Stock Images) */}
               <div
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
                 className="flex items-center gap-1.5 p-1 rounded-full hover:bg-slate-100 cursor-pointer transition select-none shrink-0 active:scale-95"
                 title="অ্যাকাউন্ট মেনু ও সেটিংস"
               >
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border-2 border-slate-200 shadow-2xs shrink-0 bg-slate-100 flex items-center justify-center">
-                  <img
-                    src={currentProfile.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80'}
-                    alt={currentProfile.name}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80';
-                    }}
-                  />
-                </div>
+                <UserAvatar
+                  src={currentProfile.avatar}
+                  name={currentProfile.name}
+                  size="sm"
+                  isVerified={currentProfile.isVerified}
+                />
                 <ChevronDown className="w-4 h-4 text-slate-500 hidden sm:block" />
               </div>
 
@@ -359,10 +358,11 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
                     }}
                     className="p-3 bg-slate-50 hover:bg-slate-100 rounded-2xl flex items-center gap-3 cursor-pointer transition"
                   >
-                    <img
+                    <UserAvatar
                       src={currentProfile.avatar}
-                      alt={currentProfile.name}
-                      className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
+                      name={currentProfile.name}
+                      size="md"
+                      isVerified={currentProfile.isVerified}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1">
@@ -375,6 +375,26 @@ export const FacebookNavbar: React.FC<FacebookNavbarProps> = ({
                       <span className="text-[10px] text-[#1877F2] font-bold">প্রোফাইল দেখুন →</span>
                     </div>
                   </div>
+
+                  {/* Profile Setup Wizard Action */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onOpenProfileWizard?.();
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl bg-blue-50/70 hover:bg-blue-100/70 flex items-center gap-3 text-xs font-bold text-blue-700 transition cursor-pointer text-left border border-blue-100"
+                  >
+                    <div className="w-7 h-7 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1">
+                      <span>প্রোফাইল সেটআপ উইজার্ড</span>
+                      <span className="text-[10px] text-blue-500/80 block font-normal">
+                        ছবি, কভার ও বায়ো ফেসবুকের মতো সাজান
+                      </span>
+                    </div>
+                  </button>
 
                   <div className="border-t border-slate-100 my-1" />
 

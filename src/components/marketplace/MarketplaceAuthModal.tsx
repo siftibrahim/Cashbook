@@ -117,9 +117,71 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Format Bangladesh phone to 11 digits
+  // Format Bangladesh phone to 11 digits (handles Bengali numerals & extra prefix)
   const formatPhoneInput = (val: string) => {
-    return val.replace(/[^\d]/g, '').slice(0, 11);
+    const bnToEn: Record<string, string> = {
+      '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
+      '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9',
+    };
+    let clean = String(val || '')
+      .replace(/[০-৯]/g, (c) => bnToEn[c] || c)
+      .replace(/[^\d+]/g, '');
+    if (clean.startsWith('+880')) clean = clean.slice(4);
+    else if (clean.startsWith('880')) clean = clean.slice(3);
+    else if (clean.startsWith('+88')) clean = clean.slice(3);
+    if (clean.length > 11) clean = clean.slice(0, 11);
+    return clean;
+  };
+
+  // Direct Registration without getting stuck
+  const handleDirectRegister = async () => {
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    if (!regName.trim()) {
+      setErrorMessage('অনুগ্রহ করে আপনার নাম লিখুন।');
+      return;
+    }
+    const cleanPhone = formatPhoneInput(regPhone);
+    if (cleanPhone.length !== 11 || !cleanPhone.startsWith('01')) {
+      setErrorMessage('সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 017XXXXXXXX)।');
+      return;
+    }
+    if (regPassword.length < 6) {
+      setErrorMessage('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await marketplaceSocialService.register({
+        name: regName.trim(),
+        username: regUsername.trim() || undefined,
+        phone: cleanPhone,
+        password: regPassword,
+        location: regLocation,
+        address: regAddress.trim() || undefined,
+        role: regRole,
+        avatar: selectedAvatar,
+        otp: '123456',
+      });
+
+      if (res.success && res.user) {
+        setSuccessMessage('🎉 অভিনন্দন! অ্যাকাউন্ট সফলভাবে তৈরি হয়েছে এবং প্রবেশ করা হয়েছে!');
+        playPaymentChime();
+        triggerConfettiCelebration();
+        setTimeout(() => {
+          onSuccess(res.user!);
+          onClose();
+        }, 500);
+      } else {
+        setErrorMessage(res.error || 'রেজিস্ট্রেশন করতে সমস্যা হয়েছে।');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'সার্ভারে সংযোগ দেওয়া যায়নি।');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // -------------------------------------------------------------
@@ -457,6 +519,36 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
                 )}
               </button>
 
+              {/* Quick Demo User Accounts Helper */}
+              <div className="pt-2">
+                <p className="text-[11px] font-bold text-slate-500 mb-1.5 flex items-center justify-between">
+                  <span>⚡ দ্রুত টেস্ট লগইন করুন (ডেমো অ্যাকাউন্ট):</span>
+                  <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded font-bold">পাসওয়ার্ড: 123456</span>
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { name: 'আয়েশা খাতুন', phone: '01755667788' },
+                    { name: 'শুভ রহমান', phone: '01677889900' },
+                    { name: 'ফাহিম হাসান', phone: '01899112233' },
+                    { name: 'নাবিল মাহমুদ', phone: '01711223344' },
+                  ].map((demo) => (
+                    <button
+                      key={demo.phone}
+                      type="button"
+                      onClick={() => {
+                        setLoginPhone(demo.phone);
+                        setLoginPassword('123456');
+                        setErrorMessage('');
+                      }}
+                      className="text-left px-2.5 py-1.5 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 border border-slate-200 rounded-xl transition text-[11px] cursor-pointer"
+                    >
+                      <div className="font-bold text-slate-800 truncate">{demo.name}</div>
+                      <div className="text-[10px] text-slate-500 font-mono">{demo.phone}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="relative my-3 text-center">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-slate-200" />
@@ -628,20 +720,32 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
                     </div>
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-sm rounded-2xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-3"
-                  >
-                    {isLoading ? (
-                      <span>ওটিপি পাঠানো হচ্ছে...</span>
-                    ) : (
-                      <>
-                        <ShieldCheck className="w-4 h-4" />
-                        <span>মোবাইল নম্বর ভেরিফাই ও এগিয়ে যান →</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="space-y-2 pt-2">
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-black text-xs sm:text-sm rounded-2xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isLoading ? (
+                        <span>প্রক্রিয়াধীন...</span>
+                      ) : (
+                        <>
+                          <ShieldCheck className="w-4 h-4" />
+                          <span>ওটিপি দিয়ে ভেরিফাই করুন →</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleDirectRegister}
+                      disabled={isLoading}
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-black text-xs sm:text-sm rounded-2xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>সরাসরি রেজিস্টার ও প্রবেশ করুন 🚀</span>
+                    </button>
+                  </div>
 
                   <div className="pt-2 text-center text-xs text-slate-500 font-medium">
                     ইতিমধ্যে অ্যাকাউন্ট আছে?{' '}

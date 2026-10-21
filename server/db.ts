@@ -1657,6 +1657,13 @@ export async function initializeDatabaseSchema() {
       console.warn('⚠️ Sync DB users to local store warning:', syncErr);
     }
 
+    // Seed default marketplace users and social accounts
+    try {
+      await seedDefaultMarketplaceUsers();
+    } catch (mktSeedErr) {
+      console.warn('⚠️ seedDefaultMarketplaceUsers notice:', mktSeedErr);
+    }
+
     client.release();
     client = null;
     isDbConnected = true;
@@ -2599,9 +2606,19 @@ export async function seedDefaultMarketplaceUsers(): Promise<void> {
   saveInMemoryStoreToDisk();
 }
 
+export function convertBengaliToEnglishDigits(str: string): string {
+  if (!str) return '';
+  const bnToEn: Record<string, string> = {
+    '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
+    '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9'
+  };
+  return String(str).replace(/[০-৯]/g, (char) => bnToEn[char] || char);
+}
+
 export function getClean10Digits(phone: string): string {
   if (!phone) return '';
-  return phone.replace(/[^\d]/g, '').slice(-10);
+  const converted = convertBengaliToEnglishDigits(phone);
+  return converted.replace(/[^\d]/g, '').slice(-10);
 }
 
 export async function findMarketplaceUserByPhone(phone: string): Promise<any | null> {

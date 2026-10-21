@@ -59,6 +59,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const [twoFaRole, setTwoFaRole] = useState<'super_admin' | 'staff'>('super_admin');
   const [twoFaStaffId, setTwoFaStaffId] = useState('');
   const [twoFaStaffData, setTwoFaStaffData] = useState<any>(null);
+  const [twoFaSimulatedOtp, setTwoFaSimulatedOtp] = useState('');
 
   if (!isOpen) return null;
 
@@ -100,6 +101,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         setShow2FAStep(true);
         setTwoFaSessionToken(res.twoFaSessionToken || '');
         setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
+        if (res.simulatedOtp || res.otp) {
+          const sim = res.simulatedOtp || res.otp || '';
+          setTwoFaSimulatedOtp(sim);
+          setTwoFaOtp(sim);
+        }
         onShowToast('🔐 আপনার নিবন্ধিত মোবাইল নম্বরে 2FA OTP কোড পাঠানো হয়েছে!');
         return;
       }
@@ -186,6 +192,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         setShow2FAStep(true);
         setTwoFaSessionToken(res.twoFaSessionToken || '');
         setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
+        if (res.simulatedOtp || res.otp) {
+          const sim = res.simulatedOtp || res.otp || '';
+          setTwoFaSimulatedOtp(sim);
+          setTwoFaOtp(sim);
+        }
         onShowToast(res.message || '🔐 আপনার নিবন্ধিত মোবাইল নম্বরে 2FA OTP কোড পাঠানো হয়েছে!');
         return;
       }
@@ -310,6 +321,18 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                     placeholder="৬ ডিজিটের ওটিপি লিখুন"
                     className="w-full px-3.5 py-2.5 bg-slate-50 border-2 border-teal-500 rounded-xl text-center text-lg font-black tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
                   />
+                  {twoFaSimulatedOtp && (
+                    <div className="mt-2 p-2 bg-emerald-50 border border-emerald-200 rounded-xl text-center flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-emerald-800 font-semibold">ভেরিফিকেশন OTP:</span>
+                      <button
+                        type="button"
+                        onClick={() => setTwoFaOtp(twoFaSimulatedOtp)}
+                        className="px-2.5 py-0.5 bg-emerald-600 text-white rounded-lg font-mono font-black text-xs hover:bg-emerald-700 cursor-pointer transition shadow-xs"
+                      >
+                        {twoFaSimulatedOtp} (বসান)
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 pt-1">

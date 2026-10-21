@@ -33,12 +33,14 @@ import {
   fileToBase64,
   validateMediaFiles,
 } from '../../services/marketplaceSocialService';
+import { callService } from '../../services/callService';
 import {
   ChatConversation,
   ChatMessage,
   CustomerProfile,
 } from '../../types/marketplaceSocial';
 import { BlockConfirmModal } from './BlockConfirmModal';
+import { UserAvatar } from './UserAvatar';
 
 interface FacebookMessengerViewProps {
   initialTargetUserId?: string | null;
@@ -126,13 +128,31 @@ export const FacebookMessengerView: React.FC<FacebookMessengerViewProps> = ({
     window.addEventListener('twing_chat_updated', handleChatSync);
     window.addEventListener('twing_profile_updated', handleChatSync);
 
-    // Periodic poll for simulated delivery/read ticks
-    const interval = setInterval(() => {
-      if (activeConvId) {
-        const msgs = marketplaceSocialService.getMessagesWith(activeConvId);
-        setMessages(msgs);
+    // Periodic live poll for real-time messages from server
+    const interval = setInterval(async () => {
+      try {
+        const prof = marketplaceSocialService.getCurrentProfile();
+        if (prof?.id) {
+          const res = await fetch(`/api/marketplace/social/messages/${prof.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && Array.isArray(data.messages)) {
+              localStorage.setItem('mkt_fb_chat_messages_v2', JSON.stringify(data.messages));
+              if (activeConvId) {
+                const msgs = marketplaceSocialService.getMessagesWith(activeConvId);
+                setMessages(msgs);
+              }
+              loadConversations();
+            }
+          }
+        }
+      } catch (e) {
+        if (activeConvId) {
+          const msgs = marketplaceSocialService.getMessagesWith(activeConvId);
+          setMessages(msgs);
+        }
       }
-    }, 4000);
+    }, 3000);
 
     return () => {
       window.removeEventListener('twing_chat_updated', handleChatSync);
@@ -167,7 +187,7 @@ export const FacebookMessengerView: React.FC<FacebookMessengerViewProps> = ({
         id: activeConvId,
         name: activeConv?.participantName || 'সেন্ট্রাল কাস্টমার',
         username: activeConv?.participantUsername || `@user_${activeConvId.slice(0, 6)}`,
-        avatar: activeConv?.participantAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80',
+        avatar: activeConv?.participantAvatar || '',
         coverPhoto: '',
         bio: '',
         phone: '',
@@ -599,14 +619,52 @@ export const FacebookMessengerView: React.FC<FacebookMessengerViewProps> = ({
               {/* Chat Actions */}
               <div className="flex items-center gap-1.5 shrink-0">
                 {!activeConv?.isGroup && (
-                  <button
-                    type="button"
-                    onClick={() => activeConvId && onViewProfile?.(activeConvId)}
-                    className="px-2.5 py-1 text-slate-600 hover:text-[#1877F2] hover:bg-blue-50 border border-slate-200 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">প্রোফাইল</span>
-                  </button>
+                  <>
+                    {/* WhatsApp Audio Call */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = activeParticipant || {
+                          id: activeConvId,
+                          name: activeConv?.participantName || 'ব্যবহারকারী',
+                          avatar: activeConv?.participantAvatar,
+                        };
+                        callService.startCall(target, 'audio');
+                      }}
+                      className="px-2.5 py-1 bg-[#25D366] hover:bg-emerald-600 active:scale-95 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                      title="হোয়াটসঅ্যাপ অডিও কল দিন"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">অডিও</span>
+                    </button>
+
+                    {/* WhatsApp Video Call */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = activeParticipant || {
+                          id: activeConvId,
+                          name: activeConv?.participantName || 'ব্যবহারকারী',
+                          avatar: activeConv?.participantAvatar,
+                        };
+                        callService.startCall(target, 'video');
+                      }}
+                      className="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                      title="হোয়াটসঅ্যাপ ভিডিও কল দিন"
+                    >
+                      <VideoIcon className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">ভিডিও</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => activeConvId && onViewProfile?.(activeConvId)}
+                      className="px-2.5 py-1 text-slate-600 hover:text-[#1877F2] hover:bg-blue-50 border border-slate-200 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <User className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">প্রোফাইল</span>
+                    </button>
+                  </>
                 )}
 
                 <button

@@ -44,8 +44,9 @@ export interface CustomerProfile {
   bio: string;
   phone: string;
   address: string;
-  location: string; // e.g. ধানমন্ডি, ঢাকা
   role?: 'customer' | 'seller' | 'creator' | 'admin';
+  profession?: string; // e.g. ব্যবসায়ী / চাকুরীজীবী / ছাত্র / উদ্যোক্তা
+  isProfileSetupCompleted?: boolean; // Facebook-style onboarding step-by-step
   joinedDate: string;
   followersCount: number;
   followingCount: number;
@@ -288,6 +289,7 @@ export interface CustomerProductItem {
   promotedAt?: string;
   boostPriority?: number;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface ChatMessage {

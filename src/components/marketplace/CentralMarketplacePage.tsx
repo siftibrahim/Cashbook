@@ -80,6 +80,8 @@ import { MarketplaceAuthModal } from './MarketplaceAuthModal';
 import { MarketplaceAuthGatekeeper } from './MarketplaceAuthGatekeeper';
 import { FacebookSettingsModal } from './FacebookSettingsModal';
 import { FacebookVerificationModal } from './FacebookVerificationModal';
+import { FacebookProfileSetupWizardModal } from './FacebookProfileSetupWizardModal';
+import { WhatsAppCallModal } from './WhatsAppCallModal';
 import { marketplaceSocialService } from '../../services/marketplaceSocialService';
 import {
   CustomerProfile,
@@ -338,6 +340,7 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
+  const [isProfileWizardOpen, setIsProfileWizardOpen] = useState(false);
 
   const pendingFriendRequestsCount = pendingFriendRequests.length;
 
@@ -346,6 +349,15 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
     setPendingFriendRequests(marketplaceSocialService.getPendingReceivedRequests());
     setConversations(marketplaceSocialService.getConversations());
   };
+
+  // Background Cloud Sync Every 4.5 seconds so all users' posts, products, messages are updated in real-time
+  useEffect(() => {
+    marketplaceSocialService.syncWithCloud().catch(() => {});
+    const syncInterval = setInterval(() => {
+      marketplaceSocialService.syncWithCloud().catch(() => {});
+    }, 4500);
+    return () => clearInterval(syncInterval);
+  }, []);
 
   const handleLogout = async () => {
     await marketplaceSocialService.logout();
@@ -367,6 +379,9 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         setIsLoggedIn(e.detail.isLoggedIn);
         if (e.detail.user) {
           setCurrentProfile(e.detail.user);
+          if (!e.detail.user.isProfileSetupCompleted) {
+            setIsProfileWizardOpen(true);
+          }
         }
       }
       refreshSocialData();
@@ -1273,6 +1288,9 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           setCurrentProfile(user);
           setIsLoggedIn(true);
           showToast(`🎉 স্বাগতম ${user.name}! সফলভাবে সেন্ট্রাল মার্কেটপ্লেসে প্রবেশ করেছেন।`);
+          if (!user.isProfileSetupCompleted) {
+            setIsProfileWizardOpen(true);
+          }
           refreshSocialData();
         }}
         onBackToDashboard={onBackToDashboard}
@@ -1330,8 +1348,28 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
         onOpenVerificationModal={() => setIsVerificationModalOpen(true)}
+        onOpenProfileWizard={() => setIsProfileWizardOpen(true)}
         onLogout={handleLogout}
       />
+
+      {/* Profile Incomplete Banner */}
+      {currentProfile && !currentProfile.isProfileSetupCompleted && (
+        <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs text-xs font-medium">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-300 shrink-0 animate-pulse" />
+            <span>
+              <strong>আপনার ফেসবুক স্টাইল প্রোফাইল সাজান:</strong> কোনো ডামি বা কাল্পনিক ছবি ছাড়া আপনার আসল ছবি, কভার ফটো ও এলাকা সেট করুন।
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsProfileWizardOpen(true)}
+            className="self-start sm:self-auto px-3.5 py-1 rounded-xl bg-white text-blue-700 font-black text-xs hover:bg-blue-50 transition shadow-xs cursor-pointer shrink-0"
+          >
+            ধাপে ধাপে প্রোফাইল সেটআপ করুন →
+          </button>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 3. MAIN CONTENT: 3-COLUMN LAYOUT EXACT MATCH */}
@@ -1715,6 +1753,26 @@ export const CentralMarketplacePage: React.FC<CentralMarketplacePageProps> = ({
           setCurrentProfile(up);
           refreshSocialData();
         }}
+      />
+
+      {/* WhatsApp Audio & Video Call Modal & Floating Overlay */}
+      <WhatsAppCallModal
+        onOpenChatWithParticipant={(participantId) => {
+          setChatTargetUserId(participantId);
+          setFbTab('messenger');
+        }}
+      />
+
+      {/* Facebook Profile Setup Wizard Modal (Step-by-step authentic setup) */}
+      <FacebookProfileSetupWizardModal
+        isOpen={isProfileWizardOpen}
+        onClose={() => setIsProfileWizardOpen(false)}
+        currentProfile={currentProfile}
+        onComplete={(up) => {
+          setCurrentProfile(up);
+          refreshSocialData();
+        }}
+        onShowToast={showToast}
       />
     </div>
   );

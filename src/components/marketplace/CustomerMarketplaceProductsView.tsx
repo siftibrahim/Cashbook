@@ -248,8 +248,12 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
       result = result.filter((p) => p.condition === selectedCondition);
     }
 
-    // Sorting
+    // Sorting (Boosted / Promoted products rank first in Central Marketplace!)
     result.sort((a, b) => {
+      const aPromoted = (a as any).isPromoted ? 1 : 0;
+      const bPromoted = (b as any).isPromoted ? 1 : 0;
+      if (aPromoted !== bPromoted) return bPromoted - aPromoted;
+
       if (sortBy === 'price_low') {
         return a.salePrice - b.salePrice;
       }
@@ -564,7 +568,11 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
               <div
                 key={prod.id}
                 onClick={() => onSelectProduct(prod)}
-                className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-lg hover:border-[#1877F2]/40 transition duration-200 overflow-hidden flex flex-col group cursor-pointer"
+                className={`rounded-2xl border transition duration-200 overflow-hidden flex flex-col group cursor-pointer ${
+                  prod.isPromoted
+                    ? 'border-amber-400 ring-2 ring-amber-400/50 shadow-md bg-gradient-to-b from-amber-50/20 to-white'
+                    : 'border-slate-200/90 shadow-2xs hover:shadow-lg hover:border-[#1877F2]/40 bg-white'
+                }`}
               >
                 {/* Product Image Container */}
                 <div className="relative aspect-square w-full bg-slate-100 overflow-hidden">
@@ -585,9 +593,9 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                         <span>ভেন্ডার শপ</span>
                       </span>
                     ) : prod.isPromoted ? (
-                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 text-white shadow-md flex items-center gap-1">
-                        <Flame className="w-3 h-3 fill-white" />
-                        <span>স্পনসরড</span>
+                      <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 text-white shadow-md flex items-center gap-1 animate-pulse">
+                        <Flame className="w-3.5 h-3.5 fill-white" />
+                        <span>🔥 স্পনসরড • টপ ফিচার্ড</span>
                       </span>
                     ) : (
                       <span
