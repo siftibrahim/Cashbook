@@ -481,10 +481,10 @@ export const FacebookMessengerView: React.FC<FacebookMessengerViewProps> = ({
                   }`}
                 >
                   <div className="relative shrink-0">
-                    <img
+                    <UserAvatar
                       src={conv.participantAvatar}
-                      alt={conv.participantName}
-                      className="w-11 h-11 rounded-full object-cover border border-slate-200"
+                      name={conv.participantName}
+                      size="md"
                     />
                     {conv.isGroup ? (
                       <span className="absolute bottom-0 right-0 w-4 h-4 bg-blue-600 text-white rounded-full flex items-center justify-center text-[9px] border-2 border-white">
@@ -573,12 +573,14 @@ export const FacebookMessengerView: React.FC<FacebookMessengerViewProps> = ({
                   <ArrowLeft className="w-4 h-4" />
                 </button>
 
-                <div className="relative shrink-0">
-                  <img
+                <div
+                  className="relative shrink-0 cursor-pointer"
+                  onClick={() => !activeConv?.isGroup && activeConvId && onViewProfile?.(activeConvId)}
+                >
+                  <UserAvatar
                     src={activeConv?.participantAvatar || activeParticipant?.avatar}
-                    alt={activeConv?.participantName || activeParticipant?.name}
-                    className="w-10 h-10 rounded-full object-cover border border-slate-200 cursor-pointer"
-                    onClick={() => !activeConv?.isGroup && activeConvId && onViewProfile?.(activeConvId)}
+                    name={activeConv?.participantName || activeParticipant?.name}
+                    size="md"
                   />
                   {!activeConv?.isGroup && (
                     <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full"></span>

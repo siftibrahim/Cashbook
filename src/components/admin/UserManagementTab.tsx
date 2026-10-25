@@ -444,7 +444,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h4 className="text-xs sm:text-sm font-black text-white">
-                  {dbStatus.connected ? '🟢 Neon PostgreSQL ডাটাবেজ সংযুক্ত' : '⚠️ Neon ডাটাবেজ কানেক্ট করা নেই'}
+                  {dbStatus.connected ? '🟢 ডাটাবেজ সফলভাবে সংযুক্ত ও সক্রিয়' : '⚠️ ডাটাবেজ সংযোগ বিচ্ছিন্ন'}
                 </h4>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900/80 border border-slate-700 text-slate-300 font-semibold">
                   {dbStatus.provider}
@@ -452,8 +452,8 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
               </div>
               <p className="text-[11px] text-slate-300 mt-0.5">
                 {dbStatus.connected
-                  ? `ডাটাবেজ: ${dbStatus.databaseName || 'neondb'} • সর্বমোট সংরক্ষিত ইউজার: ${users.length} জন`
-                  : 'console.neon.tech-এ থাকা আপনার ডাটাবেজ কানেকশন স্ট্রিং সেট করে লাইভ সিঙ্ক করুন।'}
+                  ? `ডাটাবেজ: ${dbStatus.databaseName || 'local-db.json'} • সর্বমোট সংরক্ষিত ইউজার: ${users.length} জন`
+                  : 'ডাটাবেজে পুনরায় কানেক্ট করে লাইভ সিঙ্ক নিশ্চিত করুন।'}
               </p>
             </div>
           </div>
@@ -481,7 +481,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                 }`}
               >
                 <Plug className="w-3.5 h-3.5" />
-                <span>{dbStatus.connected ? 'কানেকশন সেটিংস' : '🔌 Neon কানেক্ট করুন'}</span>
+                <span>{dbStatus.connected ? 'ডাটাবেজ কনফিগ' : '🔌 ডাটাবেজ কানেক্ট করুন'}</span>
               </button>
             )}
           </div>

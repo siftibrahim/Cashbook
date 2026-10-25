@@ -177,11 +177,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         setTwoFaMaskedPhone(res.maskedPhone || '013****8115');
         setTwoFaSessionToken(res.twoFaSessionToken || '');
         setTwoFaCountdown(60);
-        if (res.simulatedOtp || res.otp) {
-          const sim = res.simulatedOtp || res.otp || '';
-          setTwoFaSimulatedOtp(sim);
-          setTwoFaOtp(sim);
-        }
+        setTwoFaOtp('');
         setSuccessMsg(res.message || '🔐 আপনার নিবন্ধিত মোবাইল নম্বরে ৬-সংখ্যার ২FA ওটিপি কোড পাঠানো হয়েছে!');
         return;
       }
@@ -349,13 +345,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       setRegSessionToken(res.sessionToken || '');
       setRegMaskedPhone(res.maskedPhone || cleanPhone);
       setRegStep('otp');
-      const sim = (res as any).simulatedOtp || (res as any).otp || '';
-      if (sim) {
-        setRegSimulatedOtp(sim);
-        setRegOtp(sim);
-      } else {
-        setRegOtp('');
-      }
+      setRegOtp('');
       setRegCountdown(60);
       setSuccessMsg(res.message || '✅ আপনার মোবাইলে ৬-সংখ্যার OTP ভেরিফিকেশন কোড পাঠানো হয়েছে!');
     } catch (err: any) {
@@ -453,13 +443,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       setIsResetForAdmin(!!res.isSuperAdmin);
       setSuccessMsg(res.message || '✅ আপনার মোবাইলে ৬-সংখ্যার OTP কোড পাঠানো হয়েছে!');
       setResetStep('otp');
-      const sim = (res as any).simulatedOtp || (res as any).otp || '';
-      if (sim) {
-        setResetSimulatedOtp(sim);
-        setResetOtp(sim);
-      } else {
-        setResetOtp('');
-      }
+      setResetOtp('');
       setResetCountdown(60);
     } catch (err: any) {
       console.error('Send OTP Error:', err);
@@ -828,18 +812,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                           }`}
                         />
                       </div>
-                      {twoFaSimulatedOtp && (
-                        <div className="mt-2.5 p-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-center flex items-center justify-between gap-2">
-                          <span className="text-[11px] text-amber-300 font-semibold">ভেরিফিকেশন OTP:</span>
-                          <button
-                            type="button"
-                            onClick={() => setTwoFaOtp(twoFaSimulatedOtp)}
-                            className="px-2.5 py-1 bg-amber-500 text-slate-950 rounded-lg font-mono font-black text-xs hover:bg-amber-400 cursor-pointer transition shadow"
-                          >
-                            {twoFaSimulatedOtp} (ট্যাপ করে বসান)
-                          </button>
-                        </div>
-                      )}
                     </div>
 
                     <div className="flex items-center justify-between text-xs pt-1">
@@ -1136,18 +1108,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-emerald-500/50 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                     </div>
-                    {regSimulatedOtp && (
-                      <div className="mt-2.5 p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-center flex items-center justify-between gap-2">
-                        <span className="text-[11px] text-emerald-300 font-semibold">রেজিস্ট্রেশন OTP:</span>
-                        <button
-                          type="button"
-                          onClick={() => setRegOtp(regSimulatedOtp)}
-                          className="px-2.5 py-1 bg-emerald-500 text-slate-950 rounded-lg font-mono font-black text-xs hover:bg-emerald-400 cursor-pointer transition shadow"
-                        >
-                          {regSimulatedOtp} (ট্যাপ করে বসান)
-                        </button>
-                      </div>
-                    )}
                   </div>
 
                   <div className="flex items-center justify-between text-xs pt-1">
@@ -1321,18 +1281,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-emerald-500/50 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                     </div>
-                    {resetSimulatedOtp && (
-                      <div className="mt-2.5 p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-center flex items-center justify-between gap-2">
-                        <span className="text-[11px] text-emerald-300 font-semibold">ভেরিফিকেশন OTP:</span>
-                        <button
-                          type="button"
-                          onClick={() => setResetOtp(resetSimulatedOtp)}
-                          className="px-2.5 py-1 bg-emerald-500 text-slate-950 rounded-lg font-mono font-black text-xs hover:bg-emerald-400 cursor-pointer transition shadow"
-                        >
-                          {resetSimulatedOtp} (ট্যাপ করে বসান)
-                        </button>
-                      </div>
-                    )}
                   </div>
 
                   <div className="flex items-center justify-between text-xs pt-1">

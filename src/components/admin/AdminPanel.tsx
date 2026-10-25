@@ -489,7 +489,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             >
               <Database className="w-3.5 h-3.5 text-emerald-400" />
               <span className="font-bold">
-                {dbStatus?.connected ? `CockroachDB (${users.length})` : '🔌 ডাটাবেজ কানেক্ট'}
+                {dbStatus?.connected ? `ডাটাবেজ সক্রিয় (${users.length})` : '🔌 ডাটাবেজ সেটিংস'}
               </span>
             </button>
 

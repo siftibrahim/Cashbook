@@ -30,6 +30,7 @@ import { marketplaceApi } from '../../services/marketplaceService';
 import { formatMoney } from '../../utils/storage';
 import { getCatalogStudioImage } from '../../utils/productImages';
 import { ShareModal } from './ShareModal';
+import { UserAvatar } from './UserAvatar';
 
 interface CustomerMarketplaceProductsViewProps {
   currentProfile: CustomerProfile;
@@ -657,10 +658,10 @@ export const CustomerMarketplaceProductsView: React.FC<CustomerMarketplaceProduc
                   <div className="pt-2 border-t border-slate-100 space-y-1.5">
                     <div className="flex items-center justify-between gap-1">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <img
-                          src={prod.sellerAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
-                          alt={prod.sellerName}
-                          className="w-5 h-5 rounded-full object-cover border border-slate-200 shrink-0"
+                        <UserAvatar
+                          src={prod.sellerAvatar}
+                          name={prod.sellerName}
+                          size="xs"
                         />
                         <span className="text-[11px] font-bold text-slate-700 truncate">
                           {prod.sellerName}

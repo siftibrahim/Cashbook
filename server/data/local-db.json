@@ -13,12 +13,12 @@
       "status": "active",
       "subscriptionPlan": "মেয়াদ শেষ (রিনিউ প্রয়োজন)",
       "subscriptionStatus": "expired",
-      "subscriptionExpiresAt": 1792325796575,
+      "subscriptionExpiresAt": 1792909430038,
       "registered_at": 1790154812052,
       "last_active_at": 1791441294117,
       "notes": null,
       "lastActiveAt": 1792325797176,
-      "subscription_expires_at": 1792325796575,
+      "subscription_expires_at": 1792909430038,
       "subscription_plan": "মেয়াদ শেষ (রিনিউ প্রয়োজন)",
       "subscription_status": "expired"
     },
@@ -86,7 +86,21 @@
       "lastActiveAt": 1792325986661
     }
   ],
-  "stores": [],
+  "stores": [
+    {
+      "id": "store_usr_mudvydt9klkw",
+      "userId": "usr_mudvydt9klkw",
+      "name": "তানজিনা স্টেরন",
+      "owner": "তানজিনা",
+      "phone": "01778601196",
+      "address": "বাংলাদেশ",
+      "currencySymbol": "৳",
+      "themeColor": "teal",
+      "subscriptionExpiresAt": 1792909309865,
+      "subscriptionPlan": "মেয়াদ শেষ (রিনিউ প্রয়োজন)",
+      "subscriptionStatus": "expired"
+    }
+  ],
   "customers": [],
   "transactions": [],
   "expenses": [],
@@ -517,7 +531,7 @@
       "phone": "01306908115",
       "email": "siftibrahim@gmail.com",
       "is2FAEnabled": true,
-      "updatedAt": 1792325984063
+      "updatedAt": 1792910418875
     },
     "system_payment_settings": {
       "id": "system_payment_settings",
@@ -584,7 +598,7 @@
         "apiKey": "r5y3NpBqR9NOlVf8qUmaQm3VaO6GtzkvpQlrr0iC",
         "isSandbox": false
       },
-      "updatedAt": 1792325984063,
+      "updatedAt": 1792910418875,
       "updatedBy": "siftibrahim@gmail.com"
     },
     "app_update_config": {
@@ -596,7 +610,7 @@
       "updateTitle": "✨ নতুন আপডেট উপলব্ধ (v2.5.0)",
       "releaseNotes": "• দ্রুত পিওএস প্রিন্টিং\n• উন্নত ক্লাউড ব্যাকআপ\n• অফলাইন ট্রানজেকশন সাপোর্ট",
       "downloadUrl": "https://play.google.com/store",
-      "updatedAt": 1792325984063
+      "updatedAt": 1792910418875
     },
     "sms_gateway_config": {
       "provider": "bulksmsbd",
@@ -627,7 +641,7 @@
           "isActive": true
         }
       ],
-      "updatedAt": 1792325984064
+      "updatedAt": 1792910418875
     },
     "dashboard_banner_settings": {
       "isEnabled": true,
@@ -673,7 +687,7 @@
           "order": 3
         }
       ],
-      "updatedAt": 1792325984064
+      "updatedAt": 1792910418875
     }
   },
   "admin_activity_logs": [
@@ -690,13 +704,13 @@
   ],
   "password_reset_otps": [
     {
-      "id": "2fa_mvds9za3wibiqd",
+      "id": "2fa_mvngkz6l3tk36x",
       "phone": "01306908115",
       "userId": "usr_super_admin",
-      "otp": "856299",
-      "expiresAt": 1792326317691,
-      "verified": false,
-      "createdAt": 1792325417691
+      "otp": "675033",
+      "expiresAt": 1792911337149,
+      "verified": true,
+      "createdAt": 1792910437149
     }
   ],
   "trusted_devices": [],
@@ -987,6 +1001,32 @@
         "nagadNumber": "01677889900",
         "acceptsCod": true
       }
+    },
+    {
+      "id": "mkt_u_1792909451288_j7tvu",
+      "name": "ব্যবহারকারী (7788)",
+      "username": "@user_667788",
+      "phone": "01755667788",
+      "password_hash": "$2b$10$o5BJ2G0cL.Po1qiMhena2.jRdkQvZA2VMm/TUoOCUFVcLektSuml6",
+      "avatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&q=80",
+      "coverPhoto": "https://images.unsplash.com/photo-1707343843437-caacff5cfa74?auto=format&fit=crop&w=1200&q=80",
+      "bio": "সেন্ট্রাল মার্কেটপ্লেস ও টুইং সোশ্যাল সদস্য 🛍️",
+      "address": "ঢাকা, বাংলাদেশ",
+      "location": "ঢাকা",
+      "role": "customer",
+      "joinedDate": "অক্টোবর ২০২৬",
+      "followersCount": 0,
+      "followingCount": 0,
+      "friendsCount": 0,
+      "rating": 5,
+      "totalSales": 0,
+      "totalOrders": 0,
+      "isVerified": false,
+      "verificationStatus": "unverified",
+      "createdAt": 1792909451288,
+      "updatedAt": 1792909619427,
+      "activeSessions": [],
+      "last_active_at": 1792909451403
     }
   ],
   "marketplace_verification_requests": [],

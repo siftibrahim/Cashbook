@@ -1477,6 +1477,7 @@ export const FacebookFeedView: React.FC<FacebookFeedViewProps> = ({
                 <div key={post.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden space-y-3">
                   {/* Post Header */}
                   <div className="p-4 pb-0 flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div
                         className="cursor-pointer"
                         onClick={() => onViewProfile(post.authorId)}

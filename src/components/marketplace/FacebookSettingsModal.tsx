@@ -108,7 +108,7 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(currentProfile.twoFactorEnabled || false);
-  const [twoFactorPin, setTwoFactorPin] = useState(currentProfile.twoFactorPin || '123456');
+  const [twoFactorPin, setTwoFactorPin] = useState(currentProfile.twoFactorPin || '');
   const [activeSessions, setActiveSessions] = useState(currentProfile.activeSessions || [
     {
       id: 'sess_cur',
@@ -227,7 +227,7 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
       setIsVerifiedBadge(currentProfile.isVerified || false);
 
       setTwoFactorEnabled(currentProfile.twoFactorEnabled || false);
-      setTwoFactorPin(currentProfile.twoFactorPin || '123456');
+      setTwoFactorPin(currentProfile.twoFactorPin || '');
 
       setPostVisibility(currentProfile.privacySettings?.postVisibility || 'public');
       setRequestVisibility(currentProfile.privacySettings?.requestVisibility || 'everyone');
@@ -394,7 +394,7 @@ export const FacebookSettingsModal: React.FC<FacebookSettingsModalProps> = ({
     setIsSaving(true);
     try {
       const res = await marketplaceSocialService.changePassword(
-        currentPassword || '123456',
+        currentPassword,
         newPassword
       );
       if (res.success) {

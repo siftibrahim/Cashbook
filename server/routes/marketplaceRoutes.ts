@@ -1534,7 +1534,6 @@ router.post('/auth/send-register-otp', async (req: Request, res: Response) => {
     return res.json({
       success: true,
       message: `আপনার মোবাইল নম্বর (${standardPhone})-এ ৬ ডিজিটের ভেরিফিকেশন কোড পাঠানো হয়েছে।`,
-      otp: otpCode,
       expiresIn: 600,
     });
   } catch (err: any) {
@@ -1548,7 +1547,7 @@ router.post('/auth/send-register-otp', async (req: Request, res: Response) => {
  */
 router.post('/auth/register', async (req: Request, res: Response) => {
   try {
-    const { name, username, phone, password, address, location, role, avatar, otp } = req.body;
+    const { name, username, phone, password, address, location, role, avatar, coverPhoto, otp } = req.body;
 
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ success: false, error: 'অনুগ্রহ করে আপনার পুরো নাম লিখুন।' });
@@ -1567,9 +1566,7 @@ router.post('/auth/register', async (req: Request, res: Response) => {
       const cleanOtp = convertBengaliToEnglishDigits(String(otp)).trim();
       const regOtpRecord = regPhoneOtpStore.get(standardPhone);
       const isValidOtp =
-        (regOtpRecord && regOtpRecord.otp === cleanOtp && Date.now() <= regOtpRecord.expiresAt) ||
-        cleanOtp === '123456' ||
-        cleanOtp.length >= 4;
+        Boolean(regOtpRecord && regOtpRecord.otp === cleanOtp && Date.now() <= regOtpRecord.expiresAt);
 
       if (!isValidOtp) {
         return res.status(400).json({
@@ -1786,15 +1783,14 @@ router.post('/auth/login', async (req: Request, res: Response) => {
         passwordMatch = await bcrypt.compare(password, user.password_hash);
       } catch (err) {}
     }
-    // Fallback support for plain password or demo test pass
-    if (!passwordMatch && (user.password_hash === password || user.password === password || password === '123456' || password === 'password123')) {
+    if (!passwordMatch && (user.password_hash === password || user.password === password)) {
       passwordMatch = true;
     }
 
     if (!passwordMatch) {
       return res.status(401).json({
         success: false,
-        error: '⚠️ পাসওয়ার্ড ভুল হয়েছে! অনুগ্রহ করে সঠিক পাসওয়ার্ড দিন অথবা "পাসওয়ার্ড ভুলে গেছেন" এ ক্লিক করুন (অথবা ডিফল্ট ১২৩৪৫৬ ব্যবহার করুন)।',
+        error: '⚠️ পাসওয়ার্ড ভুল হয়েছে! অনুগ্রহ করে সঠিক পাসওয়ার্ড দিন অথবা "পাসওয়ার্ড ভুলে গেছেন" এ ক্লিক করুন।',
       });
     }
 
@@ -1970,7 +1966,7 @@ router.post('/auth/change-password', async (req: Request, res: Response) => {
     // Verify current password if user has password_hash
     if (user.password_hash && currentPassword) {
       const match = await bcrypt.compare(currentPassword, user.password_hash);
-      if (!match && currentPassword !== '123456') {
+      if (!match) {
         return res.status(400).json({ success: false, error: 'বর্তমান পাসওয়ার্ডটি সঠিক নয়!' });
       }
     }

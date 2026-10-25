@@ -720,16 +720,13 @@ export const marketplaceSocialService = {
       });
       const data = await res.json();
       if (data.success) {
-        return { success: true, message: data.message, otp: data.otp || '123456' };
+        return { success: true, message: data.message };
       }
-      return { success: true, message: 'ওটিপি কোড প্রস্তুত', otp: '123456' };
+      return { success: false, error: data.error || 'ওটিপি পাঠাতে সমস্যা হয়েছে।' };
     } catch (err: any) {
-      // Local fallback: generate 6 digit OTP so user can proceed
-      const localOtp = Math.floor(100000 + Math.random() * 900000).toString();
       return {
-        success: true,
-        message: `আপনার মোবাইল নম্বর (${cleanPhone})-এ ৬ ডিজিটের ভেরিফিকেশন কোড পাঠানো হয়েছে।`,
-        otp: localOtp,
+        success: false,
+        error: err.message || 'সার্ভারে সংযোগ দেওয়া সম্ভব হয়নি।',
       };
     }
   },
@@ -756,7 +753,7 @@ export const marketplaceSocialService = {
         body: JSON.stringify({
           ...payload,
           phone: cleanPhone,
-          otp: cleanOtp || '123456',
+          otp: cleanOtp,
         }),
       });
       const data = await res.json();
@@ -795,6 +792,7 @@ export const marketplaceSocialService = {
       id: `mkt_u_${Date.now()}`,
       name: payload.name.trim(),
       username: payload.username ? `@${payload.username.replace(/^@/, '')}` : `@user_${cleanPhone.slice(-6)}`,
+      phone: cleanPhone,
       avatar: (payload.avatar || '').trim(),
       coverPhoto: '',
       bio: '',
@@ -2544,8 +2542,8 @@ export const marketplaceSocialService = {
               serverMsgs.forEach((m) => msgMap.set(m.id, m));
               const mergedMsgs = Array.from(msgMap.values()).sort(
                 (a, b) =>
-                  new Date((a as any).timestamp || a.createdAt || 0).getTime() -
-                  new Date((b as any).timestamp || b.createdAt || 0).getTime()
+                  new Date(a.timestamp || (a as any).createdAt || 0).getTime() -
+                  new Date(b.timestamp || (b as any).createdAt || 0).getTime()
               );
               localStorage.setItem(MESSAGES_KEY, JSON.stringify(mergedMsgs));
               window.dispatchEvent(new CustomEvent('twing_chat_updated'));

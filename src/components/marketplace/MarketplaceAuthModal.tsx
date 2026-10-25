@@ -163,7 +163,6 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
         address: regAddress.trim() || undefined,
         role: regRole,
         avatar: selectedAvatar,
-        otp: '123456',
       });
 
       if (res.success && res.user) {
@@ -255,7 +254,6 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
     try {
       const res = await marketplaceSocialService.sendRegisterOtp(cleanPhone);
       if (res.success) {
-        setRegSimulatedOtp(res.otp || '123456');
         setRegStep('otp');
         setOtpCountdown(60);
         setSuccessMessage(`📩 ${cleanPhone} নম্বরে ৬ ডিজিটের ভেরিফিকেশন ওটিপি পাঠানো হয়েছে।`);
@@ -277,7 +275,6 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
       const cleanPhone = regPhone.replace(/[^\d]/g, '');
       const res = await marketplaceSocialService.sendRegisterOtp(cleanPhone);
       if (res.success) {
-        setRegSimulatedOtp(res.otp || '123456');
         setOtpCountdown(60);
         setSuccessMessage('📩 নতুন ওটিপি কোড পুনরায় পাঠানো হয়েছে।');
       } else {
@@ -341,23 +338,31 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
   // -------------------------------------------------------------
   // Handle Forgot Password
   // -------------------------------------------------------------
-  const handleRequestForgotOtp = (e: React.FormEvent) => {
+  const handleRequestForgotOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
-    if (!forgotPhone || forgotPhone.length !== 11) {
+    const cleanP = forgotPhone.replace(/[^\d]/g, '');
+    if (!cleanP || cleanP.length !== 11) {
       setErrorMessage('সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন।');
       return;
     }
-    const testOtp = '123456';
-    setSimulatedOtpNotice(`আপনার মোবাইলে ৬ ডিজিটের ওটিপি পাঠানো হয়েছে: ${testOtp}`);
-    setForgotStep('verify');
+    setIsLoading(true);
+    try {
+      await marketplaceSocialService.sendRegisterOtp(cleanP);
+      setForgotStep('verify');
+      setSuccessMessage(`📩 ${cleanP} নম্বরে ৬ ডিজিটের ভেরিফিকেশন ওটিপি পাঠানো হয়েছে।`);
+    } catch {
+      setErrorMessage('ওটিপি পাঠাতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleVerifyForgotOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
-    if (forgotOtp !== '123456') {
-      setErrorMessage('ভুল ওটিপি কোড! অনুগ্রহ করে ১২৩৪৫৬ দিন।');
+    if (!forgotOtp || forgotOtp.length !== 6) {
+      setErrorMessage('মোবাইলে প্রাপ্ত ৬ ডিজিটের সঠিক ওটিপি কোড দিন।');
       return;
     }
     if (forgotNewPass.length < 6) {
@@ -519,35 +524,7 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
                 )}
               </button>
 
-              {/* Quick Demo User Accounts Helper */}
-              <div className="pt-2">
-                <p className="text-[11px] font-bold text-slate-500 mb-1.5 flex items-center justify-between">
-                  <span>⚡ দ্রুত টেস্ট লগইন করুন (ডেমো অ্যাকাউন্ট):</span>
-                  <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded font-bold">পাসওয়ার্ড: 123456</span>
-                </p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    { name: 'আয়েশা খাতুন', phone: '01755667788' },
-                    { name: 'শুভ রহমান', phone: '01677889900' },
-                    { name: 'ফাহিম হাসান', phone: '01899112233' },
-                    { name: 'নাবিল মাহমুদ', phone: '01711223344' },
-                  ].map((demo) => (
-                    <button
-                      key={demo.phone}
-                      type="button"
-                      onClick={() => {
-                        setLoginPhone(demo.phone);
-                        setLoginPassword('123456');
-                        setErrorMessage('');
-                      }}
-                      className="text-left px-2.5 py-1.5 bg-slate-50 hover:bg-blue-50 hover:border-blue-200 border border-slate-200 rounded-xl transition text-[11px] cursor-pointer"
-                    >
-                      <div className="font-bold text-slate-800 truncate">{demo.name}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">{demo.phone}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
+
 
               <div className="relative my-3 text-center">
                 <div className="absolute inset-0 flex items-center">
@@ -822,7 +799,7 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
                         maxLength={6}
                         value={regOtp}
                         onChange={(e) => setRegOtp(e.target.value.replace(/[^\d]/g, ''))}
-                        placeholder="123456"
+                        placeholder="৬ ডিজিটের ওটিপি"
                         className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-2xl text-center text-lg font-black tracking-widest text-slate-800 focus:bg-white focus:border-emerald-600 outline-hidden"
                         autoFocus
                         required
@@ -905,11 +882,6 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
                 </form>
               ) : (
                 <form onSubmit={handleVerifyForgotOtp} className="space-y-3.5">
-                  {simulatedOtpNotice && (
-                    <div className="p-2.5 bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold rounded-2xl">
-                      {simulatedOtpNotice}
-                    </div>
-                  )}
 
                   <div>
                     <label className="block text-xs font-black text-slate-700 mb-1">
@@ -920,7 +892,7 @@ export const MarketplaceAuthModal: React.FC<MarketplaceAuthModalProps> = ({
                       maxLength={6}
                       value={forgotOtp}
                       onChange={(e) => setForgotOtp(e.target.value.replace(/[^\d]/g, ''))}
-                      placeholder="123456"
+                      placeholder="৬ ডিজিটের ওটিপি"
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-center text-sm font-black tracking-widest text-slate-900 outline-hidden"
                       required
                     />
