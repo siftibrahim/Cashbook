@@ -83,19 +83,19 @@ export class SubscriptionEngine {
       );
       if (uRes.rows.length === 0) {
         return {
-          subscriptionExpiresAt: isSubscriptionSystemEnabled ? (isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000)) : (now + 3650 * 86400000),
-          subscriptionPlan: isSubscriptionSystemEnabled ? defaultTrialPlanName : 'সম্পূর্ণ ফ্রি ও উন্মুক্ত',
-          subscriptionStatus: isSubscriptionSystemEnabled ? (isTrialEnabled ? 'trial' : 'expired') : 'active',
-          totalApprovedDays: isSubscriptionSystemEnabled ? 0 : 3650,
+          subscriptionExpiresAt: isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000),
+          subscriptionPlan: isTrialEnabled ? defaultTrialPlanName : 'মেয়াদ শেষ (রিনিউ প্রয়োজন)',
+          subscriptionStatus: isTrialEnabled ? 'trial' : 'expired',
+          totalApprovedDays: 0,
           isSubscriptionSystemEnabled,
         };
       }
 
       const u = uRes.rows[0];
-      if (u.role === 'super_admin' || !isSubscriptionSystemEnabled) {
+      if (u.role === 'super_admin') {
         return {
           subscriptionExpiresAt: now + 3650 * 86400000,
-          subscriptionPlan: u.role === 'super_admin' ? 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)' : 'সম্পূর্ণ ফ্রি ও উন্মুক্ত',
+          subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
           subscriptionStatus: 'active',
           totalApprovedDays: 3650,
           isSubscriptionSystemEnabled,
@@ -216,18 +216,18 @@ export class SubscriptionEngine {
       const u = inMemoryStore.users.find(x => x.id === userId);
       if (!u) {
         return {
-          subscriptionExpiresAt: isSubscriptionSystemEnabled ? (isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000)) : (now + 3650 * 86400000),
-          subscriptionPlan: isSubscriptionSystemEnabled ? defaultTrialPlanName : 'সম্পূর্ণ ফ্রি ও উন্মুক্ত',
-          subscriptionStatus: isSubscriptionSystemEnabled ? (isTrialEnabled ? 'trial' : 'expired') : 'active',
-          totalApprovedDays: isSubscriptionSystemEnabled ? 0 : 3650,
+          subscriptionExpiresAt: isTrialEnabled ? (now + trialDays * 86400000) : (now - 1000),
+          subscriptionPlan: isTrialEnabled ? defaultTrialPlanName : 'মেয়াদ শেষ (রিনিউ প্রয়োজন)',
+          subscriptionStatus: isTrialEnabled ? 'trial' : 'expired',
+          totalApprovedDays: 0,
           isSubscriptionSystemEnabled,
         };
       }
 
-      if (u.role === 'super_admin' || !isSubscriptionSystemEnabled) {
+      if (u.role === 'super_admin') {
         return {
           subscriptionExpiresAt: now + 3650 * 86400000,
-          subscriptionPlan: u.role === 'super_admin' ? 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)' : 'সম্পূর্ণ ফ্রি ও উন্মুক্ত',
+          subscriptionPlan: 'আজীবন আনলিমিটেড (সুপার অ্যাডমিন)',
           subscriptionStatus: 'active',
           totalApprovedDays: 3650,
           isSubscriptionSystemEnabled,
@@ -343,16 +343,25 @@ export class SubscriptionEngine {
       }
     }
 
-    // When subscription system is completely disabled by Super Admin, all user restrictions and lockscreens are lifted
+    // 1. Recalculate & synchronize subscription based on legitimate registration trial & approved payments
+    const synced = await this.recalculateAndSyncUserSubscription(userId);
+    const subscriptionExpiresAt = synced.subscriptionExpiresAt;
+    const subscriptionPlan = synced.subscriptionPlan;
+    const rawStatus = synced.subscriptionStatus.toUpperCase();
+    let pendingPayment: any = null;
+    let hasPendingPayment = false;
+
+    // When subscription system is completely disabled by Super Admin (master switch OFF):
+    // All user restrictions and lock screens are lifted, BUT genuine expiration date is kept intact!
     if (!isSubscriptionSystemEnabled) {
       return {
-        subscriptionExpiresAt: now + 3650 * 86400000,
-        subscriptionPlan: 'সক্রিয় (আনলিমিটেড)',
+        subscriptionExpiresAt: synced.subscriptionExpiresAt,
+        subscriptionPlan: synced.subscriptionPlan,
         subscriptionStatus: 'ACTIVE',
-        isExpired: false,
-        daysRemaining: 3650,
-        hoursRemaining: 3650 * 24,
-        msRemaining: 3650 * 86400000,
+        isExpired: false, // Allowed to use software freely!
+        daysRemaining: Math.max(0, Math.ceil((synced.subscriptionExpiresAt - now) / 86400000)),
+        hoursRemaining: Math.max(0, Math.ceil((synced.subscriptionExpiresAt - now) / 3600000)),
+        msRemaining: Math.max(0, synced.subscriptionExpiresAt - now),
         canRenew: false,
         isTrial: false,
         eligibleForEarlyBonus: false,
@@ -362,14 +371,6 @@ export class SubscriptionEngine {
         isSubscriptionSystemEnabled: false,
       };
     }
-
-    // 1. Recalculate & synchronize subscription based on legitimate registration trial & approved payments
-    const synced = await this.recalculateAndSyncUserSubscription(userId);
-    const subscriptionExpiresAt = synced.subscriptionExpiresAt;
-    const subscriptionPlan = synced.subscriptionPlan;
-    const rawStatus = synced.subscriptionStatus.toUpperCase();
-    let pendingPayment: any = null;
-    let hasPendingPayment = false;
 
     if (pool) {
       // Check for pending manual payments strictly for this user (Super Admin verification queue)

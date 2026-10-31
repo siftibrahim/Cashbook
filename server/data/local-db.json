@@ -71,7 +71,7 @@
       "name": "ইব্রাহিম খলিল (সুপার অ্যাডমিন)",
       "phone": "01306908115",
       "email": "siftibrahim@gmail.com",
-      "password_hash": "$2b$10$3xQMSuE5VpCeEDXIpEYzXO50yVa0Kg85kJ3Bd.LVoo08M8EV7X6ei",
+      "password_hash": "$2b$10$7fyc4zEKRNbVv6HzUgsh0ObEcjZ/wD/IbUaPYAQ8eN2cci6Kc6/2a",
       "shop_name": "TWING হিসাবি",
       "business_type": "জেনারেল স্টোর",
       "address": "ঢাকা, বাংলাদেশ",
@@ -81,9 +81,10 @@
       "subscriptionStatus": "active",
       "subscriptionExpiresAt": 2105147647299,
       "registered_at": 1789787647299,
-      "last_active_at": 1789792127578,
+      "last_active_at": 1793416331966,
       "notes": null,
-      "lastActiveAt": 1792325986661
+      "lastActiveAt": 1792325986661,
+      "password": "789456"
     }
   ],
   "stores": [
@@ -531,7 +532,7 @@
       "phone": "01306908115",
       "email": "siftibrahim@gmail.com",
       "is2FAEnabled": true,
-      "updatedAt": 1792910418875
+      "updatedAt": 1793436304841
     },
     "system_payment_settings": {
       "id": "system_payment_settings",
@@ -598,7 +599,7 @@
         "apiKey": "r5y3NpBqR9NOlVf8qUmaQm3VaO6GtzkvpQlrr0iC",
         "isSandbox": false
       },
-      "updatedAt": 1792910418875,
+      "updatedAt": 1793436304841,
       "updatedBy": "siftibrahim@gmail.com"
     },
     "app_update_config": {
@@ -610,7 +611,7 @@
       "updateTitle": "✨ নতুন আপডেট উপলব্ধ (v2.5.0)",
       "releaseNotes": "• দ্রুত পিওএস প্রিন্টিং\n• উন্নত ক্লাউড ব্যাকআপ\n• অফলাইন ট্রানজেকশন সাপোর্ট",
       "downloadUrl": "https://play.google.com/store",
-      "updatedAt": 1792910418875
+      "updatedAt": 1793436304841
     },
     "sms_gateway_config": {
       "provider": "bulksmsbd",
@@ -641,7 +642,7 @@
           "isActive": true
         }
       ],
-      "updatedAt": 1792910418875
+      "updatedAt": 1793436304841
     },
     "dashboard_banner_settings": {
       "isEnabled": true,
@@ -687,7 +688,7 @@
           "order": 3
         }
       ],
-      "updatedAt": 1792910418875
+      "updatedAt": 1793436304841
     }
   },
   "admin_activity_logs": [
@@ -702,17 +703,7 @@
       "timestamp": 1792219127360
     }
   ],
-  "password_reset_otps": [
-    {
-      "id": "2fa_mvngkz6l3tk36x",
-      "phone": "01306908115",
-      "userId": "usr_super_admin",
-      "otp": "675033",
-      "expiresAt": 1792911337149,
-      "verified": true,
-      "createdAt": 1792910437149
-    }
-  ],
+  "password_reset_otps": [],
   "trusted_devices": [],
   "sms_logs": [],
   "sms_purchases": [],

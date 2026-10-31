@@ -21,6 +21,7 @@ import {
   Smartphone,
   RefreshCw,
   ArrowLeft,
+  ArrowRight,
   Sparkles,
 } from 'lucide-react';
 import { ADMIN_EMAIL } from '../services/adminService';
@@ -81,6 +82,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   // OTP Password Reset State (User & Super Admin)
   const [resetStep, setResetStep] = useState<'phone' | 'otp' | 'new_password' | 'success'>('phone');
   const [resetTarget, setResetTarget] = useState('');
+  const [resetResolvedPhone, setResetResolvedPhone] = useState('');
   const [resetMaskedPhone, setResetMaskedPhone] = useState('');
   const [resetOtp, setResetOtp] = useState('');
   const [resetSimulatedOtp, setResetSimulatedOtp] = useState('');
@@ -91,10 +93,26 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [resetCountdown, setResetCountdown] = useState(0);
   const [isResetForAdmin, setIsResetForAdmin] = useState(false);
 
+  // Super Admin Direct Mobile OTP Login (Fixed: 01306908115, No Password Required)
+  const [isSuperAdminDirectOtpMode, setIsSuperAdminDirectOtpMode] = useState(false);
+  const [superAdminOtp, setSuperAdminOtp] = useState('');
+  const [superAdminSessionToken, setSuperAdminSessionToken] = useState('');
+  const [superAdminMaskedPhone, setSuperAdminMaskedPhone] = useState('013****8115');
+  const [superAdminCountdown, setSuperAdminCountdown] = useState(0);
+
   // Status & feedback
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Super Admin OTP Countdown timer
+  useEffect(() => {
+    if (superAdminCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setSuperAdminCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [superAdminCountdown]);
 
   // Registration OTP Countdown timer
   useEffect(() => {
@@ -122,6 +140,59 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }, 1000);
     return () => clearInterval(timer);
   }, [twoFaCountdown]);
+
+  const handleStartSuperAdminOtpLogin = async () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    setLoading(true);
+    try {
+      const res = await authApi.sendSuperAdminLoginOtp('01306908115');
+      setIsSuperAdminDirectOtpMode(true);
+      setShow2FA(false);
+      setSuperAdminSessionToken(res.sessionToken || '');
+      setSuperAdminMaskedPhone(res.maskedPhone || '013****8115');
+      setSuperAdminOtp('');
+      setSuperAdminCountdown(60);
+      setSuccessMsg(res.message || '✅ সুপার অ্যাডমিন নির্দিষ্ট নম্বরে ৬-সংখ্যার লগইন OTP পাঠানো হয়েছে!');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'OTP পাঠাতে ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifySuperAdminOtpLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+    const cleanOtp = toEnglishDigits(superAdminOtp.trim()).replace(/\D/g, '');
+    if (!cleanOtp || cleanOtp.length < 6) {
+      setErrorMsg('অনুগ্রহ করে মোবাইলে প্রাপ্ত ৬-সংখ্যার OTP কোড দিন');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await authApi.verifySuperAdminLoginOtp({
+        phone: '01306908115',
+        otp: cleanOtp,
+        sessionToken: superAdminSessionToken,
+      });
+      setSuccessMsg('🎉 সুপার অ্যাডমিন লগইন সফল হয়েছে! ড্যাশবোর্ডে প্রবেশ করা হচ্ছে...');
+      setTimeout(() => {
+        onLoginSuccess(res.user?.email || 'siftibrahim@gmail.com', 'super_admin', res.user);
+        if (onAdminLoginSuccess) {
+          onAdminLoginSuccess(res.user?.email || 'siftibrahim@gmail.com', {
+            role: 'super_admin',
+            email: res.user?.email || 'siftibrahim@gmail.com',
+          });
+        }
+      }, 400);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'ভুল বা মেয়াদোত্তীর্ণ OTP কোড। সঠিক ওটিপি দিন।');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     setTimeout(() => {
@@ -432,7 +503,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setSuccessMsg('');
     const target = toEnglishDigits(resetTarget.trim());
     if (!target) {
-      setErrorMsg('অনুগ্রহ করে আপনার রেজিস্টার্ড মোবাইল নম্বর লিখুন');
+      setErrorMsg('অনুগ্রহ করে আপনার রেজিস্টার্ড মোবাইল নম্বর বা ইমেইল লিখুন');
       return;
     }
 
@@ -440,6 +511,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     try {
       const res = await authApi.sendResetOtp({ phone: target, identifier: target });
       setResetMaskedPhone(res.maskedPhone || target);
+      if (res.phone) {
+        setResetResolvedPhone(res.phone);
+      }
       setIsResetForAdmin(!!res.isSuperAdmin);
       setSuccessMsg(res.message || '✅ আপনার মোবাইলে ৬-সংখ্যার OTP কোড পাঠানো হয়েছে!');
       setResetStep('otp');
@@ -465,8 +539,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
     setLoading(true);
     try {
-      const target = toEnglishDigits(resetTarget.trim());
+      const target = resetResolvedPhone || toEnglishDigits(resetTarget.trim());
       const res = await authApi.verifyResetOtp(target, cleanOtp);
+      if (res.phone) {
+        setResetResolvedPhone(res.phone);
+      }
       setSuccessMsg(res.message || '✅ OTP সফলভাবে যাচাই হয়েছে!');
       setResetStep('new_password');
     } catch (err: any) {
@@ -486,26 +563,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     const cleanConfirmPass = toEnglishDigits(resetConfirmPass.trim());
 
     if (cleanNewPass.length < 4) {
-      setErrorMsg('নতুন পিন ন্যূনতম ৪ সংখ্যার হতে হবে');
+      setErrorMsg('নতুন পিন বা পাসওয়ার্ড ন্যূনতম ৪ সংখ্যার হতে হবে');
       return;
     }
     if (cleanNewPass !== cleanConfirmPass) {
-      setErrorMsg('উভয় পিন হুবহু একই হতে হবে!');
+      setErrorMsg('উভয় পিন বা পাসওয়ার্ড হুবহু একই হতে হবে!');
       return;
     }
 
     setLoading(true);
     try {
+      const target = resetResolvedPhone || toEnglishDigits(resetTarget.trim());
+      const cleanOtp = toEnglishDigits(resetOtp.trim());
       const res = await authApi.resetPasswordWithOtp({
-        phone: resetTarget,
-        otp: resetOtp,
-        newPassword: resetNewPass,
+        phone: target,
+        otp: cleanOtp,
+        newPassword: cleanNewPass,
       });
-      setSuccessMsg(res.message || '🎉 পিন সফলভাবে পরিবর্তিত হয়েছে!');
+      setSuccessMsg(res.message || '🎉 পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে!');
       setResetStep('success');
     } catch (err: any) {
       console.error('Reset Password Error:', err);
-      setErrorMsg(err.message || 'পিন রিসেট করতে সমস্যা হয়েছে');
+      setErrorMsg(err.message || 'পাসওয়ার্ড রিসেট করতে সমস্যা হয়েছে');
     } finally {
       setLoading(false);
     }
@@ -736,7 +815,95 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           {/* ----------------- TAB 1: UNIFIED LOGIN & 2FA VERIFICATION ----------------- */}
           {activeTab === 'login' && (
             <div className="space-y-4">
-              {show2FA ? (
+              {isSuperAdminDirectOtpMode ? (
+                /* Super Admin Direct Mobile OTP Login (Fixed: 01306908115, No Password) */
+                <div className="space-y-3.5 animate-in fade-in">
+                  <div className="p-3.5 rounded-2xl border bg-amber-950/60 border-amber-500/50 flex items-start gap-2.5">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-sm mt-0.5">
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                        <span>👑 সুপার অ্যাডমিন মোবাইল ওটিপি লগইন</span>
+                      </h4>
+                      <p className="text-[11px] mt-0.5 leading-relaxed text-amber-200/90">
+                        সুপার অ্যাডমিনের নির্দিষ্ট মোবাইল নম্বরে (<span className="font-mono font-bold text-white">{superAdminMaskedPhone || '01306908115'}</span>) পাঠানো ৬-সংখ্যার OTP কোডটি লিখুন। কোনো পাসওয়ার্ড ছাড়াই সরাসরি লগইন সম্পন্ন হবে।
+                      </p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleVerifySuperAdminOtpLogin} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1.5 text-center">
+                        ৬-সংখ্যার OTP কোড দিন <span className="text-amber-400">*</span>
+                      </label>
+                      <div className="relative">
+                        <KeyRound className="w-4 h-4 absolute left-3.5 top-3.5 text-amber-400" />
+                        <input
+                          type="text"
+                          required
+                          maxLength={6}
+                          autoFocus
+                          value={superAdminOtp}
+                          onFocus={handleInputFocus}
+                          onChange={(e) => setSuperAdminOtp(e.target.value.replace(/\D/g, ''))}
+                          placeholder="••••••"
+                          className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-amber-500/60 rounded-2xl text-center text-xl tracking-[0.4em] font-mono font-black text-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSuperAdminDirectOtpMode(false);
+                          setSuperAdminOtp('');
+                          setErrorMsg('');
+                          setSuccessMsg('');
+                        }}
+                        className="text-slate-400 hover:text-slate-200 font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>আগের ধাপে ফিরুন</span>
+                      </button>
+
+                      {superAdminCountdown > 0 ? (
+                        <span className="text-slate-400 text-[11px] font-mono">
+                          পুনরায় কোড: {superAdminCountdown} সেকেন্ড
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleStartSuperAdminOtpLogin}
+                          className="hover:underline font-bold flex items-center gap-1 cursor-pointer text-[11px] text-amber-400"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          <span>পুনরায় OTP পাঠান</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading || superAdminOtp.length < 6}
+                      className="w-full py-3.5 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-black rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer mt-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 shadow-amber-950/40"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                          <span>যাচাই করা হচ্ছে...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                          <span>সরাসরি সুপার অ্যাডমিন প্যানেলে প্রবেশ করুন</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              ) : show2FA ? (
                 /* 2FA OTP Screen for Super Admin & Staff */
                 <div className="space-y-3.5 animate-in fade-in">
                   <div
@@ -894,6 +1061,27 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       />
                     </div>
                   </div>
+
+                  {toEnglishDigits(identifier).replace(/\D/g, '') === '01306908115' && (
+                    <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-yellow-500/20 to-amber-600/15 border border-amber-500/40 animate-in fade-in space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">👑</span>
+                        <div>
+                          <p className="text-xs font-black text-amber-300">সুপার অ্যাডমিনের নির্দিষ্ট নম্বর (01306908115)</p>
+                          <p className="text-[11px] text-amber-200/80">পাসওয়ার্ডের প্রয়োজন নেই — সরাসরি মোবাইলে OTP দিয়ে প্রবেশ করতে পারেন</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleStartSuperAdminOtpLogin}
+                        disabled={loading}
+                        className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                      >
+                        <Smartphone className="w-4 h-4" />
+                        <span>📲 ওটিপি পাঠান ও সরাসরি লগইন করুন</span>
+                      </button>
+                    </div>
+                  )}
 
                   <div>
                     <div className="flex justify-between items-center mb-1.5">

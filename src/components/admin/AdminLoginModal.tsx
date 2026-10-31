@@ -13,6 +13,8 @@ import {
   EyeOff,
   KeyRound,
   ShieldAlert,
+  PhoneCall,
+  Smartphone,
 } from 'lucide-react';
 import { ADMIN_EMAIL, authenticateStaff } from '../../services/adminService';
 import { AdminSession } from '../../types/adminTypes';
@@ -60,6 +62,162 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const [twoFaStaffId, setTwoFaStaffId] = useState('');
   const [twoFaStaffData, setTwoFaStaffData] = useState<any>(null);
   const [twoFaSimulatedOtp, setTwoFaSimulatedOtp] = useState('');
+
+  // Super Admin Password Reset via SMS OTP
+  const [isResetMode, setIsResetMode] = useState(false);
+  const [resetStep, setResetStep] = useState<'input' | 'otp' | 'new_password' | 'done'>('input');
+  const [resetIdentifier, setResetIdentifier] = useState('01306908115');
+  const [resetResolvedPhone, setResetResolvedPhone] = useState('01306908115');
+  const [resetMaskedPhone, setResetMaskedPhone] = useState('');
+  const [resetOtp, setResetOtp] = useState('');
+  const [resetNewPass, setResetNewPass] = useState('');
+  const [resetConfirmPass, setResetConfirmPass] = useState('');
+  const [showResetNewPass, setShowResetNewPass] = useState(false);
+
+  // Super Admin Direct OTP Login state (Fixed mobile: 01306908115)
+  const [loginMethod, setLoginMethod] = useState<'otp' | 'password'>('otp');
+  const [directOtpSent, setDirectOtpSent] = useState(false);
+  const [directOtp, setDirectOtp] = useState('');
+  const [directSessionToken, setDirectSessionToken] = useState('');
+  const [directMaskedPhone, setDirectMaskedPhone] = useState('013****8115');
+
+  const handleSendDirectOtp = async () => {
+    setErrorMsg('');
+    setLoading(true);
+    try {
+      const res = await authApi.sendSuperAdminLoginOtp('01306908115');
+      setDirectOtpSent(true);
+      setDirectSessionToken(res.sessionToken || '');
+      setDirectMaskedPhone(res.maskedPhone || '013****8115');
+      setDirectOtp('');
+      onShowToast(res.message || '✅ ৬ ডিজিটের লগইন OTP পাঠানো হয়েছে!');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'OTP পাঠাতে সমস্যা হয়েছে');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyDirectOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    const cleanOtp = toEnglishDigits(directOtp.trim());
+    if (!cleanOtp) {
+      setErrorMsg('৬ ডিজিটের OTP কোড লিখুন');
+      return;
+    }
+    setLoading(true);
+    try {
+      const fp = getOrGenerateFingerprint();
+      const res = await authApi.verifySuperAdminLoginOtp({
+        otp: cleanOtp,
+        sessionToken: directSessionToken,
+        trustDevice,
+        deviceFingerprint: fp,
+        deviceName: navigator.userAgent.slice(0, 100),
+      });
+
+      if (res.deviceFingerprint) {
+        localStorage.setItem('twing_device_fingerprint', res.deviceFingerprint);
+      }
+
+      onShowToast(res.message || '🎉 সুপার অ্যাডমিন প্যানেলে সফলভাবে প্রবেশ করা হয়েছে!');
+      onAdminAuthenticated({
+        role: 'super_admin',
+        email: res.user?.email || 'siftraihan@gmail.com',
+      });
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err.message || '❌ ভুল অথবা মেয়াদোত্তীর্ণ OTP কোড!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toEnglishDigits = (str: string) => {
+    const bn = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+    return (str || '').replace(/[০-৯]/g, (d) => String(bn.indexOf(d)));
+  };
+
+  const handleSendResetOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setErrorMsg('');
+    const target = toEnglishDigits(resetIdentifier.trim());
+    if (!target) {
+      setErrorMsg('মোবাইল নম্বর বা ইমেইল এড্রেস লিখুন');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await authApi.sendResetOtp({ phone: target, identifier: target });
+      setResetMaskedPhone(res.maskedPhone || target);
+      setResetResolvedPhone(res.phone || target);
+      setResetStep('otp');
+      setResetOtp('');
+      onShowToast(res.message || '✅ আপনার মোবাইলে ৬-সংখ্যার OTP কোড পাঠানো হয়েছে!');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'OTP পাঠাতে ব্যর্থ হয়েছে। সঠিক তথ্য দিন।');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyResetOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    const cleanOtp = toEnglishDigits(resetOtp.trim());
+    if (!cleanOtp) {
+      setErrorMsg('৬ ডিজিটের OTP কোড লিখুন');
+      return;
+    }
+    setLoading(true);
+    try {
+      const target = resetResolvedPhone || toEnglishDigits(resetIdentifier.trim());
+      const res = await authApi.verifyResetOtp(target, cleanOtp);
+      if (res.phone) setResetResolvedPhone(res.phone);
+      setResetStep('new_password');
+      onShowToast('✅ OTP সফলভাবে যাচাই হয়েছে!');
+    } catch (err: any) {
+      setErrorMsg(err.message || '❌ ভুল অথবা মেয়াদোত্তীর্ণ OTP কোড!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveNewPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    const cleanNew = toEnglishDigits(resetNewPass.trim());
+    const cleanConfirm = toEnglishDigits(resetConfirmPass.trim());
+    if (cleanNew.length < 4) {
+      setErrorMsg('নতুন পাসওয়ার্ড ন্যূনতম ৪ অক্ষরের হতে হবে');
+      return;
+    }
+    if (cleanNew !== cleanConfirm) {
+      setErrorMsg('উভয় পাসওয়ার্ড হুবহু একই হতে হবে!');
+      return;
+    }
+    setLoading(true);
+    try {
+      const target = resetResolvedPhone || toEnglishDigits(resetIdentifier.trim());
+      const cleanOtp = toEnglishDigits(resetOtp.trim());
+      const res = await authApi.resetPasswordWithOtp({
+        phone: target,
+        otp: cleanOtp,
+        newPassword: cleanNew,
+      });
+      setResetStep('done');
+      setPassword(cleanNew);
+      if (!email.trim()) {
+        setEmail(target);
+      }
+      onShowToast(res.message || '🎉 পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে!');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'পাসওয়ার্ড রিসেট করতে সমস্যা হয়েছে');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -292,134 +450,472 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         {/* SUPER ADMIN FORM */}
         {adminType === 'super' && (
           <div className="space-y-3 pt-1">
-            {show2FAStep ? (
-              <form onSubmit={handleVerify2FASubmit} className="space-y-3 animate-in fade-in">
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-xs space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                    <ShieldAlert className="w-4 h-4 text-amber-700" />
-                    <span>টু-ফ্যাক্টর অথেনটিকেশন (2FA)</span>
+            {isResetMode ? (
+              <div className="space-y-3 animate-in fade-in">
+                <div className="p-3 bg-teal-50 border border-teal-200 rounded-2xl text-teal-900 text-xs space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-teal-950">
+                    <KeyRound className="w-4 h-4 text-teal-700" />
+                    <span>সুপার অ্যাডমিন পাসওয়ার্ড রিসেট</span>
                   </div>
-                  <p className="text-[11px] leading-relaxed">
-                    অ্যাডমিন সিকিউরিটির জন্য আপনার ভেরিফাইড মোবাইল নম্বরে (<span className="font-bold text-amber-900">{twoFaMaskedPhone}</span>) একটি ৬ ডিজিটের ওটিপি কোড পাঠানো হয়েছে।
+                  <p className="text-[11px] text-teal-800 leading-relaxed">
+                    নিবন্ধিত মোবাইল নম্বর বা ইমেইলে OTP কোড পাঠিয়ে সুরক্ষিতভাবে নতুন পাসওয়ার্ড সেট করুন।
                   </p>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    ৬ ডিজিটের 2FA OTP কোড <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={6}
-                    required
-                    value={twoFaOtp}
-                    onChange={(e) => setTwoFaOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="৬ ডিজিটের ওটিপি লিখুন"
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border-2 border-teal-500 rounded-xl text-center text-lg font-black tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
-                  />
+                {resetStep === 'input' && (
+                  <form onSubmit={handleSendResetOtp} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        সুপার অ্যাডমিন মোবাইল বা ইমেইল <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={resetIdentifier}
+                        onChange={(e) => setResetIdentifier(e.target.value)}
+                        placeholder="01306908115 বা siftraihan@gmail.com"
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs cursor-pointer disabled:opacity-50"
+                    >
+                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+                      <span>৬ ডিজিটের OTP কোড পাঠান</span>
+                    </button>
+                    <div className="text-center pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsResetMode(false);
+                          setErrorMsg('');
+                        }}
+                        className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                      >
+                        ← লগইনে ফিরে যান
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {resetStep === 'otp' && (
+                  <form onSubmit={handleVerifyResetOtp} className="space-y-3">
+                    <div className="text-xs text-slate-600">
+                      আপনার মোবাইল নম্বর (<span className="font-bold text-teal-900">{resetMaskedPhone}</span>)-এ পাঠানো ৬ ডিজিটের OTP কোডটি লিখুন:
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        required
+                        value={resetOtp}
+                        onChange={(e) => setResetOtp(e.target.value.replace(/\D/g, ''))}
+                        placeholder="৬ ডিজিটের ওটিপি লিখুন"
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border-2 border-teal-500 rounded-xl text-center text-lg font-black tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loading || resetOtp.length < 4}
+                      className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs cursor-pointer disabled:opacity-50"
+                    >
+                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                      <span>OTP কোড যাচাই করুন</span>
+                    </button>
+                    <div className="flex justify-between items-center text-xs pt-1 px-1">
+                      <button
+                        type="button"
+                        onClick={() => setResetStep('input')}
+                        className="text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                      >
+                        ← নম্বর পরিবর্তন
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSendResetOtp}
+                        className="text-teal-700 font-bold hover:underline cursor-pointer"
+                      >
+                        OTP পুনরায় পাঠান
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {resetStep === 'new_password' && (
+                  <form onSubmit={handleSaveNewPassword} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        নতুন পাসওয়ার্ড <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showResetNewPass ? 'text' : 'password'}
+                          required
+                          value={resetNewPass}
+                          onChange={(e) => setResetNewPass(e.target.value)}
+                          placeholder="ন্যূনতম ৪ অক্ষরের নতুন পাসওয়ার্ড"
+                          className="w-full pl-3.5 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowResetNewPass(!showResetNewPass)}
+                          className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          {showResetNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        নতুন পাসওয়ার্ড নিশ্চিত করুন <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type={showResetNewPass ? 'text' : 'password'}
+                        required
+                        value={resetConfirmPass}
+                        onChange={(e) => setResetConfirmPass(e.target.value)}
+                        placeholder="পাসওয়ার্ডটি পুনরায় লিখুন"
+                        className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loading || resetNewPass.length < 4}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs cursor-pointer disabled:opacity-50"
+                    >
+                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+                      <span>নতুন পাসওয়ার্ড সংরক্ষণ করুন</span>
+                    </button>
+                  </form>
+                )}
+
+                {resetStep === 'done' && (
+                  <div className="space-y-3 text-center py-2 animate-in zoom-in-95">
+                    <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                      <ShieldCheck className="w-6 h-6" />
+                    </div>
+                    <p className="text-xs font-bold text-slate-800">
+                      🎉 পাসওয়ার্ড সফলভাবে রিসেট হয়েছে! আপনার নতুন পাসওয়ার্ড স্বয়ংক্রিয়ভাবে যোগ করা হয়েছে।
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsResetMode(false);
+                        setResetStep('input');
+                        setErrorMsg('');
+                      }}
+                      className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs cursor-pointer"
+                    >
+                      <span>লগইন করুন</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3 animate-in fade-in">
+                {/* Fixed Super Admin Mobile Number Card */}
+                <div className="p-3 bg-gradient-to-r from-teal-950 via-slate-900 to-slate-900 border border-teal-500/30 rounded-2xl text-teal-100 flex items-center justify-between shadow-md">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center font-black text-sm">
+                      👑
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold text-teal-400 uppercase tracking-wider">সুপার অ্যাডমিন ফিক্সড নম্বর</div>
+                      <div className="text-xs sm:text-sm font-black text-white tracking-widest">01306908115</div>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                    🔒 নির্দিষ্ট নম্বর
+                  </span>
                 </div>
 
-                <div className="flex items-center gap-2 pt-1">
-                  <input
-                    type="checkbox"
-                    id="trustDeviceCheck"
-                    checked={trustDevice}
-                    onChange={(e) => setTrustDevice(e.target.checked)}
-                    className="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500 cursor-pointer"
-                  />
-                  <label htmlFor="trustDeviceCheck" className="text-xs font-bold text-slate-700 cursor-pointer">
-                    এই ডিভাইসটি ট্রাস্টেড হিসেবে সংরক্ষণ করুন (৯০ দিন)
-                  </label>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading || twoFaOtp.length < 4}
-                  className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs sm:text-sm cursor-pointer disabled:opacity-50 mt-2"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>যাচাই হচ্ছে...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>2FA ভেরিফাই ও প্রবেশ</span>
-                    </>
-                  )}
-                </button>
-
-                <div className="text-center pt-1">
+                {/* Sub-Tabs: Direct OTP Login vs Password Login */}
+                <div className="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl text-xs font-bold">
                   <button
                     type="button"
                     onClick={() => {
-                      setShow2FAStep(false);
-                      setTwoFaOtp('');
+                      setLoginMethod('otp');
+                      setErrorMsg('');
                     }}
-                    className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                    className={`py-1.5 px-2 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      loginMethod === 'otp'
+                        ? 'bg-[#004D40] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
                   >
-                    ← পাসওয়ার্ড পরিবর্তন বা ফিরে যান
+                    <PhoneCall className="w-3.5 h-3.5" />
+                    <span>📲 ওটিপি দিয়ে সরাসরি লগইন</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginMethod('password');
+                      setErrorMsg('');
+                    }}
+                    className={`py-1.5 px-2 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      loginMethod === 'password'
+                        ? 'bg-[#004D40] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>🔑 পাসওয়ার্ড দিয়ে লগইন</span>
                   </button>
                 </div>
-              </form>
-            ) : (
-              <form onSubmit={handleSuperAdminPasswordSubmit} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    সুপার অ্যাডমিন মোবাইল নম্বর বা ইমেইল <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="01306908115 বা siftibrahim@gmail.com"
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
-                  />
-                </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    অ্যাডমিন পাসওয়ার্ড <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="পাসওয়ার্ড লিখুন"
-                      className="w-full pl-3.5 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
+                {/* MODE 1: DIRECT OTP LOGIN (NO PASSWORD NEEDED) */}
+                {loginMethod === 'otp' && (
+                  <div className="space-y-3 pt-0.5">
+                    {!directOtpSent ? (
+                      <div className="space-y-3 animate-in fade-in">
+                        <div className="p-3 bg-teal-50 border border-teal-200 rounded-2xl text-teal-900 text-xs leading-relaxed">
+                          সুপার অ্যাডমিনের নির্দিষ্ট মোবাইল নম্বরে (<span className="font-bold text-teal-950">01306908115</span>) ৬ ডিজিটের ওটিপি পাঠিয়ে পাসওয়ার্ড ছাড়াই সরাসরি ড্যাশবোর্ডে প্রবেশ করুন।
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleSendDirectOtp}
+                          disabled={loading}
+                          className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer disabled:opacity-50"
+                        >
+                          {loading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>OTP পাঠানো হচ্ছে...</span>
+                            </>
+                          ) : (
+                            <>
+                              <PhoneCall className="w-4 h-4" />
+                              <span>৬ ডিজিটের লগইন OTP পাঠান</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <form onSubmit={handleVerifyDirectOtp} className="space-y-3 animate-in fade-in">
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-xs">
+                          মোবাইল নম্বরে (<span className="font-bold text-amber-950">{directMaskedPhone}</span>) পাঠানো ৬ ডিজিটের ওটিপি কোডটি লিখুন:
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            ৬ ডিজিটের OTP কোড <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            maxLength={6}
+                            required
+                            autoFocus
+                            value={directOtp}
+                            onChange={(e) => setDirectOtp(e.target.value.replace(/\D/g, ''))}
+                            placeholder="৬ ডিজিটের ওটিপি লিখুন"
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border-2 border-teal-500 rounded-xl text-center text-lg font-black tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <input
+                            type="checkbox"
+                            id="trustDeviceCheckDirect"
+                            checked={trustDevice}
+                            onChange={(e) => setTrustDevice(e.target.checked)}
+                            className="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500 cursor-pointer"
+                          />
+                          <label htmlFor="trustDeviceCheckDirect" className="text-xs font-bold text-slate-700 cursor-pointer">
+                            এই ডিভাইসটি ট্রাস্টেড হিসেবে সংরক্ষণ করুন (৯০ দিন)
+                          </label>
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={loading || directOtp.length < 4}
+                          className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs sm:text-sm cursor-pointer disabled:opacity-50"
+                        >
+                          {loading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span>যাচাই হচ্ছে...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ShieldCheck className="w-4 h-4" />
+                              <span>সরাসরি সুপার অ্যাডমিন ড্যাশবোর্ডে প্রবেশ</span>
+                            </>
+                          )}
+                        </button>
+
+                        <div className="flex justify-between items-center text-xs pt-1 px-1">
+                          <button
+                            type="button"
+                            onClick={() => setDirectOtpSent(false)}
+                            className="text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                          >
+                            ← পিছনে যান
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSendDirectOtp}
+                            className="text-teal-700 font-bold hover:underline cursor-pointer"
+                          >
+                            OTP পুনরায় পাঠান
+                          </button>
+                        </div>
+                      </form>
+                    )}
                   </div>
-                </div>
+                )}
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs sm:text-sm cursor-pointer disabled:opacity-50 mt-2"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>যাচাই হচ্ছে...</span>
-                    </>
+                {/* MODE 2: PASSWORD + 2FA LOGIN */}
+                {loginMethod === 'password' && (
+                  show2FAStep ? (
+                    <form onSubmit={handleVerify2FASubmit} className="space-y-3 animate-in fade-in">
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-xs space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                          <ShieldAlert className="w-4 h-4 text-amber-700" />
+                          <span>টু-ফ্যাক্টর অথেনটিকেশন (2FA)</span>
+                        </div>
+                        <p className="text-[11px] leading-relaxed">
+                          অ্যাডমিন সিকিউরিটির জন্য আপনার ভেরিফাইড মোবাইল নম্বরে (<span className="font-bold text-amber-900">{twoFaMaskedPhone}</span>) একটি ৬ ডিজিটের ওটিপি কোড পাঠানো হয়েছে।
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          ৬ ডিজিটের 2FA OTP কোড <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={6}
+                          required
+                          value={twoFaOtp}
+                          onChange={(e) => setTwoFaOtp(e.target.value.replace(/\D/g, ''))}
+                          placeholder="৬ ডিজিটের ওটিপি লিখুন"
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border-2 border-teal-500 rounded-xl text-center text-lg font-black tracking-widest text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <input
+                          type="checkbox"
+                          id="trustDeviceCheck"
+                          checked={trustDevice}
+                          onChange={(e) => setTrustDevice(e.target.checked)}
+                          className="w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500 cursor-pointer"
+                        />
+                        <label htmlFor="trustDeviceCheck" className="text-xs font-bold text-slate-700 cursor-pointer">
+                          এই ডিভাইসটি ট্রাস্টেড হিসেবে সংরক্ষণ করুন (৯০ দিন)
+                        </label>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={loading || twoFaOtp.length < 4}
+                        className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs sm:text-sm cursor-pointer disabled:opacity-50 mt-2"
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>যাচাই হচ্ছে...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck className="w-4 h-4" />
+                            <span>2FA ভেরিফাই ও প্রবেশ</span>
+                          </>
+                        )}
+                      </button>
+
+                      <div className="text-center pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShow2FAStep(false);
+                            setTwoFaOtp('');
+                          }}
+                          className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                        >
+                          ← পাসওয়ার্ড পরিবর্তন বা ফিরে যান
+                        </button>
+                      </div>
+                    </form>
                   ) : (
-                    <>
-                      <span>সুপার অ্যাডমিন প্যানেলে প্রবেশ</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </form>
+                    <form onSubmit={handleSuperAdminPasswordSubmit} className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          সুপার অ্যাডমিন মোবাইল নম্বর বা ইমেইল <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={email || '01306908115'}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="01306908115 বা siftibrahim@gmail.com"
+                          className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          অ্যাডমিন পাসওয়ার্ড <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showPassword ? 'text' : 'password'}
+                            required
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="পাসওয়ার্ড লিখুন"
+                            className="w-full pl-3.5 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:bg-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end pt-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsResetMode(true);
+                            setResetStep('input');
+                            setErrorMsg('');
+                            setResetIdentifier(email.trim() || '01306908115');
+                          }}
+                          className="text-[11px] font-bold text-teal-700 hover:text-teal-900 hover:underline cursor-pointer"
+                        >
+                          পাসওয়ার্ড ভুলে গেছেন? (OTP দিয়ে রিসেট)
+                        </button>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={loading}
+                        className="w-full py-2.5 bg-[#004D40] hover:bg-[#00382f] active:scale-95 text-white font-bold rounded-xl shadow-md transition flex items-center justify-center gap-1.5 text-xs sm:text-sm cursor-pointer disabled:opacity-50 mt-2"
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>যাচাই হচ্ছে...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>সুপার অ্যাডমিন প্যানেলে প্রবেশ</span>
+                            <ArrowRight className="w-4 h-4" />
+                          </>
+                        )}
+                      </button>
+                    </form>
+                  )
+                )}
+              </div>
             )}
           </div>
         )}

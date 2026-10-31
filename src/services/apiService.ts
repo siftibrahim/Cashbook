@@ -500,6 +500,45 @@ export const authApi = {
     return res;
   },
 
+  async sendSuperAdminLoginOtp(phone?: string) {
+    return await apiRequest<{
+      success: boolean;
+      message: string;
+      phone: string;
+      maskedPhone: string;
+      sessionToken?: string;
+    }>('/auth/super-admin/send-login-otp', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    });
+  },
+
+  async verifySuperAdminLoginOtp(params: {
+    otp: string;
+    phone?: string;
+    sessionToken?: string;
+    trustDevice?: boolean;
+    deviceFingerprint?: string;
+    deviceName?: string;
+  }) {
+    const res = await apiRequest<{
+      success: boolean;
+      message: string;
+      token: string;
+      role: string;
+      user: any;
+      deviceFingerprint?: string;
+    }>('/auth/super-admin/verify-login-otp', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    if (res.token) {
+      setAuthToken(res.token);
+      if (res.user) setStoredUser(res.user);
+    }
+    return res;
+  },
+
   async staffLogin(identifier: string, password: string) {
     try {
       const res = await apiRequest<{

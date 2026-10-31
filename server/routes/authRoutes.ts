@@ -1201,6 +1201,177 @@ router.post('/admin-verify-2fa', async (req, res) => {
 });
 
 /**
+ * 3.2 Super Admin Direct Mobile OTP Login (Fixed Phone: 01306908115)
+ * Sends a real 6-digit SMS OTP to the fixed Super Admin mobile number.
+ */
+router.post('/super-admin/send-login-otp', async (req, res) => {
+  try {
+    const fixedPhone = '01306908115';
+    const otpCode = generateOtp();
+    const now = Date.now();
+    const expiresAt = now + 15 * 60 * 1000; // 15 minutes validity
+    const sessionToken = 'sa_otp_' + now.toString(36) + Math.random().toString(36).substring(2, 8);
+    const pool = getDbPool();
+
+    // Invalidate old OTPs for super admin
+    if (pool) {
+      try {
+        await pool.query("DELETE FROM password_reset_otps WHERE phone = $1 OR user_id = 'usr_super_admin'", [fixedPhone]);
+        await pool.query(
+          `INSERT INTO password_reset_otps (id, phone, user_id, otp, expires_at, verified, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [sessionToken, fixedPhone, 'usr_super_admin', otpCode, expiresAt, false, now]
+        );
+      } catch (err) {
+        console.warn('DB error inserting super admin OTP:', err);
+      }
+    }
+
+    inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(
+      o => o.phone !== fixedPhone && o.userId !== 'usr_super_admin'
+    );
+    inMemoryStore.password_reset_otps.push({
+      id: sessionToken,
+      phone: fixedPhone,
+      userId: 'usr_super_admin',
+      otp: otpCode,
+      expiresAt,
+      verified: false,
+      createdAt: now,
+    });
+    saveInMemoryStoreToDisk();
+
+    const smsMessage = `Your Twing Hisabi Super Admin login OTP is ${otpCode}. Valid for 15 minutes. Do not share this code.`;
+    console.log(`👑 [SUPER ADMIN LOGIN OTP DISPATCH] Phone: ${fixedPhone} | Code: ${otpCode}`);
+    await sendSmsNotification(fixedPhone, smsMessage);
+
+    const maskedPhone = fixedPhone.substring(0, 3) + '****' + fixedPhone.substring(fixedPhone.length - 4);
+
+    return res.json({
+      success: true,
+      phone: fixedPhone,
+      maskedPhone,
+      sessionToken,
+      message: `✅ সুপার অ্যাডমিনের নির্দিষ্ট মোবাইল নম্বরে (${maskedPhone}) ৬ ডিজিটের লগইন OTP পাঠানো হয়েছে!`,
+    });
+  } catch (err: any) {
+    console.error('Super Admin Send Login OTP Error:', err);
+    return res.status(500).json({ error: err.message || 'OTP পাঠাতে সমস্যা হয়েছে' });
+  }
+});
+
+/**
+ * 3.3 Super Admin Verify Mobile OTP & Direct Login
+ * Upon entering the correct OTP sent to 01306908115, logs in directly as Super Admin.
+ */
+router.post('/super-admin/verify-login-otp', async (req, res) => {
+  try {
+    const { otp, sessionToken, deviceFingerprint, deviceName, trustDevice } = req.body;
+    const cleanOtp = normalizeBanglaDigits((otp || '').trim());
+    const fixedPhone = '01306908115';
+
+    if (!cleanOtp) {
+      return res.status(400).json({ error: 'অনুগ্রহ করে মোবাইলে আসা ৬-সংখ্যার OTP কোড লিখুন' });
+    }
+
+    const pool = getDbPool();
+    const now = Date.now();
+    let isOtpValid = false;
+
+    if (pool) {
+      try {
+        const otpRes = await pool.query(
+          `SELECT * FROM password_reset_otps 
+           WHERE (id = $1 OR user_id = 'usr_super_admin' OR phone = $2) 
+             AND otp = $3 AND expires_at > $4 
+           ORDER BY created_at DESC LIMIT 1`,
+          [sessionToken || '', fixedPhone, cleanOtp, now]
+        );
+        if (otpRes.rows.length > 0) {
+          isOtpValid = true;
+          await pool.query('UPDATE password_reset_otps SET verified = true WHERE id = $1', [otpRes.rows[0].id]);
+        }
+      } catch (err) {
+        console.warn('DB error verifying super admin login OTP:', err);
+      }
+    }
+
+    if (!isOtpValid) {
+      const memOtp = inMemoryStore.password_reset_otps.find(
+        o => (o.id === sessionToken || o.userId === 'usr_super_admin' || o.phone === fixedPhone) &&
+             o.otp === cleanOtp &&
+             o.expiresAt > now
+      );
+      if (memOtp) {
+        isOtpValid = true;
+        memOtp.verified = true;
+        saveInMemoryStoreToDisk();
+      }
+    }
+
+    if (!isOtpValid) {
+      return res.status(400).json({
+        error: '❌ ভুল অথবা মেয়াদোত্তীর্ণ OTP কোড! মোবাইলে আসা সঠিক ৬ ডিজিটের কোডটি লিখুন।'
+      });
+    }
+
+    // Clean up used OTP
+    inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(
+      o => o.phone !== fixedPhone && o.userId !== 'usr_super_admin'
+    );
+    saveInMemoryStoreToDisk();
+
+    // Trust device if requested
+    const fingerprint = (deviceFingerprint || '').trim() || 'fp_' + Math.random().toString(36).substring(2, 10);
+    if (trustDevice && fingerprint) {
+      const trustedUntil = now + 90 * 86400000;
+      if (!inMemoryStore.trusted_devices) inMemoryStore.trusted_devices = [];
+      inMemoryStore.trusted_devices.push({
+        id: 'dev_' + Date.now().toString(36),
+        userId: 'usr_super_admin',
+        deviceFingerprint: fingerprint,
+        deviceName: deviceName || 'সুপার অ্যাডমিন ডিভাইস',
+        trustedUntil,
+        createdAt: now,
+        lastUsedAt: now,
+      });
+      saveInMemoryStoreToDisk();
+    }
+
+    const adminUser = inMemoryStore.users.find(u => u.id === 'usr_super_admin' || u.role === 'super_admin');
+    const adminEmail = adminUser?.email || 'siftraihan@gmail.com';
+
+    const token = generateToken({
+      userId: 'usr_super_admin',
+      email: adminEmail,
+      role: 'super_admin',
+      shopName: 'সুপার অ্যাডমিন ড্যাশবোর্ড',
+      permissions: ['*'],
+    });
+
+    console.log(`👑 [SUPER ADMIN DIRECT OTP LOGIN SUCCESS] Token issued for ${fixedPhone}`);
+
+    return res.json({
+      success: true,
+      message: '🎉 ওটিপি সফলভাবে যাচাই হয়েছে! স্বাগতম সুপার অ্যাডমিন প্যানেল।',
+      token,
+      role: 'super_admin',
+      deviceFingerprint: fingerprint,
+      user: {
+        id: 'usr_super_admin',
+        name: adminUser?.name || 'সুপার অ্যাডমিন',
+        email: adminEmail,
+        phone: fixedPhone,
+        role: 'super_admin',
+      },
+    });
+  } catch (err: any) {
+    console.error('Super Admin Verify Login OTP Error:', err);
+    return res.status(500).json({ error: err.message || 'লগইন যাচাইকরণে সমস্যা হয়েছে' });
+  }
+});
+
+/**
  * 4. Staff Login (Mandatory 2FA OTP)
  */
 router.post('/staff-login', async (req, res) => {
@@ -1505,6 +1676,25 @@ router.post('/change-password', async (req, res) => {
 });
 
 /**
+ * Helper to identify if an identifier or phone belongs to Super Admin
+ */
+export function isSuperAdminIdentifierOrPhone(identifier: string): boolean {
+  if (!identifier) return false;
+  const raw = identifier.trim().toLowerCase();
+  const digits = normalizePhone(raw);
+  const clean10 = digits.length >= 10 ? digits.slice(-10) : '';
+  const superPhones = ['01306908115', '01619665875'];
+  const superEmails = ['siftraihan@gmail.com', 'siftibrahim@gmail.com', 'admin@twing.com', 'admin@gmail.com'];
+  const superUsernames = ['admin', 'usr_super_admin', 'superadmin'];
+
+  if (superUsernames.includes(raw)) return true;
+  if (superEmails.includes(raw)) return true;
+  if (superPhones.includes(digits) || superPhones.includes(raw)) return true;
+  if (clean10 && superPhones.some(p => p.slice(-10) === clean10)) return true;
+  return false;
+}
+
+/**
  * 7. Send Mobile SMS OTP for Password Reset (User & Super Admin)
  */
 router.post('/send-reset-otp', async (req, res) => {
@@ -1519,9 +1709,9 @@ router.post('/send-reset-otp', async (req, res) => {
     const cleanPhone = normalizePhone(rawTarget);
     const cleanEmail = rawTarget.toLowerCase();
 
-    // Rate limiting on OTP send (Max 4 OTP requests per 10 minutes per IP/Phone)
+    // Rate limiting on OTP send (Max 6 OTP requests per 10 minutes per IP/Phone)
     const otpLimitKey = `otp_send_${cleanPhone || cleanEmail}_${req.ip}`;
-    const rateLimit = checkRateLimit(otpLimitKey, 4, 10 * 60 * 1000);
+    const rateLimit = checkRateLimit(otpLimitKey, 6, 10 * 60 * 1000);
     if (rateLimit.isBlocked) {
       return res.status(429).json({
         error: `⚠️ অতিরিক্ত OTP অনুরোধের কারণে সাময়িক বিরতি দেওয়া হয়েছে। দয়া করে ${Math.ceil(rateLimit.retryAfterSec / 60)} মিনিট পর চেষ্টা করুন।`,
@@ -1529,30 +1719,19 @@ router.post('/send-reset-otp', async (req, res) => {
     }
 
     const pool = getDbPool();
-
+    const isSuperAdmin = isSuperAdminIdentifierOrPhone(rawTarget);
     let targetUser: any = null;
-    let isSuperAdmin = false;
 
-    // 1. Check if genuine Super Admin identifier
-    const isSuperAdminIdentifier =
-      cleanEmail === 'siftraihan@gmail.com' ||
-      cleanEmail === 'siftibrahim@gmail.com' ||
-      cleanEmail === 'admin@twing.com' ||
-      cleanPhone === '01306908115' ||
-      cleanPhone === '01619665875';
-
-    if (isSuperAdminIdentifier) {
-      isSuperAdmin = true;
+    if (isSuperAdmin) {
+      const memAdmin = inMemoryStore.users.find(u => u.id === 'usr_super_admin' || u.role === 'super_admin');
       targetUser = {
         id: 'usr_super_admin',
-        name: 'সুপার অ্যাডমিন',
-        phone: '01306908115',
-        email: cleanEmail.includes('@') ? cleanEmail : 'siftraihan@gmail.com',
+        name: memAdmin?.name || 'সুপার অ্যাডমিন',
+        phone: memAdmin?.phone || '01306908115',
+        email: cleanEmail.includes('@') ? cleanEmail : (memAdmin?.email || 'siftraihan@gmail.com'),
         role: 'super_admin',
       };
-    }
-
-    if (!targetUser && pool) {
+    } else if (pool) {
       try {
         const clean10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
         // Query users table strictly for regular shop owners (EXCLUDE super admin)
@@ -1605,20 +1784,20 @@ router.post('/send-reset-otp', async (req, res) => {
             normalizePhone(u.phone) === cleanPhone ||
             u.phone === rawTarget ||
             (cleanPhone.length >= 10 && u.phone && normalizePhone(u.phone) === cleanPhone) ||
-            u.email?.toLowerCase() === cleanEmail
+            (u.email && u.email.toLowerCase() === cleanEmail)
           )
       ) || inMemoryStore.staff?.find(
         s =>
           normalizePhone(s.phone) === cleanPhone ||
           s.phone === rawTarget ||
-          s.email?.toLowerCase() === cleanEmail
+          (s.email && s.email.toLowerCase() === cleanEmail)
       );
     }
 
     // Final fallback validation
     if (!targetUser) {
       return res.status(404).json({
-        error: `❌ "${rawTarget}" নম্বরটি দিয়ে কোনো নিবন্ধিত দোকান অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে আপনার সঠিক রেজিস্টার্ড মোবাইল নম্বর দিন অথবা নতুন অ্যাকাউন্ট নিবন্ধন করুন।`,
+        error: `❌ "${rawTarget}" তথ্য দিয়ে কোনো নিবন্ধিত অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে আপনার সঠিক রেজিস্টার্ড মোবাইল নম্বর দিন।`,
       });
     }
 
@@ -1626,6 +1805,10 @@ router.post('/send-reset-otp', async (req, res) => {
     let recipientPhone = normalizePhone(targetUser.phone) || cleanPhone;
     if (recipientPhone.length === 10 && !recipientPhone.startsWith('0')) {
       recipientPhone = '0' + recipientPhone;
+    }
+
+    if (isSuperAdmin) {
+      recipientPhone = targetUser.phone || '01306908115';
     }
 
     if (!recipientPhone || recipientPhone.length < 11) {
@@ -1640,8 +1823,10 @@ router.post('/send-reset-otp', async (req, res) => {
     // Save OTP to PostgreSQL
     if (pool) {
       try {
-        // Invalidate old OTPs for this phone
-        await pool.query('DELETE FROM password_reset_otps WHERE phone = $1 OR phone = $2', [recipientPhone, cleanPhone]);
+        await pool.query(
+          'DELETE FROM password_reset_otps WHERE phone = $1 OR phone = $2 OR ($3 = true AND (user_id = $4 OR phone = $5))',
+          [recipientPhone, cleanPhone, isSuperAdmin, 'usr_super_admin', '01306908115']
+        );
         await pool.query(
           `INSERT INTO password_reset_otps (id, phone, user_id, otp, expires_at, verified, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -1649,35 +1834,32 @@ router.post('/send-reset-otp', async (req, res) => {
         );
       } catch (err) {
         console.warn('Could not insert OTP into PostgreSQL, fallback to memory:', err);
-        inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(o => o.phone !== recipientPhone && o.phone !== cleanPhone);
-        inMemoryStore.password_reset_otps.push({
-          id: otpId,
-          phone: recipientPhone,
-          userId: targetUser?.id || (isSuperAdmin ? 'usr_super_admin' : 'unknown'),
-          otp: otpCode,
-          expiresAt,
-          verified: false,
-          createdAt: now,
-        });
       }
-    } else {
-      inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(o => o.phone !== recipientPhone && o.phone !== cleanPhone);
-      inMemoryStore.password_reset_otps.push({
-        id: otpId,
-        phone: recipientPhone,
-        userId: targetUser?.id || (isSuperAdmin ? 'usr_super_admin' : 'unknown'),
-        otp: otpCode,
-        expiresAt,
-        verified: false,
-        createdAt: now,
-      });
     }
+
+    // Always update in memory store and persist to disk
+    inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(o => {
+      if (isSuperAdmin && (o.userId === 'usr_super_admin' || o.phone === '01306908115')) return false;
+      if (o.phone === recipientPhone || o.phone === cleanPhone || o.phone === rawTarget) return false;
+      return true;
+    });
+
+    inMemoryStore.password_reset_otps.push({
+      id: otpId,
+      phone: recipientPhone,
+      userId: targetUser?.id || (isSuperAdmin ? 'usr_super_admin' : 'unknown'),
+      otp: otpCode,
+      expiresAt,
+      verified: false,
+      createdAt: now,
+    });
+    saveInMemoryStoreToDisk();
 
     // Send SMS via BulkSMSBD
     const smsMessage = `Your Twing Hisabi password reset OTP is ${otpCode}. Valid for 15 minutes. Do not share with anyone.`;
     console.log(`🔑 [PASSWORD RESET OTP DISPATCH] Target: ${recipientPhone} | Code: ${otpCode} | Role: ${targetUser.role || 'user'}`);
-    
-    const smsRes = await sendSmsNotification(recipientPhone, smsMessage);
+
+    await sendSmsNotification(recipientPhone, smsMessage);
 
     // Mask phone for privacy in UI
     const maskedPhone = recipientPhone.length >= 11
@@ -1690,6 +1872,7 @@ router.post('/send-reset-otp', async (req, res) => {
       sessionToken: otpId,
       maskedPhone,
       phone: recipientPhone,
+      isSuperAdmin,
     });
   } catch (err: any) {
     console.error('Send Reset OTP Error:', err);
@@ -1702,14 +1885,16 @@ router.post('/send-reset-otp', async (req, res) => {
  */
 router.post('/verify-reset-otp', async (req, res) => {
   try {
-    const { phone, otp } = req.body;
-    const cleanPhone = normalizePhone((phone || '').trim());
-    const cleanOtp = (otp || '').trim();
+    const { phone, identifier, otp } = req.body;
+    const rawTarget = (phone || identifier || '').trim();
+    const cleanPhone = normalizePhone(rawTarget);
+    const cleanOtp = normalizeBanglaDigits((otp || '').trim());
 
     if (!cleanOtp) {
       return res.status(400).json({ error: '৬-সংখ্যার OTP কোড প্রদান করুন' });
     }
 
+    const isSuperAdmin = isSuperAdminIdentifierOrPhone(rawTarget);
     let isOtpValid = false;
     const now = Date.now();
     const pool = getDbPool();
@@ -1719,9 +1904,16 @@ router.post('/verify-reset-otp', async (req, res) => {
       try {
         const otpRes = await pool.query(
           `SELECT * FROM password_reset_otps 
-           WHERE (phone = $1 OR phone = $2 OR phone LIKE $3) AND otp = $4 AND expires_at > $5 
+           WHERE (
+             phone = $1 
+             OR phone = $2 
+             OR ($3 = true AND (user_id = 'usr_super_admin' OR phone = '01306908115'))
+             OR (phone LIKE $4 AND $4 != '%%')
+           ) 
+           AND otp = $5 
+           AND expires_at > $6 
            ORDER BY created_at DESC LIMIT 1`,
-          [cleanPhone, phone || '', `%${cleanPhone.slice(-10)}%`, cleanOtp, now]
+          [cleanPhone, rawTarget, isSuperAdmin, `%${cleanPhone.slice(-10)}%`, cleanOtp, now]
         );
         if (otpRes.rows.length > 0) {
           otpRecord = otpRes.rows[0];
@@ -1735,17 +1927,21 @@ router.post('/verify-reset-otp', async (req, res) => {
 
     if (!isOtpValid) {
       // Check in-memory store
-      const memOtp = inMemoryStore.password_reset_otps.find(
-        o => (o.phone === cleanPhone || o.phone === phone) && o.otp === cleanOtp && o.expiresAt > now
-      );
+      const memOtp = inMemoryStore.password_reset_otps.find(o => {
+        const matchTarget =
+          (isSuperAdmin && (o.userId === 'usr_super_admin' || o.phone === '01306908115')) ||
+          o.phone === cleanPhone ||
+          o.phone === rawTarget ||
+          (cleanPhone.length >= 10 && normalizePhone(o.phone) === cleanPhone);
+        return matchTarget && o.otp === cleanOtp && o.expiresAt > now;
+      });
       if (memOtp) {
         memOtp.verified = true;
         otpRecord = memOtp;
         isOtpValid = true;
+        saveInMemoryStoreToDisk();
       }
     }
-
-
 
     if (!isOtpValid) {
       return res.status(400).json({
@@ -1759,7 +1955,8 @@ router.post('/verify-reset-otp', async (req, res) => {
       success: true,
       message: '✅ OTP কোড সফলভাবে যাচাই হয়েছে! এবার আপনার নতুন পাসওয়ার্ড লিখুন।',
       resetSessionToken,
-      phone: cleanPhone || phone,
+      phone: isSuperAdmin ? '01306908115' : (cleanPhone || rawTarget),
+      isSuperAdmin,
     });
   } catch (err: any) {
     console.error('Verify Reset OTP Error:', err);
@@ -1772,29 +1969,39 @@ router.post('/verify-reset-otp', async (req, res) => {
  */
 router.post('/reset-password-with-otp', async (req, res) => {
   try {
-    const { phone, otp, newPassword } = req.body;
-    const cleanPhone = normalizePhone((phone || '').trim());
-    const cleanOtp = (otp || '').trim();
+    const { phone, identifier, otp, newPassword } = req.body;
+    const rawTarget = (phone || identifier || '').trim();
+    const cleanPhone = normalizePhone(rawTarget);
+    const cleanOtp = normalizeBanglaDigits((otp || '').trim());
+    const cleanNewPassword = normalizeBanglaDigits((newPassword || '').trim());
 
-    if (!cleanPhone && !phone) {
-      return res.status(400).json({ error: 'মোবাইল নম্বর আবশ্যক' });
+    if (!cleanPhone && !rawTarget) {
+      return res.status(400).json({ error: 'মোবাইল নম্বর বা ইমেইল আবশ্যক' });
     }
-    if (!newPassword || newPassword.length < 6) {
-      return res.status(400).json({ error: 'নতুন পাসওয়ার্ড ন্যূনতম ৬ অক্ষরের হতে হবে' });
+    if (!cleanNewPassword || cleanNewPassword.length < 4) {
+      return res.status(400).json({ error: 'নতুন পাসওয়ার্ড বা পিন ন্যূনতম ৪ অক্ষরের হতে হবে' });
     }
 
+    const isSuperAdmin = isSuperAdminIdentifierOrPhone(rawTarget);
     let isOtpValid = false;
     const now = Date.now();
     const pool = getDbPool();
 
-    // Verify OTP validity strictly
+    // Verify OTP validity strictly (either match verified flag or active OTP within 30 min)
     if (pool) {
       try {
         const otpRes = await pool.query(
           `SELECT * FROM password_reset_otps 
-           WHERE (phone = $1 OR phone = $2 OR phone LIKE $3) AND (otp = $4 OR verified = true) AND expires_at > $5 
+           WHERE (
+             phone = $1 
+             OR phone = $2 
+             OR ($3 = true AND (user_id = 'usr_super_admin' OR phone = '01306908115'))
+             OR (phone LIKE $4 AND $4 != '%%')
+           ) 
+           AND (otp = $5 OR verified = true) 
+           AND expires_at > $6 
            ORDER BY created_at DESC LIMIT 1`,
-          [cleanPhone, phone || '', `%${cleanPhone.slice(-10)}%`, cleanOtp, now - 30 * 60 * 1000] // Allow 30m window after verification
+          [cleanPhone, rawTarget, isSuperAdmin, `%${cleanPhone.slice(-10)}%`, cleanOtp, now - 30 * 60 * 1000]
         );
         if (otpRes.rows.length > 0) {
           isOtpValid = true;
@@ -1805,43 +2012,48 @@ router.post('/reset-password-with-otp', async (req, res) => {
     }
 
     if (!isOtpValid) {
-      const memOtp = inMemoryStore.password_reset_otps.find(
-        o => (o.phone === cleanPhone || o.phone === phone) && (o.otp === cleanOtp || o.verified)
-      );
+      const memOtp = inMemoryStore.password_reset_otps.find(o => {
+        const matchTarget =
+          (isSuperAdmin && (o.userId === 'usr_super_admin' || o.phone === '01306908115')) ||
+          o.phone === cleanPhone ||
+          o.phone === rawTarget ||
+          (cleanPhone.length >= 10 && normalizePhone(o.phone) === cleanPhone);
+        return matchTarget && (o.otp === cleanOtp || o.verified);
+      });
       if (memOtp) isOtpValid = true;
     }
-
-
 
     if (!isOtpValid) {
       return res.status(400).json({ error: '❌ অনুগ্রহ করে প্রথমে ওটিপি (OTP) যাচাই করুন।' });
     }
 
-    const newHash = await bcrypt.hash(newPassword, 10);
-    const cleanEmail = (phone || '').trim().toLowerCase();
-    const isSuperAdminPhone =
-      cleanPhone === '01306908115' ||
-      cleanPhone === '01619665875' ||
-      cleanEmail === 'siftraihan@gmail.com' ||
-      cleanEmail === 'admin@twing.com' ||
-      cleanEmail === 'siftibrahim@gmail.com';
+    const newHash = await bcrypt.hash(cleanNewPassword, 10);
+    const cleanEmail = rawTarget.toLowerCase();
 
     let updatedDbUser: any = null;
 
     // Update in PostgreSQL
     if (pool) {
       try {
-        if (isSuperAdminPhone) {
+        if (isSuperAdmin) {
           // Update super admin user only
           const supRes = await pool.query(
             `UPDATE users SET password_hash = $1, last_active_at = $2 
-             WHERE id = 'usr_super_admin' AND role = 'super_admin'
+             WHERE id = 'usr_super_admin' OR role = 'super_admin'
              RETURNING id, name, phone, email, shop_name, role, status`,
             [newHash, now]
           );
           if (supRes.rows.length > 0) {
             updatedDbUser = supRes.rows[0];
           }
+
+          // Update system_config if exists
+          await pool.query(
+            `INSERT INTO system_config (id, data, updated_at) 
+             VALUES ('super_admin_security', $1, $2)
+             ON CONFLICT (id) DO UPDATE SET data = $1, updated_at = $2`,
+            [JSON.stringify({ password_hash: newHash, updated_at: now }), now]
+          ).catch(() => {});
         } else {
           // Update regular user by phone or email (Strictly NEVER touch super_admin or usr_super_admin)
           const clean10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : '';
@@ -1857,7 +2069,7 @@ router.post('/reset-password-with-otp', async (req, res) => {
              AND id != 'usr_super_admin'
              AND (role != 'super_admin' OR role IS NULL)
              RETURNING id, name, phone, email, shop_name, role, status, subscription_plan, subscription_status, subscription_expires_at, registered_at`,
-            [newHash, now, cleanPhone, phone, clean10, cleanEmail]
+            [newHash, now, cleanPhone, rawTarget, clean10, cleanEmail]
           );
 
           if (updateRes.rows.length > 0) {
@@ -1866,7 +2078,10 @@ router.post('/reset-password-with-otp', async (req, res) => {
         }
 
         // Clean up OTPs
-        await pool.query('DELETE FROM password_reset_otps WHERE phone = $1 OR phone = $2', [cleanPhone, phone]);
+        await pool.query(
+          'DELETE FROM password_reset_otps WHERE phone = $1 OR phone = $2 OR ($3 = true AND (user_id = $4 OR phone = $5))',
+          [cleanPhone, rawTarget, isSuperAdmin, 'usr_super_admin', '01306908115']
+        );
       } catch (err) {
         console.error('Database update error on password reset:', err);
       }
@@ -1875,19 +2090,21 @@ router.post('/reset-password-with-otp', async (req, res) => {
     // Update in memory store
     let matchedMemUser = false;
     inMemoryStore.users.forEach(u => {
-      if (isSuperAdminPhone && (u.id === 'usr_super_admin' || u.role === 'super_admin')) {
+      if (isSuperAdmin && (u.id === 'usr_super_admin' || u.role === 'super_admin')) {
         u.password_hash = newHash;
-        u.password = newPassword;
+        u.password = cleanNewPassword;
+        u.last_active_at = now;
         matchedMemUser = true;
-      } else if (!isSuperAdminPhone && u.id !== 'usr_super_admin') {
+      } else if (!isSuperAdmin && u.id !== 'usr_super_admin') {
         if (
           (updatedDbUser && u.id === updatedDbUser.id) ||
           u.phone === cleanPhone ||
-          u.phone === phone ||
-          (cleanPhone.length >= 10 && u.phone && normalizePhone(u.phone) === cleanPhone)
+          u.phone === rawTarget ||
+          (cleanPhone.length >= 10 && u.phone && normalizePhone(u.phone) === cleanPhone) ||
+          (u.email && u.email.toLowerCase() === cleanEmail)
         ) {
           u.password_hash = newHash;
-          u.password = newPassword;
+          u.password = cleanNewPassword;
           u.role = 'user';
           if (updatedDbUser) {
             u.id = updatedDbUser.id;
@@ -1900,6 +2117,18 @@ router.post('/reset-password-with-otp', async (req, res) => {
       }
     });
 
+    if (isSuperAdmin) {
+      if (!inMemoryStore.system_config) {
+        inMemoryStore.system_config = {} as any;
+      }
+      if (!inMemoryStore.system_config.super_admin_security) {
+        inMemoryStore.system_config.super_admin_security = {} as any;
+      }
+      inMemoryStore.system_config.super_admin_security.password_hash = newHash;
+      inMemoryStore.system_config.super_admin_security.updated_at = now;
+      matchedMemUser = true;
+    }
+
     // If updated in DB but not in memory store, sync it into memory store with REAL details
     if (!matchedMemUser && updatedDbUser) {
       inMemoryStore.users.push({
@@ -1909,7 +2138,7 @@ router.post('/reset-password-with-otp', async (req, res) => {
         email: updatedDbUser.email,
         shop_name: updatedDbUser.shop_name,
         password_hash: newHash,
-        password: newPassword,
+        password: cleanNewPassword,
         role: updatedDbUser.role || 'user',
         status: updatedDbUser.status || 'active',
         subscriptionPlan: updatedDbUser.subscription_plan || 'ফ্রি ট্রায়াল (১৪ দিন)',
@@ -1927,15 +2156,23 @@ router.post('/reset-password-with-otp', async (req, res) => {
       });
     }
 
-    inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(
-      o => o.phone !== cleanPhone && o.phone !== phone
-    );
+    // Clean up used OTPs
+    inMemoryStore.password_reset_otps = inMemoryStore.password_reset_otps.filter(o => {
+      if (isSuperAdmin && (o.userId === 'usr_super_admin' || o.phone === '01306908115')) return false;
+      if (o.phone === cleanPhone || o.phone === rawTarget) return false;
+      return true;
+    });
+
     saveInMemoryStoreToDisk();
+    console.log(`🔐 [PASSWORD RESET SUCCESS] Target: ${rawTarget} | SuperAdmin: ${isSuperAdmin} | New Hash saved to disk.`);
 
     return res.json({
       success: true,
-      message: '🎉 পাসওয়ার্ড সফলভাবে পরিবর্তন হয়েছে! আপনার নতুন পাসওয়ার্ড দিয়ে নিজের দোকান অ্যাকাউন্টে লগইন করুন।',
-      phone: cleanPhone,
+      message: isSuperAdmin
+        ? '🎉 সুপার অ্যাডমিন পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে! নতুন পাসওয়ার্ড দিয়ে প্যানেলে লগইন করুন।'
+        : '🎉 পাসওয়ার্ড সফলভাবে পরিবর্তন হয়েছে! আপনার নতুন পাসওয়ার্ড দিয়ে নিজের দোকান অ্যাকাউন্টে লগইন করুন।',
+      phone: isSuperAdmin ? '01306908115' : cleanPhone,
+      isSuperAdmin,
     });
   } catch (err: any) {
     console.error('Reset Password with OTP Error:', err);

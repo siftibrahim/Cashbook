@@ -390,6 +390,15 @@ export const App: React.FC = () => {
       if (subStatus) {
         if (typeof subStatus.isSubscriptionSystemEnabled === 'boolean') {
           setIsSubscriptionSystemEnabled(subStatus.isSubscriptionSystemEnabled);
+          localStorage.setItem('twing_subscription_system_enabled', String(subStatus.isSubscriptionSystemEnabled));
+        }
+        if (subStatus.subscriptionExpiresAt) {
+          setStore((prev) => ({
+            ...prev,
+            subscriptionExpiresAt: subStatus.subscriptionExpiresAt,
+            subscriptionPlan: subStatus.subscriptionPlan || (prev as any)?.subscriptionPlan,
+            subscriptionStatus: subStatus.subscriptionStatus || (prev as any)?.subscriptionStatus,
+          }));
         }
         setPendingPaymentInfo({
           hasPending: Boolean(subStatus.hasPendingPayment),
@@ -936,12 +945,20 @@ export const App: React.FC = () => {
     record?: any;
     latestConfirmed?: any;
   }>({ hasPending: false });
-  const [isSubscriptionSystemEnabled, setIsSubscriptionSystemEnabled] = useState<boolean>(true);
+  const [isSubscriptionSystemEnabled, setIsSubscriptionSystemEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('twing_subscription_system_enabled') !== 'false';
+  });
   const [scannedProductForPos, setScannedProductForPos] = useState<Product | null>(null);
   const [initialSkuForInventory, setInitialSkuForInventory] = useState<string | null>(null);
   const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
 
-  const isSubscriptionExpired = isSubscriptionSystemEnabled && !isSuperAdmin && !isStaffMember && userSubExpiry && Number(userSubExpiry) < Date.now();
+  const isSubscriptionExpired = Boolean(
+    isSubscriptionSystemEnabled &&
+    !isSuperAdmin &&
+    !isStaffMember &&
+    userSubExpiry &&
+    Number(userSubExpiry) < Date.now()
+  );
 
   const [pendingPaymentInfo, setPendingPaymentInfo] = useState<{
     hasPending: boolean;
@@ -970,6 +987,7 @@ export const App: React.FC = () => {
       if (statusData) {
         if (typeof statusData.isSubscriptionSystemEnabled === 'boolean') {
           setIsSubscriptionSystemEnabled(statusData.isSubscriptionSystemEnabled);
+          localStorage.setItem('twing_subscription_system_enabled', String(statusData.isSubscriptionSystemEnabled));
         }
         if (statusData.subscriptionExpiresAt) {
           setStore((prev) => ({
@@ -999,6 +1017,24 @@ export const App: React.FC = () => {
       console.warn('Status refresh error:', err);
     }
   };
+
+  // Immediate listener for Super Admin master switch changes (via window event)
+  useEffect(() => {
+    const handleSettingsUpdated = (e: any) => {
+      if (e?.detail && typeof e.detail.isSubscriptionSystemEnabled === 'boolean') {
+        setIsSubscriptionSystemEnabled(e.detail.isSubscriptionSystemEnabled);
+        localStorage.setItem('twing_subscription_system_enabled', String(e.detail.isSubscriptionSystemEnabled));
+      }
+      handleRefreshSubscriptionStatus();
+    };
+
+    window.addEventListener('twing_payment_settings_updated', handleSettingsUpdated);
+    window.addEventListener('twing_subscription_updated', handleRefreshSubscriptionStatus);
+    return () => {
+      window.removeEventListener('twing_payment_settings_updated', handleSettingsUpdated);
+      window.removeEventListener('twing_subscription_updated', handleRefreshSubscriptionStatus);
+    };
+  }, []);
 
   const activeCustomer = customers.find((c) => c.id === activeCustomerId) || null;
   const activeTxList = activeCustomerId ? transactions[activeCustomerId] || [] : [];
