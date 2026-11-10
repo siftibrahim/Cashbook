@@ -2426,3 +2426,61 @@ export const publicAdApi = {
     }
   },
 };
+
+// ---------------- GOOGLE DRIVE PERSISTENT DATABASE API ----------------
+export const googleDriveApi = {
+  async getStatus(): Promise<{
+    success: boolean;
+    isEnabled: boolean;
+    driveEmail: string;
+    folderName: string;
+    hasCredentials: boolean;
+    autoSyncMinutes: number;
+    lastSyncTime: string | null;
+    lastSyncStatus: string;
+    lastSyncMessage: string;
+    driveFileId?: string | null;
+    driveFolderId?: string | null;
+  }> {
+    return await apiRequest('/admin/google-drive/status');
+  },
+
+  async saveConfig(params: {
+    isEnabled?: boolean;
+    driveEmail?: string;
+    folderName?: string;
+    serviceAccountKeyJson?: string;
+    autoSyncMinutes?: number;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    config: any;
+  }> {
+    return await apiRequest('/admin/google-drive/config', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
+
+  async syncNow(): Promise<{
+    success: boolean;
+    message: string;
+    counts?: any;
+    error?: string;
+  }> {
+    return await apiRequest('/admin/google-drive/sync-now', {
+      method: 'POST',
+    });
+  },
+
+  async restoreNow(): Promise<{
+    success: boolean;
+    message: string;
+    restored?: any;
+    error?: string;
+  }> {
+    return await apiRequest('/admin/google-drive/restore-now', {
+      method: 'POST',
+    });
+  },
+};

@@ -19,6 +19,8 @@ import productRoutes from './server/routes/productRoutes';
 import publicStoreRoutes from './server/routes/publicStoreRoutes';
 import mediaRoutes from './server/routes/mediaRoutes';
 import marketplaceRoutes from './server/routes/marketplaceRoutes';
+import googleDriveRoutes from './server/routes/googleDriveRoutes';
+import { initGoogleDriveSync } from './server/services/googleDriveService';
 import { migrateDataToPostgres } from './server/migration';
 import { requireSuperAdmin } from './server/authMiddleware';
 import { SubscriptionEngine } from './server/services/subscriptionEngine';
@@ -110,6 +112,7 @@ async function startServer() {
   app.use('/api/public/store', publicStoreRoutes);
   app.use('/api/marketplace', marketplaceRoutes);
   app.use('/api/media', mediaRoutes);
+  app.use('/api/admin/google-drive', googleDriveRoutes);
 
   // Manual / Batch Migration Trigger
   app.post('/api/admin/migrate-from-backup', requireSuperAdmin, async (req, res) => {
@@ -292,10 +295,12 @@ Sitemap: ${baseUrl}/sitemap.xml
     initializeDatabaseSchema()
       .then(() => {
         SubscriptionEngine.start();
+        initGoogleDriveSync();
       })
       .catch((err) => {
         console.error('⚠️ DB Initialization warning:', err);
         SubscriptionEngine.start();
+        initGoogleDriveSync();
       });
   });
 }

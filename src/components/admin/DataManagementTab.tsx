@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { adminApi } from '../../services/apiService';
+import { adminApi, googleDriveApi } from '../../services/apiService';
+import {
+  connectGoogleDrive,
+  disconnectGoogleDrive,
+  getGoogleDriveStatus,
+  uploadBackupToGoogleDrive,
+  restoreBackupFromGoogleDrive,
+  TARGET_GOOGLE_EMAIL,
+} from '../../services/googleDriveService';
 import {
   Database,
   Download,
@@ -16,7 +24,16 @@ import {
   Check,
   Server,
   ArrowRight,
-  Info
+  Info,
+  Cloud,
+  CloudDownload,
+  CloudUpload,
+  Key,
+  ShieldCheck,
+  Clock,
+  Sparkles,
+  Settings,
+  FolderGit2
 } from 'lucide-react';
 
 interface DataManagementTabProps {
@@ -52,6 +69,176 @@ export const DataManagementTab: React.FC<DataManagementTabProps> = ({
   // Direct Remote Neon / PostgreSQL Migration
   const [remoteNeonUrl, setRemoteNeonUrl] = useState('');
   const [isMigratingRemote, setIsMigratingRemote] = useState(false);
+
+  // Google Drive Cloud Persistence States
+  const [driveStatus, setDriveStatus] = useState<any>(null);
+  const [loadingDrive, setLoadingDrive] = useState(false);
+  const [syncingDrive, setSyncingDrive] = useState(false);
+  const [restoringDrive, setRestoringDrive] = useState(false);
+  const [showDriveConfig, setShowDriveConfig] = useState(false);
+  const [driveEmailInput, setDriveEmailInput] = useState('twinginfobd@gmail.com');
+  const [folderNameInput, setFolderNameInput] = useState('TWING_HISABI_DATABASE');
+  const [serviceAccountKeyInput, setServiceAccountKeyInput] = useState('');
+  const [autoSyncMinutesInput, setAutoSyncMinutesInput] = useState(10);
+  const [savingDriveConfig, setSavingDriveConfig] = useState(false);
+
+  // Client-side 1-click Google Drive connection state
+  const [clientDrive, setClientDrive] = useState(getGoogleDriveStatus());
+  const [connectingDrive, setConnectingDrive] = useState(false);
+
+  const loadDriveStatus = async () => {
+    setLoadingDrive(true);
+    try {
+      const res = await googleDriveApi.getStatus();
+      setDriveStatus(res);
+      if (res.driveEmail) setDriveEmailInput(res.driveEmail);
+      if (res.folderName) setFolderNameInput(res.folderName);
+      if (res.autoSyncMinutes) setAutoSyncMinutesInput(res.autoSyncMinutes);
+      setClientDrive(getGoogleDriveStatus());
+    } catch (err: any) {
+      console.warn('Could not load drive status:', err);
+    } finally {
+      setLoadingDrive(false);
+    }
+  };
+
+  const handleConnectGoogleDrive = async () => {
+    setConnectingDrive(true);
+    try {
+      onShowToast('গুগল অ্যাকাউন্ট যাচাইকরণ উইন্ডো ওপেন হচ্ছে...');
+      const res = await connectGoogleDrive(TARGET_GOOGLE_EMAIL);
+      if (res.success) {
+        onShowToast(`✅ গুগল ড্রাইভ (${res.email || TARGET_GOOGLE_EMAIL}) সফলভাবে যুক্ত হয়েছে!`);
+        setClientDrive(getGoogleDriveStatus());
+        await loadSummary();
+      }
+    } catch (err: any) {
+      onShowToast(`❌ গুগল কানেক্ট ত্রুটি: ${err?.message || 'কানেক্ট করা যায়নি'}`);
+    } finally {
+      setConnectingDrive(false);
+    }
+  };
+
+  const handleDisconnectGoogleDrive = () => {
+    disconnectGoogleDrive();
+    setClientDrive(getGoogleDriveStatus());
+    onShowToast('গুগল ড্রাইভ সংযোগ বিচ্ছিন্ন করা হয়েছে');
+  };
+
+  const handleSyncToDrive = async () => {
+    setSyncingDrive(true);
+    try {
+      // 1. If 1-click client-side is connected, upload directly to Google Drive
+      if (clientDrive.isConnected) {
+        const res = await uploadBackupToGoogleDrive();
+        onShowToast(res.message);
+        setClientDrive(getGoogleDriveStatus());
+        await loadSummary();
+        return;
+      }
+
+      // 2. If server has Service Account credentials configured
+      if (driveStatus?.hasCredentials) {
+        const res = await googleDriveApi.syncNow();
+        if (res.success) {
+          onShowToast(res.message || '✅ গুগল ড্রাইভে ডাটাবেজ সফলভাবে সেভ হয়েছে!');
+          setLastResult({ message: res.message, imported: res.counts });
+        } else {
+          onShowToast(`❌ ড্রাইভ সিঙ্ক ব্যর্থ: ${res.error || 'অজানা ত্রুটি'}`);
+        }
+        await loadDriveStatus();
+        await loadSummary();
+        return;
+      }
+
+      // 3. If neither is connected, effortlessly trigger 1-click Google connect!
+      onShowToast('আপনার গুগল একাউন্ট (twinginfobd@gmail.com) কানেক্ট করা হচ্ছে...');
+      const conn = await connectGoogleDrive(TARGET_GOOGLE_EMAIL);
+      if (conn.success) {
+        setClientDrive(getGoogleDriveStatus());
+        const res = await uploadBackupToGoogleDrive();
+        onShowToast(res.message);
+        setClientDrive(getGoogleDriveStatus());
+        await loadSummary();
+      }
+    } catch (err: any) {
+      onShowToast(`❌ ড্রাইভ সিঙ্ক ত্রুটি: ${err?.message || 'সার্ভার সংযোগ বিচ্ছিন্ন'}`);
+    } finally {
+      setSyncingDrive(false);
+    }
+  };
+
+  const handleRestoreFromDrive = async () => {
+    if (!window.confirm('গুগল ড্রাইভ থেকে সর্বশেষ ডাটাবেজ ব্যাকআপ রিস্টোর করতে চান? এটি আপনার সিস্টেমের সকল টেবিল নিরাপদে আপডেট করবে।')) {
+      return;
+    }
+    setRestoringDrive(true);
+    try {
+      // 1. If 1-click client-side is connected, restore directly from Google Drive
+      if (clientDrive.isConnected) {
+        const res = await restoreBackupFromGoogleDrive();
+        onShowToast(res.message);
+        setLastResult({ message: res.message, imported: res.imported });
+        setClientDrive(getGoogleDriveStatus());
+        await loadSummary();
+        if (onRefreshAll) onRefreshAll();
+        return;
+      }
+
+      // 2. If server has credentials
+      if (driveStatus?.hasCredentials) {
+        const res = await googleDriveApi.restoreNow();
+        if (res.success) {
+          onShowToast(res.message || '🎉 গুগল ড্রাইভ থেকে ডাটাবেজ সফলভাবে রিস্টোর হয়েছে!');
+          setLastResult({ message: res.message, imported: res.restored });
+          if (onRefreshAll) onRefreshAll();
+        } else {
+          onShowToast(`❌ ড্রাইভ রিস্টোর ব্যর্থ: ${res.error || 'অজানা ত্রুটি'}`);
+        }
+        await loadDriveStatus();
+        await loadSummary();
+        return;
+      }
+
+      // 3. Prompt 1-click Google connect
+      onShowToast('ড্রাইভ থেকে ডাটা আনতে গুগল একাউন্ট কানেক্ট করুন...');
+      const conn = await connectGoogleDrive(TARGET_GOOGLE_EMAIL);
+      if (conn.success) {
+        setClientDrive(getGoogleDriveStatus());
+        const res = await restoreBackupFromGoogleDrive();
+        onShowToast(res.message);
+        setLastResult({ message: res.message, imported: res.imported });
+        setClientDrive(getGoogleDriveStatus());
+        await loadSummary();
+        if (onRefreshAll) onRefreshAll();
+      }
+    } catch (err: any) {
+      onShowToast(`❌ ড্রাইভ রিস্টোর ত্রুটি: ${err?.message || 'সার্ভার সংযোগ বিচ্ছিন্ন'}`);
+    } finally {
+      setRestoringDrive(false);
+    }
+  };
+
+  const handleSaveDriveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingDriveConfig(true);
+    try {
+      const res = await googleDriveApi.saveConfig({
+        driveEmail: driveEmailInput.trim(),
+        folderName: folderNameInput.trim(),
+        autoSyncMinutes: Number(autoSyncMinutesInput) || 10,
+        serviceAccountKeyJson: serviceAccountKeyInput.trim() ? serviceAccountKeyInput.trim() : undefined,
+      });
+      onShowToast(res.message || '✅ গুগল ড্রাইভ সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
+      setShowDriveConfig(false);
+      setServiceAccountKeyInput('');
+      await loadDriveStatus();
+    } catch (err: any) {
+      onShowToast(`❌ সেটিংস সংরক্ষণ ব্যর্থ: ${err?.message || 'ত্রুটি'}`);
+    } finally {
+      setSavingDriveConfig(false);
+    }
+  };
 
   const handleRemoteMigration = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,6 +279,7 @@ export const DataManagementTab: React.FC<DataManagementTabProps> = ({
 
   useEffect(() => {
     loadSummary();
+    loadDriveStatus();
   }, []);
 
   // 1. Export Master Backup
@@ -355,6 +543,288 @@ export const DataManagementTab: React.FC<DataManagementTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* 🚀 GOOGLE DRIVE PERSISTENT CLOUD DATABASE & AUTO-SYNC ENGINE */}
+      <div className="bg-gradient-to-br from-emerald-900/25 via-teal-900/20 to-blue-900/25 border-2 border-emerald-500/40 rounded-2xl p-6 shadow-md relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+
+        {/* Header & Status Indicator */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-emerald-500/20 relative z-10">
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-600/30 text-emerald-400 flex items-center justify-center border border-emerald-500/40 shrink-0 shadow-inner">
+              <Cloud className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  গুগল ড্রাইভ ক্লাউড ডাটাবেজ ও পার্মানেন্ট অটো-সিঙ্ক
+                </h3>
+                <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                  clientDrive.isConnected || driveStatus?.hasCredentials
+                    ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 border-emerald-500/40'
+                    : 'bg-blue-500/20 text-blue-600 dark:text-blue-300 border-blue-500/40'
+                }`}>
+                  {clientDrive.isConnected || driveStatus?.hasCredentials ? '🟢 ড্রাইভ ক্লাউড সক্রিয়' : '🔵 ১-ক্লিক কানেক্ট প্রস্তুত'}
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/40 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" />
+                  ১৫ জিবি আজীবন ফ্রি (No Limit Expire)
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 mt-1">
+                লক্ষ্য ইমেইল: <span className="font-semibold text-emerald-700 dark:text-emerald-400 font-mono">twinginfobd@gmail.com</span> — রেন্ডার (Render) স্লিপ বা রিস্টার্ট হলেও গুগল ড্রাইভ থেকে স্বয়ংক্রিয়ভাবে ডাটাবেজ রিস্টোর হয়ে যাবে।
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start lg:self-auto">
+            <button
+              type="button"
+              id="btn-toggle-drive-config"
+              onClick={() => setShowDriveConfig(!showDriveConfig)}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-semibold transition border border-gray-200 dark:border-gray-700 cursor-pointer shadow-xs"
+            >
+              <Settings className="w-4 h-4" />
+              {showDriveConfig ? 'সেটিংস লুকান' : 'উন্নত সেটিংস'}
+            </button>
+            <button
+              type="button"
+              id="btn-refresh-drive-status"
+              onClick={loadDriveStatus}
+              disabled={loadingDrive}
+              className="p-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl transition border border-gray-200 dark:border-gray-700 cursor-pointer"
+              title="স্ট্যাটাস রিফ্রেশ করুন"
+            >
+              <RefreshCw className={`w-4 h-4 ${loadingDrive ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* 1-Click Connect Banner */}
+        <div className="my-3 p-3.5 bg-white/80 dark:bg-gray-900/80 rounded-xl border border-emerald-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+              clientDrive.isConnected || driveStatus?.hasCredentials
+                ? 'bg-emerald-500/20 text-emerald-500'
+                : 'bg-blue-500/20 text-blue-500'
+            }`}>
+              <Cloud className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs sm:text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                {clientDrive.isConnected ? (
+                  <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                    গুগল ড্রাইভ সরাসরি যুক্ত ({clientDrive.email || TARGET_GOOGLE_EMAIL})
+                  </span>
+                ) : (
+                  <span>১-ট্যাপে গুগল ড্রাইভ কানেক্ট করুন (twinginfobd@gmail.com)</span>
+                )}
+              </h4>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                {clientDrive.isConnected
+                  ? 'আপনার গুগল ড্রাইভে "TWING_Hisabi_Backups" ফোল্ডারে সমস্ত ডাটাবেজ ব্যাকআপ হচ্ছে।'
+                  : 'কোনো কোডিং বা সার্ভিস অ্যাকাউন্ট চাবি ছাড়াই সরাসরি আপনার গুগল ড্রাইভ কানেক্ট করুন।'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            {!clientDrive.isConnected ? (
+              <button
+                type="button"
+                id="btn-quick-connect-gdrive"
+                onClick={handleConnectGoogleDrive}
+                disabled={connectingDrive}
+                className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm cursor-pointer whitespace-nowrap active:scale-95"
+              >
+                <Cloud className="w-4 h-4" />
+                {connectingDrive ? 'কানেক্ট হচ্ছে...' : 'Google দিয়ে কানেক্ট করুন'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleDisconnectGoogleDrive}
+                className="px-3 py-1.5 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 rounded-lg text-xs font-semibold transition cursor-pointer"
+              >
+                ডিসকানেক্ট
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Live Status Info Badges */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 py-4 relative z-10">
+          <div className="p-3 bg-white/70 dark:bg-gray-900/60 rounded-xl border border-emerald-500/20 backdrop-blur-xs">
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <FolderGit2 className="w-3.5 h-3.5 text-emerald-500" />
+              টার্গেট ফোল্ডার
+            </div>
+            <div className="text-xs font-bold text-gray-900 dark:text-gray-100 font-mono truncate">
+              TWING_Hisabi_Backups
+            </div>
+          </div>
+
+          <div className="p-3 bg-white/70 dark:bg-gray-900/60 rounded-xl border border-emerald-500/20 backdrop-blur-xs">
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <Clock className="w-3.5 h-3.5 text-blue-500" />
+              স্বয়ংক্রিয় ব্যাকআপ সময়
+            </div>
+            <div className="text-xs font-bold text-gray-900 dark:text-gray-100">
+              প্রতি ১০ মিনিট পর পর
+            </div>
+          </div>
+
+          <div className="p-3 bg-white/70 dark:bg-gray-900/60 rounded-xl border border-emerald-500/20 backdrop-blur-xs">
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+              সর্বশেষ ব্যাকআপ
+            </div>
+            <div className="text-xs font-bold text-gray-900 dark:text-gray-100">
+              {clientDrive.lastSyncTime || driveStatus?.lastSyncTime
+                ? new Date(clientDrive.lastSyncTime || driveStatus.lastSyncTime).toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                : 'এখনো হয়নি'}
+            </div>
+          </div>
+
+          <div className="p-3 bg-white/70 dark:bg-gray-900/60 rounded-xl border border-emerald-500/20 backdrop-blur-xs">
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-500" />
+              ক্লাউড স্থিতি
+            </div>
+            <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 truncate">
+              {clientDrive.isConnected ? 'গুগল ড্রাইভে সরাসরি কানেক্টেড' : driveStatus?.lastSyncMessage || 'কানেক্ট করার জন্য প্রস্তুত'}
+            </div>
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex flex-col sm:flex-row items-center gap-3 pt-2 relative z-10">
+          <button
+            type="button"
+            id="btn-sync-to-google-drive"
+            onClick={handleSyncToDrive}
+            disabled={syncingDrive}
+            className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 py-3 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            <CloudUpload className={`w-4 h-4 ${syncingDrive ? 'animate-bounce' : ''}`} />
+            {syncingDrive ? 'গুগল ড্রাইভে সেভ হচ্ছে...' : '☁️ গুগল ড্রাইভে এখনই সেভ করুন (Sync Now)'}
+          </button>
+
+          <button
+            type="button"
+            id="btn-restore-from-google-drive"
+            onClick={handleRestoreFromDrive}
+            disabled={restoringDrive}
+            className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 py-3 px-5 bg-gradient-to-r from-teal-700 to-blue-700 hover:from-teal-600 hover:to-blue-600 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            <CloudDownload className={`w-4 h-4 ${restoringDrive ? 'animate-spin' : ''}`} />
+            {restoringDrive ? 'ড্রাইভ থেকে আনা হচ্ছে...' : '📥 গুগল ড্রাইভ থেকে ডাটা আনুন (Restore Now)'}
+          </button>
+        </div>
+
+        {/* Collapsible Drive Configuration Form */}
+        {showDriveConfig && (
+          <form onSubmit={handleSaveDriveConfig} className="mt-5 p-4 sm:p-5 bg-white/90 dark:bg-gray-900/90 rounded-xl border border-emerald-500/30 space-y-4 relative z-10">
+            <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-800 pb-3">
+              <h4 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <Key className="w-4 h-4 text-emerald-500" />
+                গুগল ড্রাইভ কানেকশন ও সার্ভিস অ্যাকাউন্ট কি (Credentials)
+              </h4>
+              <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                Google Cloud Service Account
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                  গুগল ড্রাইভ একাউন্ট ইমেইল:
+                </label>
+                <input
+                  type="email"
+                  value={driveEmailInput}
+                  onChange={(e) => setDriveEmailInput(e.target.value)}
+                  placeholder="twinginfobd@gmail.com"
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-900 dark:text-gray-100 font-mono outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                  ড্রাইভ ব্যাকআপ ফোল্ডারের নাম:
+                </label>
+                <input
+                  type="text"
+                  value={folderNameInput}
+                  onChange={(e) => setFolderNameInput(e.target.value)}
+                  placeholder="TWING_HISABI_DATABASE"
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-900 dark:text-gray-100 font-mono outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                  অটো-সিঙ্ক ফ্রিকোয়েন্সি (মিনিট):
+                </label>
+                <select
+                  value={autoSyncMinutesInput}
+                  onChange={(e) => setAutoSyncMinutesInput(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-semibold text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value={5}>প্রতি ৫ মিনিট পর পর</option>
+                  <option value={10}>প্রতি ১০ মিনিট পর পর (প্রস্তাবিত)</option>
+                  <option value={15}>প্রতি ১৫ মিনিট পর পর</option>
+                  <option value={30}>প্রতি ৩০ মিনিট পর পর</option>
+                  <option value={60}>প্রতি ১ ঘণ্টা পর পর</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  Google Service Account Key JSON (নতুন কি দিতে চাইলে পেস্ট করুন):
+                </label>
+                {driveStatus?.hasCredentials && (
+                  <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> পূর্বে সংরক্ষিত কি বিদ্যমান
+                  </span>
+                )}
+              </div>
+              <textarea
+                rows={3}
+                value={serviceAccountKeyInput}
+                onChange={(e) => setServiceAccountKeyInput(e.target.value)}
+                placeholder='{"type": "service_account", "project_id": "...", "private_key": "...", "client_email": "..."}'
+                className="w-full p-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-mono text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+              />
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                💡 গুগল ক্লাউড কনসোল থেকে তৈরি করা Service Account JSON Key এখানে পেস্ট করলে সরাসরি twinginfobd@gmail.com ড্রাইভে ফাইল তৈরি হবে।
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDriveConfig(false)}
+                className="px-4 py-2 bg-gray-150 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-semibold rounded-lg transition"
+              >
+                বাতিল
+              </button>
+              <button
+                type="submit"
+                id="btn-save-drive-config"
+                disabled={savingDriveConfig}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition shadow-xs flex items-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />
+                {savingDriveConfig ? 'সংরক্ষণ হচ্ছে...' : 'সেটিংস সংরক্ষণ করুন'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
 
       {/* Direct 1-Click Neon to CockroachDB Migration Box */}
       <div className="bg-gradient-to-r from-purple-900/20 via-indigo-900/20 to-blue-900/20 border border-purple-500/30 rounded-2xl p-6 shadow-sm">

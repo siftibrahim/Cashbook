@@ -532,7 +532,7 @@
       "phone": "01306908115",
       "email": "siftibrahim@gmail.com",
       "is2FAEnabled": true,
-      "updatedAt": 1793436304841
+      "updatedAt": 1794332233975
     },
     "system_payment_settings": {
       "id": "system_payment_settings",
@@ -599,7 +599,7 @@
         "apiKey": "r5y3NpBqR9NOlVf8qUmaQm3VaO6GtzkvpQlrr0iC",
         "isSandbox": false
       },
-      "updatedAt": 1793436304841,
+      "updatedAt": 1794332233975,
       "updatedBy": "siftibrahim@gmail.com"
     },
     "app_update_config": {
@@ -611,7 +611,7 @@
       "updateTitle": "✨ নতুন আপডেট উপলব্ধ (v2.5.0)",
       "releaseNotes": "• দ্রুত পিওএস প্রিন্টিং\n• উন্নত ক্লাউড ব্যাকআপ\n• অফলাইন ট্রানজেকশন সাপোর্ট",
       "downloadUrl": "https://play.google.com/store",
-      "updatedAt": 1793436304841
+      "updatedAt": 1794332233975
     },
     "sms_gateway_config": {
       "provider": "bulksmsbd",
@@ -642,7 +642,7 @@
           "isActive": true
         }
       ],
-      "updatedAt": 1793436304841
+      "updatedAt": 1794332233975
     },
     "dashboard_banner_settings": {
       "isEnabled": true,
@@ -688,7 +688,7 @@
           "order": 3
         }
       ],
-      "updatedAt": 1793436304841
+      "updatedAt": 1794332233975
     }
   },
   "admin_activity_logs": [
@@ -703,7 +703,26 @@
       "timestamp": 1792219127360
     }
   ],
-  "password_reset_otps": [],
+  "password_reset_otps": [
+    {
+      "id": "reg_sess_mwaz3mgfhznf7d",
+      "phone": "01811223344",
+      "userId": "reg_01811223344",
+      "otp": "930481",
+      "expiresAt": 1794333162255,
+      "verified": false,
+      "createdAt": 1794332262255
+    },
+    {
+      "id": "sa_otp_mwaz4fpc3w67eu",
+      "phone": "01306908115",
+      "userId": "usr_super_admin",
+      "otp": "954455",
+      "expiresAt": 1794333200160,
+      "verified": false,
+      "createdAt": 1794332300160
+    }
+  ],
   "trusted_devices": [],
   "sms_logs": [],
   "sms_purchases": [],
